@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
-import { SUPPORT_URL } from '@/lib/support'
+import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
 import {
   AUTOSETUP_STEPS, AUTOSETUP_FROM_CLIENT, AUTOSETUP_NOT_INCLUDED,
 } from '@/lib/autosetupSteps'
@@ -589,7 +589,9 @@ export default function AutoSetupTab() {
       {(inProgress || waitingUser) && order && (
         <ServiceChecklist steps={order.steps}
                           botUsername={order.bot_username}
-                          groupLink={order.group_invite_link} />
+                          groupLink={order.group_invite_link}
+                          supportFilled={state.support_filled}
+                          log={order.setup_log} />
       )}
 
       {inProgress && (
@@ -636,7 +638,8 @@ export default function AutoSetupTab() {
               Ваша очередь подошла — выполняем шаги настройки.
             </p>
           )}
-          <SetupLog log={order?.setup_log || []} />
+          {/* ⚠️ Второго списка шагов здесь НЕТ намеренно — отчёт о работе один,
+              выше (ServiceChecklist). Два списка про одно и то же расходились. */}
         </div>
       )}
 
@@ -772,8 +775,6 @@ export default function AutoSetupTab() {
               </span>
             </div>
           )}
-
-          <SetupLog log={order.setup_log || []} />
         </div>
       )}
 
@@ -829,11 +830,9 @@ export default function AutoSetupTab() {
         </div>
       )}
 
-      {order?.setup_error && !expired && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800">
-          {order.setup_error}
-        </div>
-      )}
+      {/* ⚠️ ЗДЕСЬ БЫЛ ПОВТОР ТЕКСТА ОШИБКИ — УБРАН. Та же причина уже показана
+          под кнопкой «Передать мне» (там, где человек нажимал), и внизу
+          страницы она выглядела вторым, отдельным сбоем. */}
     </div>
   )
 }
@@ -850,26 +849,55 @@ export default function AutoSetupTab() {
  * ⚠️ Шаги берутся из ОТМЕТОК ЗАКАЗА (`order.steps`), а не из текстового лога:
  * лог — это лента сообщений, по ней нельзя понять, что именно уже готово.
  */
-function ServiceChecklist({ steps, botUsername, groupLink }: {
+/**
+ * Отчёт о работе — ЕДИНСТВЕННЫЙ на экране.
+ *
+ * ⚠️⚠️ ВТОРОГО СПИСКА БЫТЬ НЕ ДОЛЖНО. Раньше рядом жил ещё и построчный лог
+ * (`SetupLog`), и они РАСХОДИЛИСЬ: чек-лист рисовался по галочкам заказа, а лог
+ * — по фактическим записям, причём в другом порядке. Человек видел два разных
+ * рассказа об одной и той же работе («так группа создана или нет?») и не знал,
+ * какому верить. Оставлен этот: у него есть ссылки «проверить», которых в логе
+ * не было. Точность лога перенесена сюда — см. `failed` ниже.
+ */
+function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }: {
   steps?: Record<string, boolean>
   botUsername?: string | null
   groupLink?: string | null
+  supportFilled?: boolean
+  log?: Step[]
 }) {
   const s = steps || {}
-  const rows: { done: boolean; text: string; proof?: string; proofLabel?: string }[] = [
-    { done: !!s.bot_created, text: 'Создали вашего бота',
+
+  // ⚠️ Ошибки берём ИЗ ЛОГА и раскладываем по своим пунктам — за этим лог и был
+  // нужнее: он один показывал, ЧТО именно не получилось. Тексты приходят уже
+  // по-русски (см. _human_error на бэкенде); английских имён исключений быть
+  // не должно — если что-то просочилось, это баг бэкенда, а не фронта.
+  const failedByStep: Record<string, string> = {}
+  for (const e of log || []) {
+    if (!e.ok && e.step) failedByStep[e.step] = e.text
+  }
+
+  const rows: {
+    done: boolean; text: string; proof?: string; proofLabel?: string
+    /** Ключ шага в логе — по нему подтягивается ошибка. */
+    key?: string
+  }[] = [
+    { done: !!s.bot_created, text: 'Создали вашего бота', key: 'bot',
       proof: botUsername ? `https://telegram.me/${botUsername}` : undefined,
       proofLabel: botUsername ? `@${botUsername}` : undefined },
-    { done: !!s.bot_created, text: 'Подключили бота к кабинету' },
-    { done: !!s.miniapp_linked, text: 'Привязали приложение (Mini App)' },
+    // ⚠️ Свой флаг, а не «раз бот создан, значит подключён»: подключение к
+    // кабинету — отдельное действие, и оно может не пройти само по себе.
+    { done: !!s.bot_channel_linked, text: 'Подключили бота к кабинету', key: 'channel',
+      proof: '/dashboard/channels?tab=bots', proofLabel: 'Проверить' },
+    { done: !!s.miniapp_linked, text: 'Привязали приложение (Mini App)', key: 'miniapp' },
     { done: !!s.group_created, text: 'Создали закрытую группу для уведомлений',
-      proof: groupLink || undefined, proofLabel: 'Открыть группу' },
-    { done: !!s.group_created, text: 'Прописали группу в настройках кабинета',
+      key: 'group', proof: groupLink || undefined, proofLabel: 'Открыть группу' },
+    { done: !!s.group_in_settings, text: 'Прописали группу в настройках кабинета',
       proof: '/dashboard/settings?tab=tech', proofLabel: 'Проверить' },
-    { done: !!s.group_created, text: 'Заполнили «Службу заботы»',
+    { done: !!supportFilled, text: 'Заполнили «Службу заботы»', key: 'support',
       proof: '/dashboard/settings', proofLabel: 'Проверить' },
     { done: !!s.client_started_bot, text: 'Вы зашли в бота' },
-    { done: !!s.bot_transferred, text: 'Передали вам права на бота' },
+    { done: !!s.bot_transferred, text: 'Передали вам права на бота', key: 'transfer' },
     { done: !!s.client_joined, text: 'Вы вступили в группу' },
     { done: !!s.group_transferred, text: 'Сделали вас админом группы' },
     { done: !!s.channel_linked, text: 'Подключили ваш канал к рассылкам' },
@@ -885,25 +913,50 @@ function ServiceChecklist({ steps, botUsername, groupLink }: {
         </span>
       </div>
       <div className="space-y-2">
-        {rows.map((r, i) => (
-          <div key={i} className="flex items-center gap-2.5 text-sm">
-            <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-              r.done ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
-              {r.done ? <Check size={12} /> : <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />}
-            </span>
-            <span className={r.done ? 'text-gray-800' : 'text-gray-400'}>{r.text}</span>
-            {/* ⚠️ Ссылка-подтверждение: чтобы человек мог УБЕДИТЬСЯ, что шаг
-                действительно выполнен, а не поверить на слово. */}
-            {r.done && r.proof && (
-              <a href={r.proof}
-                 target={r.proof.startsWith('http') ? '_blank' : undefined}
-                 rel="noreferrer"
-                 className="text-xs text-[#25455D] underline shrink-0 ml-auto">
-                {r.proofLabel || 'Открыть'}
-              </a>
-            )}
-          </div>
-        ))}
+        {rows.map((r, i) => {
+          // Ошибка показывается только у НЕсделанного шага: сорвалось, потом
+          // получилось — говорить об этом уже незачем.
+          const err = !r.done && r.key ? failedByStep[r.key] : undefined
+          return (
+            <div key={i}>
+              <div className="flex items-center gap-2.5 text-sm">
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                  r.done ? 'bg-green-500 text-white'
+                         : err ? 'bg-red-100 text-red-600' : 'bg-gray-100'}`}>
+                  {r.done ? <Check size={12} />
+                          : err ? <XCircle size={12} />
+                                : <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />}
+                </span>
+                <span className={r.done ? 'text-gray-800' : err ? 'text-red-700' : 'text-gray-400'}>
+                  {r.text}
+                </span>
+                {/* ⚠️ Ссылка-подтверждение: чтобы человек мог УБЕДИТЬСЯ, что шаг
+                    действительно выполнен, а не поверить на слово. */}
+                {r.done && r.proof && (
+                  <a href={r.proof}
+                     target={r.proof.startsWith('http') ? '_blank' : undefined}
+                     rel="noreferrer"
+                     className="text-xs text-[#25455D] underline shrink-0 ml-auto">
+                    {r.proofLabel || 'Открыть'}
+                  </a>
+                )}
+              </div>
+              {/* ⚠️ Причина — прямо под своим пунктом, а не отдельным списком
+                  внизу: иначе непонятно, к какому шагу она относится. Рядом —
+                  выход в поддержку: сам человек тут ничего не починит. */}
+              {err && (
+                <div className="ml-[30px] mt-1 text-xs text-red-600">
+                  {err}{' · '}
+                  {/* ⚠️ Адрес поддержки — только из SUPPORT_URL, руками не
+                      прописывать: он один на весь кабинет. */}
+                  <Link href={SUPPORT_URL} className="underline">
+                    {SUPPORT_LABEL}
+                  </Link>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -981,29 +1034,15 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
   )
 }
 
-/** Живой лог шагов — то, что происходит прямо сейчас. */
-function SetupLog({ log }: { log: Step[] }) {
-  if (!log?.length) return null
-  return (
-    <div className="mt-4 border-t border-gray-100 pt-3">
-      {/* ⚠️ Заголовок обязателен: без него список читался как обрывок
-          непонятного текста, а это отчёт — что именно мы сделали за человека. */}
-      <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">
-        Что мы сделали
-      </p>
-      <div className="space-y-1.5">
-        {/* ⚠️ Показываем ВЕСЬ отчёт, а не последние 8 строк: человек платит за
-            работу и должен видеть её целиком. Обрезка съедала начало —
-            создание бота и подключение к кабинету. */}
-        {log.map((s, i) => (
-          <div key={i} className="flex items-start gap-2 text-sm">
-            {s.ok
-              ? <Check size={14} className="text-green-600 mt-0.5 shrink-0" />
-              : <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />}
-            <span className={s.ok ? 'text-gray-600' : 'text-amber-800'}>{s.text}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+// ⚠️⚠️ ЗДЕСЬ БЫЛ ВТОРОЙ СПИСОК ШАГОВ (`SetupLog`) — УДАЛЁН, НЕ ВОЗВРАЩАТЬ.
+//
+// Он показывал те же шаги, что и `ServiceChecklist`, но по другим данным и в
+// другом порядке — и они расходились: человек видел два отчёта об одной работе
+// и спрашивал, какому верить. Плюс лог печатал сырые имена ошибок
+// (`FrozenMethodInvalidError`), непонятные никому, кроме разработчика.
+//
+// Что было в нём ценного и куда переехало:
+//   • точные причины неудач → в `ServiceChecklist`, строкой под своим пунктом;
+//   • русские формулировки ошибок → `_human_error` в backend/app/tasks/tg_setup.py.
+//
+// Сами записи `setup_log` в базе остаются — они нужны поддержке и разбору.

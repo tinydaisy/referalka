@@ -104,17 +104,81 @@ async def _log_step(db, order_id: int, step: str, text: str, ok: bool = True):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Человеческие тексты ошибок
+# ─────────────────────────────────────────────────────────────────────────
+#
+# ⚠️⚠️ КЛИЕНТУ НЕЛЬЗЯ ПОКАЗЫВАТЬ ИМЕНА ИСКЛЮЧЕНИЙ. В логе заказа висело
+# «UserIdInvalidError» и «FrozenMethodInvalidError» — человек не понимает ни
+# слова и не знает, что делать. Причём именно эти два означали не «сбой», а
+# «служебный аккаунт заморожен» — то есть проблема на НАШЕЙ стороне, и сказать
+# об этом надо прямо.
+#
+# ⚠️ Ключи — по подстроке в имени класса ИЛИ в тексте: Telethon отдаёт часть
+# ошибок строкой ответа сервера, а не отдельным классом.
+_ERROR_TEXTS: tuple[tuple[str, str], ...] = (
+    ("FrozenMethod",
+     "Служебный аккаунт заморожен Telegram — мы уже разбираемся, "
+     "настройка продолжится после замены аккаунта"),
+    ("FrozenParticipant",
+     "Служебный аккаунт заморожен Telegram — мы уже разбираемся, "
+     "настройка продолжится после замены аккаунта"),
+    ("UserIdInvalid",
+     "Не удалось добавить вас в группу — проверьте ник в настройках кабинета"),
+    ("UsernameNotOccupied",
+     "Такого ника в Telegram нет — проверьте ник в настройках кабинета"),
+    ("UsernameInvalid",
+     "Ник записан неверно — проверьте его в настройках кабинета"),
+    ("UserPrivacyRestricted",
+     "У вас закрыты настройки приватности — вступите в группу по ссылке сами"),
+    ("UserNotMutualContact",
+     "Telegram не даёт добавить вас автоматически — вступите по ссылке сами"),
+    ("FloodWait",
+     "Telegram временно ограничил служебный аккаунт — продолжим позже"),
+    ("PeerFlood",
+     "Telegram временно ограничил служебный аккаунт — продолжим позже"),
+    ("ChatAdminRequired",
+     "У бота не хватает прав в группе"),
+    ("PasswordHashInvalid",
+     "Не подошёл пароль служебного аккаунта — нужен человек"),
+    ("Timeout",
+     "Telegram не ответил вовремя"),
+)
+
+
+def _human_error(exc: BaseException) -> str:
+    """Понятный русский текст вместо имени исключения.
+
+    Незнакомую ошибку не выдумываем и не показываем «как есть»: пишем нейтрально
+    и зовём поддержку — техническая подробность всё равно остаётся в логах
+    сервера, где её читает человек, а не клиент.
+    """
+    probe = f"{type(exc).__name__} {exc}"
+    for key, text in _ERROR_TEXTS:
+        if key.lower() in probe.lower():
+            return text
+    return "Не удалось выполнить шаг — мы разберёмся и продолжим"
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Выбор аккаунта под заказ
 # ─────────────────────────────────────────────────────────────────────────
-async def _fail_transfer(db, order_id: int, client_id: int,
-                         bot_username: str, reason: str) -> None:
-    """Неудачная передача прав: считаем попытки, после ВТОРОЙ — закрываем.
+async def _fail_step(db, order_id: int, client_id: int,
+                     bot_username: str, reason: str, step: str = "transfer") -> None:
+    """Неудача НА ЛЮБОМ ШАГЕ: считаем попытки, после ВТОРОЙ — закрываем задачу.
 
     ⚠️⚠️ ПРАВИЛО ВЛАДЕЛЬЦА: две неудачи — и задача закрывается с ошибкой,
     дальше разбирается человек. Раньше поллер повторял бесконечно (51 попытка
-    подряд за час на живом заказе) — это долбёжка в BotFather с ЕДИНСТВЕННОГО
+    подряд за час на живом заказе) — это долбёжка в Telegram с ЕДИНСТВЕННОГО
     служебного аккаунта, ровно то, за что Telegram ограничивает аккаунты.
     Потеряем аккаунт — встанет вся услуга.
+
+    ⚠️⚠️ СЧЁТЧИК НУЖЕН НА КАЖДОМ ШАГЕ, А НЕ ТОЛЬКО НА ПЕРЕДАЧЕ ПРАВ. Сначала
+    его поставили только на передачу — и 09.09.2026 аккаунт всё равно
+    ЗАБЛОКИРОВАЛИ: бесконечно повторялось СОЗДАНИЕ ГРУППЫ, у которого счётчика
+    не было. Отсюда параметр `step`: функция закрывает шаг любого имени.
+
+    ⚠️ Стоп ≠ отмена услуги. Заказ помечается `failed`, но оплата не сгорает:
+    человек может запустить настройку заново сколько угодно раз.
 
     ⚠️ Счётчик живёт В ЗАКАЗЕ, а не в памяти: поллер перезапускается при каждом
     деплое, и счётчик в памяти обнулялся бы, начиная цикл заново.
@@ -130,8 +194,8 @@ async def _fail_transfer(db, order_id: int, client_id: int,
     ) or 1
 
     if attempts < 2:
-        await _log_step(db, order_id, "transfer",
-                        f"{reason}. Попробуйте ещё раз кнопкой «Передать мне»",
+        await _log_step(db, order_id, step,
+                        f"{reason}. Пробуем ещё раз",
                         ok=False)
         return
 
@@ -140,7 +204,7 @@ async def _fail_transfer(db, order_id: int, client_id: int,
         "UPDATE service_orders SET setup_state='failed', updated_at=NOW() WHERE id=$1",
         order_id,
     )
-    await _log_step(db, order_id, "transfer",
+    await _log_step(db, order_id, step,
                     f"{reason}. Мы остановились и передали задачу в тех.поддержку",
                     ok=False)
 
@@ -153,7 +217,7 @@ async def _fail_transfer(db, order_id: int, client_id: int,
             "SELECT name, email, telegram_username FROM clients WHERE id=$1", client_id
         )
         await notify_founder_channel(db, (
-            "🔴 <b>Автонастройка: не удалось передать бота</b>\n\n"
+            f"🔴 <b>Автонастройка остановлена (шаг: {step})</b>\n\n"
             f"Клиент: {row['name'] if row else client_id}"
             f"{' · ' + row['email'] if row and row['email'] else ''}\n"
             f"Ник: {row['telegram_username'] if row else '—'}\n"
@@ -316,7 +380,7 @@ async def _run_setup(db, order) -> None:
                         ]},
                     )
             except Exception as e:  # noqa: BLE001 — шаг не должен ронять настройку
-                log.warning("tg_setup: не удалось поставить кнопку Mini App: %s", e)
+                logger.warning("tg_setup: не удалось поставить кнопку Mini App: %s", e)
 
             # ⚠️ Шаг считается выполненным, если сработало ХОТЯ БЫ ОДНО: кнопка
             # меню и главный Mini App полезны по отдельности. Требовать оба —
@@ -340,6 +404,10 @@ async def _run_setup(db, order) -> None:
         if not order["group_created_at"]:
             brand = await _client_brand(db, client_id)
             title = GROUP_TITLE_TEMPLATE.format(brand=brand)
+            # ⚠️ «Создаём…» БЕЗ строки-результата читается как зависание: человек
+            # видел «Создаём группу для уведомлений…» и рядом английскую ошибку,
+            # и не понимал, создана группа или нет. Поэтому исход шага пишем
+            # всегда — и удачный, и неудачный (вторым сообщением ниже).
             await _log_step(db, order_id, "group", "Создаём группу для уведомлений…")
             grp = await tgs.create_notifications_group(client, title, order["bot_username"])
             await db.execute(
@@ -431,10 +499,16 @@ async def _run_setup(db, order) -> None:
             "       updated_at=NOW() WHERE id=$1",
             order_id, state, str(e), wait_sec,
         )
-        await _log_step(db, order_id, "error", str(e), ok=False)
         logger.warning("tg_setup order %s: %s (raw=%s)", order_id, e, e.raw[:200])
 
-        if wait_sec > 0:
+        if wait_sec == 0:
+            # ⚠️⚠️ БЕЗ ЯВНОГО СРОКА ОЖИДАНИЯ ЭТО ОБЫЧНАЯ НЕУДАЧА — со счётчиком.
+            # Раньше `retryable=True` без срока возвращал заказ в очередь
+            # безусловно, то есть повтор каждую минуту без конца: ещё один
+            # путь к блокировке аккаунта, помимо создания группы.
+            await _fail_step(db, order_id, client_id, order["bot_username"] or "",
+                             _human_error(e), step="setup")
+        else:
             # ⚠️ Лимит у ЭТОГО аккаунта, а не у услуги: помечаем его отдыхающим,
             # и очередь возьмёт следующий свободный. Иначе один исчерпанный
             # аккаунт останавливал бы работу целиком, хотя рядом есть живые.
@@ -448,7 +522,8 @@ async def _run_setup(db, order) -> None:
             await db.execute(
                 "UPDATE service_orders SET retry_after = NULL WHERE id=$1", order_id
             )
-        elif not e.retryable:
+
+        if not e.retryable:
             # Аккаунт, похоже, заболел — пусть проверка здоровья разберётся.
             await db.execute(
                 "UPDATE tg_setup_accounts SET health='unknown', updated_at=NOW() "
@@ -456,12 +531,20 @@ async def _run_setup(db, order) -> None:
             )
     except Exception as e:  # noqa: BLE001
         logger.exception("tg_setup order %s failed", order_id)
-        await db.execute(
-            "UPDATE service_orders SET setup_state='queued', setup_error=$2, "
-            "       updated_at=NOW() WHERE id=$1",
-            order_id, "Временная заминка, продолжим автоматически",
+        # ⚠️⚠️ СЧЁТЧИК НА ЛЮБОМ ШАГЕ, А НЕ ТОЛЬКО НА ПЕРЕДАЧЕ ПРАВ.
+        #
+        # Здесь стояло безусловное «вернуть в очередь, продолжим автоматически»
+        # — то есть БЕСКОНЕЧНЫЙ повтор раз в минуту при любой ошибке. Ровно так
+        # 09.09.2026 был ЗАБЛОКИРОВАН служебный аккаунт: создание группы падало,
+        # задача повторяла его сутки напролёт, и Telegram заморозил аккаунт
+        # («Your account was blocked for violations of the Terms of Service»).
+        # Аккаунт был единственный — услуга встала целиком.
+        #
+        # Правило владельца: две попытки на ЛЮБОМ шаге — и стоп, дальше человек.
+        await _fail_step(
+            db, order_id, order["client_id"], order["bot_username"] or "",
+            _human_error(e), step="setup",
         )
-        await _log_step(db, order_id, "error", f"{type(e).__name__}", ok=False)
     finally:
         if client:
             try:
@@ -572,13 +655,18 @@ async def _finish_setup(db, order) -> None:
                     await _log_step(db, order_id, "transfer",
                                     "Бот теперь ваш — вы его владелец")
                 else:
-                    await _fail_transfer(
+                    await _fail_step(
                         db, order_id, client_id, order["bot_username"],
                         "Передача не подтвердилась",
                     )
             except tgs.BotFatherError as e:
-                await _fail_transfer(
-                    db, order_id, client_id, order["bot_username"], str(e),
+                # ⚠️ BotFather отвечает по-английски («SORRY, you can't transfer…»)
+                # — клиенту это не текст. Понятную причину подбирает _human_error,
+                # исходный ответ остаётся в логах сервера.
+                logger.warning("tg_setup transfer order %s: %s", order_id, e)
+                await _fail_step(
+                    db, order_id, client_id, order["bot_username"],
+                    _human_error(e), step="transfer",
                 )
 
         # ── права на группу: только после вступления клиента ──
@@ -608,7 +696,12 @@ async def _finish_setup(db, order) -> None:
 
     except Exception as e:  # noqa: BLE001
         logger.exception("tg_setup finish order %s failed", order_id)
-        await _log_step(db, order_id, "error", f"{type(e).__name__}", ok=False)
+        # ⚠️ Счётчик и здесь: без него шаг повторялся каждую минуту вечно.
+        # Именно так был заблокирован служебный аккаунт 09.09.2026.
+        await _fail_step(
+            db, order_id, client_id, order["bot_username"] or "",
+            _human_error(e), step="transfer",
+        )
     finally:
         if client:
             try:

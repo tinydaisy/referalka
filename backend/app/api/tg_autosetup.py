@@ -146,10 +146,21 @@ def _order_out(row, service=None) -> dict:
         "paid_at": row["paid_at"],
         "claim_deadline": row["claim_deadline"],
         # Галочки шагов — по ним фронт рисует чек-лист.
+        #
+        # ⚠️⚠️ КАЖДЫЙ ПУНКТ — СВОЙ ФЛАГ, а не «похожий соседний». Раньше три
+        # пункта чек-листа («бот подключён к кабинету», «группа прописана в
+        # настройках», «служба заботы») рисовались по чужим отметкам — по факту
+        # создания бота и группы. Из-за этого чек-лист показывал зелёные галочки
+        # там, где работа не делалась, и расходился с отчётом ниже: клиент видел
+        # два разных списка про одно и то же и не понимал, какому верить.
         "steps": {
             "bot_created": bool(row["bot_created_at"]),
+            "bot_channel_linked": bool(row["bot_channel_id"]),
             "miniapp_linked": bool(row["miniapp_linked_at"]),
             "group_created": bool(row["group_created_at"]),
+            # Группа считается прописанной, только если она реально стоит в
+            # настройках клиента — их могли поменять руками уже после настройки.
+            "group_in_settings": bool(row["group_chat_id"]),
             "client_joined": bool(row["client_joined_at"]),
             "client_started_bot": bool(row["client_started_bot_at"]),
             "bot_transferred": bool(row["bot_transferred_at"]),
