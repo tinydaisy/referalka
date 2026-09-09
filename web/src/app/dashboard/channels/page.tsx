@@ -108,6 +108,9 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Channel | null>(null)
   const [creating, setCreating] = useState(false)
+  // С какой площадки открыть форму добавления. Пусто — обычное «Добавить канал»
+  // (стартует с Telegram), задано — кнопка конкретной площадки.
+  const [creatingPlatform, setCreatingPlatform] = useState<string | undefined>(undefined)
   const [vipWizardOpen, setVipWizardOpen] = useState(false)
   const [vkWizardOpen, setVkWizardOpen] = useState(false)
   const [maxWizardOpen, setMaxWizardOpen] = useState(false)
@@ -271,6 +274,8 @@ export default function ChannelsPage() {
             onOpenWizard={() => setVipWizardOpen(true)}
             onOpenVkWizard={() => setVkWizardOpen(true)}
             onOpenMaxWizard={() => setMaxWizardOpen(true)}
+            hasInstagram={(me?.features || []).includes('instagram_funnel')}
+            onOpenInstagram={() => { setCreatingPlatform('instagram'); setCreating(true) }}
             onImport={ch => setImportingChannel(ch)}
             onRestarted={loadHealth}
           />
@@ -283,12 +288,13 @@ export default function ChannelsPage() {
 
       {(creating || editing) && (
         <ChannelModal
-          key={editing ? `edit-${editing.id}` : 'create-new'}
+          key={editing ? `edit-${editing.id}` : `create-${creatingPlatform || 'new'}`}
           channel={editing}
           platforms={platforms}
-          onClose={() => { setEditing(null); setCreating(false) }}
-          onSaved={() => { setEditing(null); setCreating(false); load() }}
-          onSwitchToVkWizard={() => { setEditing(null); setCreating(false); setVkWizardOpen(true) }}
+          initialPlatform={creatingPlatform}
+          onClose={() => { setEditing(null); setCreating(false); setCreatingPlatform(undefined) }}
+          onSaved={() => { setEditing(null); setCreating(false); setCreatingPlatform(undefined); load() }}
+          onSwitchToVkWizard={() => { setEditing(null); setCreating(false); setCreatingPlatform(undefined); setVkWizardOpen(true) }}
         />
       )}
 
@@ -508,7 +514,7 @@ function PlatformGroup({ title, count, children, defaultOpen = true }: {
 }
 
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
-function VipView({ channels, platforms, isSystemService, health, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, onImport, onRestarted }: {
+function VipView({ channels, platforms, isSystemService, health, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, hasInstagram, onOpenInstagram, onImport, onRestarted }: {
   channels: Channel[]
   platforms: Platform[]
   isSystemService?: boolean
@@ -519,6 +525,9 @@ function VipView({ channels, platforms, isSystemService, health, onEdit, onCreat
   onOpenWizard: () => void
   onOpenVkWizard: () => void
   onOpenMaxWizard: () => void
+  /** Доступен ли Instagram этому клиенту (фича `instagram_funnel`). */
+  hasInstagram: boolean
+  onOpenInstagram: () => void
   onImport: (ch: Channel) => void
   onRestarted: () => void
 }) {
@@ -547,9 +556,14 @@ function VipView({ channels, platforms, isSystemService, health, onEdit, onCreat
   const tgRest = channels.filter(c => c.platform_slug === 'telegram' && c !== mainTgChannel)
   const vkRest = channels.filter(c => c.platform_slug === 'vk' && c !== mainVkChannel)
   const maxRest = channels.filter(c => c.platform_slug === 'max' && c !== mainMaxChannel)
+  // ⚠️ Instagram — СВОЯ секция (как у TG/VK/MAX), а не «Другие»: иначе о нём
+  // можно было узнать, только нажав «Добавить канал» и найдя его в списке
+  // площадок. Подключённые аккаунты показываем в ней же, поэтому из «Других»
+  // Instagram исключён — иначе показался бы дважды.
+  const igChannels = channels.filter(c => c.platform_slug === 'instagram')
   // Прочие площадки (email и любые будущие) — в отдельную группу «Другие»
   const otherChannels = channels.filter(
-    c => !['telegram', 'vk', 'max'].includes(c.platform_slug),
+    c => !['telegram', 'vk', 'max', 'instagram'].includes(c.platform_slug),
   )
   // Заголовки групп с человекочитаемыми названиями площадок
   const platformTitle = (slug: string) =>
@@ -618,6 +632,26 @@ function VipView({ channels, platforms, isSystemService, health, onEdit, onCreat
         )}
         {maxRest.map(card)}
       </PlatformGroup>
+
+      {/* ⚠️ Секция Instagram показывается ТОЛЬКО с фичей `instagram_funnel` —
+          так же, как площадка скрыта из списка «Добавить канал». Дразнить тех,
+          кому он не продаётся, незачем. */}
+      {hasInstagram && (
+        <PlatformGroup title="Instagram" count={igChannels.length}>
+          {igChannels.length === 0 ? (
+            <ConnectInvite
+              title="Подключите свой Instagram"
+              description="Вход через Facebook — токен выдаёт сама Meta, пароль вводить не нужно. Дальше бот отвечает на комментарии под рилсами кодовым словом и присылает человеку лид-магнит в директ."
+              buttonText="Подключить Instagram"
+              badge="IG"
+              badgeColor="#C13584"
+              onClick={onOpenInstagram}
+            />
+          ) : (
+            igChannels.map(card)
+          )}
+        </PlatformGroup>
+      )}
 
       {Object.entries(otherBySlug).map(([slug, chs]) => (
         <PlatformGroup key={slug} title={platformTitle(slug)} count={chs.length}>
@@ -1815,14 +1849,18 @@ function VipBotWizard({ clientId, hasOwnBot, onClose, onDone }: {
 }
 
 /* ─────── Старая модалка ручного редактирования (для VK/MAX и edit existing) ─────── */
-function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard }: {
+function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard, initialPlatform }: {
   channel: Channel | null
   platforms: Platform[]
   onClose: () => void
   onSaved: () => void
   onSwitchToVkWizard?: () => void
+  /** С какой площадки открыть форму. Нужен кнопкам площадок: человек нажал
+   *  «Подключить Instagram» — форма обязана открыться сразу на ней, а не на
+   *  Telegram, который пришлось бы менять в списке. */
+  initialPlatform?: string
 }) {
-  const [platformSlug, setPlatformSlug] = useState(channel?.platform_slug || 'telegram')
+  const [platformSlug, setPlatformSlug] = useState(channel?.platform_slug || initialPlatform || 'telegram')
   const [displayName, setDisplayName] = useState(channel?.display_name || '')
   const [handle, setHandle] = useState(channel?.handle || '')
   const [botToken, setBotToken] = useState('')
