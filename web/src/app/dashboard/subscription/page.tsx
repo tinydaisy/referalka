@@ -830,10 +830,22 @@ function ServicesBlock() {
 
   if (services.length === 0) return null
 
-  /** Оплачен ли заказ услуги. Пока услуга одна — сверяем по её слагу. */
-  const paidOrder = (slug: string) =>
-    slug === 'tg_autosetup' && autosetup?.order?.status === 'paid'
-      ? autosetup.order : null
+  /**
+   * Доступна ли услуга этому клиенту.
+   *
+   * ⚠️⚠️ ПРИЗНАК — ОТВЕТ РУЧКИ, А НЕ ОПЛАЧЕННЫЙ ЗАКАЗ.
+   *
+   * Здесь была ошибка: доступ считался по `order.status === 'paid'`. Но при
+   * выдаче по коду ЗАКАЗА НЕТ ВОВСЕ — есть только фича, а заказ рождается
+   * позже, при запуске настройки. Из-за этого человек вводил код, доступ
+   * выдавался (в логах 200), а карточка продолжала показывать «Приобрести по
+   * коду», будто ничего не произошло.
+   *
+   * `/clients/me/tg-autosetup` отдаёт 403 всем, у кого фичи нет (см.
+   * `_assert_feature`), — значит непустой ответ и есть доступ.
+   */
+  const serviceAccess = (slug: string) =>
+    slug === 'tg_autosetup' && autosetup?.service ? autosetup : null
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -843,7 +855,7 @@ function ServicesBlock() {
       </p>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {services.map(s => {
-        const paid = paidOrder(s.slug)
+        const paid = serviceAccess(s.slug)
         return (
           <div key={s.slug}
                id={`service-${s.slug}`}
@@ -945,7 +957,9 @@ function ServicesBlock() {
             {paid ? (
               <Link href="/dashboard/channels?tab=autosetup"
                     className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
-                {paid.setup_state === 'done' ? 'Настройка завершена' : 'Перейти к настройке'}
+                {/* ⚠️ setup_state лежит ВНУТРИ заказа, а заказа может не быть
+                    вовсе (услуга выдана по коду, настройку ещё не запускали). */}
+                {paid.order?.setup_state === 'done' ? 'Настройка завершена' : 'Перейти к настройке'}
               </Link>
             ) : codeFor === s.slug ? (
               // Поле раскрывается ЗДЕСЬ ЖЕ — уводить на другую страницу за

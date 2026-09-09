@@ -5,6 +5,7 @@ import {
   Loader2, ShieldCheck, Copy, Check, AlertTriangle, Clock,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import FeatureLock from '@/components/FeatureLock'
 
 /**
  * Раздел «Свой домен» (миграция 270, фича custom_domain).
@@ -237,9 +238,10 @@ export default function DomainsTab() {
       setPlatformDomain(r.platform_domain || 'pluson.ru')
       setNoAccess(false)
     } catch (e: any) {
-      if (String(e?.message || '').includes('403') || /Экстра/.test(String(e?.message))) {
-        setNoAccess(true)
-      }
+      // ⚠️ Ловим по КОДУ ответа, а не по тексту: сообщение бэкенда правится без
+      // оглядки на фронт, и проверка «содержит ли слово Экстра» молча
+      // перестала бы срабатывать — вкладка показывала бы пустоту вместо замка.
+      if (e?.status === 403) setNoAccess(true)
     } finally {
       setLoading(false)
     }
@@ -346,17 +348,20 @@ export default function DomainsTab() {
 
   if (noAccess) {
     return (
-      <div className="max-w-2xl">
-        <div className="border border-slate-200 rounded-xl p-6 bg-slate-50">
-          <Globe className="text-slate-400 mb-3" size={28} />
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">Свой домен</h3>
-          <p className="text-slate-600 text-sm leading-relaxed mb-4">
+      <div className="max-w-2xl space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Свой домен</h2>
+          <p className="mt-1 text-sm text-gray-500">
             Лендинги событий и все ссылки для партнёров и участников могут
-            открываться на вашем домене, а письма — уходить с вашего адреса.
-            Возможность входит в тариф Экстра.
+            открываться на вашем домене, а письма — уходить с вашего адреса,
+            а не с общего <span className="font-mono">noreply@pluson.ru</span>.
           </p>
-          <a href="/dashboard/subscription" className="btn-gold inline-block">Посмотреть тариф</a>
         </div>
+        {/* ⚠️ Замок общий (FeatureLock), а не свой текст: название тарифа он
+            берёт из базы. Раньше здесь было захардкожено «Экстра» — при
+            переносе фичи в другой тариф надпись врала бы, а правку никто не
+            вспомнил бы. Он же даёт кнопку перехода к тарифам. */}
+        <FeatureLock anyOf={['custom_domain']} />
       </div>
     )
   }

@@ -560,6 +560,27 @@ function VipView({ channels, platforms, isSystemService, health, onEdit, onCreat
   onImport: (ch: Channel) => void
   onRestarted: () => void
 }) {
+  /**
+   * Свой почтовый домен клиента (`client_domains.kind='mail'`).
+   *
+   * ⚠️ Нужен, чтобы объяснить секцию Email по-разному: пока домена нет, письма
+   * уходят с нашего общего адреса и это стоит назвать вслух; когда подключён —
+   * системный канал больше не показываем вовсе, чтобы человек не гадал, с
+   * какого из двух адресов уходит письмо.
+   *
+   * Ошибку глушим: вкладка «Свой домен» гейтится фичей `custom_domain`, и у
+   * клиента без неё ручка отвечает 403 — это норма, а не сбой.
+   */
+  const [mailDomain, setMailDomain] = useState<{ domain: string; status: string } | null>(null)
+  useEffect(() => {
+    api.miniApp.domains.list()
+      .then((r: any) => {
+        const m = (r.domains || []).find((d: any) => d.kind === 'mail')
+        setMailDomain(m ? { domain: m.domain, status: m.status } : null)
+      })
+      .catch(() => {})
+  }, [])
+
   // Для системного сервисного аккаунта системные каналы = его собственные, поэтому
   // любой его канал (даже не помеченный is_active в client_channels, как MAX)
   // считается «главным» на площадке — карточка канала вместо апсейла «подключите бот».
@@ -682,11 +703,70 @@ function VipView({ channels, platforms, isSystemService, health, onEdit, onCreat
         </PlatformGroup>
       )}
 
-      {Object.entries(otherBySlug).map(([slug, chs]) => (
-        <PlatformGroup key={slug} title={platformTitle(slug)} count={chs.length}>
-          {chs.map(card)}
-        </PlatformGroup>
-      ))}
+      {Object.entries(otherBySlug).map(([slug, chs]) => {
+        /**
+         * ⚠️ EMAIL ОБЪЯСНЯЕМ ОТДЕЛЬНО — сам по себе он читался непонятно.
+         *
+         * «Системный Email ПЛЮСОНа» выглядел как чужой служебный канал, и было
+         * неясно, уходят ли через него письма клиента вообще. Уходят: рассылки
+         * по базе идут именно им, просто с адреса noreply@pluson.ru.
+         *
+         * ⚠️ Когда подключён СВОЙ почтовый домен — системный канал НЕ
+         * показываем: письма всё равно уходят с адреса клиента, и два адреса
+         * рядом заставляли бы гадать, какой из них рабочий.
+         */
+        const isEmail = slug === 'email'
+        const hasOwnMail = !!mailDomain && mailDomain.status === 'active'
+        const shown = isEmail && hasOwnMail ? chs.filter(c => !c.is_system) : chs
+
+        return (
+          <PlatformGroup key={slug} title={platformTitle(slug)}
+                         count={isEmail ? (hasOwnMail ? 1 : shown.length) : shown.length}>
+            {isEmail && hasOwnMail ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-5 py-4">
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 size={17} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-gray-900">
+                      Ваш почтовый домен: <span className="font-mono">{mailDomain!.domain}</span>
+                    </p>
+                    <p className="text-gray-600 mt-1 leading-relaxed">
+                      Письма уходят с вашего адреса, а не с нашего. Через почту идут
+                      рассылки по базе, письма о регистрации на событие, о заказах
+                      и оплатах, выдача материалов и доступов.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {shown.map(card)}
+                {isEmail && (
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-4 mt-2 text-sm">
+                    <p className="text-gray-700">
+                      Через этот канал уходят <b>рассылки по базе</b>, письма о
+                      регистрации на событие, о заказах и оплатах, выдача материалов
+                      и доступов — но с общего адреса{' '}
+                      <span className="font-mono">noreply@pluson.ru</span>, а не с вашего.
+                    </p>
+                    {/* ⚠️ Ведём в Настройки → «Свой домен»: вкладка открывается по
+                        адресу (?tab=domains), проверено — 'domains' есть в списке
+                        разрешённых значений на той странице. */}
+                    <p className="text-gray-600 mt-2">
+                      Хотите, чтобы письма приходили от вашего имени —{' '}
+                      <Link href="/dashboard/settings?tab=domains"
+                            className="text-[#25455D] underline font-medium">
+                        подключите свой почтовый домен
+                      </Link>
+                      .
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </PlatformGroup>
+        )
+      })}
 
       <button
         onClick={onCreate}

@@ -212,8 +212,6 @@ export default function SettingsPage() {
   const hasLandingTheme = clientFeatures.includes('event_landing')
   // Приём оплаты за тарифы своей платёжной системой (миграция 257).
   const hasPayments = clientFeatures.includes('payments')
-  // Свой домен для публичных страниц и адреса отправителя писем (миграция 270).
-  const hasCustomDomain = clientFeatures.includes('custom_domain')
 
   const isAnyAssistant = role === 'assistant'
   const isRestrictedAssistant = isAnyAssistant && assistantLevel !== 'full'
@@ -227,7 +225,11 @@ export default function SettingsPage() {
     // ⚠️ Вкладка видна ВСЕГДА: скрытый раздел выглядит как «у нас такого нет».
     // Без фичи внутри показывается замок с объяснением и ссылкой на тариф.
     { id: 'payments' as Tab, label: 'Платёжные системы', icon: CreditCard },
-    ...(hasCustomDomain ? [{ id: 'domains' as Tab, label: 'Свой домен', icon: Globe }] : []),
+    // ⚠️ Вкладка видна ВСЕГДА (как «Платёжные системы» выше). Скрытая читалась
+    // как «такого у нас нет», а на неё ведут ссылки из других разделов — из
+    // «Каналов», где предлагается подключить свой почтовый домен. Без фичи
+    // внутри показывается замок с тарифом и кнопкой перехода.
+    { id: 'domains' as Tab, label: 'Свой домен', icon: Globe },
     { id: 'storage' as Tab, label: 'Файловое хранилище', icon: HardDrive },
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     // Управлять ассистентом может только владелец — даже полный ассистент не может
@@ -298,7 +300,10 @@ export default function SettingsPage() {
       {effectiveTab === 'payments' && <PaymentSettingsTab />}
 
       {/* Свой домен: публичные страницы + адрес отправителя писем — миграция 270 */}
-      {effectiveTab === 'domains' && hasCustomDomain && <DomainsTab />}
+      {/* ⚠️ Без `hasCustomDomain`: вкладка открыта всем, а замок с тарифом
+          рисует сама DomainsTab по ответу 403 — иначе ссылки на неё из других
+          разделов вели бы в пустоту. */}
+      {effectiveTab === 'domains' && <DomainsTab />}
 
       {/* Интеграция — токен для чат-ботов (только vip) */}
       {effectiveTab === 'integration' && <IntegrationTab />}
