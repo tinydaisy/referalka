@@ -22,7 +22,7 @@ export default function TechLoginPage() {
     e.preventDefault()
     setBusy(true); setError('')
     try {
-      const res: any = await api.auth.login(email, password)
+      const res: any = await api.auth.login({ email, password })
       if (!res?.tech) {
         // Почта существует, но принадлежит клиенту или админу — их вход в
         // другом месте, и молча пускать сюда нельзя.
