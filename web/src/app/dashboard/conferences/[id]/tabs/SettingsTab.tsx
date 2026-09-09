@@ -46,6 +46,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     description_post_register: event?.description_post_register || '',
     stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
+    // Офлайн-событие: адрес и карта вместо кнопки эфира (миграция 394).
+    is_offline: !!conf?.is_offline,
+    address: conf?.address || '',
+    address_button_label: conf?.address_button_label || '',
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
     registration_mode: conf?.registration_mode || null,
     // landing_url — единое поле для всех событий (events.landing_url),
@@ -120,6 +124,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       description_post_register: event?.description_post_register || '',
       stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
+    // Офлайн-событие: адрес и карта вместо кнопки эфира (миграция 394).
+    is_offline: !!conf?.is_offline,
+    address: conf?.address || '',
+    address_button_label: conf?.address_button_label || '',
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
       // ⚠️ registration_mode здесь НЕ пересобираем: этот блок срабатывает при
       // каждом изменении conf (в том числе после сохранения) и возвращал
@@ -196,6 +204,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       const confPatch: any = {}
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
       if (form.hide_stream_button !== !!conf?.hide_stream_button)      confPatch.hide_stream_button = form.hide_stream_button
+      if (form.is_offline !== !!conf?.is_offline)                       confPatch.is_offline = form.is_offline
+      if (form.address !== (conf?.address || ''))                      confPatch.address = form.address
+      if (form.address_button_label !== (conf?.address_button_label || ''))
+        confPatch.address_button_label = form.address_button_label
       if (form.thanks_destination !== (conf?.thanks_destination === 'chats' ? 'chats' : 'bots'))
         confPatch.thanks_destination = form.thanks_destination
       if (form.registration_mode !== (conf?.registration_mode || null))
@@ -321,6 +333,48 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
               ? 'На странице после оплаты человек увидит ссылки на чаты события.'
               : 'На странице после оплаты — ссылка на бота с меню события: чат, программа, подарки, эфир. Там же попросим вернуться на ту площадку, с которой человек начинал, — иначе его аккаунт не свяжется с заказом.'}
           </p>
+        </div>
+
+        {/* ⚠️⚠️ ОФЛАЙН — ЯВНАЯ ГАЛОЧКА, А НЕ ДОГАДКА ПО АДРЕСУ: адрес вписывают
+            позже, чем собирают страницу, а в это же поле кладут и ссылку на
+            трансляцию. Формат — решение организатора. */}
+        <div>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.is_offline}
+              onChange={e => setForm(f => ({ ...f, is_offline: e.target.checked }))}
+              className="mt-0.5 accent-[#25455D]" />
+            <span className="text-sm text-gray-700">
+              Офлайн-событие
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Вместо кнопки эфира участник увидит адрес и карту — в боте,
+                в Mini App и на лендинге. Если событие ещё и транслируется,
+                эфир настраивается по дням в «Вебинарах» — тогда будут обе кнопки.
+              </span>
+            </span>
+          </label>
+          {form.is_offline && (
+            <div className="mt-3 space-y-3 pl-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Адрес места проведения
+                </label>
+                <input value={form.address}
+                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                  className="input" placeholder="Москва, ул. Тверская, 1" />
+                <p className="text-xs text-gray-400 mt-1">
+                  По адресу покажем карту с меткой — ключи и настройка не нужны.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Название кнопки адреса
+                </label>
+                <input value={form.address_button_label} maxLength={40}
+                  onChange={e => setForm(f => ({ ...f, address_button_label: e.target.value }))}
+                  className="input" placeholder="Адрес мероприятия" />
+              </div>
+            </div>
+          )}
         </div>
 
         <div>

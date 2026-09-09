@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
 import LandingTab from '../tabs/LandingTab'
 import ProgramTab from '../tabs/ProgramTab'
+import MapPage from './MapPage'
 import TurnirProgramTab from '../tabs/TurnirProgramTab'
 import ContestProgramTab from '../tabs/ContestProgramTab'
 import SpeakersTab from '../tabs/SpeakersTab'
@@ -110,6 +111,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   const [loadError, setLoadError] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [tab, setTabState] = useState<string>('landing')
+  // ⚠️ Карта офлайн-события — ОТДЕЛЬНЫЙ ЭКРАН со стрелкой назад, а не переход
+  // в браузер: выброшенный из мессенджера человек часто не возвращается.
+  const [showMap, setShowMap] = useState(false)
   const [pendingSpeakerHighlight, setPendingSpeakerHighlight] = useState<number | null>(speakerEcId ?? null)
   const [showReg, setShowReg] = useState(false)
   // Выбор тарифа — открывается по кнопке участия при способе «простая форма»,
@@ -874,6 +878,17 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
       )}
 
       <div className="page">
+        {/* ⚠️ Карта перекрывает вкладки ЦЕЛИКОМ и живёт отдельным экраном:
+            это «провалиться и вернуться», а не ещё одна вкладка снизу —
+            в нижней панели ей места нет, там пять постоянных разделов. */}
+        {showMap && (
+          <MapPage
+            address={(event?.address || '').trim()}
+            title={event?.title}
+            onBack={() => setShowMap(false)}
+          />
+        )}
+        {!showMap && (<>
         {tab === 'welcome'   && registered && participant?.id && (
           <WelcomePage
             event={event}
@@ -926,6 +941,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
             <TurnirProgramTab   event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip}
               onOpenSpeaker={(id) => { setPendingSpeakerHighlight(id); setTab('speakers') }} /> :
             <ProgramTab         event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip}
+              onOpenMap={() => setShowMap(true)}
               onOpenSpeaker={(id) => { setPendingSpeakerHighlight(id); setTab('speakers') }} />
         )}
         {tab === 'speakers'  && (
@@ -952,6 +968,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
             owners={event.is_collab ? event.collab_owners : undefined}
           />
         )}
+        </>)}
       </div>
 
       <BottomNav items={navItems} active={tab} onTab={setTab} />

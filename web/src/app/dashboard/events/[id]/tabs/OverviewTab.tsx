@@ -22,6 +22,10 @@ export default function OverviewTab({
   const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
   const [hideStreamButton, setHideStreamButton] = useState<boolean>(!!event.hide_stream_button)
+  // Офлайн-событие: галочка + адрес и своё название кнопки (миграция 394).
+  const [isOffline, setIsOffline] = useState<boolean>(!!event.is_offline)
+  const [address, setAddress] = useState<string>(event.address || '')
+  const [addressBtn, setAddressBtn] = useState<string>(event.address_button_label || '')
   // МедиаЛифт: сколько каналов из ветки обязательно подписать (1..7).
   const isMedialift = event.module_slug === 'medialift'
   const [mlRequiredSubs, setMlRequiredSubs] = useState<number>(event.medialift_required_subscriptions ?? 3)
@@ -103,6 +107,9 @@ export default function OverviewTab({
       const lu = landingUrl.trim()
       if (lu !== (event.landing_url || ''))                     payload.landing_url = lu || null
       if (hideStreamButton !== !!event.hide_stream_button)      payload.hide_stream_button = hideStreamButton
+      if (isOffline !== !!event.is_offline)                     payload.is_offline = isOffline
+      if (address !== (event.address || ''))                    payload.address = address
+      if (addressBtn !== (event.address_button_label || ''))    payload.address_button_label = addressBtn
       if (isMedialift && mlRequiredSubs !== (event.medialift_required_subscriptions ?? 3))
         payload.medialift_required_subscriptions = mlRequiredSubs
       // Чаты события — ref на записи client_broadcast_chats + primary
@@ -214,8 +221,50 @@ export default function OverviewTab({
         <h2 className="block-title mb-4">Настройка ссылок</h2>
 
         <div className="space-y-4">
+          {/* ⚠️⚠️ ОФЛАЙН — ЯВНАЯ ГАЛОЧКА, А НЕ ДОГАДКА ПО ЗАПОЛНЕННОМУ АДРЕСУ.
+              Адрес вписывают позже, чем собирают страницу — до этого человек
+              видел бы кнопку эфира, которого нет. А в это же поле исторически
+              кладут ссылку на трансляцию: такое событие сочли бы офлайновым и
+              увели людей на карту по обрывку URL. */}
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={isOffline}
+              onChange={e => setIsOffline(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <span className="text-sm text-gray-700">
+              Офлайн-событие
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Вместо кнопки эфира участник увидит адрес и карту — в боте,
+                в Mini App и на лендинге.
+              </span>
+            </span>
+          </label>
+
+          {isOffline && (
+            <>
+              <Field label="Адрес места проведения"
+                     hint="Город, улица, дом. По нему на лендинге и в Mini App покажется карта с меткой — ключи и настройка не нужны.">
+                <input value={address} onChange={e => setAddress(e.target.value)}
+                       className="input" placeholder="Москва, ул. Тверская, 1" />
+              </Field>
+              <Field label="Название кнопки адреса"
+                     hint="Как назвать кнопку в меню бота и в Mini App. Пусто — «Адрес мероприятия».">
+                <input value={addressBtn} onChange={e => setAddressBtn(e.target.value)}
+                       className="input" placeholder="Адрес мероприятия" maxLength={40} />
+              </Field>
+            </>
+          )}
+
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-600">
             Ссылка на эфир настраивается в разделе «Вебинары» — участник попадёт в вебинарную комнату дня.
+            {isOffline && (
+              // ⚠️ У офлайн-события эфир тоже бывает (трансляция из зала) —
+              // тогда показываются обе кнопки. Отдельного «гибрида» не нужно:
+              // наличие эфира решает галочка дня в разделе «Вебинары».
+              <span className="block mt-1.5 text-xs text-gray-500">
+                Если событие ещё и транслируется — настройте эфир там же,
+                участник получит обе кнопки: адрес и эфир.
+              </span>
+            )}
           </div>
 
           <label className="flex items-start gap-2 cursor-pointer">

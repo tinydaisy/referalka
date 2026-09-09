@@ -57,6 +57,8 @@ interface Props {
   tgUser?: any;
   refreshKey?: number;
   onVipClick?: (vipUrl: string) => void | Promise<void>;
+  /** Открыть экран карты офлайн-события (отдельная страница со стрелкой назад). */
+  onOpenMap?: () => void;
   onOpenSpeaker?: (speakerEventId: number) => void;
 }
 
@@ -238,7 +240,7 @@ function isStreamDay(event: any, days: Day[]): boolean {
   return today >= startDay && today <= endDay
 }
 
-export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOpenSpeaker }: Props) {
+export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOpenSpeaker, onOpenMap }: Props) {
   const isConference = event?.module_slug === 'conference'
   // Кнопка VIP появляется если у события вписан vip_url
   // (единый источник истины в events.vip_url).
@@ -555,6 +557,42 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
           accent={vipAccent}
           onClick={onVipClick || ((u) => { window.open(u, '_blank', 'noopener,noreferrer') })}
         />
+      )}
+
+      {/* ⚠️⚠️ ОФЛАЙН-СОБЫТИЕ: АДРЕС ВМЕСТО (ИЛИ РЯДОМ С) ЭФИРОМ.
+          Показывается по галочке `is_offline`, а не по заполненному адресу: в
+          это поле исторически кладут и ссылку на трансляцию, и тогда карта
+          повела бы человека по обрывку URL.
+          ⚠️ Если у события есть И эфир — обе плашки живут рядом. Отдельного
+          «гибрида» не нужно: наличие эфира решает галочка дня в «Вебинарах». */}
+      {event?.is_offline && !!(event?.address || '').trim() && (
+        <div
+          onClick={() => onOpenMap?.()}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'var(--bg-tint)', color: 'var(--text)',
+            borderRadius: 14, padding: 14, marginBottom: 10, cursor: 'pointer',
+          }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+            background: 'rgba(255,255,255,0.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white"
+                 strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+              <circle cx="12" cy="10" r="3"/>
+            </svg>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>Посмотреть на карте</div>
+            {/* ⚠️ Адрес ПОД кнопкой, а не только на экране карты: человеку часто
+                нужно просто свериться, куда ехать, не открывая ничего. */}
+            <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.35, opacity: 0.9 }}>
+              {event.address}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Стрим — плашка во всю ширину.
