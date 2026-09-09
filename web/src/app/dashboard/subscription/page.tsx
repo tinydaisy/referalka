@@ -864,14 +864,10 @@ function ServicesBlock() {
                       : s.coming_soon ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
             <div className="flex items-start justify-between gap-2">
               <h4 className="font-semibold text-gray-900">{s.name}</h4>
-              {/* ⚠️ «АКТИВИРОВАНА», а не «ОПЛАЧЕНО»: услуга раздаётся по
-                  промокоду бесплатно, слово про оплату вводило бы в
-                  заблуждение. Пока доступа нет — честное «СКОРО БУДЕТ». */}
-              {paid ? (
-                <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white">
-                  АКТИВИРОВАНА
-                </span>
-              ) : (
+              {/* ⚠️ Бейдж в шапке — только «СКОРО БУДЕТ». Отметку об активации
+                  перенесли ВНИЗ, к кнопке: наверху карточки её не замечали, и
+                  после ввода промокода было непонятно, что вообще изменилось. */}
+              {!paid && (
                 <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded"
                       style={{ background: '#FFCFA4', color: '#25455D' }}>
                   СКОРО БУДЕТ
@@ -961,16 +957,28 @@ function ServicesBlock() {
               оплаты (она живёт на самой вкладке автонастройки).
             */}
             {paid ? (
-              // ⚠️ Ведём на ВКЛАДКУ автонастройки (?tab=autosetup), а не в
-              // «Каналы»: там три вкладки, и человек попадал на «Боты».
-              <Link href="/dashboard/channels?tab=autosetup"
-                    className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
-                {/* ⚠️ setup_state лежит ВНУТРИ заказа, а заказа может не быть
-                    вовсе (услуга активирована, настройку ещё не запускали). */}
-                {paid.order?.setup_state === 'done'
-                  ? 'Настройка завершена'
-                  : 'Перейти к автонастройке'}
-              </Link>
+              <div className="mt-4">
+                {/* ⚠️ Отметка об активации — НАД кнопкой и заметная. После ввода
+                    промокода человек не понимал, что изменилось: бейдж наверху
+                    карточки терялся среди заголовка. */}
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-green-700 mb-2">
+                  <CheckCircle2 size={14} /> Услуга активирована
+                </p>
+                {/* ⚠️ Кнопка ЗЕЛЁНАЯ, а не золотая: золотая означает «действие,
+                    которое ещё предстоит» и не отличалась от «Подключить по
+                    промокоду» — перемена состояния была не видна.
+                    ⚠️ Ведём на ВКЛАДКУ автонастройки (?tab=autosetup), а не в
+                    «Каналы»: там три вкладки, и человек попадал на «Боты». */}
+                <Link href="/dashboard/channels?tab=autosetup"
+                      className="w-full px-3 py-2.5 rounded-lg text-xs font-semibold text-center block
+                                 bg-green-600 text-white hover:bg-green-700 transition-colors">
+                  {/* setup_state лежит ВНУТРИ заказа, а заказа может не быть
+                      вовсе (услуга активирована, настройку ещё не запускали). */}
+                  {paid.order?.setup_state === 'done'
+                    ? 'Настройка завершена'
+                    : 'Перейти к автонастройке'}
+                </Link>
+              </div>
             ) : codeFor === s.slug ? (
               // Поле раскрывается ЗДЕСЬ ЖЕ — уводить на другую страницу за
               // вводом кода нельзя, человек теряет контекст покупки.

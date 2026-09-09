@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
@@ -114,11 +115,39 @@ export default function ChannelsPage() {
    * Здесь нужен разовый выбор вкладки при открытии, ради него городить
    * обёртку не стоит.
    */
+  const pathname = usePathname()
   const [tab, setTabState] = useState<'bots' | 'chats' | 'autosetup'>(() => {
     if (typeof window === 'undefined') return 'bots'
     const v = new URLSearchParams(window.location.search).get('tab')
     return v === 'autosetup' || v === 'chats' ? v : 'bots'
   })
+
+  /**
+   * ⚠️⚠️ ПЕРЕЧИТЫВАЕМ ВКЛАДКУ ПРИ ПЕРЕХОДЕ ПО ССЫЛКЕ, а не только при открытии.
+   *
+   * `useState` с функцией срабатывает ОДИН раз — при первом монтировании.
+   * Переход по ссылке `?tab=autosetup` из другого раздела кабинета идёт
+   * клиентской навигацией: адрес меняется, а компонент уже смонтирован и
+   * начальное значение больше не читается — человек попадал на «Боты», хотя
+   * ссылка вела на автонастройку. Ровно та же причина описана в `useUrlTab`.
+   *
+   * `popstate` — на случай «Назад»/«Вперёд» браузера.
+   */
+  useEffect(() => {
+    const sync = () => {
+      const v = new URLSearchParams(window.location.search).get('tab')
+      const next = (v === 'autosetup' || v === 'chats') ? v : 'bots'
+      setTabState(prev => (prev === next ? prev : next))
+    }
+    sync()
+    window.addEventListener('popstate', sync)
+    return () => window.removeEventListener('popstate', sync)
+    // ⚠️ Зависимость — `pathname` из usePathname. `useSearchParams` брать
+    // НЕЛЬЗЯ: страница без динамического сегмента с ним обязана быть в
+    // <Suspense>, иначе падает сборка ВСЕГО проекта. Смены самого параметра
+    // достаточно ловить через pathname + popstate: переход со страницы
+    // подписки меняет путь, и эффект отрабатывает.
+  }, [pathname])
 
   /**
    * Переключение вкладки пишется в адрес — чтобы обновление страницы (F5)
