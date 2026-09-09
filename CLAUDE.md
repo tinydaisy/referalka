@@ -15,6 +15,7 @@
 Технический план бэкенда: [documentation/BACKEND-PLAN.md](documentation/BACKEND-PLAN.md)
 План разработки MVP: [documentation/PLAN.md](documentation/PLAN.md)
 Сценарии тестирования: [documentation/TESTING.md](documentation/TESTING.md)
+VPN на сервере (выход с российского IP): [documentation/VPN.md](documentation/VPN.md)
 
 ---
 
