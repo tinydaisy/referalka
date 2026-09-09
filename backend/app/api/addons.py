@@ -26,6 +26,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.database import get_db
+# ⚠️ Имя человека — только общим хелпером (правило проекта, person_name.py).
+from app.services.person_name import display_name
 from app.auth import get_current_client as get_current_user
 from app.services.assistant_access import assistant_is_restricted
 from app.api.subscriptions import (
@@ -580,13 +582,17 @@ async def _credit_addon_referral_cashback(
         return
 
     payer = await db.fetchrow(
-        "SELECT name, referred_by_client_id, referral_rate_percent, "
+        # ⚠️ `last_name` нужен для уведомления: с 09.09.2026 фамилия у
+        # клиента есть, а в сообщении рефоводу шло только имя.
+        "SELECT name, last_name, referred_by_client_id, referral_rate_percent, "
         "       referral_accrual_until "
         "FROM clients WHERE id = $1",
         payer_client_id,
     )
     if not payer or not payer["referred_by_client_id"]:
         return
+
+    payer_full_name = display_name(payer["name"], payer["last_name"])
 
     # Ставка ЗАМОРОЖЕНА на плательщике при регистрации (миграция 227).
     from app.services.referral_rate import effective_percent
@@ -611,7 +617,7 @@ async def _credit_addon_referral_cashback(
         client_id=referrer_id,
         amount_kopecks=cashback,
         source_payer_id=payer_client_id,
-        description=f"{percent}% от оплаты: {what}, клиент «{payer['name']}»",
+        description=f"{percent}% от оплаты: {what}, клиент «{payer_full_name}»",
     )
 
     from app.services.plusson_referral_notify import notify_referrer_about_purchase
@@ -619,7 +625,7 @@ async def _credit_addon_referral_cashback(
         db,
         referrer_client_id=referrer_id,
         payer_client_id=payer_client_id,
-        payer_name=payer["name"],
+        payer_name=payer_full_name,
         what_paid=what,
         amount_kopecks=amount_paid_kopecks,
         percent=percent,

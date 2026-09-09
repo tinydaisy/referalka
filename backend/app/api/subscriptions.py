@@ -27,6 +27,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.database import get_db
+# ⚠️ Имя человека — только общим хелпером (правило проекта, person_name.py).
+from app.services.person_name import display_name
 from app.auth import get_current_client as get_current_user, get_current_admin
 from app.services.assistant_access import assistant_is_restricted
 from app.services import tariff_periods
@@ -630,7 +632,9 @@ async def _credit_referral_cashback(
         return
 
     payer = await db.fetchrow(
-        "SELECT name, referred_by_client_id, referral_rate_percent, "
+        # ⚠️ `last_name` нужен для уведомления: с 09.09.2026 фамилия у
+        # клиента есть, а в сообщении рефоводу шло только имя.
+        "SELECT name, last_name, referred_by_client_id, referral_rate_percent, "
         "       referral_accrual_until "
         "FROM clients WHERE id = $1",
         payer_client_id,
@@ -672,7 +676,7 @@ async def _credit_referral_cashback(
             db,
             referrer_client_id=referrer_id,
             payer_client_id=payer_client_id,
-            payer_name=payer["name"],
+            payer_name=display_name(payer["name"], payer["last_name"]),
             what_paid=f"тариф {tariff_name}",
             amount_kopecks=amount_paid_card_kopecks,
             percent=percent,

@@ -4,6 +4,9 @@ from typing import Optional
 from app.auth import hash_password, verify_password, create_token
 from app.database import get_db
 from app.services.plusson_referral import resolve_plusson_referrer
+# ⚠️ Имя человека склеиваем ТОЛЬКО общим хелпером — иначе порядок «Имя Фамилия»
+# разъедется между местами показа (правило проекта, person_name.py).
+from app.services.person_name import display_name
 import asyncpg
 import logging
 import secrets
@@ -379,9 +382,12 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
         except Exception:
             pass  # уведомление не влияет на регистрацию
 
+    # ⚠️ Передаём ИМЯ И ФАМИЛИЮ: с 09.09.2026 фамилия при регистрации
+    # обязательна, но в уведомление основателю уходило только `name` — в группе
+    # ПЛЮСОНа новые клиенты приходили без фамилии, хотя она есть в базе.
     _asyncio.create_task(_notify_founder_bg(
-        client["id"], data.name, data.email, data.phone,
-        data.telegram_username, referred_by_client_id,
+        client["id"], display_name(data.name, data.last_name), data.email,
+        data.phone, data.telegram_username, referred_by_client_id,
     ))
 
     return {
