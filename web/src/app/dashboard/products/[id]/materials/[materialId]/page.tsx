@@ -94,6 +94,14 @@ export default function ProductMaterialPage() {
           <ArrowLeft size={15} /> {product?.title || 'Назад'}
         </Link>
 
+        <div className="flex flex-wrap items-center gap-3">
+        {/* Переходы и СВЕРХУ: у длинного материала «дальше» внизу приходится
+            искать прокруткой. */}
+        <MaterialNav compact
+          prev={prev ? { href: `/dashboard/products/${productId}/materials/${prev.material_id}`, title: prev.title } : null}
+          next={next ? { href: `/dashboard/products/${productId}/materials/${next.material_id}`, title: next.title } : null}
+        />
+
         <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-1">
           {([
             [false, 'Правка', Pencil],
@@ -111,6 +119,7 @@ export default function ProductMaterialPage() {
               <Icon size={14} /> {label}
             </button>
           ))}
+        </div>
         </div>
       </div>
 

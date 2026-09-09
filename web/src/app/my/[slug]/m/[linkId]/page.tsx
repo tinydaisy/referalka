@@ -129,7 +129,15 @@ export default function CabinetMaterialPage() {
           <ArrowLeft size={15} /> {data?.product?.title || 'К материалам'}
         </Link>
 
-        <h1 className="mb-1 text-2xl font-bold text-gray-900">{item.title}</h1>
+        {/* Переходы и СВЕРХУ: видно сразу, что материал не последний, и не
+            надо прокручивать содержимое до конца ради «дальше». */}
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">{item.title}</h1>
+          <MaterialNav compact
+            prev={prev ? { href: myHref(`/my/${slug}/m/${prev.link_id}`), title: prev.title } : null}
+            next={next ? { href: myHref(`/my/${slug}/m/${next.link_id}`), title: next.title } : null}
+          />
+        </div>
         {item.description && (
           <p className="mb-6 text-sm text-gray-500">{item.description}</p>
         )}

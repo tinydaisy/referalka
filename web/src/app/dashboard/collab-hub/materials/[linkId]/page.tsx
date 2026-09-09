@@ -57,9 +57,17 @@ export default function CollabMaterialPage() {
 
       {m && (
         <>
-          <h1 className="mb-1 text-2xl font-bold text-gray-900">{m.title}</h1>
+          {/* Переходы и СВЕРХУ: видно сразу, что материал не последний, и не
+              надо прокручивать содержимое до конца ради «дальше». */}
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">{m.title}</h1>
+            <MaterialNav compact
+              prev={data.prev ? { href: `${BASE}/${data.prev.link_id}`, title: data.prev.title } : null}
+              next={data.next ? { href: `${BASE}/${data.next.link_id}`, title: data.next.title } : null}
+            />
+          </div>
           {m.description && (
-            <p className="mb-6 text-sm text-gray-500">{m.description}</p>
+            <p className="mb-6 -mt-1 text-sm text-gray-500">{m.description}</p>
           )}
 
           {!m.blocks?.length ? (
