@@ -1405,6 +1405,10 @@ export const api = {
     client: (id: number) => request(`/api/v1/tech/clients/${id}`),
     accruals: (period?: string) =>
       request(`/api/v1/tech/accruals${period ? `?period=${period}` : ''}`),
+    // Открыть правку материалов: выдаёт короткий токен системного кабинета,
+    // где они лежат, — дальше работает готовый редактор.
+    materialsSession: () =>
+      request('/api/v1/tech/materials/session', { method: 'POST' }),
   },
 
   // Управление тех-специалистами — только для админа.
