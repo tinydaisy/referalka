@@ -433,7 +433,14 @@ async def _client_delete_summary(db, client_id: int) -> dict:
         SELECT c.id, c.name, c.email, c.is_system_service,
                (SELECT count(*) FROM event_owners eo WHERE eo.client_id = c.id)      AS events,
                (SELECT count(*) FROM contacts ct WHERE ct.client_id = c.id)          AS contacts,
-               (SELECT count(*) FROM client_channels cc WHERE cc.client_id = c.id)   AS channels,
+               -- ⚠️ Считаем ТОЛЬКО СВОИ каналы клиента (`ch.is_system = FALSE`).
+               -- Системный email-канал ПЛЮСОНа привязывается КАЖДОМУ клиенту
+               -- сам при регистрации, и без этого условия окно удаления писало
+               -- «Подключённые боты: 1» человеку, у которого нет ни одного бота.
+               -- Та же оговорка стоит в списке клиентов (own_channels_count).
+               (SELECT count(*) FROM client_channels cc
+                  JOIN channels ch ON ch.id = cc.channel_id
+                 WHERE cc.client_id = c.id AND ch.is_system = FALSE)                 AS channels,
                (SELECT count(*) FROM client_files cf WHERE cf.client_id = c.id)      AS files,
                (SELECT count(*) FROM products p WHERE p.client_id = c.id)            AS products,
                (SELECT count(*) FROM lead_magnets lm WHERE lm.client_id = c.id)      AS lead_magnets,
