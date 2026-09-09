@@ -652,7 +652,9 @@ async def transfer_bot(client, bot_username: str, to_username: str,
         # куска фразы: точка в конце и мелкие правки текста ничего не сломают.
         clicked = False
         for label in ("Yes, I am sure", "I am sure", "proceed", "Yes"):
-            if await _click(client, BOTFATHER, label):
+            # ⚠️ Пароль передаём В САМО НАЖАТИЕ: Telegram требует его именно
+            # для этой кнопки, отдельным сообщением он уже не спрашивается.
+            if await _click(client, BOTFATHER, label, password=twofa_password):
                 clicked = True
                 break
         if not clicked:
@@ -674,11 +676,19 @@ async def transfer_bot(client, bot_username: str, to_username: str,
     raise BotFatherError("Передача не подтвердилась", retryable=True, raw=r)
 
 
-async def _click(client, peer: str, button_text: str, wait: float = 5) -> bool:
+async def _click(client, peer: str, button_text: str, wait: float = 5,
+                 password: str = "") -> bool:
     """Нажимает кнопку под последним сообщением собеседника.
 
     ⚠️ BotFather управляется кнопками, а не текстом: «Transfer Ownership»
     отправленное сообщением он не поймёт.
+
+    ⚠️⚠️ У КНОПКИ ПОДТВЕРЖДЕНИЯ ПЕРЕДАЧИ ВЛАДЕНИЯ НУЖЕН ПАРОЛЬ.
+    Telegram помечает такие кнопки как требующие облачный пароль, и нажатие
+    без него отвечает «The password (and thus its hash value) you entered is
+    invalid» — при полностью верном пароле в базе. Выглядит как «пароль не
+    подходит», хотя на деле его просто не передали (поймано 09.09.2026:
+    проверка `CheckPasswordRequest` тот же пароль приняла).
     """
     msgs = await client.get_messages(peer, limit=1)
     if not msgs:
@@ -693,7 +703,11 @@ async def _click(client, peer: str, button_text: str, wait: float = 5) -> bool:
             label = (getattr(btn, "text", "") or "").lower().lstrip("@")
             if needle in label:
                 try:
-                    await msg.click(text=getattr(btn, "text", ""))
+                    if password:
+                        await msg.click(text=getattr(btn, "text", ""),
+                                        password=password)
+                    else:
+                        await msg.click(text=getattr(btn, "text", ""))
                     await asyncio.sleep(wait)
                     return True
                 except Exception as e:  # noqa: BLE001
