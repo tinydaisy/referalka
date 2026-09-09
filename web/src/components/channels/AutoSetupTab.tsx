@@ -585,34 +585,46 @@ export default function AutoSetupTab() {
       {waitingUser && order && (
         <div className="rounded-xl border-2 p-5 mb-5" style={{ borderColor: '#FFCFA4' }}>
           <h3 className="font-bold text-gray-900 mb-1">
-            Почти готово — осталось два нажатия
+            Почти готово — осталось одно действие
           </h3>
+          {/* ⚠️ Прямо говорим, КАК мы поймём, что человек это сделал. Раньше
+              было «мы увидим ваши действия» — оставалось гадать, надо ли где-то
+              нажать галочку. Никаких галочек: бот узнаёт клиента по нику из
+              кабинета и отмечает шаг сам. */}
           <p className="text-sm text-gray-500 mb-4">
-            Дальше всё произойдёт само: мы увидим ваши действия и передадим права.
+            Нажмите «Запустить» в своём боте — мы узнаем вас по нику
+            <b> @{state.telegram_username?.replace(/^@/, '') || '…'}</b> из настроек,
+            отметим шаг сами и передадим вам права владельца. Обычно занимает
+            меньше минуты.
           </p>
 
           <ActionRow
             done={!!order.steps?.client_started_bot}
             title="Зайдите в своего бота и нажмите «Запустить»"
-            hint="Так мы сможем передать вам права владельца"
+            hint="После этого мы автоматически передадим вам права владельца"
+            doneHint="Сделано — передаём вам права на бота"
             href={order.bot_username ? `https://telegram.me/${order.bot_username}` : undefined}
             label={order.bot_username ? `@${order.bot_username}` : 'Открыть бота'}
             icon={<MessageSquare size={16} />}
           />
           <ActionRow
             done={!!order.steps?.client_joined}
-            title="Вступите в группу уведомлений"
-            hint="Мы сразу сделаем вас её админом"
+            title="Группа уведомлений"
+            hint="Вступите — мы сразу сделаем вас админом"
+            doneHint="Вы в группе и назначены админом. Сохраните ссылку — она же в Настройках → «Каналы уведомлений»"
             href={order.group_invite_link || undefined}
-            label="Открыть группу"
+            label="Перейти в группу"
             icon={<Users size={16} />}
           />
 
+          {/* ⚠️ «Заберите бота» убрано: человек не понимал, что от него нужно —
+              казалось, что есть какое-то отдельное действие «забрать». Забрать
+              = зайти в бота, то есть тот же первый шаг. Так и пишем. */}
           {order.claim_deadline && !order.steps?.bot_transferred && (
             <div className="mt-4 flex items-start gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
               <Clock size={15} className="mt-0.5 shrink-0" />
               <span>
-                Заберите бота до {new Date(order.claim_deadline).toLocaleDateString('ru-RU', {
+                Зайдите в бота до {new Date(order.claim_deadline).toLocaleDateString('ru-RU', {
                   day: 'numeric', month: 'long',
                 })} — иначе он удалится, и настройку придётся запустить заново
                 (платить повторно не нужно).
@@ -668,8 +680,10 @@ export default function AutoSetupTab() {
 }
 
 /** Строка «что сделать» с галочкой готовности. */
-function ActionRow({ done, title, hint, href, label, icon }: {
+function ActionRow({ done, title, hint, doneHint, href, label, icon }: {
   done: boolean; title: string; hint: string
+  /** Что написать, когда шаг уже сделан. Пусто → «Сделано». */
+  doneHint?: string
   href?: string; label: string; icon: React.ReactNode
 }) {
   return (
@@ -683,11 +697,20 @@ function ActionRow({ done, title, hint, href, label, icon }: {
         <div className={`text-sm font-medium ${done ? 'text-green-900' : 'text-gray-900'}`}>
           {title}
         </div>
-        <div className="text-xs text-gray-500 mt-0.5">{done ? 'Сделано' : hint}</div>
+        <div className="text-xs text-gray-500 mt-0.5">
+          {done ? (doneHint || 'Сделано') : hint}
+        </div>
       </div>
-      {!done && href && (
+      {/* ⚠️ Кнопка остаётся и у ВЫПОЛНЕННОГО шага. Раньше она пряталась
+          (`!done && href`), и после вступления в группу попасть в неё было
+          неоткуда — ссылку человек уже закрыл, а по chat_id в Telegram не
+          вступишь. То же с ботом: зайти в него нужно и позже. */}
+      {href && (
         <a href={href} target="_blank" rel="noreferrer"
-           className="btn-primary px-3 py-2 text-sm whitespace-nowrap flex items-center gap-1.5">
+           className={`px-3 py-2 text-sm whitespace-nowrap flex items-center gap-1.5 rounded-lg ${
+             done
+               ? 'border border-green-300 text-green-800 hover:bg-green-100'
+               : 'btn-primary'}`}>
           {label} <ArrowRight size={14} />
         </a>
       )}
@@ -699,15 +722,25 @@ function ActionRow({ done, title, hint, href, label, icon }: {
 function SetupLog({ log }: { log: Step[] }) {
   if (!log?.length) return null
   return (
-    <div className="mt-4 space-y-1.5 border-t border-gray-100 pt-3">
-      {log.slice(-8).map((s, i) => (
-        <div key={i} className="flex items-start gap-2 text-sm">
-          {s.ok
-            ? <Check size={14} className="text-green-600 mt-0.5 shrink-0" />
-            : <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />}
-          <span className={s.ok ? 'text-gray-600' : 'text-amber-800'}>{s.text}</span>
-        </div>
-      ))}
+    <div className="mt-4 border-t border-gray-100 pt-3">
+      {/* ⚠️ Заголовок обязателен: без него список читался как обрывок
+          непонятного текста, а это отчёт — что именно мы сделали за человека. */}
+      <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">
+        Что мы сделали
+      </p>
+      <div className="space-y-1.5">
+        {/* ⚠️ Показываем ВЕСЬ отчёт, а не последние 8 строк: человек платит за
+            работу и должен видеть её целиком. Обрезка съедала начало —
+            создание бота и подключение к кабинету. */}
+        {log.map((s, i) => (
+          <div key={i} className="flex items-start gap-2 text-sm">
+            {s.ok
+              ? <Check size={14} className="text-green-600 mt-0.5 shrink-0" />
+              : <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />}
+            <span className={s.ok ? 'text-gray-600' : 'text-amber-800'}>{s.text}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
