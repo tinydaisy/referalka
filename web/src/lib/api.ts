@@ -851,6 +851,11 @@ export const api = {
       request('/api/v1/clients/me/tg-autosetup/confirm-started-bot', { method: 'POST' }),
     confirmJoinedGroup: () =>
       request('/api/v1/clients/me/tg-autosetup/confirm-joined-group', { method: 'POST' }),
+    confirmChannel: () =>
+      request('/api/v1/clients/me/tg-autosetup/confirm-channel', { method: 'POST' }),
+    // Передать права немедленно, не дожидаясь фоновой задачи (она раз в минуту).
+    transferNow: () =>
+      request('/api/v1/clients/me/tg-autosetup/transfer-now', { method: 'POST' }),
   },
 
   // Админская панель автонастройки — сервисные аккаунты и заказы.

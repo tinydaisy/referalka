@@ -399,6 +399,90 @@ async def confirm_joined_group(user=Depends(get_current_client), db=Depends(get_
     return {"ok": True, "already": False}
 
 
+@router.post("/confirm-channel", summary="Клиент подтверждает, что добавил бота в свой канал")
+async def confirm_channel(user=Depends(get_current_client), db=Depends(get_db)):
+    """Отметка «я добавил бота в свой канал» — руками, кнопкой в кабинете.
+
+    ⚠️ ЗАЧЕМ, ЕСЛИ ЕСТЬ АВТОМАТИКА. Добавление бота в канал платформа ловит
+    апдейтом `my_chat_member` — но только пока бот СЛУШАЕТСЯ процессом
+    `plusson-bot`, а список ботов там читается один раз при старте. Бот услуги
+    создан позже, и до перезапуска сервиса его апдейты до нас не доходят: у
+    клиента 176 ровно так и вышло — бот в канал добавлен, а отметки нет и
+    сказать об этом нечем.
+
+    Поэтому шаг подтверждается и вручную, как заход в бота и вступление в
+    группу. Автоматика остаётся: сработала раньше — отметка уже стоит.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    order = await db.fetchrow(
+        """SELECT id, channel_linked_at FROM service_orders
+            WHERE client_id = $1 AND setup_state IN ('awaiting_user', 'done')
+            ORDER BY id DESC LIMIT 1""",
+        client_id,
+    )
+    if not order:
+        raise HTTPException(404, "Нет настройки, ожидающей ваших действий")
+    if order["channel_linked_at"]:
+        return {"ok": True, "already": True}
+
+    await db.execute(
+        "UPDATE service_orders SET channel_linked_at = NOW(), updated_at = NOW() "
+        " WHERE id = $1",
+        order["id"],
+    )
+    logger.info("tg_setup: клиент %s подтвердил добавление бота в канал", client_id)
+    return {"ok": True, "already": False}
+
+
+@router.post("/transfer-now", summary="Передать права на бота и группу прямо сейчас")
+async def transfer_now(user=Depends(get_current_client), db=Depends(get_db)):
+    """Кнопка «Передать права мне» — запускает передачу немедленно.
+
+    ⚠️ ЗАЧЕМ ОТДЕЛЬНАЯ КНОПКА. Передачу и так делает фоновая задача, но она
+    ходит РАЗ В МИНУТУ и только по своим условиям. Человек, отметивший шаги,
+    смотрит в экран и не понимает, ждать ему или что-то сломалось. Кнопка даёт
+    явное действие и мгновенный ответ.
+
+    ⚠️ Своей ЛОГИКИ передачи здесь нет — только «разбудить» задачу: она уже
+    умеет и передавать бота, и назначать админа группы, и писать в лог. Вторая
+    реализация неминуемо разошлась бы с первой.
+
+    ⚠️ Передать бота можно ТОЛЬКО после того, как человек написал ему: это
+    требование Telegram, получателя иначе не выбрать. Поэтому проверяем отметку
+    и объясняем причину, а не молча ничего не делаем.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    order = await db.fetchrow(
+        """SELECT id, client_started_bot_at, bot_transferred_at, bot_created_at
+             FROM service_orders
+            WHERE client_id = $1 AND setup_state = 'awaiting_user'
+            ORDER BY id DESC LIMIT 1""",
+        client_id,
+    )
+    if not order:
+        raise HTTPException(404, "Нет настройки, ожидающей ваших действий")
+    if order["bot_transferred_at"]:
+        return {"ok": True, "already": True}
+    if not order["client_started_bot_at"]:
+        raise HTTPException(
+            400,
+            "Сначала зайдите в бота и нажмите «Запустить», иначе Telegram "
+            "не даст передать вам права — и отметьте шаг галочкой",
+        )
+
+    # ⚠️ Ставим задачу в очередь, а не выполняем здесь: разговор с BotFather —
+    # это переписка с паузами на десятки секунд, HTTP-запрос из браузера
+    # столько не ждёт и отвалится по таймауту.
+    from app.celery_app import celery
+    celery.send_task("app.tasks.tg_setup.tick")
+    logger.info("tg_setup: клиент %s запросил передачу прав вручную", client_id)
+    return {"ok": True, "started": True}
+
+
 @router.post("/start")
 async def start_setup(data: StartRequest,
                       user=Depends(get_current_client), db=Depends(get_db)):

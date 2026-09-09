@@ -149,18 +149,33 @@ export default function AutoSetupTab() {
    * приватности, и добавить его мы не можем). По этим отметкам фоновая задача
    * передаёт права.
    */
-  const [confirming, setConfirming] = useState<'bot' | 'group' | null>(null)
+  const [confirming, setConfirming] = useState<'bot' | 'group' | 'channel' | null>(null)
 
-  const confirmStep = async (step: 'bot' | 'group') => {
+  const confirmStep = async (step: 'bot' | 'group' | 'channel') => {
     setConfirming(step)
     try {
       if (step === 'bot') await api.tgAutosetup.confirmStartedBot()
-      else await api.tgAutosetup.confirmJoinedGroup()
+      else if (step === 'group') await api.tgAutosetup.confirmJoinedGroup()
+      else await api.tgAutosetup.confirmChannel()
       await load(true)
     } catch (e: any) {
       alert(e?.message || 'Не удалось отметить шаг')
     } finally {
       setConfirming(null)
+    }
+  }
+
+  /** Передать права немедленно — кнопка в конце списка действий. */
+  const [transferring, setTransferring] = useState(false)
+  const transferNow = async () => {
+    setTransferring(true)
+    try {
+      await api.tgAutosetup.transferNow()
+      await load(true)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось запустить передачу')
+    } finally {
+      setTransferring(false)
     }
   }
 
@@ -660,23 +675,50 @@ export default function AutoSetupTab() {
             видит добавление бота сама (апдейт `my_chat_member`), в отличие от
             захода в бота и вступления в группу — там подтверждение нужно.
           */}
-          <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 mb-2.5">
-            <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center shrink-0">
-                <Users size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-900">
-                  Если у вас есть свой канал — добавьте туда бота
-                  <span className="text-gray-400 font-normal"> (необязательно)</span>
+          {/* ⚠️ Галочка есть и здесь. Раньше её не было: рассчитывали, что
+              платформа увидит добавление бота сама через `my_chat_member`. Но
+              апдейт доходит, только пока бот слушается процессом plusson-bot, а
+              бот услуги создан позже его старта — человек добавил бота в канал
+              и не мог никак об этом сообщить. */}
+          <ActionRow
+            done={!!order.steps?.channel_linked}
+            title="Добавьте бота в свой канал (если он есть)"
+            hint="Админом, с правом «Публикация сообщений» — тогда сможете рассылать и в канал"
+            doneHint="Канал подключён к рассылкам"
+            icon={<Users size={16} />}
+            label=""
+            onConfirm={() => confirmStep('channel')}
+            confirming={confirming === 'channel'}
+          />
+
+          {/* ─── Шаг 4: передать права ───
+              ⚠️ Кнопка нужна, хотя передачу делает и фоновая задача: она ходит
+              раз в минуту, и человек, отметивший шаги, смотрит в неизменившийся
+              экран и не понимает — ждать или сломалось. Кнопка даёт явное
+              действие. Своей логики передачи здесь нет: она «будит» ту же
+              задачу, чтобы не разошлись две реализации. */}
+          {!order.steps?.bot_transferred && (
+            <div className="rounded-lg border-2 px-4 py-3 mb-2.5"
+                 style={{ borderColor: '#FFCFA4' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-7 h-7 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center shrink-0">
+                  <ArrowRight size={16} />
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  Админом, с правом «Публикация сообщений» — тогда сможете
-                  рассылать и в канал. Мы увидим это сами и подключим его.
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900">
+                    Передать права на бота и группу
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    Когда отметили шаги выше — нажмите, и бот станет вашим
+                  </div>
                 </div>
+                <button onClick={transferNow} disabled={transferring}
+                        className="btn-gold px-4 py-2 text-sm whitespace-nowrap disabled:opacity-50">
+                  {transferring ? 'Передаём…' : 'Передать мне'}
+                </button>
               </div>
             </div>
-          </div>
+          )}
 
           {/* ⚠️ «Заберите бота» убрано: человек не понимал, что от него нужно —
               казалось, что есть какое-то отдельное действие «забрать». Забрать
@@ -893,7 +935,7 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
                  onChange={onConfirm}
                  className="w-4 h-4 rounded border-gray-300 cursor-pointer" />
           <span className="text-sm text-gray-700">
-            {confirming ? 'Отмечаем…' : 'Я это сделал(а) — продолжайте'}
+            {confirming ? 'Отмечаем…' : 'Сделала'}
           </span>
         </label>
       )}

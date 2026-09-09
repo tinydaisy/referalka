@@ -75,12 +75,31 @@ async def _log_step(db, order_id: int, step: str, text: str, ok: bool = True):
          "ok": ok, "text": text},
         ensure_ascii=False,
     )
+    # ⚠️⚠️ НЕ ПОВТОРЯЕМ ОДНО И ТО ЖЕ СООБЩЕНИЕ ПОДРЯД.
+    #
+    # Поллер ходит РАЗ В МИНУТУ и на каждом заходе повторяет неудавшийся шаг.
+    # Без этой проверки лог рос бесконечно: на живом заказе за час накопилось
+    # 114 строк, из них «Передаём вам права на бота…» — 53 раза и «Передача не
+    # подтвердилась» — 51. Отчёт о работе превращался в простыню, где ничего
+    # не найти, а человек видел это как поломку.
+    #
+    # ⚠️ Сравнивать с ОДНОЙ последней строкой НЕДОСТАТОЧНО: неудачная попытка
+    # пишет ПАРУ сообщений («Передаём…» → «Не подтвердилась»), и они чередуются
+    # — каждое не равно предыдущему, проверка их пропускает. Поэтому смотрим на
+    # несколько последних: текст, который там уже есть, не добавляем.
     await db.execute(
-        "UPDATE service_orders "
-        "   SET setup_log = COALESCE(setup_log, '[]'::jsonb) || $2::jsonb, "
-        "       updated_at = NOW() "
-        " WHERE id = $1",
-        order_id, f"[{entry}]",
+        """UPDATE service_orders
+              SET setup_log = COALESCE(setup_log, '[]'::jsonb) || $2::jsonb,
+                  updated_at = NOW()
+            WHERE id = $1
+              AND NOT EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements(COALESCE(setup_log, '[]'::jsonb))
+                           WITH ORDINALITY AS t(x, ord)
+                     WHERE ord > jsonb_array_length(COALESCE(setup_log,'[]'::jsonb)) - 4
+                       AND x ->> 'text' = $3
+              )""",
+        order_id, f"[{entry}]", text,
     )
 
 
