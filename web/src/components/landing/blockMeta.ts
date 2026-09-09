@@ -13,7 +13,7 @@ export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'process' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
-  | 'product_content' | 'survey' | 'description' | 'nav'
+  | 'product_content' | 'survey' | 'description' | 'nav' | 'venue'
   | 'el_button' | 'el_heading' | 'el_text' | 'el_image' | 'el_heading_text'
 
 export interface BlockMeta {
@@ -239,6 +239,16 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     hint: 'Заголовок и любое содержимое.',
     repeatable: true,
     fields: ['title', 'subtitle', 'body', 'button'],
+  },
+  // ⚠️ Живой блок: адрес приходит из `events.address` — того же поля, что в
+  // Mini App и в боте. Своего поля адреса у блока НЕТ намеренно: иначе адрес
+  // пришлось бы править в двух местах, и на карте оказался бы старый.
+  venue: {
+    kind: 'venue',
+    label: 'Место проведения',
+    hint: 'Адрес из настроек события и карта с меткой. Для офлайн-событий: если в адресе ссылка на эфир, а не адрес — карта не показывается.',
+    live: true,
+    fields: ['title', 'body'],
   },
   support: {
     kind: 'support',

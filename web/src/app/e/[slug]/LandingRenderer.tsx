@@ -1938,6 +1938,59 @@ function BlockBody(props: any) {
     }
 
     /* ── Есть вопросы ──────────────────────────────────────────────────── */
+    /**
+     * Место проведения: адрес + карта с меткой.
+     *
+     * ⚠️⚠️ КАРТА — ЯНДЕКС, И БЕЗ КЛЮЧА. У Google Maps встраивание требует
+     * API-ключа с привязанным платёжным аккаунтом, то есть клиенту пришлось бы
+     * его заводить, а нам хранить. Яндекс отдаёт карту обычным `<iframe>` по
+     * тексту адреса — ни ключей, ни оплаты, и в России открывается у всех.
+     *
+     * ⚠️ Поле `events.address` — ОДНО на всё: туда пишут либо офлайн-адрес,
+     * либо ссылку на эфир (так задумано с самого начала). Поэтому решаем по
+     * содержимому: ссылка → секции нет вовсе, иначе карта покажет случайное
+     * место по обрывку URL.
+     */
+    case 'venue': {
+      const addr = (event?.address || '').trim()
+      if (!addr) return null
+      // Ссылка на эфир, а не адрес — карте здесь делать нечего.
+      if (/^https?:\/\//i.test(addr) || /^(t\.me|vk\.com|max\.ru)\//i.test(addr)) {
+        return null
+      }
+      const q = encodeURIComponent(addr)
+      return (
+        <div>
+          <p className="mb-3 text-base" style={{ color: 'var(--text)' }}>{addr}</p>
+          {/* ⚠️ В PDF iframe не печатается — вместо карты даём ссылку, иначе в
+              файле остаётся пустой прямоугольник (та же логика, что у галереи). */}
+          {forPdf ? (
+            <a href={`https://yandex.ru/maps/?text=${q}`}
+               style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
+              Открыть на карте
+            </a>
+          ) : (
+            <>
+              <div className="overflow-hidden" style={{ borderRadius: radius }}>
+                <iframe
+                  src={`https://yandex.ru/map-widget/v1/?text=${q}&z=16`}
+                  width="100%" height="320" frameBorder="0" allowFullScreen
+                  style={{ border: 0, display: 'block' }}
+                  title="Карта места проведения"
+                />
+              </div>
+              <a href={`https://yandex.ru/maps/?text=${q}`}
+                 target="_blank" rel="noreferrer"
+                 className="inline-block mt-3 text-sm underline"
+                 style={{ color: 'var(--accent)' }}>
+                Построить маршрут
+              </a>
+            </>
+          )}
+        </div>
+      )
+    }
+
     case 'support': {
       const s = content.support || {}
       const links = [

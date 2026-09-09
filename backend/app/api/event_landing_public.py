@@ -78,8 +78,10 @@ async def get_public_landing(
     _set_cors(response)
 
     event = await db.fetchrow(
+        # ⚠️ `address` — для блока «Место проведения» с картой. Поле общее с
+        # Mini App и ботом: адрес живёт в одном месте, а не копируется в блок.
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
-                  e.status, e.module_slug, e.is_collab,
+                  e.status, e.module_slug, e.is_collab, e.address,
                   e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
                   e.seats_count_mode, e.seats_base, e.skip_contact_form,
@@ -640,6 +642,10 @@ async def get_public_landing(
             "end_at": ev.get("end_at"),
             "poster_url": ev["poster_url"],
             "module_slug": ev["module_slug"],
+            # ⚠️ Одно поле на всё: сюда клиент пишет либо офлайн-адрес, либо
+            # ссылку на эфир. Блок «Место проведения» сам решает, показывать
+            # карту (адрес) или ничего (ссылка) — второго поля не заводим.
+            "address": ev.get("address"),
             # Даты взяты из программы → на странице показываем только даты,
             # без времени: у дня программы своё расписание по слотам.
             "dates_from_program": bool(ev.get("dates_from_program")),
