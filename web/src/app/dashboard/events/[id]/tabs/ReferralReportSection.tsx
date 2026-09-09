@@ -175,37 +175,45 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[760px]">
+          <table className="w-full text-sm min-w-[1180px]">
+            {/* ⚠️ КАЖДОЕ ПОЛЕ — СВОЯ КОЛОНКА (требование владельца 09.09.2026).
+                Почта, телефон и реф-код были свалены мелким текстом под именем:
+                строка раздувалась, а цифры уезжали за край экрана. */}
             <thead className="text-[11px] text-gray-400 uppercase tracking-wide bg-gray-50">
               <tr>
-                <th className="text-left px-5 py-2.5 font-medium">Реферал</th>
-                <th className="text-left px-3 py-2.5 font-medium">Площадки</th>
-                <th className="text-left px-3 py-2.5 font-medium">Сам зареган</th>
-                <th className="text-right px-3 py-2.5 font-medium">Привёл</th>
-                <th className="text-right px-3 py-2.5 font-medium">Зарегались</th>
-                <th className="text-right px-3 py-2.5 font-medium">Оплатили</th>
-                <th className="text-right px-3 py-2.5 font-medium">Сумма оплат</th>
-                <th className="w-8 px-3 py-2.5" />
+                <th className="text-left px-4 py-2.5 font-medium">Имя</th>
+                <th className="text-left px-2 py-2.5 font-medium">Email</th>
+                <th className="text-left px-2 py-2.5 font-medium">Телефон</th>
+                <th className="text-left px-2 py-2.5 font-medium">Площадки</th>
+                <th className="text-left px-2 py-2.5 font-medium">Реф-код</th>
+                <th className="text-center px-2 py-2.5 font-medium">Сам<br/>зареган</th>
+                <th className="text-right px-2 py-2.5 font-medium">Привёл</th>
+                <th className="text-right px-2 py-2.5 font-medium">Зарегались</th>
+                <th className="text-right px-2 py-2.5 font-medium">Оплатили</th>
+                <th className="text-right px-2 py-2.5 font-medium">Сумма оплат</th>
+                <th className="w-10 px-2 py-2.5" />
               </tr>
             </thead>
             <tbody>
               {list.map(r => (
                 <tr key={r.contact_id} className="border-t border-gray-50 hover:bg-gray-50/60">
-                  <td className="px-5 py-3">
+                  <td className="px-4 py-3">
                     {/* Имя ведёт на карточку рефовода со списком его людей. */}
                     <Link href={personHref(r.contact_id)}
                           className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
                       {r.name || 'Без имени'}
                     </Link>
-                    <div className="text-xs text-gray-400 flex items-center gap-2 flex-wrap mt-0.5">
-                      {r.email && <span>{r.email}</span>}
-                      {r.phone && <span>{r.phone}</span>}
-                      <span className="font-mono">{r.ref_code}</span>
-                    </div>
+                  </td>
+                  <td className="px-2 py-3 text-xs text-gray-600">
+                    {r.email || <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-2 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {r.phone || <span className="text-gray-300">—</span>}
                   </td>
                   {/* Площадки — иконка + ник, по одной на строку. */}
-                  <td className="px-3 py-3"><PlatformList p={r} /></td>
-                  <td className="px-3 py-3">
+                  <td className="px-2 py-3"><PlatformList p={r} /></td>
+                  <td className="px-2 py-3 text-xs font-mono text-gray-500">{r.ref_code}</td>
+                  <td className="px-2 py-3 text-center">
                     {r.self_registered ? (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                         <CheckCircle2 size={12} /> Да
@@ -216,13 +224,13 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-3 text-right font-semibold text-gray-900">{r.brought}</td>
-                  <td className="px-3 py-3 text-right text-gray-700">{r.registered}</td>
-                  <td className="px-3 py-3 text-right text-gray-700">{r.paid_count}</td>
-                  <td className="px-3 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                  <td className="px-2 py-3 text-right font-semibold text-gray-900">{r.brought}</td>
+                  <td className="px-2 py-3 text-right text-gray-700">{r.registered}</td>
+                  <td className="px-2 py-3 text-right text-gray-700">{r.paid_count}</td>
+                  <td className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
                     {r.paid_sum > 0 ? money(r.paid_sum) : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-3 py-3 text-right">
+                  <td className="px-2 py-3 text-right">
                     <Link href={personHref(r.contact_id)}
                           title="Открыть карточку и список приведённых"
                           className="inline-flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
@@ -234,18 +242,16 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold text-gray-900">
-                <td className="px-5 py-3">
+                {/* Итог занимает первые 6 колонок (имя…сам зареган) — по ним
+                    суммировать нечего, а цифры должны встать под своими. */}
+                <td className="px-4 py-3" colSpan={6}>
                   Итого{needle ? ' (по всем, не только найденным)' : ''}
                 </td>
-                {/* Пустые ячейки под «Площадки» и «Сам зареган» — итог по ним
-                    не считается, но столбцы должны совпасть с шапкой. */}
-                <td className="px-3 py-3" />
-                <td className="px-3 py-3" />
-                <td className="px-3 py-3 text-right">{totals.brought ?? 0}</td>
-                <td className="px-3 py-3 text-right">{totals.registered ?? 0}</td>
-                <td className="px-3 py-3 text-right">{totals.paid_count ?? 0}</td>
-                <td className="px-3 py-3 text-right whitespace-nowrap">{money(totals.paid_sum ?? 0)}</td>
-                <td className="px-3 py-3" />
+                <td className="px-2 py-3 text-right">{totals.brought ?? 0}</td>
+                <td className="px-2 py-3 text-right">{totals.registered ?? 0}</td>
+                <td className="px-2 py-3 text-right">{totals.paid_count ?? 0}</td>
+                <td className="px-2 py-3 text-right whitespace-nowrap">{money(totals.paid_sum ?? 0)}</td>
+                <td className="px-2 py-3" />
               </tr>
             </tfoot>
           </table>
