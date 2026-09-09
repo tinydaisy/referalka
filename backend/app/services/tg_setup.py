@@ -636,6 +636,33 @@ async def transfer_bot(client, bot_username: str, to_username: str,
             "Вы ещё не заходили в своего бота. Откройте его и нажмите «Запустить»",
             retryable=True, raw=r,
         )
+    # ⚠️⚠️ ЭКРАН ПОДТВЕРЖДЕНИЯ — ЭТО КНОПКА, А НЕ ТЕКСТ.
+    #
+    # После ника BotFather НЕ передаёт бота сразу: он показывает «You are about
+    # to transfer ownership… After this you won't be able to control the bot»
+    # и КНОПКУ «Yes, I am sure, proceed.». Код её не нажимал и ждал слова
+    # «success» — отсюда «Передача не подтвердилась» на каждой попытке при
+    # полностью исправном аккаунте (поймано на живом заказе 09.09.2026: в
+    # переписке видно, что BotFather дошёл до этого экрана и замер).
+    #
+    # ⚠️ Название кнопки сверено с живым диалогом. Держим и запасные варианты:
+    # BotFather их иногда меняет, а падать из-за точки в конце фразы нельзя.
+    if "about to transfer" in low or "are you sure" in low or "make sure" in low:
+        # ⚠️ `_click` ищет по ВХОЖДЕНИЮ подстроки, поэтому хватает короткого
+        # куска фразы: точка в конце и мелкие правки текста ничего не сломают.
+        clicked = False
+        for label in ("Yes, I am sure", "I am sure", "proceed", "Yes"):
+            if await _click(client, BOTFATHER, label):
+                clicked = True
+                break
+        if not clicked:
+            raise BotFatherError(
+                "BotFather не показал кнопку подтверждения передачи", raw=r)
+        # Ответ на нажатие: либо запрос пароля, либо сразу успех.
+        msgs = await client.get_messages(BOTFATHER, limit=1)
+        r = (msgs[0].text or "") if msgs else ""
+        low = r.lower()
+
     if "password" in low or "2-step" in low or "two-step" in low:
         r = await _ask(client, BOTFATHER, twofa_password, wait=10)
         low = (r or "").lower()
