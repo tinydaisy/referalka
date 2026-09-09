@@ -40,6 +40,9 @@ export type CoverTemplate = {
   title_color?: string | null
   text_color?: string | null
   show_brand?: boolean
+  show_owner_name?: boolean
+  show_brand_name?: boolean
+  brand_position?: 'above' | 'below' | 'none'
 }
 
 export type CoverTheme = {
@@ -62,6 +65,7 @@ export type CoverTheme = {
   brand_logo_light_url?: string | null
   brand_name?: string | null
   name?: string | null
+  last_name?: string | null
 }
 
 export const COVER_W = 1280
@@ -105,7 +109,17 @@ export default function CoverCanvas({
   scale?: number
 }) {
   const hasPhoto = !!photoUrl && t.photo_side !== 'none'
-  const brand = th.brand_name || th.name || ''
+
+  // ⚠️ Две ОТДЕЛЬНЫЕ строки, а не одна склеенная: клиент выбирает галочками,
+  // что показать — имя, бренд, обе или ничего. Союз «и» между ними не ставим,
+  // это подписи, а не перечисление.
+  const ownerName = [th.name, th.last_name].filter(Boolean).join(' ')
+  const brandLines = t.brand_position === 'none' ? [] : [
+    ...(t.show_owner_name ? [ownerName] : []),
+    // Старая одиночная галочка `show_brand` — для шаблонов, сохранённых до
+    // появления двух: без неё у них бренд пропал бы молча.
+    ...((t.show_brand_name ?? t.show_brand) !== false ? [th.brand_name || ''] : []),
+  ].filter(Boolean)
   const logo = logoUrl(t, th)
 
   // ⚠️ Текст встаёт с ПРОТИВОПОЛОЖНОЙ стороны от фото. Клиент двигает фото
@@ -124,6 +138,18 @@ export default function CoverCanvas({
   // а семейство в CSS называется «Bebas Neue». Ключ как есть браузер не найдёт
   // и молча нарисует запасным шрифтом.
   const label = (k?: string | null) => th.fonts?.find(f => f.key === k)?.label
+  // Сами подписи. ⚠️ Отступ зависит от места: над названием он снизу, под —
+  // сверху, иначе строки слипаются с заголовком.
+  const brandBlock = brandLines.length > 0 ? (
+    <div style={{
+      [t.brand_position === 'above' ? 'marginBottom' : 'marginTop']: 20,
+      fontSize: 24, letterSpacing: 0.5, lineHeight: 1.35,
+      color: t.text_color || th.lp_color_body || '#FFFFFF', opacity: 0.75,
+    }}>
+      {brandLines.map((line, i) => <div key={i}>{line}</div>)}
+    </div>
+  ) : null
+
   const titleFont = brandFontCss(th.lp_font_heading || 'BebasNeue', label(th.lp_font_heading))
   const bodyFont = brandFontCss(th.lp_font_body || 'Roboto', label(th.lp_font_body))
 
@@ -207,6 +233,8 @@ export default function CoverCanvas({
         textAlign: align,
         fontFamily: bodyFont,
       }}>
+        {t.brand_position === 'above' && brandBlock}
+
         {!!overline && (
           <div style={{
             fontSize: 22, letterSpacing: 1.5, textTransform: 'uppercase',
@@ -240,12 +268,7 @@ export default function CoverCanvas({
           }}>{subtitle}</div>
         )}
 
-        {t.show_brand !== false && !!brand && (
-          <div style={{
-            marginTop: 22, fontSize: 24, letterSpacing: 0.5,
-            color: t.text_color || th.lp_color_body || '#FFFFFF', opacity: 0.75,
-          }}>{brand}</div>
-        )}
+        {t.brand_position !== 'above' && brandBlock}
       </div>
     </div>
   )

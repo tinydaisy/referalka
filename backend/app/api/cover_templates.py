@@ -33,6 +33,7 @@ _FIELDS = (
     "photo_side", "photo_scale", "photo_x", "photo_y",
     "text_x", "text_y", "text_w", "text_align", "title_size",
     "title_color", "text_color", "show_brand",
+    "show_owner_name", "show_brand_name", "brand_position",
 )
 
 # Значения по умолчанию — те же, что в CHECK миграции. ⚠️ Держать одинаковыми:
@@ -42,6 +43,7 @@ _DEFAULTS = {
         "photo_side": "left", "text_x": 50, "text_y": 50, "text_w": 45,
         "text_align": "left", "title_size": 8, "logo_variant": "light",
         "logo_size": 7, "logo_x": 88, "logo_y": 6,
+        "show_owner_name": False, "show_brand_name": True, "brand_position": "below",
     },
     # У спикера имя по центру-слева, фото справа, сверху партнёры — раскладка
     # другая по смыслу, а не по вкусу.
@@ -51,6 +53,9 @@ _DEFAULTS = {
         # У спикера сверху идут логотипы партнёров — свой логотип уводим ниже,
         # к левому краю, чтобы они не наезжали друг на друга.
         "logo_size": 6, "logo_x": 12, "logo_y": 14,
+        # У спикера под именем идёт его роль, а бренд — над названием
+        # конференции: снизу и так две строки, третья их перегружает.
+        "show_owner_name": False, "show_brand_name": True, "brand_position": "above",
     },
 }
 
@@ -74,6 +79,9 @@ class TemplateIn(BaseModel):
     title_color: Optional[str] = None
     text_color: Optional[str] = None
     show_brand: Optional[bool] = None
+    show_owner_name: Optional[bool] = None
+    show_brand_name: Optional[bool] = None
+    brand_position: Optional[str] = None
 
 
 def _clamp(v, lo: int, hi: int, default: int) -> int:
@@ -111,6 +119,8 @@ def _norm(data: dict, kind: str) -> dict:
         d["photo_side"] = _DEFAULTS[kind]["photo_side"]
     if "text_align" in d and d["text_align"] not in ("left", "center", "right"):
         d["text_align"] = "left"
+    if "brand_position" in d and d["brand_position"] not in ("above", "below", "none"):
+        d["brand_position"] = "below"
     return d
 
 
@@ -153,7 +163,7 @@ async def get_template(
                   lp_font_heading, lp_font_body,
                   lp_color_heading, lp_color_body, lp_heading_metallic,
                   brand_logo_url, brand_logo_light_url,
-                  brand_name, name
+                  brand_name, name, last_name
              FROM clients WHERE id = $1""",
         client_id,
     )

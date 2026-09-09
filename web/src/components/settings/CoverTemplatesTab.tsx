@@ -197,11 +197,28 @@ export default function CoverTemplatesTab() {
               options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]}
             />
           </div>
-          <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={tpl.show_brand !== false}
-                   onChange={e => patch({ show_brand: e.target.checked })} />
-            Показывать название бренда
+        </Card>
+
+        {/* ── Подписи ── */}
+        <Card title="Имя и бренд">
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={!!tpl.show_owner_name}
+                   onChange={e => patch({ show_owner_name: e.target.checked })} />
+            Имя
           </label>
+          <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={(tpl.show_brand_name ?? tpl.show_brand) !== false}
+                   onChange={e => patch({ show_brand_name: e.target.checked })} />
+            Название бренда
+          </label>
+          <div className="mt-3">
+            <div className="mb-1 text-xs text-gray-600">Где разместить</div>
+            <Choice
+              value={tpl.brand_position || 'below'}
+              onChange={v => patch({ brand_position: v as any })}
+              options={[['above', 'Над названием'], ['below', 'Под названием'], ['none', 'Не показывать']]}
+            />
+          </div>
         </Card>
       </div>
 
