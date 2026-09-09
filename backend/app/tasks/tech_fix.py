@@ -40,6 +40,35 @@ def accrue_monthly_fix():
         asyncio.set_event_loop(None)
 
 
+@shared_task(name="app.tasks.tech_fix.accrue_quarter_bonus")
+def accrue_quarter_bonus():
+    """Квартальная премия за долю доживших.
+
+    ⚠️ Раз в сутки, а не раз в квартал: задача сама решает, закрыт ли квартал
+    (считается через месяц после его конца). Раз в квартал значило бы — не
+    отработала в свой день, премия потеряна до следующего.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(_run_quarter())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+
+async def _run_quarter() -> dict:
+    from app.services.tech_accruals import accrue_quarter_bonus as _accrue
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        try:
+            n = await _accrue(db)
+        except Exception as e:                                  # noqa: BLE001
+            logger.exception("tech quarter bonus: не начислена: %s", e)
+            return {"ok": False, "error": str(e)}
+    return {"ok": True, "accrued": n}
+
+
 async def _run() -> dict:
     from app.services.tech_accruals import accrue_monthly_fix as _accrue
 

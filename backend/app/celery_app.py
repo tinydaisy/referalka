@@ -129,6 +129,13 @@ celery.conf.update(
         "task": "app.tasks.tech_fix.accrue_monthly_fix",
         "schedule": 86400.0,
     },
+    # Квартальная премия за долю доживших. ⚠️ Ежедневно: задача сама решает,
+    # закрыт ли квартал (считается через месяц после конца). Повторный прогон
+    # безопасен — уникальный индекс не даст второй строки.
+    "tech-quarter-bonus": {
+        "task": "app.tasks.tech_fix.accrue_quarter_bonus",
+        "schedule": 86400.0,
+    },
     "notify-expiring-addons": {
             "task": "app.tasks.addon_expiry.notify_expiring_addons",
             "schedule": 3600.0,

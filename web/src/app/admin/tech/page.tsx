@@ -12,11 +12,15 @@ import { api } from '@/lib/api'
 const rub = (kop?: number | null) =>
   `${Math.round((kop || 0) / 100).toLocaleString('ru-RU')} ₽`
 
+// ⚠️ Подписи и правила — по листу «2. KPI и проценты», не выдуманные.
 const KIND: Record<string, string> = {
-  activation: 'Активация (вторая оплата)',
-  revival: 'Оживление (после 60 дней тишины)',
-  fix: 'Фикс за обслуживание, в месяц',
-  referral: 'Процент за приведённых',
+  activation: 'Активация — % от тарифа',
+  revival: 'Оживление — % от тарифа',
+  fix: 'Фикс за обслуживание (по вилке ниже)',
+  referral: 'Свой приведённый — % пожизненно',
+  referral2: '2-й уровень — %',
+  quarter_bonus: 'Квартальная премия',
+  bonus: 'Премия вручную',
 }
 
 type Tab = 'specs' | 'assign' | 'dialogs' | 'money'
@@ -25,11 +29,17 @@ export default function AdminTechPage() {
   const [tab, setTab] = useState<Tab>('specs')
   const [specs, setSpecs] = useState<any[]>([])
   const [rates, setRates] = useState<any[]>([])
+  const [fixTiers, setFixTiers] = useState<any[]>([])
+  const [quarterTiers, setQuarterTiers] = useState<any[]>([])
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
     api.adminTech.specialists().then((r: any) => setSpecs(r.specialists || [])).catch(() => {})
-    api.adminTech.rates().then((r: any) => setRates(r.rates || [])).catch(() => {})
+    api.adminTech.rates().then((r: any) => {
+      setRates(r.rates || [])
+      setFixTiers(r.fix_tiers || [])
+      setQuarterTiers(r.quarter_tiers || [])
+    }).catch(() => {})
   }, [tick])
 
   return (
@@ -51,7 +61,9 @@ export default function AdminTechPage() {
         ))}
       </div>
 
-      {tab === 'specs' && <SpecsTab specs={specs} rates={rates} onChange={() => setTick(t => t + 1)} />}
+      {tab === 'specs' && <SpecsTab specs={specs} rates={rates} fixTiers={fixTiers}
+                                    quarterTiers={quarterTiers}
+                                    onChange={() => setTick(t => t + 1)} />}
       {tab === 'assign' && <AssignTab specs={specs} onChange={() => setTick(t => t + 1)} />}
       {tab === 'dialogs' && <DialogsTab specs={specs} />}
       {tab === 'money' && <MoneyTab specs={specs} />}
@@ -60,7 +72,7 @@ export default function AdminTechPage() {
 }
 
 // ── Люди и ставки ────────────────────────────────────────────────────────
-function SpecsTab({ specs, rates, onChange }: any) {
+function SpecsTab({ specs, rates, fixTiers, quarterTiers, onChange }: any) {
   const [form, setForm] = useState({ email: '', name: '', telegram_username: '' })
   const [created, setCreated] = useState<any>(null)
 
@@ -170,12 +182,14 @@ function SpecsTab({ specs, rates, onChange }: any) {
           {rates.map((r: any) => (
             <div key={r.kind} className="flex flex-wrap items-center gap-2">
               <span className="min-w-[260px] text-sm text-gray-700">{KIND[r.kind] || r.kind}</span>
-              {r.kind === 'referral' ? (
+              {r.kind === 'fix' ? (
+                <span className="text-xs text-gray-400">считается по вилке</span>
+              ) : r.of_tariff ? (
                 <>
                   <input defaultValue={r.percent} type="number" step="0.5"
                          onBlur={e => api.adminTech.setRate(r.kind, { percent: Number(e.target.value) })}
                          className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-                  <span className="text-sm text-gray-500">%</span>
+                  <span className="text-sm text-gray-500">% от тарифа клиента</span>
                 </>
               ) : (
                 <>
@@ -188,6 +202,59 @@ function SpecsTab({ specs, rates, onChange }: any) {
             </div>
           ))}
         </div>
+
+        {/* ⚠️ ФИКС — ВИЛКА, А НЕ СУММА ЗА КАЖДОГО: 15–49 клиентов → 4 000 ₽ за
+            всех сразу. Умножение на число дало бы на сотне 30 000 вместо 12 000. */}
+        {!!rates?.length && (
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <div>
+              <div className="mb-1 text-sm font-semibold text-gray-800">
+                Фикс за обслуживание
+              </div>
+              <p className="mb-2 text-xs text-gray-500">
+                Считаются только ЧУЖИЕ платящие клиенты: за своих идёт процент.
+              </p>
+              <table className="w-full text-sm">
+                <tbody>
+                  {(fixTiers || []).map((t: any) => (
+                    <tr key={t.id} className="border-b border-gray-50 last:border-0">
+                      <td className="py-1.5 text-gray-600">
+                        {t.clients_from}–{t.clients_to} клиентов
+                      </td>
+                      <td className="py-1.5 text-right font-medium">
+                        {rub(t.amount_kopecks)}/мес
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <div className="mb-1 text-sm font-semibold text-gray-800">
+                Квартальная премия
+              </div>
+              <p className="mb-2 text-xs text-gray-500">
+                Доля доживших: из впервые оплативших за квартал сколько сделали
+                вторую оплату.
+              </p>
+              <table className="w-full text-sm">
+                <tbody>
+                  {(quarterTiers || []).map((t: any) => (
+                    <tr key={t.id} className="border-b border-gray-50 last:border-0">
+                      <td className="py-1.5 text-gray-600">
+                        {Number(t.rate_from)}–{Number(t.rate_to)} %
+                      </td>
+                      <td className="py-1.5 text-right font-medium">
+                        {rub(t.amount_kopecks)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

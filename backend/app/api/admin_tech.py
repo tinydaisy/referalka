@@ -199,7 +199,17 @@ async def get_rates(
     db: asyncpg.Connection = Depends(get_db),
 ):
     rows = await db.fetch("SELECT * FROM tech_rates ORDER BY id")
-    return {"rates": [dict(r) for r in rows]}
+    # ⚠️ Вилки отдаём ВМЕСТЕ со ставками: фикс и премия — тоже ставки, просто
+    # ступенчатые. Отдельным запросом их бы забыли показать.
+    fix = await db.fetch("SELECT * FROM tech_fix_tiers ORDER BY clients_from")
+    quarter = await db.fetch("SELECT * FROM tech_quarter_tiers ORDER BY rate_from")
+    settings = await db.fetch("SELECT * FROM tech_settings ORDER BY key")
+    return {
+        "rates": [dict(r) for r in rows],
+        "fix_tiers": [dict(r) for r in fix],
+        "quarter_tiers": [dict(r) for r in quarter],
+        "settings": [dict(r) for r in settings],
+    }
 
 
 class RateIn(BaseModel):
