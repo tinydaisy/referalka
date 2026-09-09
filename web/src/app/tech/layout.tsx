@@ -15,11 +15,12 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Users, Wallet, BookOpen, LogOut } from 'lucide-react'
+import { Users, Wallet, BookOpen, MessageCircle, LogOut } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const NAV = [
   { href: '/tech', label: 'Мои клиенты', icon: Users, exact: true },
+  { href: '/tech/dialogs', label: 'Диалоги', icon: MessageCircle },
   { href: '/tech/accruals', label: 'Начисления', icon: Wallet },
 ]
 

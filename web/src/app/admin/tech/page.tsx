@@ -19,7 +19,7 @@ const KIND: Record<string, string> = {
   referral: 'Процент за приведённых',
 }
 
-type Tab = 'specs' | 'assign' | 'money'
+type Tab = 'specs' | 'assign' | 'dialogs' | 'money'
 
 export default function AdminTechPage() {
   const [tab, setTab] = useState<Tab>('specs')
@@ -40,7 +40,8 @@ export default function AdminTechPage() {
       </p>
 
       <div className="mb-5 flex gap-2">
-        {([['specs', 'Люди и ставки'], ['assign', 'Распределение'],
+        {([['specs', 'Люди и ставки'], ['assign', 'Клиенты'],
+           ['dialogs', 'Диалоги бота'],
            ['money', 'Начисления']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
                   className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
@@ -52,6 +53,7 @@ export default function AdminTechPage() {
 
       {tab === 'specs' && <SpecsTab specs={specs} rates={rates} onChange={() => setTick(t => t + 1)} />}
       {tab === 'assign' && <AssignTab specs={specs} onChange={() => setTick(t => t + 1)} />}
+      {tab === 'dialogs' && <DialogsTab specs={specs} />}
       {tab === 'money' && <MoneyTab specs={specs} />}
     </div>
   )
@@ -342,6 +344,86 @@ function MoneyTab({ specs }: any) {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+
+// ── Диалоги бота ─────────────────────────────────────────────────────────
+// ⚠️ Распределяются ОТДЕЛЬНО от клиентов: в @pluson_bot пишут и те, кто
+// клиентом ещё не стал, — в списке клиентов платформы их попросту нет.
+function DialogsTab({ specs }: any) {
+  const [items, setItems] = useState<any[]>([])
+  const [onlyFree, setOnlyFree] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  const load = () => {
+    setLoading(true)
+    api.adminTech.botDialogs(onlyFree || undefined)
+      .then((r: any) => setItems(r.dialogs || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+  useEffect(load, [onlyFree])
+
+  async function assign(contactId: number, specId: number | null) {
+    try {
+      await api.adminTech.assignDialog({ contact_id: contactId, spec_id: specId })
+      load()
+    } catch (e: any) { alert(e?.message || 'Не удалось') }
+  }
+
+  const active = specs.filter((s: any) => s.is_active)
+
+  return (
+    <div className="space-y-4">
+      <label className="flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={onlyFree}
+               onChange={e => setOnlyFree(e.target.checked)} />
+        Только нераспределённые
+      </label>
+
+      {loading ? <div className="text-sm text-gray-400">Загружаем…</div> : (
+        <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
+              <tr>
+                <th className="px-4 py-3">Человек</th>
+                <th className="px-4 py-3">Последнее</th>
+                <th className="px-4 py-3">Не прочитано</th>
+                <th className="px-4 py-3">Ответственный</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((d: any) => (
+                <tr key={d.contact_id} className="border-b border-gray-50 last:border-0">
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {d.name || 'Без имени'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {d.last_at ? new Date(d.last_at).toLocaleDateString('ru-RU') : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    {d.unread > 0
+                      ? <span className="rounded-full bg-[#FFCFA4] px-2 text-xs font-bold text-[#0a1520]">{d.unread}</span>
+                      : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <select value={d.spec_id || ''}
+                            onChange={e => assign(d.contact_id, e.target.value ? Number(e.target.value) : null)}
+                            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
+                      <option value="">— никому —</option>
+                      {active.map((s: any) => (
+                        <option key={s.id} value={s.id}>{s.name || s.email}</option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

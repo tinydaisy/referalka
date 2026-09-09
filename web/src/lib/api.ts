@@ -1411,6 +1411,13 @@ export const api = {
     // где они лежат, — дальше работает готовый редактор.
     materialsSession: () =>
       request('/api/v1/tech/materials/session', { method: 'POST' }),
+    // Диалоги: переписка с теми, кто написал в @pluson_bot.
+    dialogs: () => request('/api/v1/tech/dialogs'),
+    dialogMessages: (contactId: number) =>
+      request(`/api/v1/tech/dialogs/${contactId}`),
+    replyDialog: (contactId: number, data: { platform: string; text: string }) =>
+      request(`/api/v1/tech/dialogs/${contactId}/reply`,
+              { method: 'POST', body: JSON.stringify(data) }),
   },
 
   // Управление тех-специалистами — только для админа.
@@ -1438,6 +1445,11 @@ export const api = {
     },
     markPaid: (ids: number[]) =>
       request('/api/v1/admin/tech/accruals/mark-paid', { method: 'POST', body: JSON.stringify({ ids }) }),
+    botDialogs: (unassignedOnly?: boolean) =>
+      request(`/api/v1/admin/tech/dialogs${unassignedOnly ? '?unassigned_only=true' : ''}`),
+    assignDialog: (data: { contact_id: number; spec_id: number | null }) =>
+      request('/api/v1/admin/tech/dialogs/assign',
+              { method: 'POST', body: JSON.stringify(data) }),
     manualAccrual: (data: any) =>
       request('/api/v1/admin/tech/accruals/manual', { method: 'POST', body: JSON.stringify(data) }),
   },

@@ -315,3 +315,80 @@ async def manual_accrual(
         data.period, data.note,
     )
     return dict(row)
+
+
+# ── Диалоги из @pluson_bot ───────────────────────────────────────────────
+# ⚠️ Распределяются ОТДЕЛЬНО от клиентов: в бот пишут и те, кто клиентом ещё не
+# стал, — их в списке клиентов платформы попросту нет.
+
+@router.get("/dialogs", summary="Диалоги бота и кому назначены")
+async def bot_dialogs(
+    unassigned_only: bool = Query(False),
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = await db.fetchval(
+        "SELECT id FROM clients WHERE is_system_service = TRUE LIMIT 1")
+    if not client_id:
+        raise HTTPException(404, "Системный кабинет не найден")
+
+    where = "dm.client_id = $1 AND dm.contact_id IS NOT NULL"
+    rows = await db.fetch(
+        f"""WITH agg AS (
+              SELECT dm.contact_id,
+                     MAX(dm.sent_at) AS last_at,
+                     COUNT(*) FILTER (WHERE dm.direction='in' AND NOT dm.is_read) AS unread
+                FROM direct_messages dm
+               WHERE {where}
+               GROUP BY dm.contact_id
+            )
+            SELECT c.id AS contact_id, c.name, a.last_at, a.unread,
+                   da.spec_id, ts.name AS spec_name
+              FROM agg a
+              JOIN contacts c ON c.id = a.contact_id
+              LEFT JOIN dialog_assignments da
+                     ON da.client_id = $1 AND da.contact_id = c.id
+              LEFT JOIN tech_specialists ts ON ts.id = da.spec_id
+             {"WHERE da.spec_id IS NULL" if unassigned_only else ""}
+             ORDER BY a.last_at DESC LIMIT 300""",
+        client_id,
+    )
+    return {"dialogs": [dict(r) for r in rows]}
+
+
+class AssignDialogIn(BaseModel):
+    contact_id: int
+    spec_id: Optional[int] = None
+
+
+@router.post("/dialogs/assign", summary="Назначить диалог внедренцу")
+async def assign_dialog(
+    data: AssignDialogIn,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️ Назначение на КОНТАКТ, а не на сообщение: разговор ведёт один человек.
+    Пометка на каждом сообщении означала бы, что половину переписки разбирает
+    один внедренец, половину другой."""
+    client_id = await db.fetchval(
+        "SELECT id FROM clients WHERE is_system_service = TRUE LIMIT 1")
+    if not client_id:
+        raise HTTPException(404, "Системный кабинет не найден")
+
+    if data.spec_id is None:
+        await db.execute(
+            "DELETE FROM dialog_assignments WHERE client_id=$1 AND contact_id=$2",
+            client_id, data.contact_id)
+        return {"ok": True, "assigned": False}
+
+    if not await db.fetchval(
+            "SELECT 1 FROM tech_specialists WHERE id=$1 AND is_active", data.spec_id):
+        raise HTTPException(400, "Такого внедренца нет или он отключён")
+
+    await db.execute(
+        """INSERT INTO dialog_assignments (client_id, contact_id, spec_id)
+           VALUES ($1,$2,$3)
+           ON CONFLICT (client_id, contact_id)
+           DO UPDATE SET spec_id = EXCLUDED.spec_id, assigned_at = NOW()""",
+        client_id, data.contact_id, data.spec_id)
+    return {"ok": True, "assigned": True}
