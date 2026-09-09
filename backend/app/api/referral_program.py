@@ -1090,3 +1090,206 @@ async def export_speaker_materials(
             "Content-Length": str(len(zip_bytes)),
         },
     )
+
+
+# ──────────────────────────────────────────────
+# ОТЧЁТ ПО РЕФЕРАЛАМ (живой, без снимков)
+# ──────────────────────────────────────────────
+#
+# ⚠️ Не путать с «Отчётом» конференции: тот про КЛИКИ по карточкам спикеров и
+# снимки на дату (`tournament_snapshots`). Здесь — живой срез по
+# `event_participants.referrer_ref_code`: кто сколько привёл на это событие,
+# сколько из приведённых зарегистрировалось и сколько заплатило.
+#
+# ⚠️ Реф-код резолвится ЧЕРЕЗ `merged_ref_codes` (`rc.merged_ref_codes ? ...`):
+# после объединения контактов старый код продолжает стоять у уже пришедших
+# участников, и без этой проверки часть приведённых потерялась бы. Тот же
+# приём — в отчёте коллабы и в `brought_count_sql`.
+#
+# ⚠️ Считается ВЖИВУЮ, при заходе на вкладку, без кнопки «построить» (решение
+# владельца 09.09.2026): отчёт нужен как экран наблюдения, а не как документ.
+
+# Оплата участника — сумма его тарифов со статусом `paid`. То же выражение, что
+# в списке участников (`events.py`), чтобы цифры сходились между экранами.
+_PAID_SUM_SQL = (
+    "(SELECT COALESCE(SUM(pt.amount), 0) FROM event_participant_tariffs pt "
+    "WHERE pt.participant_id = ep.id AND pt.status = 'paid')"
+)
+_PAID_EXISTS_SQL = (
+    "EXISTS (SELECT 1 FROM event_participant_tariffs pt "
+    "WHERE pt.participant_id = ep.id AND pt.status = 'paid')"
+)
+
+
+@router.get("/referral/report", summary="Отчёт по рефералам события: кто сколько привёл")
+async def referral_report(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Список тех, по чьим ссылкам на событие пришёл хотя бы один человек.
+
+    Строки — рефоводы (контакты клиента), у каждого: сколько людей пришло по его
+    ссылке, сколько из них зарегистрировалось, сколько оплатило и на какую сумму.
+
+    ⚠️ Рефоводы с нулём приведённых в выдачу НЕ попадают вовсе — отчёт строится
+    от факта прихода, а не от списка контактов: иначе таблица была бы длиной во
+    всю базу и в ней невозможно было бы найти работающих людей.
+    """
+    await _check_event_owned(event_id, int(client["sub"]), db)
+
+    rows = await db.fetch(
+        f"""
+        SELECT rc.id                        AS contact_id,
+               rc.name                      AS name,
+               rc.ref_code                  AS ref_code,
+               rc.phone                     AS phone,
+               (SELECT pe.platform_user_id FROM platform_users pe
+                 WHERE pe.contact_id = rc.id AND pe.platform_slug = 'email'
+                 ORDER BY pe.id LIMIT 1)    AS email,
+               (SELECT pu.username FROM platform_users pu
+                 WHERE pu.contact_id = rc.id AND pu.platform_slug = 'telegram'
+                 LIMIT 1)                   AS tg_username,
+               -- Зарегистрирован ли САМ рефовод на это событие. Отдельный
+               -- вопрос от «сколько он привёл»: человек может звать друзей,
+               -- сам при этом не дойдя до регистрации, — это видно сразу.
+               COALESCE((SELECT me.is_registered FROM event_participants me
+                          WHERE me.event_id = $1 AND me.contact_id = rc.id
+                          LIMIT 1), FALSE)  AS self_registered,
+               EXISTS (SELECT 1 FROM event_participants me
+                        WHERE me.event_id = $1 AND me.contact_id = rc.id) AS self_participant,
+               count(*)                                          AS brought,
+               count(*) FILTER (WHERE ep.is_registered)          AS registered,
+               count(*) FILTER (WHERE {_PAID_EXISTS_SQL})        AS paid_count,
+               COALESCE(SUM({_PAID_SUM_SQL}), 0)                 AS paid_sum
+          FROM event_participants ep
+          JOIN contacts rc ON rc.ref_code = ep.referrer_ref_code
+                           OR rc.merged_ref_codes ? ep.referrer_ref_code
+         WHERE ep.event_id = $1
+           AND COALESCE(ep.referrer_ref_code, '') <> ''
+         GROUP BY rc.id, rc.name, rc.ref_code, rc.phone
+         ORDER BY brought DESC, registered DESC, rc.name
+        """,
+        event_id,
+    )
+
+    items = [dict(r) for r in rows]
+    for it in items:
+        it["paid_sum"] = float(it["paid_sum"] or 0)
+
+    # Итоги считаем ПО ТЕМ ЖЕ строкам, что показываем, — иначе шапка разойдётся
+    # с таблицей, и доверять ей станет нельзя.
+    totals = {
+        "referrers": len(items),
+        "brought": sum(int(i["brought"]) for i in items),
+        "registered": sum(int(i["registered"]) for i in items),
+        "paid_count": sum(int(i["paid_count"]) for i in items),
+        "paid_sum": sum(float(i["paid_sum"]) for i in items),
+    }
+    # Сколько всего участников у события — чтобы было видно долю приведённых.
+    totals["participants_total"] = await db.fetchval(
+        "SELECT count(*) FROM event_participants WHERE event_id = $1", event_id) or 0
+
+    return {"items": items, "totals": totals}
+
+
+@router.get("/referral/report/{contact_id}", summary="Карточка рефовода: его люди на этом событии")
+async def referral_report_person(
+    event_id: int,
+    contact_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Один рефовод и список людей, пришедших на событие по его ссылке."""
+    client_id = int(client["sub"])
+    await _check_event_owned(event_id, client_id, db)
+
+    # ⚠️ Контакт проверяем на принадлежность кабинету: id приходит из адреса,
+    # и без проверки по чужому номеру открылась бы карточка постороннего
+    # человека с его почтой и телефоном.
+    person = await db.fetchrow(
+        """SELECT c.id, c.name, c.ref_code, c.phone,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+                    LIMIT 1) AS tg_username,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+                    LIMIT 1) AS tg_id,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk'
+                    LIMIT 1) AS vk_id,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'max'
+                    LIMIT 1) AS max_id,
+                  COALESCE((SELECT me.is_registered FROM event_participants me
+                             WHERE me.event_id = $2 AND me.contact_id = c.id
+                             LIMIT 1), FALSE) AS self_registered,
+                  EXISTS (SELECT 1 FROM event_participants me
+                           WHERE me.event_id = $2 AND me.contact_id = c.id) AS self_participant
+             FROM contacts c
+            WHERE c.id = $1 AND c.client_id = $3""",
+        contact_id, event_id, client_id,
+    )
+    if not person:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    rows = await db.fetch(
+        f"""
+        SELECT ep.id                        AS participant_id,
+               c.id                         AS contact_id,
+               c.name                       AS name,
+               c.phone                      AS phone,
+               (SELECT pe.platform_user_id FROM platform_users pe
+                 WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                 ORDER BY pe.id LIMIT 1)    AS email,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+                 LIMIT 1)                   AS tg_id,
+               (SELECT pu.username FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+                 LIMIT 1)                   AS tg_username,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk'
+                 LIMIT 1)                   AS vk_id,
+               (SELECT pu.username FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk'
+                 LIMIT 1)                   AS vk_username,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'max'
+                 LIMIT 1)                   AS max_id,
+               (SELECT pu.username FROM platform_users pu
+                 WHERE pu.contact_id = c.id AND pu.platform_slug = 'max'
+                 LIMIT 1)                   AS max_username,
+               ep.is_registered, ep.registered_at, ep.created_at,
+               {_PAID_SUM_SQL}              AS paid_amount,
+               (SELECT STRING_AGG(t.title, ', ' ORDER BY t.sort_order)
+                  FROM event_participant_tariffs pt
+                  JOIN event_tariffs t ON t.id = pt.tariff_id
+                 WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_tariffs
+          FROM event_participants ep
+          JOIN contacts c ON c.id = ep.contact_id
+         WHERE ep.event_id = $1
+           AND COALESCE(ep.referrer_ref_code, '') <> ''
+           AND EXISTS (SELECT 1 FROM contacts rc
+                        WHERE rc.id = $2
+                          AND (rc.ref_code = ep.referrer_ref_code
+                               OR rc.merged_ref_codes ? ep.referrer_ref_code))
+         ORDER BY ep.is_registered DESC, ep.created_at DESC
+        """,
+        event_id, contact_id,
+    )
+
+    people = [dict(r) for r in rows]
+    for p in people:
+        p["paid_amount"] = float(p["paid_amount"] or 0)
+
+    totals = {
+        "brought": len(people),
+        "registered": sum(1 for p in people if p["is_registered"]),
+        "paid_count": sum(1 for p in people if p["paid_amount"] > 0),
+        "paid_sum": sum(p["paid_amount"] for p in people),
+    }
+    return {"person": dict(person), "people": people, "totals": totals}

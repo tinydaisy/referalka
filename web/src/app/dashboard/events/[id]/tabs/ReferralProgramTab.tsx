@@ -1,19 +1,27 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Trash2, ImageIcon, Type, ExternalLink, Download, X, Save, ChevronUp, ChevronDown } from 'lucide-react'
+import { Gift, Plus, Trash2, ImageIcon, Type, ExternalLink, Download, X, Save, ChevronUp, ChevronDown, BarChart2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
+import { useUrlTab } from '@/hooks/useUrlTab'
+import ReferralReportSection from './ReferralReportSection'
 
-type SubTab = 'gifts' | 'materials'
+type SubTab = 'gifts' | 'materials' | 'report'
+
+const SUB_TABS = ['gifts', 'materials', 'report'] as const
 
 export default function ReferralProgramTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
-  const [sub, setSub] = useState<SubTab>('gifts')
+  // ⚠️ Подвкладка живёт в адресе (`?tab=referral&sub=report`): с отчёта
+  // проваливаются в карточку рефовода, и возврат стрелкой «назад» обязан
+  // вернуть на отчёт, а не сбросить на «Подарки».
+  const [sub, setSub] = useUrlTab<SubTab>('sub', 'gifts', SUB_TABS)
   const [showImport, setShowImport] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
 
   const subTabs: { key: SubTab; label: string; icon: any }[] = [
     { key: 'gifts',     label: 'Подарки',   icon: Gift },
     { key: 'materials', label: 'Материалы', icon: ImageIcon },
+    { key: 'report',    label: 'Отчёт по рефералам', icon: BarChart2 },
   ]
 
   return (
@@ -36,14 +44,18 @@ export default function ReferralProgramTab({ eventId, moduleSlug }: { eventId: n
             </button>
           ))}
         </div>
-        <button onClick={() => setShowImport(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">
-          <Download size={14} /> Импортировать из другого события
-        </button>
+        {/* Импорт — про настройку подарков; на отчёте это чужая кнопка. */}
+        {sub !== 'report' && (
+          <button onClick={() => setShowImport(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">
+            <Download size={14} /> Импортировать из другого события
+          </button>
+        )}
       </div>
 
       {sub === 'gifts'     && <GiftsSection     key={`g-${reloadKey}`} eventId={eventId} moduleSlug={moduleSlug} />}
       {sub === 'materials' && <MaterialsSection key={`m-${reloadKey}`} eventId={eventId} />}
+      {sub === 'report'    && <ReferralReportSection eventId={eventId} moduleSlug={moduleSlug} />}
 
       {showImport && (
         <ImportModal

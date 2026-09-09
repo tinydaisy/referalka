@@ -1535,6 +1535,12 @@ export const api = {
       request(`/api/v1/clients/me/speaker-photos/${id}`, { method: 'DELETE' }),
   },
   referralProgram: {
+    // Отчёт по рефералам события: живой срез по referrer_ref_code.
+    // Не путать с отчётом конференции — тот про клики по карточкам спикеров.
+    report: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/referral/report`),
+    reportPerson: (eventId: number, contactId: number) =>
+      request(`/api/v1/events/${eventId}/referral/report/${contactId}`),
     posters: {
       // Без опций — все афиши (у каждой поле day: null у общей, номер дня у дневной).
       // { onlyCommon: true } — только общие афиши события.
