@@ -1125,10 +1125,20 @@ function BlockBody(props: any) {
               {/* ⚠️ Кнопка и счётчик мест идут ЗА СТРОКАМИ (hText), а не за
                   положением колонки: выровнял текст по правому краю — кнопка
                   обязана встать туда же, иначе она висит отдельно от текста. */}
-              <div className={`mt-8 flex flex-wrap items-center gap-5 ${
-                hText === 'left' ? 'justify-start' : hText === 'right' ? 'justify-end' : 'justify-center'
-              } ${
-                block.seats_position === 'side' ? 'flex-row' : 'flex-col'
+              {/* ⚠️⚠️ Какая ось «горизонтальная» — зависит от направления.
+                  Счётчик СБОКУ (flex-row): горизонталь — justify, по вертикали
+                  элементы центрируем. Счётчик НАД кнопкой (flex-col): всё
+                  наоборот — горизонталь задаёт items, а justify двигает по
+                  вертикали. Раньше стоял жёсткий `items-center`, и в колонке
+                  кнопка оставалась по центру при любом выравнивании текста. */}
+              <div className={`mt-8 flex flex-wrap gap-5 ${
+                block.seats_position === 'side'
+                  ? `flex-row items-center ${
+                      hText === 'left' ? 'justify-start'
+                      : hText === 'right' ? 'justify-end' : 'justify-center'}`
+                  : `flex-col ${
+                      hText === 'left' ? 'items-start'
+                      : hText === 'right' ? 'items-end' : 'items-center'}`
               }`}>
                 {block.show_seats && content.seats && (
                   <SeatsBadge seats={content.seats} iconColor={iconColor} radius={radius} forPdf={forPdf} />
