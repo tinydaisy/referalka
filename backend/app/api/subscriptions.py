@@ -432,6 +432,13 @@ async def _apply_paid_subscription_order(
     except Exception as e:
         logger.exception("Failed to credit referral cashback: %s", e)
 
+    # Начисление тех-специалисту, который ведёт этого клиента (миграция 391):
+    # активация, оживление, процент за лично приведённого.
+    # ⚠️ Рядом с кэшбэком и по тем же правилам: своих исключений не ловим —
+    # функция глушит их сама, деньги за подписку уже приняты.
+    from app.services.tech_accruals import on_payment as _tech_on_payment
+    await _tech_on_payment(db, order_id)
+
     return {"ok": True, "status": "paid", "subscription_id": sub_id}
 
 

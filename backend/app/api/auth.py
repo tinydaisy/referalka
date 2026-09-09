@@ -532,6 +532,35 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
             }
         }
 
+    # Тех-специалист (внедренец) — третий тип входа (миграция 391).
+    # ⚠️ Ищем ПОСЛЕ клиентов и помощников: у человека может быть кабинет
+    # клиента на ту же почту, и он важнее — там его собственные события и база.
+    spec = await db.fetchrow(
+        """SELECT id, email, name, password_hash, is_active, can_edit_materials
+             FROM tech_specialists WHERE LOWER(email) = $1""",
+        data.email,
+    )
+    if spec and verify_password(data.password, spec["password_hash"]):
+        if not spec["is_active"]:
+            # Уволенного не удаляем (на нём история начислений) — просто не пускаем.
+            raise HTTPException(status_code=403, detail="Доступ закрыт")
+        await db.execute(
+            "UPDATE tech_specialists SET last_login_at = NOW() WHERE id = $1", spec["id"])
+        # ⚠️ В `sub` — id САМОГО специалиста, а не клиента: он не работает
+        # «в кабинете», у него свой срез данных платформы. Этим он отличается от
+        # помощника, у которого в `sub` лежит кабинет клиента.
+        token = create_token({
+            "sub": str(spec["id"]),
+            "email": spec["email"],
+            "role": "tech",
+        })
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "tech": {"id": spec["id"], "name": spec["name"],
+                     "can_edit_materials": spec["can_edit_materials"]},
+        }
+
     # Пробуем залогинить как администратора
     admin = await db.fetchrow(
         "SELECT id, name, email, password_hash, is_superadmin FROM admins WHERE LOWER(email) = $1",

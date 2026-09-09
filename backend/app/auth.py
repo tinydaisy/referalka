@@ -46,6 +46,23 @@ async def get_current_client(
     return decode_token(credentials.credentials)
 
 
+async def get_current_tech(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """Тех-специалист (внедренец) — третий тип входа (миграция 391).
+
+    ⚠️ В `sub` лежит id САМОГО специалиста, а не клиента: он видит срез данных
+    платформы по закреплённым за ним клиентам, а не работает внутри кабинета.
+    Этим он отличается от помощника, у которого в `sub` — id кабинета.
+    """
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    payload = decode_token(credentials.credentials)
+    if payload.get("role") != "tech":
+        raise HTTPException(status_code=403, detail="Доступ только для тех-специалистов")
+    return payload
+
+
 async def get_current_admin(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:

@@ -7,7 +7,8 @@ celery = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=["app.tasks.plusson_bonus_reminders", "app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention",
-        "app.tasks.client_domains", "app.tasks.addon_expiry", "app.tasks.webinar_recording",
+        "app.tasks.client_domains", "app.tasks.addon_expiry",
+        "app.tasks.tech_fix", "app.tasks.webinar_recording",
         "app.tasks.webinar_chunks", "app.tasks.webinar_stuck", "app.tasks.webinar_cut",
         "app.tasks.collab_finish", "app.tasks.bot_webhook_check", "app.tasks.calls",
         "app.tasks.instagram",
@@ -121,7 +122,14 @@ celery.conf.update(
         },
         # Раз в час — предупреждения за 7/3/1 день об истечении КУПЛЕННОГО МОДУЛЯ
         # (Конференции, Премии/Турниры, Коллабораторная). Миграция 276.
-        "notify-expiring-addons": {
+        # Фикс тех-специалистам за обслуживание (миграция 391).
+    # ⚠️ РАЗ В СУТКИ, не раз в месяц: не отработала в свой день — фикс потерян
+    # до следующего месяца. Повторный прогон безопасен (уникальный индекс).
+    "tech-monthly-fix": {
+        "task": "app.tasks.tech_fix.accrue_monthly_fix",
+        "schedule": 86400.0,
+    },
+    "notify-expiring-addons": {
             "task": "app.tasks.addon_expiry.notify_expiring_addons",
             "schedule": 3600.0,
         },
