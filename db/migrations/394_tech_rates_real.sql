@@ -34,17 +34,19 @@ UPDATE tech_rates SET percent = 15, amount_kopecks = 0, of_tariff = TRUE
 UPDATE tech_rates SET percent = 10, amount_kopecks = 0, of_tariff = TRUE
  WHERE kind = 'referral';
 
+-- Фикс больше не плоский: считается по ступеням (таблица ниже).
+UPDATE tech_rates SET amount_kopecks = 0, percent = 0 WHERE kind = 'fix';
+
+-- ⚠️ CHECK расширяем ДО вставки нового вида: иначе INSERT 'referral2' упирается
+-- в старое ограничение и вся миграция откатывается.
+ALTER TABLE tech_rates DROP CONSTRAINT IF EXISTS tech_rates_kind_check;
+ALTER TABLE tech_rates ADD CONSTRAINT tech_rates_kind_check
+    CHECK (kind IN ('activation', 'revival', 'fix', 'referral', 'referral2'));
+
 -- Второй уровень: 5 %. Первые 4 месяца без условий, дальше — порог по линии.
 INSERT INTO tech_rates (kind, amount_kopecks, percent, of_tariff)
 VALUES ('referral2', 0, 5, TRUE)
 ON CONFLICT (kind) DO UPDATE SET percent = 5, of_tariff = TRUE;
-
--- Фикс больше не плоский: считается по ступеням (таблица ниже).
-UPDATE tech_rates SET amount_kopecks = 0, percent = 0 WHERE kind = 'fix';
-
-ALTER TABLE tech_rates DROP CONSTRAINT IF EXISTS tech_rates_kind_check;
-ALTER TABLE tech_rates ADD CONSTRAINT tech_rates_kind_check
-    CHECK (kind IN ('activation', 'revival', 'fix', 'referral', 'referral2'));
 
 ALTER TABLE tech_accruals DROP CONSTRAINT IF EXISTS tech_accruals_kind_check;
 ALTER TABLE tech_accruals ADD CONSTRAINT tech_accruals_kind_check
