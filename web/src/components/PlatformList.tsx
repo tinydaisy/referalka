@@ -21,35 +21,64 @@ export interface PlatformIdentities {
   max_username?: string | null
 }
 
+/**
+ * Достаёт чистый ник из того, что лежит в `platform_users.username`.
+ *
+ * ⚠️ Там бывает НЕ только ник: на проде 29 записей хранят полную ссылку
+ * (`https://vk.com/natalya_barvinskaya`, 15 в VK, 10 в MAX, 4 в TG) — их
+ * вписывали руками. Без очистки ссылка склеивалась бы сама с собой
+ * (`vk.com/https://vk.com/...`) и вела в никуда.
+ *
+ * Данные в базе при этом НЕ трогаем — чиним только показ.
+ */
+function cleanNick(raw?: string | null): string {
+  let v = String(raw || '').trim()
+  if (!v) return ''
+  // Полная ссылка или домен без схемы — берём последний непустой сегмент.
+  if (/^https?:\/\//i.test(v) || /^(t\.me|telegram\.me|vk\.com|max\.ru)\//i.test(v)) {
+    v = v.replace(/^https?:\/\//i, '').split(/[?#]/)[0]
+    const parts = v.split('/').filter(Boolean)
+    v = parts.length > 1 ? parts[parts.length - 1] : ''
+  }
+  return v.replace(/^@+/, '').trim()
+}
+
 export default function PlatformList({ p }: { p: PlatformIdentities }) {
   const items: { key: string; label: string; color: string; nick: string; href?: string }[] = []
 
-  const tgNick = p.tg_username ? String(p.tg_username).replace(/^@+/, '') : ''
+  // ⚠️ Псевдо-запись: у человека, ещё не заходившего в бота, в поле id лежит
+  // «@ник» вместо числа. Показывать его как id незачем — это тот же ник.
+  const isPseudo = (v?: string | null) => !!v && String(v).trim().startsWith('@')
+
+  const tgNick = cleanNick(p.tg_username) || (isPseudo(p.tg_id) ? cleanNick(p.tg_id) : '')
   if (p.tg_id || tgNick) {
     items.push({
       key: 'tg', label: 'TG', color: '#229ED9',
       // Ника нет — показываем числовой id: он тоже опознаёт человека,
-      // а ссылку на профиль по нему построить нельзя.
+      // а публичной ссылки на профиль по нему не существует.
       nick: tgNick ? `@${tgNick}` : String(p.tg_id),
       href: tgNick ? `https://t.me/${tgNick}` : undefined,
     })
   }
 
-  const vkNick = p.vk_username ? String(p.vk_username).replace(/^@+/, '') : ''
+  const vkNick = cleanNick(p.vk_username) || (isPseudo(p.vk_id) ? cleanNick(p.vk_id) : '')
   if (p.vk_id || vkNick) {
+    const numericVk = p.vk_id && /^\d+$/.test(String(p.vk_id)) ? String(p.vk_id) : ''
     items.push({
       key: 'vk', label: 'VK', color: '#0077FF',
-      nick: vkNick ? `@${vkNick}` : `id${p.vk_id}`,
-      href: vkNick ? `https://vk.com/${vkNick}` : (p.vk_id ? `https://vk.com/id${p.vk_id}` : undefined),
+      nick: vkNick ? `@${vkNick}` : (numericVk ? `id${numericVk}` : String(p.vk_id)),
+      href: vkNick ? `https://vk.com/${vkNick}` : (numericVk ? `https://vk.com/id${numericVk}` : undefined),
     })
   }
 
-  const maxNick = p.max_username ? String(p.max_username).replace(/^@+/, '') : ''
+  const maxNick = cleanNick(p.max_username) || (isPseudo(p.max_id) ? cleanNick(p.max_id) : '')
   if (p.max_id || maxNick) {
     items.push({
       key: 'max', label: 'MAX', color: '#C79A5B',
       nick: maxNick ? `@${maxNick}` : String(p.max_id),
-      href: maxNick ? `https://max.ru/${maxNick}` : (p.max_id ? `https://max.ru/u/${p.max_id}` : undefined),
+      // ⚠️ Ссылку по числовому id НЕ строим: `max.ru/u/{id}` битая — нужен
+      // приватный хеш, которого Bot API не отдаёт (см. profile_links.py).
+      href: maxNick ? `https://max.ru/${maxNick}` : undefined,
     })
   }
 
