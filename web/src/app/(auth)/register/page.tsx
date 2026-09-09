@@ -7,7 +7,7 @@ import AuthAside from '@/components/auth/AuthAside'
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
-    name: '', email: '', phone: '', telegram_username: '', password: '', confirm: '', partner_code: ''
+    name: '', last_name: '', email: '', phone: '', telegram_username: '', password: '', confirm: '', partner_code: ''
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -51,6 +51,13 @@ export default function RegisterPage() {
       setError('Пароли не совпадают')
       return
     }
+    // ⚠️ Считаем цифры, а не длину строки: «+7 () -» атрибут required пропустит,
+    // а телефона в нём нет. Та же проверка продублирована на бэкенде — форму
+    // легко обойти прямым запросом.
+    if (form.phone.replace(/\D/g, '').length < 10) {
+      setError('Укажите телефон')
+      return
+    }
     if (!acceptOffer) {
       setError('Примите условия Публичной оферты')
       return
@@ -63,7 +70,7 @@ export default function RegisterPage() {
     setError('')
     try {
       const res = await api.auth.register({
-        name: form.name, email: form.email, phone: form.phone || undefined,
+        name: form.name, last_name: form.last_name, email: form.email, phone: form.phone,
         telegram_username: form.telegram_username || undefined,
         password: form.password, partner_code: form.partner_code || undefined,
         pid: referrerPid || undefined,  // реф-код пригласившего (миграция 125)
@@ -122,12 +129,25 @@ export default function RegisterPage() {
               </div>
             )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Имя *</label>
-              <input
-                type="text" value={form.name} onChange={set('name')} required
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
-              />
+            {/* ⚠️ Имя и фамилия — РАЗНЫЕ поля (миграция 381). Одним полем «Имя»
+                человек невольно писал только имя, и обратиться к нему полностью
+                было нечем; разбирать строку по пробелу нельзя — «Марго Форбс» и
+                «Бекренев Сергей» для машины неотличимы. */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Имя *</label>
+                <input
+                  type="text" value={form.name} onChange={set('name')} required
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Фамилия *</label>
+                <input
+                  type="text" value={form.last_name} onChange={set('last_name')} required
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
+                />
+              </div>
             </div>
 
             <div>
@@ -141,9 +161,9 @@ export default function RegisterPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Телефон</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Телефон *</label>
                 <input
-                  type="tel" value={form.phone} onChange={set('phone')}
+                  type="tel" value={form.phone} onChange={set('phone')} required
                   placeholder="+7 999 000-00-00"
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
                 />

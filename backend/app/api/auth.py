@@ -32,6 +32,11 @@ router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
 class RegisterRequest(BaseModel):
     name: str
+    # Фамилия отдельным полем (миграция 381). В форме обязательна, в модели —
+    # нет: служебная регистрация (`internal`) фамилии не знает, а у клиентов-
+    # компаний её нет вовсе. Разбирать `name` по пробелу нельзя — «Марго Форбс»
+    # и «Бекренев Сергей» для машины неотличимы.
+    last_name: str | None = None
     email: EmailStr
     phone: str | None = None
     telegram_username: str | None = None
@@ -66,7 +71,19 @@ class AdminLoginRequest(BaseModel):
 
 
 @router.post("/register", summary="Регистрация нового клиента")
-async def register(data: RegisterRequest, request: Request, db: asyncpg.Connection = Depends(get_db)):
+async def register(data: RegisterRequest, request: Request, db: asyncpg.Connection = Depends(get_db),
+                   internal: bool = False):
+    """
+    ⚠️ `internal` — служебная регистрация: привязка ПЛЮСОН-аккаунта к человеку,
+    который у нас УЖЕ есть (кабинет спикера, ПЛЮСОН Коннект из бота). Ставится
+    ТОЛЬКО кодом на сервере — это параметр функции, а не поле модели, поэтому из
+    тела запроса прийти не может: снаружи он нужен лишь тому, кто хочет обойти
+    требования публичной формы.
+
+    Пропускает то, чего у таких вызовов физически нет: телефон (он уже лежит в
+    контакте, форма его не спрашивает) и акцепт Оферты (человек принимает её на
+    своём экране, там своя галочка согласия).
+    """
     # Email всегда храним в нижнем регистре — иначе регистр развёл бы один и тот
     # же адрес на несколько аккаунтов (Gmail и почти все почтовики регистр
     # игнорируют, а точечное сравнение при входе — нет).
@@ -75,10 +92,31 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
     # ⚠️ Акцепт Оферты и согласие на обработку ПД — обязательны (миграция 315).
     # Проверка на бэкенде, а не только галочкой во фронте: без неё аккаунт
     # заводится прямым POST мимо формы, и доказательства согласия не остаётся.
-    if not data.accept_offer:
-        raise HTTPException(status_code=422, detail="Примите условия Публичной оферты")
-    if not data.consent_pd:
-        raise HTTPException(status_code=422, detail="Дайте согласие на обработку персональных данных")
+    if not internal:
+        if not data.accept_offer:
+            raise HTTPException(status_code=422, detail="Примите условия Публичной оферты")
+        if not data.consent_pd:
+            raise HTTPException(status_code=422, detail="Дайте согласие на обработку персональных данных")
+
+        # ⚠️ Телефон обязателен при регистрации. Проверка на сервере, а не только
+        # звёздочкой в форме: требование, нарисованное на экране, обходится обычным
+        # запросом мимо интерфейса. Без телефона с клиентом не связаться, когда
+        # почта уходит в спам или указана с опечаткой.
+        #
+        # ⚠️ Считаем ЦИФРЫ, а не длину строки: «+7 (999) 000-00-00» и «89990000000»
+        # — один номер, а скобки с пробелами прошли бы любую проверку непустоты.
+        if len("".join(ch for ch in (data.phone or "") if ch.isdigit())) < 10:
+            raise HTTPException(status_code=422, detail="Укажите телефон")
+
+        # ⚠️ Фамилия обязательна в ПУБЛИЧНОЙ форме (миграция 381). В базе колонка
+        # nullable: у записей до миграции и у клиентов-компаний фамилии нет,
+        # а служебная регистрация её не знает.
+        if not (data.last_name or "").strip():
+            raise HTTPException(status_code=422, detail="Укажите фамилию")
+
+    data.phone = (data.phone or "").strip() or None
+    data.name = (data.name or "").strip()
+    data.last_name = (data.last_name or "").strip() or None
 
     # IP берём из X-Forwarded-For (за nginx), иначе — адрес соединения.
     _fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
@@ -202,17 +240,17 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
 
         client = await db.fetchrow(
             """
-            INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token,
+            INSERT INTO clients (name, last_name, email, phone, telegram_username, password_hash, partner_code, integration_token,
                                  referral_code, referred_by_client_id,
                                  referral_rate_percent, referral_accrual_until,
                                  offer_accepted_at, offer_accepted_version,
                                  privacy_consent_at, privacy_consent_version,
                                  acceptance_ip)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                    NOW(), $12, NOW(), $13, $14)
-            RETURNING id, name, email
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                    NOW(), $13, NOW(), $14, $15)
+            RETURNING id, name, last_name, email
             """,
-            data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
+            data.name, data.last_name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
             new_referral_code, referred_by_client_id,
             ref_percent, ref_accrual_until,
             OFFER_VERSION, PRIVACY_POLICY_VERSION, _accept_ip,
@@ -525,7 +563,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     payload = decode_token(credentials.credentials)
     client_id = int(payload["sub"])
     client = await db.fetchrow(
-        """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
+        """SELECT c.id, c.name, c.last_name, c.email, c.phone, c.telegram_username,
                 c.created_at, c.timezone, c.email_verified, c.is_system_service,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
@@ -691,6 +729,7 @@ async def regenerate_integration_token(
 
 class ProfileUpdate(BaseModel):
     name: Optional[str] = None
+    last_name: Optional[str] = None  # фамилия отдельным полем (миграция 381)
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
     timezone: Optional[str] = None
@@ -729,7 +768,7 @@ async def update_me(
     updates = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
     if not updates:
         client = await db.fetchrow(
-            """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
+            """SELECT c.id, c.name, c.last_name, c.email, c.phone, c.telegram_username,
                 c.created_at, c.timezone,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,

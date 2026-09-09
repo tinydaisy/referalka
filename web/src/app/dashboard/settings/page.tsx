@@ -63,7 +63,7 @@ export default function SettingsPage() {
       window.location.replace('/dashboard/subscription')
     }
   }, [])
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
+  const [form, setForm] = useState({ name: '', last_name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
   const [notifyTab, setNotifyTab] = useState<'telegram' | 'max' | 'vk'>('telegram')
   // Тестовые рассылки — площадки вкладками, как в «Каналах уведомлений»:
@@ -93,6 +93,7 @@ export default function SettingsPage() {
       setTimezone(tz)
       setForm({
         name: c.name || '',
+        last_name: c.last_name || '',
         email: c.email || '',
         phone: c.phone || '',
         telegram_username: c.telegram_username || '',
@@ -170,6 +171,7 @@ export default function SettingsPage() {
       const concurrency = Math.max(1, Math.min(100, Number(form.broadcast_concurrency) || 30))
       await api.auth.updateMe({
         name: form.name,
+        last_name: form.last_name || null,
         phone: form.phone,
         telegram_username: form.telegram_username,
         timezone: form.timezone,
@@ -318,10 +320,20 @@ export default function SettingsPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 className="font-semibold text-gray-800 mb-5">Профиль</h3>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Имя</label>
-              <input type="text" value={form.name} onChange={set('name')}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+            {/* ⚠️ Фамилия — отдельное поле (миграция 381), а не часть имени.
+                Заводится на регистрации; здесь её правят и заполняют те, кто
+                регистрировался раньше — иначе исправить её негде. */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Имя</label>
+                <input type="text" value={form.name} onChange={set('name')}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Фамилия</label>
+                <input type="text" value={form.last_name} onChange={set('last_name')}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              </div>
             </div>
             {/* Email и пароль — личные данные владельца, ассистенту (даже полному) не показываем */}
             {!isAnyAssistant && (

@@ -10,23 +10,9 @@
  * а не подпись к картинке.
  */
 import { CheckCircle } from 'lucide-react'
+import { BRAND_NAME, BRAND_TAGLINE, BRAND_HEADLINE, BRAND_FEATURES } from '@/lib/brand'
 
 const PEACH = '#FFCFA4'
-
-/**
- * ⚠️ Коротко, без перечня после двоеточия. Раньше каждый пункт был строкой
- * на всю ширину с шестью запятыми — экран превращался в сплошной текст,
- * который не читают. Подробности человек увидит на лендинге и в тарифах.
- *
- * ⚠️ «Отдельными модулями» оставлено — они докупаются, и человек не должен
- * решить, что всё включено.
- */
-const FEATURES = [
-  'Упаковаться, привлечь и продать — в одном месте',
-  'Лендинги, эфиры, лид-магниты, готовые воронки в ТГ, ВК и МАХ',
-  'Рост без вложений в рекламу — обмен аудиторией',
-  'Авторские события: конференции, премии, турниры — отдельными модулями',
-]
 
 export default function AuthAside() {
   return (
@@ -34,28 +20,30 @@ export default function AuthAside() {
       <div className="mb-8">
         <div className="flex items-center gap-5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/images/logo_no_ivision_wwhite.png" alt="iViSiON: ПЛЮСОН"
+          <img src="/images/logo_no_ivision_wwhite.png" alt={BRAND_NAME}
             className="auth-logo shrink-0"
             width={110} height={90} />
           <div>
             <div className="text-2xl font-bold leading-tight" style={{ color: PEACH }}>
-              iViSiON: ПЛЮСОН
+              {BRAND_NAME}
             </div>
-            <p className="text-white/70 text-sm mt-1 leading-snug">
-              Платформа для экспертов,<br />спикеров и организаторов
+            {/* ⚠️ Без ручного <br />: подзаголовок стал длиннее и жёсткий перенос
+                рвал его не по смыслу. Ширину держит max-w. */}
+            <p className="text-white/70 text-sm mt-1 leading-snug max-w-md">
+              {BRAND_TAGLINE}
             </p>
           </div>
         </div>
 
-        {/* Лозунг в ДВЕ строки: тремя он занимал пол-экрана и спорил
-            с логотипом за внимание. */}
+        {/* ⚠️ Перенос — по ширине колонки, а не вручную: лозунг живёт в одном
+            месте (lib/brand.ts) и не должен нести в себе вёрстку. */}
         <h1 className="text-white text-3xl font-bold mt-8 leading-tight">
-          Всё, что вы попросили бы для привлечения<br />клиентов у технаря. Только без технаря.
+          {BRAND_HEADLINE}
         </h1>
       </div>
 
       <div className="space-y-4">
-        {FEATURES.map(item => (
+        {BRAND_FEATURES.map(item => (
           <div key={item} className="flex items-start gap-3">
             <CheckCircle className="shrink-0 mt-0.5" size={20} style={{ color: PEACH }} />
             <span className="text-white/90 leading-snug">{item}</span>

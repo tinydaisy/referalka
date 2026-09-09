@@ -7,6 +7,7 @@
  * платформы: #25455D → #0a1520 под 45°.
  */
 import Link from 'next/link'
+import { BRAND_NAME, BRAND_TAGLINE } from '@/lib/brand'
 
 const DARK = 'linear-gradient(45deg, #25455D, #0a1520)'
 const PEACH = '#FFCFA4'
@@ -60,10 +61,10 @@ export default function PublicFooter() {
               {/* ⚠️ Белый вариант: фон тёмный, синий логотип на нём не виден. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/images/logo_no_ivision_wwhite.png" alt="" className="h-8 w-auto" />
-              <span className="font-bold text-lg">iViSiON: ПЛЮСОН</span>
+              <span className="font-bold text-lg">{BRAND_NAME}</span>
             </div>
             <p className="mt-2 text-sm text-white/60 leading-relaxed">
-              Платформа для экспертов, спикеров и организаторов
+              {BRAND_TAGLINE}
             </p>
             <Link href="/register"
                   className="inline-block mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
