@@ -438,148 +438,13 @@ export default function LandingTab({ eventId, event }: Props) {
         </div>
       </div>
 
-      {/* Всего мест — только на основной странице */}
-      {kind === 'main' && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <label className="mb-1 block text-sm font-medium text-gray-700">
-            Всего мест на событии
-          </label>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="number" min={0}
-              value={seats}
-              onChange={e => setSeats(e.target.value)}
-              onBlur={() => saveSeats()}
-              placeholder="без лимита"
-              className="input w-40"
-            />
-            <span className="text-sm text-gray-500">
-              Занято сейчас: <b>{meta?.seats_taken ?? 0}</b>
-              {meta?.seats_total != null && (
-                <> · свободно: <b>{Math.max(0, meta.seats_total - (meta.seats_taken || 0))}</b></>
-              )}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            Пусто — блок «Осталось мест» покажет только число записавшихся.
-          </p>
-
-          <div className="mt-4 grid gap-4 border-t border-gray-100 pt-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Подпись у счётчика
-              </label>
-              <input
-                type="text"
-                value={meta?.seats_label ?? ''}
-                onChange={e => setMeta((m: any) => ({ ...m, seats_label: e.target.value }))}
-                onBlur={e => saveSeats({ seats_label: e.target.value || null })}
-                placeholder="ОСТАЛОСЬ МЕСТ:"
-                className="input"
-              />
-              <p className="mt-1 text-xs text-gray-500">Пусто — только цифра.</p>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Где подпись
-              </label>
-              <div className="flex gap-2">
-                {([['top', 'Сверху'], ['left', 'Слева'], ['right', 'Справа']] as const)
-                  .map(([val, label]) => (
-                    <button
-                      key={val}
-                      onClick={() => saveSeats({ seats_label_position: val })}
-                      className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
-                        (meta?.seats_label_position || 'top') === val
-                          ? 'border-brand bg-brand/5 font-medium text-brand'
-                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Что считать занятым
-              </label>
-              <div className="flex gap-2">
-                {([
-                  ['registered', 'Записались'],
-                  ['visited', 'Зашли'],
-                ] as const).map(([val, label]) => (
-                  <button
-                    key={val}
-                    onClick={() => saveSeats({ seats_count_mode: val })}
-                    className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
-                      (meta?.seats_count_mode || 'registered') === val
-                        ? 'border-brand bg-brand/5 font-medium text-brand'
-                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-xs text-gray-500">
-                «Зашли» — все, кто открыл событие, даже если не дошли до записи.
-              </p>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Прибавить к счётчику
-              </label>
-              <input
-                type="number" min={0}
-                value={meta?.seats_base ?? ''}
-                onChange={e => setMeta((m: any) => ({
-                  ...m, seats_base: e.target.value === '' ? null : Number(e.target.value),
-                }))}
-                onBlur={e => saveSeats({
-                  seats_base: e.target.value === '' ? null : Number(e.target.value),
-                })}
-                placeholder="0"
-                className="input"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                Если у вас уже есть аудитория — например, 1100 человек в чате.
-                Счётчик пойдёт от этого числа.
-              </p>
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Размер цифры: {meta?.seats_size ? `${meta.seats_size} px` : 'обычный'}
-              </label>
-              <div className="flex items-center gap-3">
-                <input type="range" min={12} max={120} step={2}
-                  value={meta?.seats_size ?? 38}
-                  onChange={e => setMeta((m: any) => ({ ...m, seats_size: Number(e.target.value) }))}
-                  onMouseUp={e => saveSeats({ seats_size: Number((e.target as HTMLInputElement).value) })}
-                  className="w-full" />
-                {meta?.seats_size != null && (
-                  <button
-                    onClick={() => saveSeats({ seats_size: null })}
-                    className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
-                  >
-                    сбросить
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Шапка-меню */}
+      {/* Панель с логотипом и пунктами меню — та, что липнет к верху страницы.
+          ⚠️ Название именно «Меню и логотип наверху страницы»: «Шапка с меню»
+          путалась с секцией «Шапка» (первый экран), это разные вещи. */}
       {kind === 'main' && (
         <details className="rounded-xl border border-gray-200 bg-white">
           <summary className="cursor-pointer p-4 font-medium text-gray-900">
-            Шапка с меню {page.nav_enabled ? '· включена' : '· выключена'}
+            Меню и логотип наверху страницы {page.nav_enabled ? '· включено' : '· выключено'}
           </summary>
           <div className="space-y-4 border-t border-gray-100 p-4">
             <label className="flex cursor-pointer items-center gap-2">
@@ -872,6 +737,18 @@ export default function LandingTab({ eventId, event }: Props) {
               offers={offers}
               surveys={surveys}
               isCollab={!!event?.is_collab}
+              // ⚠️ Настройки мест живут В НАСТРОЙКАХ ГЛАВНОЙ СТРАНИЦЫ, одним
+              // местом. Раньше были размазаны по трём: число мест и подпись —
+              // блоком сверху страницы, галочка показа и положение — внутри
+              // шапки, плюс отдельная секция «Осталось мест». Хранятся они в
+              // `events` (не в блоке), поэтому передаём сюда пропами.
+              seats={kind === 'main' && b.kind === 'hero' ? {
+                total: seats,
+                setTotal: setSeats,
+                meta,
+                setMeta,
+                save: saveSeats,
+              } : undefined}
               onPatch={patch => patchBlock(b.id, patch)}
               onRemove={() => removeBlock(b.id)}
               onDragStart={() => setDragId(b.id)}

@@ -39,12 +39,27 @@ interface Props {
   surveys?: any[]
   /** Совместное событие: блок «Анкета / Заявка» там не работает. */
   isCollab?: boolean
+  /**
+   * Настройки счётчика мест — ТОЛЬКО у главной страницы события.
+   *
+   * ⚠️ Живут в `events`, а не в блоке, поэтому приходят пропом со своим
+   * сохранением. Собраны здесь, потому что раньше были размазаны по трём
+   * местам: число и подпись — блоком над списком секций, галочка показа и
+   * положение — внутри шапки, плюс отдельная секция «Осталось мест».
+   */
+  seats?: {
+    total: string
+    setTotal: (v: string) => void
+    meta: any
+    setMeta: (fn: any) => void
+    save: (patch?: any) => void
+  }
 }
 
 export default function BlockCard({
   block, eventId, onPatch, onRemove,
   onDragStart, onDragOver, onDrop, isDragging, pageBlocks, tariffs, offers,
-  surveys, isCollab = false,
+  surveys, isCollab = false, seats,
   // ⚠️ Куда грузить картинки. По умолчанию — как было у события; у продукта
   // события нет, и `landing_media` там упал бы с «требует event_id».
   uploadKind = 'landing_media',
@@ -103,12 +118,26 @@ export default function BlockCard({
       onDragEnd={() => setCanDrag(false)}
       onDragOver={onDragOver}
       onDrop={onDrop}
+      // ⚠️ РАСКРЫТАЯ карточка обведена фирменным синим и в 2px: серая рамка на
+      // белом фоне не читалась вовсе — было не видно, какая секция открыта и
+      // где она заканчивается (у длинных настроек это целый экран).
       className={`rounded-xl border bg-white transition-shadow ${
-        isDragging ? 'opacity-40 border-brand' : 'border-gray-200 hover:shadow-sm'
+        isDragging
+          ? 'opacity-40 border-brand'
+          : open
+            ? 'border-2 border-[#25455D] shadow-sm'
+            : 'border-gray-200 hover:shadow-sm'
       } ${!block.is_active ? 'bg-gray-50' : ''}`}
     >
-      {/* Шапка карточки */}
-      <div className="flex items-center gap-2 p-3">
+      {/* Шапка карточки.
+          ⚠️ Название — персиковым на ТЁМНОЙ плашке, а не на белом: персиковый
+          #FFCFA4 на белом почти не виден (правило проекта). Плашка стоит у
+          ВСЕХ карточек, свёрнутых тоже — иначе список секций распадался бы на
+          два разных вида. У раскрытой скругление только сверху: снизу к ней
+          примыкает содержимое. */}
+      <div className={`flex items-center gap-2 p-3 bg-[#25455D] ${
+        open ? 'rounded-t-[10px]' : 'rounded-[11px]'
+      }`}>
         <span
           onMouseDown={() => setCanDrag(true)}
           onMouseUp={() => setCanDrag(false)}
@@ -116,7 +145,7 @@ export default function BlockCard({
           title="Перетащите, чтобы поменять порядок"
           className="shrink-0 cursor-grab active:cursor-grabbing"
         >
-          <GripVertical className="h-5 w-5 text-gray-400" />
+          <GripVertical className="h-5 w-5 text-white/60" />
         </span>
 
         <button
@@ -124,30 +153,32 @@ export default function BlockCard({
           className="flex flex-1 items-center gap-2 text-left min-w-0"
         >
           {open
-            ? <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
-            : <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />}
+            ? <ChevronDown className="h-4 w-4 shrink-0 text-white/60" />
+            : <ChevronRight className="h-4 w-4 shrink-0 text-white/60" />}
           {/* Замок виден и в свёрнутой карточке — иначе про недоступность
               секции узнаёшь только раскрыв её. */}
           {locked && <Lock className="h-4 w-4 shrink-0 text-amber-500" />}
-          <span className={`font-medium truncate ${block.is_active ? 'text-gray-900' : 'text-gray-400'}`}>
+          {/* ⚠️ Персиковый — фирменный акцент; у выключенной секции он
+              приглушён, чтобы «не показывается» читалось с одного взгляда. */}
+          <span className={`font-medium truncate ${block.is_active ? 'text-[#FFCFA4]' : 'text-white/40'}`}>
             {block.admin_name || meta.label}
           </span>
           {(block.admin_name || block.title) && (
-            <span className="truncate text-sm text-gray-400">
+            <span className="truncate text-sm text-white/50">
               — {block.admin_name ? meta.label : block.title}
             </span>
           )}
           {meta.live && (
             <span
               title="Содержимое подтягивается из события автоматически"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/80"
             >
               <Zap className="h-3 w-3" /> авто
             </span>
           )}
         </button>
 
-        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-sm text-gray-600">
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-sm text-white/80">
           <input
             type="checkbox"
             checked={block.is_active}
@@ -167,7 +198,7 @@ export default function BlockCard({
               'Её содержимое пропадёт. Пустую секцию потом можно добавить заново.'
             )) onRemove()
           }}
-          className="shrink-0 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+          className="shrink-0 rounded p-1.5 text-white/60 hover:bg-red-500/20 hover:text-red-300"
           title="Удалить секцию"
         >
           <Trash2 className="h-4 w-4" />
@@ -768,6 +799,13 @@ export default function BlockCard({
 
               {block.kind === 'hero' && (
                 <>
+                  {/* ⚠️ СЧЁТЧИК МЕСТ — ОДНИМ МЕСТОМ. Раньше настройки были
+                      размазаны по трём экранам: число мест и подпись — блоком
+                      над списком секций, галочка показа и положение — здесь,
+                      плюс отдельная секция «Осталось мест». Клиент не понимал,
+                      где что искать и почему счётчик не выключается.
+                      Здесь — СОДЕРЖИМОЕ (что показываем и что считаем),
+                      оформление (размер цифры) — во вкладке «Оформление». */}
                   <div className="rounded-lg border border-gray-200 p-3">
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
@@ -777,25 +815,107 @@ export default function BlockCard({
                         className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
                       />
                       <span className="text-sm font-medium text-gray-700">
-                        Показывать «осталось мест» рядом с кнопкой
+                        Показывать «осталось мест»
                       </span>
                     </label>
+
                     {block.show_seats && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {([['above', 'Над кнопкой'], ['side', 'Сбоку от кнопки']] as const).map(
-                          ([val, label]) => (
-                            <button
-                              key={val}
-                              onClick={() => onPatch({ seats_position: val })}
-                              className={`rounded-lg border px-3 py-1.5 text-sm ${
-                                (block.seats_position || 'above') === val
-                                  ? 'border-brand bg-brand/5 font-medium text-brand'
-                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
+                      <div className="mt-3 space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          {([['above', 'Над кнопкой'], ['side', 'Сбоку от кнопки']] as const).map(
+                            ([val, label]) => (
+                              <button
+                                key={val}
+                                onClick={() => onPatch({ seats_position: val })}
+                                className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                  (block.seats_position || 'above') === val
+                                    ? 'border-brand bg-brand/5 font-medium text-brand'
+                                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                        </div>
+
+                        {seats && (
+                          <>
+                            <Field label="Всего мест на событии">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <input
+                                  type="number" min={0}
+                                  value={seats.total}
+                                  onChange={e => seats.setTotal(e.target.value)}
+                                  onBlur={() => seats.save()}
+                                  placeholder="без лимита"
+                                  className="input w-40"
+                                />
+                                <span className="text-sm text-gray-500">
+                                  Занято: <b>{seats.meta?.seats_taken ?? 0}</b>
+                                  {seats.meta?.seats_total != null && (
+                                    <> · свободно: <b>{Math.max(0, seats.meta.seats_total - (seats.meta.seats_taken || 0))}</b></>
+                                  )}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-gray-500">
+                                Пусто — покажем только число записавшихся.
+                              </p>
+                            </Field>
+
+                            <Field label="Подпись у счётчика">
+                              <input
+                                type="text"
+                                value={seats.meta?.seats_label ?? ''}
+                                onChange={e => seats.setMeta((m: any) => ({ ...m, seats_label: e.target.value }))}
+                                onBlur={e => seats.save({ seats_label: e.target.value || null })}
+                                placeholder="ОСТАЛОСЬ МЕСТ:"
+                                className="input"
+                              />
+                              <p className="mt-1 text-xs text-gray-500">Пусто — только цифра.</p>
+                            </Field>
+
+                            <Field label="Что считать занятым">
+                              <div className="flex gap-2">
+                                {([['registered', 'Записались'], ['visited', 'Зашли']] as const)
+                                  .map(([val, label]) => (
+                                    <button
+                                      key={val}
+                                      onClick={() => seats.save({ seats_count_mode: val })}
+                                      className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                                        (seats.meta?.seats_count_mode || 'registered') === val
+                                          ? 'border-brand bg-brand/5 font-medium text-brand'
+                                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                      }`}
+                                    >
+                                      {label}
+                                    </button>
+                                  ))}
+                              </div>
+                              <p className="mt-1 text-xs text-gray-500">
+                                «Зашли» — все, кто открыл событие, даже если не дошли до записи.
+                              </p>
+                            </Field>
+
+                            <Field label="Прибавить к счётчику">
+                              <input
+                                type="number" min={0}
+                                value={seats.meta?.seats_base ?? ''}
+                                onChange={e => seats.setMeta((m: any) => ({
+                                  ...m, seats_base: e.target.value === '' ? null : Number(e.target.value),
+                                }))}
+                                onBlur={e => seats.save({
+                                  seats_base: e.target.value === '' ? null : Number(e.target.value),
+                                })}
+                                placeholder="0"
+                                className="input"
+                              />
+                              <p className="mt-1 text-xs text-gray-500">
+                                Если аудитория уже есть — например, 1100 человек в чате.
+                                Счётчик пойдёт от этого числа.
+                              </p>
+                            </Field>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1065,6 +1185,50 @@ export default function BlockCard({
 
               {/* Размеры остального текста секции — отдельно от заголовка. */}
               <div className="grid gap-4 sm:grid-cols-2">
+                {/* ⚠️ Размер цифры счётчика мест — ОФОРМЛЕНИЕ, поэтому здесь,
+                    а не рядом с самим счётчиком во вкладке «Содержимое»: там
+                    решают, что показывать и что считать. */}
+                {block.kind === 'hero' && seats && block.show_seats && (
+                  <Field label={`Размер цифры «осталось мест»: ${seats.meta?.seats_size ? `${seats.meta.seats_size} px` : 'обычный'}`}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range" min={12} max={120} step={2}
+                        value={seats.meta?.seats_size ?? 38}
+                        onChange={e => seats.setMeta((m: any) => ({ ...m, seats_size: Number(e.target.value) }))}
+                        onMouseUp={e => seats.save({ seats_size: Number((e.target as HTMLInputElement).value) })}
+                        className="w-full"
+                      />
+                      {seats.meta?.seats_size != null && (
+                        <button
+                          onClick={() => seats.save({ seats_size: null })}
+                          className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                        >
+                          сбросить
+                        </button>
+                      )}
+                    </div>
+                  </Field>
+                )}
+                {block.kind === 'hero' && seats && block.show_seats && (
+                  <Field label="Где подпись у счётчика">
+                    <div className="flex gap-2">
+                      {([['top', 'Сверху'], ['left', 'Слева'], ['right', 'Справа']] as const)
+                        .map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => seats.save({ seats_label_position: val })}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                              (seats.meta?.seats_label_position || 'top') === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                    </div>
+                  </Field>
+                )}
                 {/* ⚠️ Надзаголовок — только у шапки: в обычных секциях его нет.
                     Размер читался рендерером и раньше, но регулятора не было —
                     поменять его можно было только через базу. */}
