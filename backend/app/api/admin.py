@@ -564,7 +564,29 @@ async def delete_client(
             client_id,
         )
 
-        # 3. Сам клиент — остальное уйдёт каскадом (контакты, рассылки,
+        # 3. ⚠️⚠️ КАРТОЧКИ КОЛЛАБА ЕГО КОНТАКТОВ — ДО удаления клиента.
+        #
+        #    Без этой строки удаление ПАДАЛО у любого клиента, у которого есть
+        #    карточка коллаба, — а она заводится сама (self_collaborator_id),
+        #    чтобы клиент мог добавлять себя в свои события.
+        #
+        #    Причина — противоречие в схеме: внешний ключ на контакт объявлен
+        #    `ON DELETE SET NULL`, а сама колонка `contact_id` — `NOT NULL`.
+        #    Каскад от клиента доходит до контактов, база обязана обнулить
+        #    ссылку в карточке и тут же сама себе это запрещает:
+        #    «null value in column "contact_id" violates not-null constraint».
+        #
+        #    ⚠️ Каскадом карточки НЕ уйдут: у `collaborators` нет `client_id`
+        #    вовсе, а обе связи с `clients` (`linked_client_id`,
+        #    `created_by_client_id`) — тоже SET NULL. Принадлежность клиенту
+        #    выражена ТОЛЬКО через контакт, поэтому и удаляем по контактам.
+        await db.execute(
+            """DELETE FROM collaborators
+                WHERE contact_id IN (SELECT id FROM contacts WHERE client_id = $1)""",
+            client_id,
+        )
+
+        # 4. Сам клиент — остальное уйдёт каскадом (контакты, рассылки,
         #    воронки, продукты, файлы, подписки, диалоги и прочее).
         await db.execute("DELETE FROM clients WHERE id = $1", client_id)
 
