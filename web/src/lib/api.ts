@@ -1407,6 +1407,8 @@ export const api = {
     client: (id: number) => request(`/api/v1/tech/clients/${id}`),
     accruals: (period?: string) =>
       request(`/api/v1/tech/accruals${period ? `?period=${period}` : ''}`),
+    // Показатели, из которых складываются деньги: ступень фикса, доля доживших.
+    kpi: () => request('/api/v1/tech/kpi'),
     // Открыть правку материалов: выдаёт короткий токен системного кабинета,
     // где они лежат, — дальше работает готовый редактор.
     materialsSession: () =>

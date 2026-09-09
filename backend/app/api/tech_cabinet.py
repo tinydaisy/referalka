@@ -196,3 +196,155 @@ async def my_accruals(
         "totals": [dict(t) for t in totals],
         "unpaid_kopecks": sum(int(t["unpaid_kopecks"] or 0) for t in totals),
     }
+
+
+@router.get("/kpi", summary="Мои показатели")
+async def my_kpi(
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Показатели, по которым считаются деньги внедренца.
+
+    ⚠️⚠️ ЦИФРЫ СЧИТАЮТСЯ ТЕМИ ЖЕ ВЫРАЖЕНИЯМИ, ЧТО И НАЧИСЛЕНИЯ
+    ([tech_accruals.py](../services/tech_accruals.py)). Своя «примерно такая же»
+    формула разошлась бы с выплатой, и экран, который должен объяснять деньги,
+    начал бы спорить с ними.
+
+    ⚠️ Ставки и ступени берутся ИЗ БАЗЫ, а не хардкодом: лист KPI прямо говорит,
+    что ставки меняются в одном месте. Захардкоженная вилка на экране пережила бы
+    правку ставки и врала бы молча.
+    """
+    spec_id = int(user["sub"])
+
+    # ── Клиенты в работе ─────────────────────────────────────────────────
+    # «Платит» — то же условие, что в `accrue_monthly_fix`: активная подписка
+    # с source='paid'. Триал и выданное админом деньгами не считаются.
+    paying = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
+              " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
+              " AND cs2.expires_at > NOW() AND cs2.source='paid')")
+
+    base = await db.fetchrow(
+        f"""SELECT COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE {paying}) AS paying,
+                   -- Свои приведённые: за них идёт процент, в фикс они НЕ идут.
+                   COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS mine,
+                   COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1 AND {paying})
+                     AS mine_paying,
+                   -- Чужие платящие — именно они дают ступень фикса.
+                   COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1
+                                      AND {paying}) AS others_paying,
+                   -- Остывшие: не платят сейчас, но платили раньше. Это работа
+                   -- на оживление, а не потеря.
+                   COUNT(*) FILTER (
+                     WHERE NOT {paying}
+                       AND EXISTS (SELECT 1 FROM subscription_orders so
+                                    WHERE so.client_id = c.id AND so.status='paid'
+                                      AND so.amount_paid_card_kopecks > 0)) AS cold
+              FROM clients c
+             WHERE c.tech_specialist_id = $1""",
+        spec_id,
+    )
+
+    # ── Ступень фикса ────────────────────────────────────────────────────
+    others = int(base["others_paying"] or 0)
+    cur_tier = await db.fetchrow(
+        """SELECT clients_from, clients_to, amount_kopecks FROM tech_fix_tiers
+            WHERE $1 BETWEEN clients_from AND clients_to
+            ORDER BY clients_from DESC LIMIT 1""",
+        others,
+    )
+    next_tier = await db.fetchrow(
+        """SELECT clients_from, amount_kopecks FROM tech_fix_tiers
+            WHERE clients_from > $1 AND amount_kopecks > 0
+            ORDER BY clients_from LIMIT 1""",
+        others,
+    )
+
+    # ── Доля доживших за текущий квартал ─────────────────────────────────
+    # ⚠️ Тот же запрос, что в `accrue_quarter_bonus`, но по ИДУЩЕМУ кварталу —
+    # чтобы человек видел, к какой ступени премии идёт, пока может влиять.
+    quarter = await db.fetchrow(
+        """WITH q AS (SELECT date_trunc('quarter', NOW()) AS s,
+                             date_trunc('quarter', NOW()) + INTERVAL '3 months' AS e)
+           SELECT COUNT(DISTINCT f.client_id) AS first_payers,
+                  COUNT(DISTINCT f.client_id) FILTER (WHERE f.payments >= 2) AS survived
+             FROM clients c, q
+             JOIN LATERAL (
+               SELECT so.client_id, MIN(so.paid_at) AS first_at, COUNT(*) AS payments
+                 FROM subscription_orders so
+                WHERE so.client_id = c.id AND so.status = 'paid'
+                  AND so.amount_paid_card_kopecks > 0
+                GROUP BY so.client_id
+                HAVING MIN(so.paid_at) >= q.s AND MIN(so.paid_at) < q.e
+             ) f ON TRUE
+            WHERE c.tech_specialist_id = $1""",
+        spec_id,
+    )
+    first_payers = int(quarter["first_payers"] or 0)
+    survived = int(quarter["survived"] or 0)
+    # ⚠️ Ноль оплативших — это «нечего считать», а не 0 %: показывать «0%»
+    # значило бы пугать человека провалом там, где квартал только начался.
+    rate = round(survived * 100 / first_payers, 1) if first_payers else None
+
+    q_tier = None
+    if rate is not None:
+        q_tier = await db.fetchrow(
+            """SELECT rate_from, rate_to, amount_kopecks FROM tech_quarter_tiers
+                WHERE $1 >= rate_from AND $1 < rate_to
+                ORDER BY rate_from DESC LIMIT 1""",
+            rate,
+        )
+    q_next = await db.fetchrow(
+        """SELECT rate_from, amount_kopecks FROM tech_quarter_tiers
+            WHERE rate_from > COALESCE($1, -1) AND amount_kopecks > 0
+            ORDER BY rate_from LIMIT 1""",
+        rate,
+    )
+
+    # ── Деньги ───────────────────────────────────────────────────────────
+    money = await db.fetchrow(
+        """SELECT COALESCE(SUM(amount_kopecks),0) AS total,
+                  COALESCE(SUM(amount_kopecks) FILTER (WHERE paid_at IS NULL),0)
+                    AS unpaid,
+                  COALESCE(SUM(amount_kopecks) FILTER (
+                    WHERE period = to_char(NOW(),'YYYY-MM')),0) AS this_month
+             FROM tech_accruals WHERE spec_id = $1""",
+        spec_id,
+    )
+
+    rates = await db.fetch(
+        """SELECT kind, amount_kopecks, percent, of_tariff
+             FROM tech_rates WHERE is_active ORDER BY kind""")
+
+    return {
+        "clients": {
+            "total": int(base["total"] or 0),
+            "paying": int(base["paying"] or 0),
+            "mine": int(base["mine"] or 0),
+            "mine_paying": int(base["mine_paying"] or 0),
+            "others_paying": others,
+            "cold": int(base["cold"] or 0),
+        },
+        "fix": {
+            "clients_counted": others,
+            "amount_kopecks": int(cur_tier["amount_kopecks"]) if cur_tier else 0,
+            "tier_from": int(cur_tier["clients_from"]) if cur_tier else None,
+            "tier_to": int(cur_tier["clients_to"]) if cur_tier else None,
+            "next_at": int(next_tier["clients_from"]) if next_tier else None,
+            "next_amount_kopecks": int(next_tier["amount_kopecks"]) if next_tier else None,
+        },
+        "quarter": {
+            "first_payers": first_payers,
+            "survived": survived,
+            "rate": rate,
+            "amount_kopecks": int(q_tier["amount_kopecks"]) if q_tier else 0,
+            "next_rate": float(q_next["rate_from"]) if q_next else None,
+            "next_amount_kopecks": int(q_next["amount_kopecks"]) if q_next else None,
+        },
+        "money": {
+            "total_kopecks": int(money["total"] or 0),
+            "unpaid_kopecks": int(money["unpaid"] or 0),
+            "this_month_kopecks": int(money["this_month"] or 0),
+        },
+        "rates": [dict(r) for r in rates],
+    }
