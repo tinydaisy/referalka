@@ -208,9 +208,10 @@ export default function EventReferrerPage() {
       )}
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+        {/* Счётчика «N чел.» здесь нет намеренно — та же цифра стоит выше
+            в плитке «Пришло от него», дублировать её незачем. */}
+        <div className="px-5 py-3 border-b border-gray-100">
           <h2 className="font-bold text-gray-900 text-sm">Кого привёл</h2>
-          <span className="text-xs text-gray-400">{people.length} чел.</span>
         </div>
         {people.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">
@@ -256,11 +257,13 @@ export default function EventReferrerPage() {
                           {money(p.paid_amount)}
                         </span>
                       ) : p.has_paid ? (
-                        /* Тариф оплачен, но сумма нулевая (бесплатный или
-                           отмечен вручную). Показываем как оплату, а не
-                           прочерк: в счётчике «оплатили» он уже учтён. */
-                        <span className="text-xs text-gray-500" title={p.paid_tariffs || 'Оплачено, сумма 0 ₽'}>
-                          0 ₽
+                        /* ⚠️ Тариф отмечен оплаченным, но СУММА НЕ ВПИСАНА.
+                           Показывать «0 ₽» нельзя — читается как «прошёл
+                           бесплатно», хотя человек мог заплатить: сумму просто
+                           не записали (форма отметки её не спрашивала). */
+                        <span className="text-xs text-amber-600 font-medium whitespace-nowrap"
+                              title={`${p.paid_tariffs || 'Оплачено'} — сумма не вписана`}>
+                          сумма не указана
                         </span>
                       ) : (
                         <span className="text-gray-300">—</span>

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { Users, CheckCircle2, Wallet, ChevronRight, Search } from 'lucide-react'
+import { Users, CheckCircle2, Wallet, ChevronRight, Search, ArrowUp, ArrowDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 // Общий показ площадок — тот же компонент, что в карточке рефовода.
@@ -44,6 +44,42 @@ interface Row {
 
 function money(v: number): string {
   return `${Number(v || 0).toLocaleString('ru-RU')} ₽`
+}
+
+type SortKey = 'name' | 'email' | 'phone' | 'ref_code' | 'self'
+  | 'brought' | 'registered' | 'paid_count' | 'paid_sum'
+
+/** Текстовые колонки сортируются от А, числовые — от большего. */
+const TEXT_KEYS: SortKey[] = ['name', 'email', 'phone', 'ref_code']
+
+/** Заголовок-кнопка: клик сортирует по этой колонке, повторный — разворачивает. */
+function Th({ label, k, sortKey, sortDir, onSort, align = 'left', className = '' }: {
+  label: React.ReactNode
+  k: SortKey
+  sortKey: SortKey
+  sortDir: 'asc' | 'desc'
+  onSort: (k: SortKey) => void
+  align?: 'left' | 'right' | 'center'
+  className?: string
+}) {
+  const active = sortKey === k
+  const just = align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'
+  return (
+    <th className={`text-${align} px-2 py-2.5 font-medium ${className}`}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        title="Сортировать по этой колонке"
+        className={`inline-flex items-center gap-1 w-full ${just} uppercase tracking-wide hover:text-[#25455D] ${
+          active ? 'text-[#25455D] font-semibold' : ''
+        }`}
+      >
+        {label}
+        {/* Стрелка только у активной колонки — иначе шапка рябит. */}
+        {active && (sortDir === 'desc' ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+      </button>
+    </th>
+  )
 }
 
 function StatCard({ icon: Icon, label, value, hint, accent }: {
@@ -96,6 +132,19 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [q, setQ] = useState('')
+  // По умолчанию — деньги сверху (решение владельца 09.09.2026).
+  const [sortKey, setSortKey] = useState<SortKey>('paid_sum')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  function toggleSort(k: SortKey) {
+    if (k === sortKey) {
+      setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortKey(k)
+      // Цифры логичнее смотреть от большего, имена — от А.
+      setSortDir(TEXT_KEYS.includes(k) ? 'asc' : 'desc')
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -126,7 +175,7 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
 
   const all = rows || []
   const needle = q.trim().toLowerCase()
-  const list = needle
+  const filtered = needle
     ? all.filter(r =>
         (r.name || '').toLowerCase().includes(needle) ||
         (r.email || '').toLowerCase().includes(needle) ||
@@ -134,6 +183,39 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
         (r.tg_username || '').toLowerCase().includes(needle) ||
         (r.ref_code || '').toLowerCase().includes(needle))
     : all
+
+  // Сколько рефоводов с оплатами, но без вписанных сумм — из-за них итог занижен.
+  const noAmountReferrers = all.filter(r => r.paid_count > 0 && !(r.paid_sum > 0)).length
+
+  // ⚠️ ПОРЯДОК ПО УМОЛЧАНИЮ: сумма оплат ↓, затем регистрации ↓, затем имя
+  // (решение владельца 09.09.2026) — «у кого есть деньги, тот и выше».
+  // Клик по заголовку колонки переключает сортировку по ней.
+  const list = [...filtered].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    const num = (r: Row) => {
+      switch (sortKey) {
+        case 'paid_sum': return r.paid_sum
+        case 'paid_count': return r.paid_count
+        case 'registered': return r.registered
+        case 'brought': return r.brought
+        case 'self': return r.self_registered ? 1 : 0
+        default: return 0
+      }
+    }
+    if (sortKey === 'name' || sortKey === 'email' || sortKey === 'phone' || sortKey === 'ref_code') {
+      const s = (r: Row) => String(
+        sortKey === 'name' ? (r.name || '') :
+        sortKey === 'email' ? (r.email || '') :
+        sortKey === 'phone' ? (r.phone || '') : (r.ref_code || ''))
+      return s(a).localeCompare(s(b), 'ru') * dir
+    }
+    const d = (num(a) - num(b)) * dir
+    if (d !== 0) return d
+    // Тай-брейкеры того же порядка, что и по умолчанию: деньги → регистрации → имя.
+    if (b.paid_sum !== a.paid_sum) return b.paid_sum - a.paid_sum
+    if (b.registered !== a.registered) return b.registered - a.registered
+    return String(a.name || '').localeCompare(String(b.name || ''), 'ru')
+  })
 
   if (all.length === 0) {
     return (
@@ -161,6 +243,16 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
                   hint={`оплатили ${totals.paid_count ?? 0} чел.`} accent />
       </div>
 
+      {/* ⚠️ Итог занижен, если у части оплат сумма не вписана. Молча показывать
+          неполную цифру нельзя — по ней принимают решения. */}
+      {noAmountReferrers > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 mb-4 -mt-2">
+          Сумма неполная: у <b>{noAmountReferrers}</b> рефовод(ов) есть оплаты, но сумма по ним не заполнена —
+          такие оплаты в итог не попали. Впишите суммы в «Платежи/Заявки» → «Заказы»
+          (или <b>0</b>, если человек прошёл бесплатно).
+        </div>
+      )}
+
       {all.length > 8 && (
         <div className="relative mb-3">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -181,39 +273,50 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
                 строка раздувалась, а цифры уезжали за край экрана. */}
             <thead className="text-[11px] text-gray-400 uppercase tracking-wide bg-gray-50">
               <tr>
-                <th className="text-left px-4 py-2.5 font-medium">Имя</th>
-                <th className="text-left px-2 py-2.5 font-medium">Email</th>
-                <th className="text-left px-2 py-2.5 font-medium">Телефон</th>
+                {/* ⚠️ Имя ЗАКРЕПЛЕНО при горизонтальной прокрутке (sticky
+                    left-0): таблица широкая, и, доехав до «Суммы оплат», не
+                    видно, чья это строка. Фон обязателен — иначе сквозь
+                    закреплённую ячейку просвечивают уезжающие под неё. */}
+                <Th label="Имя" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+                    className="sticky left-0 z-20 bg-gray-50 min-w-[180px] px-4" />
+                <Th label="Email" k="email" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <Th label="Телефон" k="phone" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                {/* Площадки не сортируем: у человека их может быть несколько. */}
                 <th className="text-left px-2 py-2.5 font-medium">Площадки</th>
-                <th className="text-left px-2 py-2.5 font-medium">Реф-код</th>
-                <th className="text-center px-2 py-2.5 font-medium">Сам<br/>зареган</th>
-                <th className="text-right px-2 py-2.5 font-medium">Привёл</th>
-                <th className="text-right px-2 py-2.5 font-medium">Зарегались</th>
-                <th className="text-right px-2 py-2.5 font-medium">Оплатили</th>
-                <th className="text-right px-2 py-2.5 font-medium">Сумма оплат</th>
+                <Th label="Реф-код" k="ref_code" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <Th label={<>Сам<br/>зареган</>} k="self" align="center"
+                    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <Th label="Привёл" k="brought" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <Th label="Зарегались" k="registered" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <Th label="Оплатили" k="paid_count" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <Th label="Сумма оплат" k="paid_sum" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <th className="w-10 px-2 py-2.5" />
               </tr>
             </thead>
             <tbody>
               {list.map(r => (
-                <tr key={r.contact_id} className="border-t border-gray-50 hover:bg-gray-50/60">
-                  <td className="px-4 py-3">
+                <tr key={r.contact_id} className="border-t border-gray-50 group">
+                  {/* ⚠️ Фон непрозрачный (bg-white), иначе при прокрутке под
+                      закреплённой колонкой видно уезжающий текст.
+                      Подсветку строки поэтому красим и здесь через group-hover,
+                      а не одним `hover:bg-gray-50/60` на строке. */}
+                  <td className="px-4 py-3 sticky left-0 z-10 bg-white group-hover:bg-gray-50 min-w-[180px]">
                     {/* Имя ведёт на карточку рефовода со списком его людей. */}
                     <Link href={personHref(r.contact_id)}
                           className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
                       {r.name || 'Без имени'}
                     </Link>
                   </td>
-                  <td className="px-2 py-3 text-xs text-gray-600">
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-xs text-gray-600">
                     {r.email || <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-2 py-3 text-xs text-gray-600 whitespace-nowrap">
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-xs text-gray-600 whitespace-nowrap">
                     {r.phone || <span className="text-gray-300">—</span>}
                   </td>
                   {/* Площадки — иконка + ник, по одной на строку. */}
-                  <td className="px-2 py-3"><PlatformList p={r} /></td>
-                  <td className="px-2 py-3 text-xs font-mono text-gray-500">{r.ref_code}</td>
-                  <td className="px-2 py-3 text-center">
+                  <td className="group-hover:bg-gray-50 px-2 py-3"><PlatformList p={r} /></td>
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-xs font-mono text-gray-500">{r.ref_code}</td>
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-center">
                     {r.self_registered ? (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                         <CheckCircle2 size={12} /> Да
@@ -224,13 +327,23 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-3 text-right font-semibold text-gray-900">{r.brought}</td>
-                  <td className="px-2 py-3 text-right text-gray-700">{r.registered}</td>
-                  <td className="px-2 py-3 text-right text-gray-700">{r.paid_count}</td>
-                  <td className="px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
-                    {r.paid_sum > 0 ? money(r.paid_sum) : <span className="text-gray-300">—</span>}
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-right font-semibold text-gray-900">{r.brought}</td>
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-right text-gray-700">{r.registered}</td>
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-right text-gray-700">{r.paid_count}</td>
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                    {/* ⚠️ Есть оплаты, но сумма нулевая — это НЕ «ничего не
+                        купили»: у самих оплат поле суммы не заполнено (их
+                        отмечали вручную, когда форма сумму не спрашивала).
+                        Прочерк здесь читался как «денег нет вовсе». */}
+                    {r.paid_sum > 0 ? money(r.paid_sum)
+                      : r.paid_count > 0 ? (
+                        <span className="text-amber-600 text-xs font-medium whitespace-nowrap"
+                              title={`${r.paid_count} оплат без вписанной суммы — впишите её в «Платежи/Заявки» → «Заказы»`}>
+                          сумма не указана
+                        </span>
+                      ) : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-2 py-3 text-right">
+                  <td className="group-hover:bg-gray-50 px-2 py-3 text-right">
                     <Link href={personHref(r.contact_id)}
                           title="Открыть карточку и список приведённых"
                           className="inline-flex w-7 h-7 rounded-md items-center justify-center text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
