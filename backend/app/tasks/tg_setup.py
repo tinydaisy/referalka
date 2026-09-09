@@ -491,7 +491,15 @@ async def _finish_setup(db, order) -> None:
         client = await tgs.connect(acc)
 
         # ── передача бота: возможна только после того, как клиент написал ему ──
-        if order["client_started_bot_at"] and not order["bot_transferred_at"]:
+        #
+        # ⚠️⚠️ ОДНА ПОПЫТКА, А НЕ КАЖДУЮ МИНУТУ. Раньше неудача нигде не
+        # запоминалась, и поллер повторял передачу бесконечно: на живом заказе
+        # 51 попытка подряд за час. Это и мусор в логе, и — что важнее —
+        # долбёжка в BotFather с одного аккаунта, за которую Telegram
+        # ограничивает аккаунт. Сорвалось — останавливаемся и ждём, пока
+        # человек нажмёт «Передать мне» (ручка transfer-now снимает стоп).
+        if (order["client_started_bot_at"] and not order["bot_transferred_at"]
+                and not order["setup_error"]):
             await _log_step(db, order_id, "transfer", "Передаём вам права на бота…")
             try:
                 ok = await tgs.transfer_bot(
@@ -500,11 +508,27 @@ async def _finish_setup(db, order) -> None:
                 if ok:
                     await db.execute(
                         "UPDATE service_orders SET bot_transferred_at=NOW(), "
-                        "       updated_at=NOW() WHERE id=$1", order_id,
+                        "       setup_error=NULL, updated_at=NOW() WHERE id=$1", order_id,
                     )
                     await _log_step(db, order_id, "transfer",
                                     "Бот теперь ваш — вы его владелец")
+                else:
+                    # ⚠️ Записываем причину в заказ — она и останавливает
+                    # повторы, и показывается клиенту красной строкой.
+                    await db.execute(
+                        "UPDATE service_orders SET setup_error=$2, updated_at=NOW() "
+                        " WHERE id=$1", order_id,
+                        "Не удалось передать права. Нажмите «Передать мне» ещё раз "
+                        "или напишите в тех.поддержку",
+                    )
+                    await _log_step(db, order_id, "transfer",
+                                    "Передача не подтвердилась — попробуйте ещё раз "
+                                    "кнопкой «Передать мне»", ok=False)
             except tgs.BotFatherError as e:
+                await db.execute(
+                    "UPDATE service_orders SET setup_error=$2, updated_at=NOW() "
+                    " WHERE id=$1", order_id, str(e),
+                )
                 await _log_step(db, order_id, "transfer", str(e), ok=False)
 
         # ── права на группу: только после вступления клиента ──
