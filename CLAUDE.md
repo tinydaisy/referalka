@@ -398,11 +398,13 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 **Строка «Бонус:» на лендинге** собирается САМА из настройки тарифа ([event_landing_public.py](backend/app/api/event_landing_public.py) + `tariff_bonus_line`). ⚠️ Названы ОБА случая («для новых» / «для действующих») — иначе человек с кабинетом решит, что обманули: ждал 30 дней, получил 3. ⚠️ Показывается только у тарифов с включённым бонусом: проверка по `bonus_days` неверна, у колонки есть значение по умолчанию.
 
-### Новости платформы — плашка, колокольчик, рассылка (миграция 374 от 2026-09-08)
+### Новости платформы: админская панель новостей + плашка и колокольчик у клиента (миграция 374 от 2026-09-08, ПРОД)
 
-⚠️ **Ещё не на проде** — миграция написана, не накачена.
+**Где искать:** админская панель новостей — [/admin/news](web/src/app/admin/news/page.tsx); та же панель в кабинете сервисного клиента — [/dashboard/platform-news](web/src/app/dashboard/platform-news/page.tsx); у клиента — плашка, колокольчик и [/dashboard/news](web/src/app/dashboard/news/page.tsx).
 
 Админ пишет новость → клиенты видят её плашкой вверху кабинета, колокольчиком в шапке и на странице `/dashboard/news`. Отдельными кнопками новость рассылается на почту клиентов и в личку через @pluson_bot.
+
+**Проверено на проде 08.09.2026:** миграция накачена, таблицы созданы, все 10 эндпоинтов отвечают, сквозной цикл (создать → клиент видит → отметка «прочитано» → счётчик обнулился) отработал, живой Celery-воркер знает обе задачи рассылки. Получателей почты на тот момент — **152 кабинета**, отписавшихся 0.
 
 ⚠️⚠️ **Адресат — САМ КЛИЕНТ ПЛЮСОНа, а не контакт в его базе.** Это тот же разговор платформы с клиентом, что уведомления об истечении подписки и о лимите контактов: почта идёт через **системный** email-канал от имени «iViSiON: ПЛЮСОН», бот — только @pluson_bot. `broadcast_schedules` переиспользовать нельзя — там аудитория это `contacts` конкретного клиента.
 
@@ -456,7 +458,11 @@ grep -rn '<имя-сертификата>' /etc/nginx/ | grep -v Binary
 
 `/api/v1/news/` добавлен в `PASSTHROUGH_PREFIXES` [subscription_guard.py](backend/app/middleware/subscription_guard.py). Отметка «прочитано» и «скрыть все» — это POST, то есть запись: под заморозкой клиент не смог бы ни закрыть плашку, ни погасить колокольчик, и она висела бы вечно. Ровно этому человеку новость про продление и нужна. По той же причине `/api/v1/news` открыт «менеджеру заказов» ([assistant_permission_guard.py](backend/app/middleware/assistant_permission_guard.py)) — плашка есть на каждой странице кабинета, включая его.
 
-**Файлы:** [platform_news.py (сервис)](backend/app/services/platform_news.py), [platform_news.py (API)](backend/app/api/platform_news.py), [tasks/platform_news.py](backend/app/tasks/platform_news.py), [NewsBanner.tsx](web/src/components/NewsBanner.tsx), [NewsBell.tsx](web/src/components/NewsBell.tsx), [useNews.ts](web/src/hooks/useNews.ts), [dashboard/news](web/src/app/dashboard/news/page.tsx), api-группы `api.news.*` (кабинет) и `api.platformNews.*` (ведение).
+**Файлы:** [platform_news.py (сервис)](backend/app/services/platform_news.py), [platform_news.py (API)](backend/app/api/platform_news.py), [tasks/platform_news.py](backend/app/tasks/platform_news.py), [NewsManager.tsx](web/src/components/news/NewsManager.tsx) (общая панель ведения), [NewsBanner.tsx](web/src/components/NewsBanner.tsx), [NewsBell.tsx](web/src/components/NewsBell.tsx), [useNews.ts](web/src/hooks/useNews.ts), [NewsEmailBlock.tsx](web/src/components/settings/NewsEmailBlock.tsx), api-группы `api.news.*` (кабинет) и `api.platformNews.*` (ведение).
+
+#### Чего в разделе НЕТ (не искать)
+
+Отдельной страницы новости у клиента (`/dashboard/news/{id}`) — вся лента на одной странице, ссылка из колокольчика ведёт якорем `#news-{id}`. Отбора получателей по тарифу или фиче — новость видят все клиенты одинаково (решение владельца). Отложенной публикации по дате — только «Опубликовать» здесь и сейчас. Отписки от новостей в БОТЕ — только от писем. Расписания рассылки в `beat_schedule` — задачи одноразовые, запускаются кнопкой.
 
 ⚠️ Картинка грузится kind **`news_media`** — он добавлен в ТРИ места: `IMAGE_UPLOAD_KINDS`, `build_key` и `MAX_DIM_BY_KIND` (1200px). Забытый лимит сжатия не даёт ошибки, файл просто уходит в хранилище несжатым.
 
