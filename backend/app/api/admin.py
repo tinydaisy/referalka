@@ -433,14 +433,23 @@ async def _client_delete_summary(db, client_id: int) -> dict:
         SELECT c.id, c.name, c.email, c.is_system_service,
                (SELECT count(*) FROM event_owners eo WHERE eo.client_id = c.id)      AS events,
                (SELECT count(*) FROM contacts ct WHERE ct.client_id = c.id)          AS contacts,
-               -- ⚠️ Считаем ТОЛЬКО СВОИ каналы клиента (`ch.is_system = FALSE`).
-               -- Системный email-канал ПЛЮСОНа привязывается КАЖДОМУ клиенту
-               -- сам при регистрации, и без этого условия окно удаления писало
-               -- «Подключённые боты: 1» человеку, у которого нет ни одного бота.
-               -- Та же оговорка стоит в списке клиентов (own_channels_count).
+               -- ⚠️ БОТЫ И ПОЧТА — РАЗНЫЕ СТРОКИ, хотя в БД лежат одной
+               -- таблицей `channels`. Раньше считались все записи разом, и окно
+               -- писало «Подключённые боты: 1» человеку без единого бота: это
+               -- был СИСТЕМНЫЙ email-канал ПЛЮСОНа, который привязывается
+               -- каждому клиенту сам при регистрации. Почта ботом не является.
+               --
+               -- Боты — свои каналы клиента, кроме почтовых.
                (SELECT count(*) FROM client_channels cc
                   JOIN channels ch ON ch.id = cc.channel_id
-                 WHERE cc.client_id = c.id AND ch.is_system = FALSE)                 AS channels,
+                 WHERE cc.client_id = c.id AND ch.is_system = FALSE
+                   AND ch.platform_slug <> 'email')                                  AS channels,
+               -- ⚠️ Почта считается подключённой, только когда у клиента СВОЙ
+               -- почтовый домен (`client_domains.kind='mail'`). Системный канал
+               -- есть у всех и ничего про клиента не говорит — показывать его
+               -- как «подключено» значит обещать удаление того, чего у него нет.
+               (SELECT count(*) FROM client_domains cd
+                 WHERE cd.client_id = c.id AND cd.kind = 'mail')                     AS mail_domains,
                (SELECT count(*) FROM client_files cf WHERE cf.client_id = c.id)      AS files,
                (SELECT count(*) FROM products p WHERE p.client_id = c.id)            AS products,
                (SELECT count(*) FROM lead_magnets lm WHERE lm.client_id = c.id)      AS lead_magnets,

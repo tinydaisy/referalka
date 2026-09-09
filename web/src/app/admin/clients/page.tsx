@@ -498,10 +498,17 @@ function DeleteClientModal({ client, onClose, onDone }: {
     }
   }
 
+  /**
+   * ⚠️ Почтовый домен показывается ТОЛЬКО когда он у клиента свой.
+   * Системный email-канал ПЛЮСОНа есть у каждого — строка «Почта: 0» ничего
+   * не сообщает, а строка «Почта: 1» врала бы, что мы удалим его почту.
+   * Поэтому её нет вовсе, если своего домена не подключено.
+   */
   const rows: Array<[string, number]> = preview ? [
     ['События (удалятся)', preview.events_to_delete],
     ['Контакты', preview.contacts],
     ['Подключённые боты', preview.channels],
+    ...(preview.mail_domains ? [['Свой почтовый домен', preview.mail_domains] as [string, number]] : []),
     ['Продукты', preview.products],
     ['Лид-магниты', preview.lead_magnets],
     ['Рассылки', preview.broadcasts],
