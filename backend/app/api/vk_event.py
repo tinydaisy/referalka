@@ -1299,6 +1299,7 @@ async def handle_vk_event(body: VkEventRequest):
 _EVENT_FUNNEL_FIELDS = """
     e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.module_slug, e.status,
     e.landing_url, e.vip_url, e.vip_button_label, e.skip_contact_form,
+    e.is_offline, e.address, e.address_button_label,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
@@ -1436,6 +1437,15 @@ async def send_vk_event_funnel(
 
         # 4. Ссылка на эфир — callback.
         rows.append([{"text": "📺 Ссылка на эфир", "callback_data": f"evlive_{event_id}"}])
+
+        # 4б. Адрес мероприятия — у офлайн-события с заполненным адресом.
+        #     Эфир не отменяет: у офлайн-события бывает трансляция.
+        from app.services.event_address import (
+            button_label as _addr_label, has_address as _has_addr,
+        )
+        if _has_addr(event_row):
+            rows.append([{"text": f"📍 {_addr_label(event_row)}",
+                          "callback_data": f"evaddr_{event_id}"}])
 
         # 5. Программа (+ спикеры для конф/турниров).
         prog_label = ("Программа и Спикеры"

@@ -618,6 +618,50 @@ async def run_event_support(message: Message, event_id: int) -> None:
     await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 
+@router.callback_query(F.data.startswith("evaddr_"))
+async def handle_event_address(callback: CallbackQuery):
+    """«Адрес мероприятия» — тонкая обёртка над `run_event_address`."""
+    try:
+        event_id = int((callback.data or "").removeprefix("evaddr_"))
+    except ValueError:
+        await callback.answer("Ошибка кнопки")
+        return
+    if callback.message:
+        await run_event_address(callback.message, event_id)
+    await callback.answer()
+
+
+async def run_event_address(message: Message, event_id: int) -> None:
+    """Адрес офлайн-события + кнопка «Посмотреть на карте».
+
+    ⚠️ Адрес идёт ТЕКСТОМ, а не одной кнопкой на карту: человеку чаще нужно
+    просто свериться, куда ехать, и переслать адрес кому-то — из ссылки на
+    карту его не скопируешь. Тот же порядок, что в программе Mini App.
+    """
+    from app.services.event_address import (
+        ADDRESS_SQL_FIELDS, address_text, has_address, maps_url,
+    )
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        ev = await db.fetchrow(
+            f"SELECT e.id, e.title, {ADDRESS_SQL_FIELDS} FROM events e WHERE e.id = $1",
+            event_id,
+        )
+    if not ev or not has_address(ev):
+        # Событие перевели в онлайн или стёрли адрес, пока меню висело в чате.
+        await message.answer("У этого события не указан адрес.")
+        return
+
+    rows = [[InlineKeyboardButton(
+        text="Посмотреть на карте", url=maps_url(ev["address"])
+    )], [InlineKeyboardButton(
+        text="⬅️ Вернуться в меню", callback_data=f"evmenu_{event_id}"
+    )]]
+    await message.answer(address_text(ev), parse_mode="HTML",
+                         disable_web_page_preview=True,
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
 _RU_MONTHS = ["", "января", "февраля", "марта", "апреля", "мая", "июня",
               "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 

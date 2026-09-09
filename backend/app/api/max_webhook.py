@@ -883,6 +883,22 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
                 logger.warning(f"MAX evlive failed (event={event_id}, user={user_id}): {e}")
         return
 
+    if payload.startswith("evaddr_"):
+        try:
+            event_id = int(payload.removeprefix("evaddr_"))
+        except ValueError:
+            logger.warning(f"MAX evaddr callback bad payload: {payload!r}")
+            return
+        pool = await get_pool()
+        if not pool:
+            return
+        async with pool.acquire() as conn:
+            try:
+                await _handle_max_address(chat_id, event_id, bot_token, conn)
+            except Exception as e:
+                logger.warning(f"MAX evaddr failed (event={event_id}, user={user_id}): {e}")
+        return
+
     if payload.startswith("evmenu_"):
         try:
             event_id = int(payload.removeprefix("evmenu_"))
@@ -1803,6 +1819,7 @@ async def _send_max_event_menu(
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
                   hide_stream_button, start_at,
+                  is_offline, address, address_button_label,
                   (SELECT url FROM event_posters
                      WHERE event_id = events.id AND day IS NULL
                      ORDER BY CASE orientation
@@ -1880,6 +1897,15 @@ async def _send_max_event_menu(
 
     # 3. Ссылка на эфир (callback evlive_ — ближайший эфир + кнопка стрима).
     tg_rows.append([{"text": "📺 Ссылка на эфир", "callback_data": f"evlive_{event_id}"}])
+
+    # 3б. Адрес мероприятия — у офлайн-события с заполненным адресом.
+    #     Эфир не отменяет: у офлайн-события бывает трансляция.
+    from app.services.event_address import (
+        button_label as _addr_label, has_address as _has_addr,
+    )
+    if _has_addr(ev):
+        tg_rows.append([{"text": f"📍 {_addr_label(ev)}",
+                         "callback_data": f"evaddr_{event_id}"}])
 
     # 4. Программа (и спикеры для конференций/турниров).
     prog_label = ("Программа и Спикеры"
@@ -2035,6 +2061,29 @@ async def _handle_max_live(
     rows.append([{"text": "Программа", "url": _prog_url}])
     rows.append([{"text": "Меню", "callback_data": f"evmenu_{event_id}"}])
     await max_send_message(chat_id, text, token=bot_token, buttons=tg_inline_to_max_keyboard(rows))
+
+
+async def _handle_max_address(chat_id, event_id: int, bot_token: str, conn) -> None:
+    """«Адрес мероприятия» в MAX — зеркало run_event_address из TG.
+
+    ⚠️ Текст без HTML: тут сообщение уходит обычным текстом, теги пришли бы
+    получателю дословно."""
+    from app.services.event_address import (
+        ADDRESS_SQL_FIELDS, address_text, has_address, maps_url,
+    )
+    ev = await conn.fetchrow(
+        f"SELECT e.id, e.title, {ADDRESS_SQL_FIELDS} FROM events e WHERE e.id = $1",
+        event_id,
+    )
+    if not ev or not has_address(ev):
+        await max_send_message(chat_id, "У этого события не указан адрес.",
+                               token=bot_token)
+        return
+
+    rows = [[{"text": "Посмотреть на карте", "url": maps_url(ev["address"])}],
+            [{"text": "Меню", "callback_data": f"evmenu_{event_id}"}]]
+    await max_send_message(chat_id, address_text(ev, html=False), token=bot_token,
+                           buttons=tg_inline_to_max_keyboard(rows))
 
 
 async def _handle_max_plusson_ref(

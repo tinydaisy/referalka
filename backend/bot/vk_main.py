@@ -1318,10 +1318,10 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             await _send_event_answer("Секунду, материалы уже в пути 🎁")
         return
 
-    # Меню события (порт TG evchat_/evmenu_/evlive_/evsupport_ из handlers/funnel.py).
+    # Меню события (порт TG evchat_/evmenu_/evlive_/evaddr_/evsupport_ из handlers/funnel.py).
     if (cb.startswith("evchat_") or cb.startswith("evmenu_")
             or cb.startswith("evlive_") or cb.startswith("evsupport_")
-            or cb.startswith("evsignup_")):
+            or cb.startswith("evaddr_") or cb.startswith("evsignup_")):
         prefix, _, id_raw = cb.partition("_")
         try:
             ev_id = int(id_raw)
@@ -1330,7 +1330,7 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         from bot.vk_event_menu import (
             handle_vk_event_chat, handle_vk_event_menu_back, handle_vk_event_live,
-            handle_vk_event_support, handle_vk_event_signup,
+            handle_vk_event_support, handle_vk_event_signup, handle_vk_event_address,
         )
         try:
             if prefix == "evchat":
@@ -1341,6 +1341,8 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
                 await handle_vk_event_menu_back(ev_id, int(user_id), db, ctx)
             elif prefix == "evlive":
                 await handle_vk_event_live(ev_id, int(user_id), db, ctx)
+            elif prefix == "evaddr":
+                await handle_vk_event_address(ev_id, int(user_id), db, ctx)
             elif prefix == "evsupport":
                 await handle_vk_event_support(ev_id, int(user_id), db, ctx)
             await _send_event_answer("Готово 👇")

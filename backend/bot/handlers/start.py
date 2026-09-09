@@ -1565,6 +1565,7 @@ async def send_event_menu(
                     WHERE eo.event_id = e.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS default_link_mode,
                   vip_url, vip_button_label, hide_stream_button,
+                  e.is_offline, e.address, e.address_button_label,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
@@ -1713,6 +1714,15 @@ async def send_event_menu(
     if not ev["hide_stream_button"]:
         rows.append([InlineKeyboardButton(
             text="📺 Ссылка на эфир", callback_data=f"evlive_{event_id}"
+        )])
+
+    # 4б. Адрес мероприятия — у офлайн-события с заполненным адресом.
+    #     ⚠️ Кнопку эфира НЕ заменяет и не отменяет: у офлайн-события бывает
+    #     трансляция, и тогда нужны обе. Название задаёт клиент.
+    from app.services.event_address import button_label as _addr_label, has_address as _has_addr
+    if _has_addr(ev):
+        rows.append([InlineKeyboardButton(
+            text=f"📍 {_addr_label(ev)}", callback_data=f"evaddr_{event_id}"
         )])
 
     # (Кнопка «Программа и Спикеры» убрана — программа и спикеры доступны

@@ -503,6 +503,28 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
     await vk_send_message(vk_user_id, text, keyboard=keyboard, token=ctx.token)
 
 
+async def handle_vk_event_address(event_id: int, vk_user_id: int, db, ctx) -> None:
+    """«Адрес мероприятия» (VK) — порт funnel.py:run_event_address.
+
+    ⚠️ Текст без HTML: VK показывает теги дословно."""
+    from app.services.event_address import (
+        ADDRESS_SQL_FIELDS, address_text, has_address, maps_url,
+    )
+    ev = await db.fetchrow(
+        f"SELECT e.id, e.title, {ADDRESS_SQL_FIELDS} FROM events e WHERE e.id = $1",
+        event_id,
+    )
+    if not ev or not has_address(ev):
+        await vk_send_message(vk_user_id, "У этого события не указан адрес.",
+                              token=ctx.token)
+        return
+
+    rows = [[{"text": "Посмотреть на карте", "url": maps_url(ev["address"])}],
+            [{"text": "⬅️ Вернуться в меню", "callback_data": f"evmenu_{event_id}"}]]
+    await vk_send_message(vk_user_id, address_text(ev, html=False),
+                          keyboard=tg_inline_to_vk_keyboard(rows), token=ctx.token)
+
+
 async def handle_vk_event_support(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«🆘 Тех. поддержка» (VK) — единое сообщение с каналами связи клиента-
     владельца события (ВК / Телеграм / MAX)."""
