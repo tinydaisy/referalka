@@ -90,11 +90,23 @@ export default function ProductLandingTab({ productId, product, readOnly = false
   const page = current?.page
   const blocks: any[] = current?.blocks || []
 
-  // Что предлагать в «Добавить секцию»: повторяемые — всегда, обычные —
-  // только те, которых на странице сейчас нет.
-  const addableKinds = useMemo(() => {
+  // Что предлагать в «Добавить секцию» — ДВУМЯ группами, как у события.
+  //
+  // ⚠️ Автозаполняемые (состав продукта, тарифы, организатор…) тянут данные
+  // сами и бывают по одной. Показываем их отдельной группой и ЦЕЛИКОМ:
+  // добавленная — неактивной, удалённая — снова доступной. Раньше добавленная
+  // просто исчезала из списка, и было не понять, секции нет или она уже стоит.
+  const { extraKinds, autoKinds } = useMemo(() => {
     const present = new Set(blocks.map(b => b.kind))
-    return [...REPEATABLE, ...PRODUCT_STANDARD.filter(k => !present.has(k))]
+    const auto = PRODUCT_STANDARD.filter(k => metaFor(k, 'product').live)
+    const extra = [
+      ...REPEATABLE,
+      ...PRODUCT_STANDARD.filter(k => !metaFor(k, 'product').live && !present.has(k)),
+    ]
+    return {
+      extraKinds: extra,
+      autoKinds: auto.map(k => ({ kind: k, used: present.has(k) })),
+    }
   }, [blocks])
 
   /* ── правки страницы ──────────────────────────────────────────────────── */
@@ -373,24 +385,55 @@ export default function ProductLandingTab({ productId, product, readOnly = false
         ))}
       </div>
 
-      {/* Добавить секцию */}
-      {!readOnly && addableKinds.length > 0 && (
+      {/* Добавить секцию — двумя группами, как у события */}
+      {!readOnly && (
         <div className="mt-4 rounded-xl border border-dashed border-gray-300 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700">
-            <Plus size={15} /> Добавить секцию
+            <Plus size={15} /> Дополнительные секции
           </div>
           <div className="flex flex-wrap gap-2">
-            {addableKinds.map(k => (
+            {extraKinds.map(k => (
               <button
                 key={k}
                 onClick={() => addBlock(k)}
                 className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:border-gray-400"
-                title={metaFor(k).hint}
+                title={metaFor(k, 'product').hint}
               >
-                {metaFor(k).label}
+                {metaFor(k, 'product').label}
               </button>
             ))}
           </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Свои тексты, картинки и кнопки. «Текст», «Галерея» и элементы можно
+            добавлять сколько угодно раз.
+          </p>
+
+          <div className="mb-2 mt-5 text-sm font-medium text-gray-700">
+            Автозаполняемые секции
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {autoKinds.map(({ kind: k, used }) => (
+              <button
+                key={k}
+                onClick={() => !used && addBlock(k)}
+                disabled={used}
+                title={used
+                  ? 'Уже на странице — такая секция может быть только одна. Удалите её выше, чтобы добавить заново.'
+                  : metaFor(k, 'product').hint}
+                className={`rounded-lg border px-3 py-1.5 text-sm ${
+                  used
+                    ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                    : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                }`}
+              >
+                {metaFor(k, 'product').label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Содержимое берётся из продукта само. Каждая — по одной на страницу:
+            добавленные показаны серым, удалите секцию выше — снова станет доступной.
+          </p>
         </div>
       )}
     </div>

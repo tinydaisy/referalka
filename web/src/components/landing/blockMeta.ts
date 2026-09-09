@@ -13,7 +13,7 @@ export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'process' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
-  | 'product_content' | 'survey' | 'description'
+  | 'product_content' | 'survey' | 'description' | 'nav'
   | 'el_button' | 'el_heading' | 'el_text' | 'el_image' | 'el_heading_text'
 
 export interface BlockMeta {
@@ -39,6 +39,19 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     hint: 'Название и даты берутся из настроек события. Подзаголовок — короткая строка под названием; полное описание показывает секция «Описание».',
     live: true,
     fields: ['title', 'subtitle', 'button'],
+  },
+  // ⚠️ ПСЕВДО-СЕКЦИЯ: своей строки в таблице блоков у неё НЕТ — меню живёт
+  // настройками страницы (`nav_enabled`, `nav_items`, кнопка). В списке
+  // показывается секцией, чтобы вести себя как остальные: галочка показа,
+  // удаление, возврат из «Автозаполняемых». Корзина только СКРЫВАЕТ
+  // (nav_enabled=false), пункты и кнопка сохраняются — иначе при возврате их
+  // пришлось бы собирать заново.
+  nav: {
+    kind: 'nav',
+    label: 'Меню и логотип наверху страницы',
+    hint: 'Липкая панель сверху: логотип, пункты меню и кнопка. Пункты ведут к секциям этой же страницы.',
+    live: true,
+    fields: [],
   },
   description: {
     kind: 'description',

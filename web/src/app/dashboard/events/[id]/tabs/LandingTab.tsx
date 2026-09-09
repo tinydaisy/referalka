@@ -742,7 +742,7 @@ export default function LandingTab({ eventId, event }: Props) {
               // блоком сверху страницы, галочка показа и положение — внутри
               // шапки, плюс отдельная секция «Осталось мест». Хранятся они в
               // `events` (не в блоке), поэтому передаём сюда пропами.
-              seats={kind === 'main' && b.kind === 'hero' ? {
+              seats={kind === 'main' && (b.kind === 'seats' || b.kind === 'hero') ? {
                 total: seats,
                 setTotal: setSeats,
                 meta,

@@ -330,11 +330,95 @@ export default function BlockCard({
                 </Field>
               )}
 
-              {has('seats') && (
-                <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
-                  Сколько всего мест — задаётся сверху страницы, одно число на событие.
-                  Свободные считаются сами.
-                </p>
+              {/* ⚠️ НАСТРОЙКИ СЧЁТЧИКА МЕСТ ЖИВУТ ЗДЕСЬ — в секции «Осталось
+                  мест». Раньше они были размазаны: число и подпись — блоком над
+                  списком секций, показ и положение — в шапке, а здесь висела
+                  плашка «задаётся сверху страницы», то есть секция не давала
+                  ничего. Теперь наоборот: тут всё, а в «Главной странице»
+                  только галочка «показывать в шапке».
+                  ⚠️ Хранится в `events`, не в блоке, поэтому приходит пропом. */}
+              {has('seats') && seats && (
+                <>
+                  <Field label="Всего мест на событии">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <input
+                        type="number" min={0}
+                        value={seats.total}
+                        onChange={e => seats.setTotal(e.target.value)}
+                        onBlur={() => seats.save()}
+                        placeholder="без лимита"
+                        className="input w-40"
+                      />
+                      <span className="text-sm text-gray-500">
+                        Занято: <b>{seats.meta?.seats_taken ?? 0}</b>
+                        {seats.meta?.seats_total != null && (
+                          <> · свободно: <b>{Math.max(0, seats.meta.seats_total - (seats.meta.seats_taken || 0))}</b></>
+                        )}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Пусто — покажем только число записавшихся.
+                    </p>
+                  </Field>
+
+                  <Field label="Подпись у счётчика">
+                    <input
+                      type="text"
+                      value={seats.meta?.seats_label ?? ''}
+                      onChange={e => seats.setMeta((m: any) => ({ ...m, seats_label: e.target.value }))}
+                      onBlur={e => seats.save({ seats_label: e.target.value || null })}
+                      placeholder="ОСТАЛОСЬ МЕСТ:"
+                      className="input"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Пусто — только цифра.</p>
+                  </Field>
+
+                  <Field label="Что считать занятым">
+                    <div className="flex gap-2">
+                      {([['registered', 'Записались'], ['visited', 'Зашли']] as const)
+                        .map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => seats.save({ seats_count_mode: val })}
+                            className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
+                              (seats.meta?.seats_count_mode || 'registered') === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      «Зашли» — все, кто открыл событие, даже если не дошли до записи.
+                    </p>
+                  </Field>
+
+                  <Field label="Прибавить к счётчику">
+                    <input
+                      type="number" min={0}
+                      value={seats.meta?.seats_base ?? ''}
+                      onChange={e => seats.setMeta((m: any) => ({
+                        ...m, seats_base: e.target.value === '' ? null : Number(e.target.value),
+                      }))}
+                      onBlur={e => seats.save({
+                        seats_base: e.target.value === '' ? null : Number(e.target.value),
+                      })}
+                      placeholder="0"
+                      className="input"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Если аудитория уже есть — например, 1100 человек в чате.
+                      Счётчик пойдёт от этого числа.
+                    </p>
+                  </Field>
+
+                  <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+                    Эти настройки общие: тот же счётчик можно показать в шапке —
+                    галочка в секции «Главная страница».
+                  </p>
+                </>
               )}
 
               {has('list') && (
@@ -799,126 +883,6 @@ export default function BlockCard({
 
               {block.kind === 'hero' && (
                 <>
-                  {/* ⚠️ СЧЁТЧИК МЕСТ — ОДНИМ МЕСТОМ. Раньше настройки были
-                      размазаны по трём экранам: число мест и подпись — блоком
-                      над списком секций, галочка показа и положение — здесь,
-                      плюс отдельная секция «Осталось мест». Клиент не понимал,
-                      где что искать и почему счётчик не выключается.
-                      Здесь — СОДЕРЖИМОЕ (что показываем и что считаем),
-                      оформление (размер цифры) — во вкладке «Оформление». */}
-                  <div className="rounded-lg border border-gray-200 p-3">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={!!block.show_seats}
-                        onChange={e => onPatch({ show_seats: e.target.checked })}
-                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
-                      />
-                      <span className="text-sm font-medium text-gray-700">
-                        Показывать «осталось мест»
-                      </span>
-                    </label>
-
-                    {block.show_seats && (
-                      <div className="mt-3 space-y-3">
-                        <div className="flex flex-wrap gap-2">
-                          {([['above', 'Над кнопкой'], ['side', 'Сбоку от кнопки']] as const).map(
-                            ([val, label]) => (
-                              <button
-                                key={val}
-                                onClick={() => onPatch({ seats_position: val })}
-                                className={`rounded-lg border px-3 py-1.5 text-sm ${
-                                  (block.seats_position || 'above') === val
-                                    ? 'border-brand bg-brand/5 font-medium text-brand'
-                                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                        </div>
-
-                        {seats && (
-                          <>
-                            <Field label="Всего мест на событии">
-                              <div className="flex flex-wrap items-center gap-3">
-                                <input
-                                  type="number" min={0}
-                                  value={seats.total}
-                                  onChange={e => seats.setTotal(e.target.value)}
-                                  onBlur={() => seats.save()}
-                                  placeholder="без лимита"
-                                  className="input w-40"
-                                />
-                                <span className="text-sm text-gray-500">
-                                  Занято: <b>{seats.meta?.seats_taken ?? 0}</b>
-                                  {seats.meta?.seats_total != null && (
-                                    <> · свободно: <b>{Math.max(0, seats.meta.seats_total - (seats.meta.seats_taken || 0))}</b></>
-                                  )}
-                                </span>
-                              </div>
-                              <p className="mt-1 text-xs text-gray-500">
-                                Пусто — покажем только число записавшихся.
-                              </p>
-                            </Field>
-
-                            <Field label="Подпись у счётчика">
-                              <input
-                                type="text"
-                                value={seats.meta?.seats_label ?? ''}
-                                onChange={e => seats.setMeta((m: any) => ({ ...m, seats_label: e.target.value }))}
-                                onBlur={e => seats.save({ seats_label: e.target.value || null })}
-                                placeholder="ОСТАЛОСЬ МЕСТ:"
-                                className="input"
-                              />
-                              <p className="mt-1 text-xs text-gray-500">Пусто — только цифра.</p>
-                            </Field>
-
-                            <Field label="Что считать занятым">
-                              <div className="flex gap-2">
-                                {([['registered', 'Записались'], ['visited', 'Зашли']] as const)
-                                  .map(([val, label]) => (
-                                    <button
-                                      key={val}
-                                      onClick={() => seats.save({ seats_count_mode: val })}
-                                      className={`flex-1 rounded-lg border px-2 py-1.5 text-sm ${
-                                        (seats.meta?.seats_count_mode || 'registered') === val
-                                          ? 'border-brand bg-brand/5 font-medium text-brand'
-                                          : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                                      }`}
-                                    >
-                                      {label}
-                                    </button>
-                                  ))}
-                              </div>
-                              <p className="mt-1 text-xs text-gray-500">
-                                «Зашли» — все, кто открыл событие, даже если не дошли до записи.
-                              </p>
-                            </Field>
-
-                            <Field label="Прибавить к счётчику">
-                              <input
-                                type="number" min={0}
-                                value={seats.meta?.seats_base ?? ''}
-                                onChange={e => seats.setMeta((m: any) => ({
-                                  ...m, seats_base: e.target.value === '' ? null : Number(e.target.value),
-                                }))}
-                                onBlur={e => seats.save({
-                                  seats_base: e.target.value === '' ? null : Number(e.target.value),
-                                })}
-                                placeholder="0"
-                                className="input"
-                              />
-                              <p className="mt-1 text-xs text-gray-500">
-                                Если аудитория уже есть — например, 1100 человек в чате.
-                                Счётчик пойдёт от этого числа.
-                              </p>
-                            </Field>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
                   {/* Дата события. Показывается всегда — галочки нет:
                       без даты продающая шапка не работает. Настраиваются
                       только размер и место. */}
@@ -981,6 +945,55 @@ export default function BlockCard({
                   <p className="text-sm text-gray-500">
                     Название, описание и даты берутся из настроек события.
                   </p>
+
+                  {/* ⚠️ Здесь ТОЛЬКО показ счётчика в шапке и его место рядом
+                      с кнопкой. Сами настройки (сколько мест, подпись, что
+                      считать занятым) живут в секции «Осталось мест» — они
+                      общие для обоих мест показа, и держать их в двух экранах
+                      значило бы одно и то же число править дважды. */}
+                  {/* ⚠️ Отбит линией сверху: счётчик мест — отдельная тема, и
+                      без разделителя его галочка читалась как продолжение
+                      настроек даты. */}
+                  <div className="mt-2 rounded-lg border border-gray-200 p-3 border-t-4 border-t-gray-100">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!block.show_seats}
+                        onChange={e => onPatch({ show_seats: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Показывать «осталось мест» в шапке
+                      </span>
+                    </label>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Сколько мест, подпись и что считать занятым — в секции
+                      «Осталось мест».
+                    </p>
+
+                    {block.show_seats && (
+                      <div className="mt-3 space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          {([['above', 'Над кнопкой'], ['side', 'Сбоку от кнопки']] as const).map(
+                            ([val, label]) => (
+                              <button
+                                key={val}
+                                onClick={() => onPatch({ seats_position: val })}
+                                className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                  (block.seats_position || 'above') === val
+                                    ? 'border-brand bg-brand/5 font-medium text-brand'
+                                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                        </div>
+
+                      </div>
+                    )}
+                  </div>
+
                 </>
               )}
             </div>
@@ -1185,10 +1198,10 @@ export default function BlockCard({
 
               {/* Размеры остального текста секции — отдельно от заголовка. */}
               <div className="grid gap-4 sm:grid-cols-2">
-                {/* ⚠️ Размер цифры счётчика мест — ОФОРМЛЕНИЕ, поэтому здесь,
-                    а не рядом с самим счётчиком во вкладке «Содержимое»: там
-                    решают, что показывать и что считать. */}
-                {block.kind === 'hero' && seats && block.show_seats && (
+                {/* ⚠️ Оформление счётчика — здесь, в секции «Осталось мест»,
+                    рядом с остальными его настройками. Во вкладке «Содержимое»
+                    той же секции — что показываем и что считаем. */}
+                {has('seats') && seats && (
                   <Field label={`Размер цифры «осталось мест»: ${seats.meta?.seats_size ? `${seats.meta.seats_size} px` : 'обычный'}`}>
                     <div className="flex items-center gap-3">
                       <input
@@ -1209,7 +1222,7 @@ export default function BlockCard({
                     </div>
                   </Field>
                 )}
-                {block.kind === 'hero' && seats && block.show_seats && (
+                {has('seats') && seats && (
                   <Field label="Где подпись у счётчика">
                     <div className="flex gap-2">
                       {([['top', 'Сверху'], ['left', 'Слева'], ['right', 'Справа']] as const)
