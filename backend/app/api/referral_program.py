@@ -1269,6 +1269,7 @@ async def referral_report_person(
                -- в таблице не существует.
                ep.is_registered, ep.registered_at,
                {_PAID_SUM_SQL}              AS paid_amount,
+               {_PAID_EXISTS_SQL}           AS has_paid,
                (SELECT STRING_AGG(t.title, ', ' ORDER BY t.sort_order)
                   FROM event_participant_tariffs pt
                   JOIN event_tariffs t ON t.id = pt.tariff_id
@@ -1290,10 +1291,15 @@ async def referral_report_person(
     for p in people:
         p["paid_amount"] = float(p["paid_amount"] or 0)
 
+    # ⚠️ «Оплатил» = ЕСТЬ оплаченный тариф, а не «сумма больше нуля» — ровно то
+    # же определение, что в списке рефоводов. На проде 28 записей со
+    # `status='paid'` и `amount = 0` (бесплатный тариф или отмечен вручную):
+    # при подсчёте по сумме карточка показывала «оплатили 0» там, где в списке
+    # стояло «2», и цифры двух экранов расходились.
     totals = {
         "brought": len(people),
         "registered": sum(1 for p in people if p["is_registered"]),
-        "paid_count": sum(1 for p in people if p["paid_amount"] > 0),
+        "paid_count": sum(1 for p in people if p["has_paid"]),
         "paid_sum": sum(p["paid_amount"] for p in people),
     }
     return {"person": dict(person), "people": people, "totals": totals}

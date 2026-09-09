@@ -32,6 +32,9 @@ interface Person {
   is_registered: boolean
   registered_at: string | null
   paid_amount: number
+  /** Есть оплаченный тариф. ⚠️ Не выводится из суммы: бывает оплата на 0 ₽
+   *  (бесплатный тариф или отмечен вручную) — на проде таких 28. */
+  has_paid: boolean
   paid_tariffs: string | null
 }
 
@@ -284,10 +287,13 @@ export default function EventReferrerPage() {
                         <span className="font-semibold text-gray-900" title={p.paid_tariffs || ''}>
                           {money(p.paid_amount)}
                         </span>
-                      ) : p.paid_tariffs ? (
+                      ) : p.has_paid ? (
                         /* Тариф оплачен, но сумма нулевая (бесплатный или
-                           отмечен вручную) — «оплатил» и «сумма» независимы. */
-                        <span className="text-xs text-gray-500" title={p.paid_tariffs}>0 ₽</span>
+                           отмечен вручную). Показываем как оплату, а не
+                           прочерк: в счётчике «оплатили» он уже учтён. */
+                        <span className="text-xs text-gray-500" title={p.paid_tariffs || 'Оплачено, сумма 0 ₽'}>
+                          0 ₽
+                        </span>
                       ) : (
                         <span className="text-gray-300">—</span>
                       )}
