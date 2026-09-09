@@ -457,9 +457,13 @@ async def transfer_now(user=Depends(get_current_client), db=Depends(get_db)):
     await _assert_feature(db, client_id)
 
     order = await db.fetchrow(
+        # ⚠️ Ищем и в состоянии `failed`: после двух неудач настройка
+        # останавливается, и кнопка «Передать мне» — единственный способ
+        # повторить. Без этого она отвечала бы «нет настройки» именно тогда,
+        # когда нужна больше всего.
         """SELECT id, client_started_bot_at, bot_transferred_at, bot_created_at
              FROM service_orders
-            WHERE client_id = $1 AND setup_state = 'awaiting_user'
+            WHERE client_id = $1 AND setup_state IN ('awaiting_user', 'failed')
             ORDER BY id DESC LIMIT 1""",
         client_id,
     )
@@ -478,8 +482,15 @@ async def transfer_now(user=Depends(get_current_client), db=Depends(get_db)):
     # `setup_error` и БОЛЬШЕ НЕ ПОВТОРЯЕТ — иначе она долбилась бы в BotFather
     # каждую минуту (на живом заказе так вышло 51 попытка подряд), а за это
     # Telegram ограничивает аккаунт. Повтор — только по явному нажатию человека.
+    # ⚠️ Возвращаем настройку в рабочее состояние и обнуляем счётчик попыток:
+    # человек нажал осознанно, значит это новая попытка, а не продолжение
+    # прежней серии. Иначе после двух неудач кнопка была бы бесполезна —
+    # задача осталась бы в `failed` и не взялась бы за работу.
     await db.execute(
-        "UPDATE service_orders SET setup_error = NULL, updated_at = NOW() WHERE id = $1",
+        "UPDATE service_orders "
+        "   SET setup_error = NULL, transfer_attempts = 0, "
+        "       setup_state = 'awaiting_user', updated_at = NOW() "
+        " WHERE id = $1",
         order["id"],
     )
 

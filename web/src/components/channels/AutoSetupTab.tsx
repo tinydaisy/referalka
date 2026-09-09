@@ -18,7 +18,7 @@ import {
   AUTOSETUP_STEPS, AUTOSETUP_FROM_CLIENT, AUTOSETUP_NOT_INCLUDED,
 } from '@/lib/autosetupSteps'
 import {
-  AlertTriangle, ArrowRight, Check, Clock, Copy, Loader2,
+  AlertTriangle, ArrowRight, Check, Clock, Copy, Loader2, XCircle,
   MessageSquare, Sparkles, Users,
 } from 'lucide-react'
 
@@ -329,7 +329,19 @@ export default function AutoSetupTab() {
   const order = state.order?.id ? state.order : undefined
   const st = order?.setup_state
   const inProgress = st === 'queued' || st === 'running'
-  const waitingUser = st === 'awaiting_user'
+  /**
+   * ⚠️ `failed` ПОКАЗЫВАЕМ ТАК ЖЕ, как «ждём ваших действий».
+   *
+   * Состояния `failed` в списке не было вовсе, и экран становился ПУСТЫМ:
+   * человек нажимал «Передать мне», задача останавливалась после двух попыток
+   * — и всё исчезало. Ни чек-листа, ни причины, ни кнопки повторить.
+   *
+   * На деле сорвался ОДИН шаг (передача прав), а бот и группа уже созданы и
+   * работают. Значит показывать надо то же самое, только с красной причиной
+   * и возможностью повторить.
+   */
+  const failedTransfer = st === 'failed'
+  const waitingUser = st === 'awaiting_user' || failedTransfer
   const finished = st === 'done'
   const expired = st === 'expired'
 
@@ -717,6 +729,32 @@ export default function AutoSetupTab() {
                   {transferring ? 'Передаём…' : 'Передать мне'}
                 </button>
               </div>
+
+              {/*
+                ⚠️ ОТВЕТ — ПРЯМО ЗДЕСЬ, ПОД КНОПКОЙ.
+                Раньше причина неудачи выводилась внизу страницы и только в
+                одном случае: человек нажимал «Передать мне», ждал, и НИЧЕГО не
+                происходило — ни ошибки, ни объяснения. Экран выглядел
+                сломанным. Ответ должен быть там же, где действие.
+              */}
+              {order.setup_error && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2.5">
+                  <XCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+                  <div className="text-sm text-red-800">
+                    {order.setup_error}
+                    <div className="mt-1.5">
+                      <Link href={SUPPORT_URL} className="underline font-medium">
+                        Написать в тех.поддержку
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {transferring && (
+                <p className="mt-3 text-sm text-gray-500">
+                  Идёт передача — это занимает до полминуты, не закрывайте страницу.
+                </p>
+              )}
             </div>
           )}
 
