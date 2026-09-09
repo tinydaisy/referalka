@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Блок «Чаты события» — ВЫБОР чата из базы клиента (Каналы → «Чаты для рассылок»),
+ * Блок «Чаты события» — ВЫБОР чата из базы клиента (Каналы → «Группы/Каналы для рассылок»),
  * по одному на платформу (Telegram / ВКонтакте / MAX) + radio «какой главный».
  *
  * Клиент добавляет чат ОДИН раз в Каналы→Чаты (там ID и ссылка определяются),
@@ -101,7 +101,7 @@ export default function EventChatsField({ value, onChange }: Props) {
         <label className="block text-sm font-semibold text-gray-800">Чаты/каналы события</label>
         <p className="text-xs text-gray-500 mt-1">
           Выберите чат или канал для каждой площадки из вашей базы. Чаты/каналы добавляются один раз в{' '}
-          <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">Каналы → «Чаты для рассылок»</a>{' '}
+          <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">Каналы → «Группы/Каналы для рассылок»</a>{' '}
           (там определяется ID и ссылка).
         </p>
       </div>
@@ -267,7 +267,7 @@ function ChatPickerModal({ platform, chats, loading, currentRef, onPick, onClose
             <div className="text-sm text-gray-500">
               У вас нет чатов {meta.label} в базе.{' '}
               <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">
-                Добавьте в Каналы → «Чаты для рассылок»
+                Добавьте в Каналы → «Группы/Каналы для рассылок»
               </a>.
             </div>
           ) : chats.map(c => (

@@ -1976,7 +1976,7 @@ export default function TemplatesPage() {
                 <span>
                   <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
                   <span className="block text-[11px] text-gray-500 mt-0.5">
-                    В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок», без галочки «Личный»).
+                    В общие группы/каналы из базы чатов (Каналы → «Группы/Каналы для рассылок», без галочки «Личный»).
                   </span>
                 </span>
               </label>)}
@@ -2205,7 +2205,7 @@ export default function TemplatesPage() {
                 <span>
                   <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
                   <span className="block text-[11px] text-gray-500 mt-0.5">
-                    Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
+                    Ещё и в группы/каналы из вашей базы чатов (Каналы → «Группы/Каналы для рассылок»).
                   </span>
                 </span>
               </label>)}

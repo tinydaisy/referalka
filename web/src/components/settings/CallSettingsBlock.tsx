@@ -22,11 +22,8 @@ export default function CallSettingsBlock() {
   const [ok, setOk] = useState('')
 
   const [apiKey, setApiKey] = useState('')
-  const [outgoing, setOutgoing] = useState('')
-  const [duty, setDuty] = useState(false)
+  const [copied, setCopied] = useState(false)
 
-  const [phones, setPhones] = useState<any[] | null>(null)
-  const [phonesLoading, setPhonesLoading] = useState(false)
   const [checking, setChecking] = useState(false)
   const [checkResult, setCheckResult] = useState<any>(null)
 
@@ -36,8 +33,6 @@ export default function CallSettingsBlock() {
     try {
       const d = await api.callSettings.get()
       setData(d)
-      setOutgoing(d.calls_calldog_outgoing_phone || '')
-      setDuty(!!d.calls_calldog_duty_phone)
     } catch (e: any) {
       // Нет фичи — блок просто не показываем: он в общей вкладке рядом с
       // другими интеграциями, и замок на пол-экрана тут был бы шумом.
@@ -49,16 +44,10 @@ export default function CallSettingsBlock() {
   }
 
   async function save() {
+    if (!apiKey.trim()) { setError('Введите API-ключ.'); return }
     setSaving(true); setError(''); setOk('')
     try {
-      const payload: any = {
-        calls_calldog_outgoing_phone: outgoing,
-        calls_calldog_duty_phone: duty,
-      }
-      // Пустое поле ключа = «не меняем». Иначе сохранение любой другой
-      // настройки стирало бы ключ, который мы наружу не отдаём.
-      if (apiKey.trim()) payload.calls_calldog_api_key = apiKey.trim()
-      const d = await api.callSettings.update(payload)
+      const d = await api.callSettings.update({ calls_calldog_api_key: apiKey.trim() })
       setData(d)
       setApiKey('')
       setOk('Сохранено')
@@ -66,13 +55,10 @@ export default function CallSettingsBlock() {
     } catch (e: any) { setError(e.message) } finally { setSaving(false) }
   }
 
-  async function loadPhones() {
-    setPhonesLoading(true); setError('')
-    try {
-      const r = await api.callSettings.phones()
-      setPhones(r.phones || [])
-      if (!r.phones?.length) setError(r.message || 'В аккаунте Звонопса нет исходящих номеров.')
-    } catch (e: any) { setError(e.message) } finally { setPhonesLoading(false) }
+  function copyWebhook() {
+    navigator.clipboard.writeText(data?.webhook_url || '')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
   }
 
   async function check() {
@@ -115,11 +101,14 @@ export default function CallSettingsBlock() {
               lk.calldog.ru <ExternalLink size={12} />
             </a>
           </li>
-          <li>Запросите <b>API-ключ у менеджера сервиса</b> — в кабинете его нет.</li>
-          <li>Там же попросите <b>отключить модерацию для генерации голоса</b>, иначе каждый
-              озвученный текст будет ждать ручной проверки.</li>
-          <li>Добавьте и подтвердите номер, с которого будете звонить.</li>
-          <li>Создайте сценарий звонка в разделе «Шаблоны API» — его выберете при обзвоне.</li>
+          <li>Возьмите <b>API-ключ</b> в разделе «API и интеграции» — и вставьте его ниже.</li>
+          <li>Запишите аудиоролик в разделе «Аудиоролики» и отправьте на модерацию —
+              проверяют один раз, дальше звонки уходят сразу.</li>
+          <li>Создайте <b>шаблон</b> со сценарием: что говорит робот и что происходит
+              по нажатию цифр. Его выберете при создании обзвона.</li>
+          <li>В шаблоне у нажатия <b>1</b> добавьте действие «Вебхук» и вставьте
+              адрес из поля ниже — тогда заинтересовавшиеся будут приходить вам
+              уведомлением и отмечаться тегом.</li>
         </ol>
       </div>
 
@@ -141,59 +130,30 @@ export default function CallSettingsBlock() {
           )}
         </div>
 
-        <div>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={duty} onChange={e => setDuty(e.target.checked)} />
-            Брать случайный номер из дежурных
+        {/* Адрес вебхука — клиент вписывает его в шаблоне Звонопса у действия
+            по нажатию «1». Подставить за него нельзя: шаблон в их кабинете. */}
+        <div className="rounded-xl border border-gray-200 p-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Вебхук для уведомлений
           </label>
-          <p className="text-xs text-gray-500 mt-1 ml-6">
-            Если у вас в Звонопсе настроены дежурные номера — сервис сам выберет, с какого звонить.
+          <p className="text-xs text-gray-500 mb-2 leading-snug">
+            Разместите этот адрес в шаблоне Звонопса — в действии по нажатию <b>1</b>
+            («Действия» → «Вебхук»). Тогда, как только человек нажмёт 1, вам придёт
+            уведомление в канал, а контакту проставится тег{' '}
+            <code className="bg-gray-100 px-1 rounded">{data?.interest_tag || 'звонок_конфа_интерес'}</code>.
           </p>
-        </div>
-
-        {!duty && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Номер, с которого звоним
-            </label>
-            <div className="flex flex-wrap items-center gap-2">
-              {phones === null ? (
-                <>
-                  <input
-                    value={outgoing}
-                    onChange={e => setOutgoing(e.target.value)}
-                    placeholder="79161234567"
-                    className="input max-w-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={loadPhones}
-                    disabled={phonesLoading || !data?.has_api_key}
-                    className="btn-primary text-sm disabled:opacity-50"
-                  >
-                    {phonesLoading ? 'Загружаем…' : 'Выбрать из аккаунта'}
-                  </button>
-                </>
-              ) : (
-                <select
-                  value={outgoing}
-                  onChange={e => setOutgoing(e.target.value)}
-                  className="input max-w-md"
-                >
-                  <option value="">— выберите номер —</option>
-                  {phones.map((p: any) => (
-                    <option key={p.id} value={String(p.phone)} disabled={p.enable === false}>
-                      {p.phone}{p.enable === false ? ' — не подтверждён' : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Номер должен быть подтверждён в кабинете Звонопса — иначе звонки не пойдут.
-            </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              readOnly
+              value={data?.webhook_url || ''}
+              onFocus={e => e.currentTarget.select()}
+              className="input flex-1 min-w-0 text-xs font-mono bg-gray-50"
+            />
+            <button type="button" onClick={copyWebhook} className="btn-primary text-sm shrink-0">
+              {copied ? 'Скопировано' : 'Копировать'}
+            </button>
           </div>
-        )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <button onClick={save} disabled={saving} className="btn-gold disabled:opacity-50">

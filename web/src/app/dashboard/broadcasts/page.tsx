@@ -1078,7 +1078,7 @@ function CustomBroadcastModal(props: {
               <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
               <span className="block text-[11px] text-gray-500 mt-0.5">
                 В дополнение к базе подписчиков — ещё и в группы/каналы из вашей базы чатов
-                (Каналы → «Чаты для рассылок», без галочки «Личный»).
+                (Каналы → «Группы/Каналы для рассылок», без галочки «Личный»).
               </span>
             </span>
           </label>)}

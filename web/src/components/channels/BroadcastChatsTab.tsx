@@ -9,7 +9,7 @@ import { useMe } from '@/hooks/useMe'
 import QrLinkButton from '@/components/QrLinkButton'
 
 /**
- * Вкладка «Чаты для рассылок» в /dashboard/channels.
+ * Вкладка «Группы/Каналы для рассылок» в /dashboard/channels.
  *
  * База внешних групп/каналов клиента (client_broadcast_chats, фича broadcast_chats).
  * Доступна только на тарифе с фичей broadcast_chats (Экстра). Если фичи нет —

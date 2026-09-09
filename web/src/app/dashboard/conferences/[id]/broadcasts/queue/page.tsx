@@ -1373,7 +1373,7 @@ export default function QueuePage() {
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
                   <span>
                     <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты {editClientChats && <span className="text-[#25455D]">✓</span>}</span>
-                    <span className="block text-[11px] text-gray-500 mt-0.5">В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок»).</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">В общие группы/каналы из базы чатов (Каналы → «Группы/Каналы для рассылок»).</span>
                   </span>
                 </label>)}
                 {hasChatsFeature && (<label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editPrivateChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
@@ -2400,7 +2400,7 @@ function CustomBroadcastModal(props: {
               <span>
                 <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
                 <span className="block text-[11px] text-gray-500 mt-0.5">
-                  В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок», без галочки «Личный»).
+                  В общие группы/каналы из базы чатов (Каналы → «Группы/Каналы для рассылок», без галочки «Личный»).
                 </span>
               </span>
             </label>

@@ -269,13 +269,13 @@ export default function ChannelsPage() {
         </div>
       )}
 
-      {/* Подвкладки: Боты / Чаты для рассылок / Автонастройка.
+      {/* Подвкладки: Боты / Группы/Каналы для рассылок / Автонастройка.
           ⚠️ «Автонастройка» СКРЫТА без фичи, а не показана с замком: услуга
           пока не продаётся клиентам, дразнить незачем (тот же приём, что у
           «Автообзвонов» в сайдбаре). */}
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
-        <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Чаты для рассылок</TabBtn>
+        <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Группы/Каналы для рассылок</TabBtn>
         {/* ⚠️ Вкладка видна ВСЕМ, а не только с фичей. Услуга открывается по
             коду доступа, и вводить его человеку негде, если вкладки нет вовсе.
             Внутри без доступа показывается описание услуги и поле для кода. */}
@@ -2862,7 +2862,7 @@ function StatCard({ label, value, color, unit }: { label: string; value: number;
 
 // Привязка WhatsApp по QR прямо внутри формы «Добавить канал».
 // Нет токена/handle — жмёшь «Подключить», сканируешь QR, дальше чаты выбираются
-// на вкладке «Чаты для рассылок».
+// на вкладке «Группы/Каналы для рассылок».
 function WhatsAppConnectInline({ onClose }: { onClose: () => void }) {
   const [state, setState] = useState<string>('none')
   const [qr, setQr] = useState<string | null>(null)
@@ -2914,7 +2914,7 @@ function WhatsAppConnectInline({ onClose }: { onClose: () => void }) {
       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
         <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto mb-1" />
         <p className="text-sm font-semibold text-emerald-800">WhatsApp привязан</p>
-        <p className="text-xs text-emerald-700 mt-1">Теперь на вкладке «Чаты для рассылок» выберите свои группы WhatsApp.</p>
+        <p className="text-xs text-emerald-700 mt-1">Теперь на вкладке «Группы/Каналы для рассылок» выберите свои группы WhatsApp.</p>
         <button onClick={onClose} className="mt-3 text-sm font-semibold px-4 py-2 rounded-lg text-white" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>Готово</button>
       </div>
     )

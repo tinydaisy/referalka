@@ -378,7 +378,7 @@ function GateModal({
 }) {
   const [chatId, setChatId] = useState(initial?.chat_id || '')
   const [chatTitle, setChatTitle] = useState(initial?.chat_title || '')
-  // TG-чаты из общей базы клиента (Каналы → «Чаты для рассылок»).
+  // TG-чаты из общей базы клиента (Каналы → «Группы/Каналы для рассылок»).
   const [tgChats, setTgChats] = useState<BroadcastChat[]>([])
   const [chatsLoading, setChatsLoading] = useState(true)
   useEffect(() => {
@@ -446,7 +446,7 @@ function GateModal({
             <div className="text-sm text-gray-600 rounded border border-gray-200 bg-gray-50 px-3 py-3">
               У вас нет Telegram-чатов в базе.{' '}
               <a href="/dashboard/channels" target="_blank" rel="noopener" className="text-[#25455D] underline">
-                Добавьте чат в Каналы → «Чаты для рассылок»
+                Добавьте чат в Каналы → «Группы/Каналы для рассылок»
               </a>{' '}— там определяется ID и название. Потом выберите его здесь.
             </div>
           ) : (
@@ -480,7 +480,7 @@ function GateModal({
             </div>
           )}
           <p className="text-xs text-gray-500 mt-2">
-            Чаты берутся из вашей базы (<a href="/dashboard/channels" target="_blank" rel="noopener" className="text-[#25455D] underline">Каналы → «Чаты для рассылок»</a>).
+            Чаты берутся из вашей базы (<a href="/dashboard/channels" target="_blank" rel="noopener" className="text-[#25455D] underline">Каналы → «Группы/Каналы для рассылок»</a>).
             Добавьте {botHandle ? <code className="font-mono">@{botHandle}</code> : 'вашего бота'} админом в чат с правом «Удаление сообщений».
           </p>
         </div>
