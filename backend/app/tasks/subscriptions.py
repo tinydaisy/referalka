@@ -65,6 +65,68 @@ def expire_overdue_task():
         return 0
 
 
+def _is_trial(tariff_slug: str | None) -> bool:
+    return (tariff_slug or "").lower() == "trial"
+
+
+def _days_word(days: int) -> str:
+    return "день" if days == 1 else ("дня" if days < 5 else "дней")
+
+
+def _expiry_text(*, days: int, tariff_slug: str | None, tariff_name: str,
+                 expires_at, name: str | None = None, for_email: bool = False) -> str:
+    """Текст уведомления об окончании доступа.
+
+    ⚠️ У ТРИАЛА И ПЛАТНОГО ТАРИФА — РАЗНЫЕ ТЕКСТЫ. У триала нет подписки:
+    человек ничего не оплачивал, и слово «подписка» читается так, будто
+    у него платный тариф и с него сейчас спишут деньги. Продлить бесплатный
+    период тоже нельзя — его можно только оплатить впервые.
+
+    ⚠️ Про отсутствие автосписания говорим ЯВНО в каждом письме — иначе человек
+    ждёт списания и на всякий случай отвязывает карту или пишет в поддержку.
+    """
+    date_str = expires_at.strftime("%d.%m.%Y")
+    date_time = expires_at.strftime("%d.%m.%Y в %H:%M")
+    link = f"{settings.frontend_url}/dashboard/subscription"
+    greet = f"Здравствуйте, {name}!\n\n" if (for_email and name) else ""
+
+    if _is_trial(tariff_slug):
+        if days == 1:
+            head = f"🔴 Завтра, {date_time} МСК, заканчивается ваш бесплатный доступ в ПЛЮСОН."
+        else:
+            head = (f"⏰ Через {days} {_days_word(days)} заканчивается ваш бесплатный доступ "
+                    f"в ПЛЮСОН — {date_str}.")
+        body = (
+            "Деньги мы не списываем: карта не привязана, автоплатежа нет. "
+            "После этой даты кабинет останется, но рассылки, редактирование и приём заявок "
+            "работать перестанут.\n\n"
+            "Чтобы продолжить работу — выберите тариф и оплатите:\n"
+            f"{link}"
+        )
+    else:
+        if days == 1:
+            head = f"🔴 Завтра, {date_time} МСК, заканчивается оплаченный период тарифа «{tariff_name}»."
+        else:
+            head = (f"⏰ Через {days} {_days_word(days)} заканчивается оплаченный период "
+                    f"тарифа «{tariff_name}» — {date_str}.")
+        body = (
+            "Автосписания у нас нет — деньги сами не спишутся. "
+            "Чтобы доступ не прервался, оплатите следующий период вручную:\n"
+            f"{link}\n\n"
+            "Если не оплатить, после этой даты рассылки, редактирование и приём заявок "
+            "станут недоступны — данные при этом сохранятся."
+        )
+    return greet + head + "\n\n" + body
+
+
+def _expiry_subject(*, days: int, tariff_slug: str | None) -> str:
+    if _is_trial(tariff_slug):
+        return ("🔴 Завтра заканчивается бесплатный доступ в ПЛЮСОН" if days == 1
+                else f"Через {days} {_days_word(days)} заканчивается бесплатный доступ в ПЛЮСОН")
+    return ("🔴 Завтра заканчивается оплаченный период в ПЛЮСОНе" if days == 1
+            else f"Через {days} {_days_word(days)} заканчивается оплаченный период в ПЛЮСОНе")
+
+
 async def _notify_expiring_async() -> int:
     """Шлём в @pluson_bot уведомления клиенту:
        за 7 дней до истечения / за 3 дня / за 1 день.
@@ -75,7 +137,8 @@ async def _notify_expiring_async() -> int:
         # 7 дней
         rows_7d = await db.fetch(
             """SELECT cs.id AS sub_id, cs.expires_at, c.id AS client_id, c.name,
-                      c.notifications_telegram_chat_id AS chat_id, t.name AS tariff_name
+                      c.notifications_telegram_chat_id AS chat_id,
+                      t.name AS tariff_name, t.slug AS tariff_slug
                  FROM client_subscriptions cs
                  JOIN clients c ON c.id = cs.client_id
                  JOIN tariffs t ON t.id = cs.tariff_id
@@ -88,9 +151,8 @@ async def _notify_expiring_async() -> int:
         for r in rows_7d:
             ok = await _send_pluson_message(
                 r["chat_id"],
-                f"⏰ Через 7 дней истекает ваша подписка на тариф «{r['tariff_name']}».\n"
-                f"Дата окончания: {r['expires_at'].strftime('%d.%m.%Y')}.\n"
-                f"Продлите в личном кабинете: {settings.frontend_url}/dashboard/settings",
+                _expiry_text(days=7, tariff_slug=r["tariff_slug"],
+                             tariff_name=r["tariff_name"], expires_at=r["expires_at"]),
                 client_id=r["client_id"], db=db,
             )
             if ok:
@@ -103,7 +165,8 @@ async def _notify_expiring_async() -> int:
         # 3 дня
         rows_3d = await db.fetch(
             """SELECT cs.id AS sub_id, cs.expires_at, c.id AS client_id, c.name,
-                      c.notifications_telegram_chat_id AS chat_id, t.name AS tariff_name
+                      c.notifications_telegram_chat_id AS chat_id,
+                      t.name AS tariff_name, t.slug AS tariff_slug
                  FROM client_subscriptions cs
                  JOIN clients c ON c.id = cs.client_id
                  JOIN tariffs t ON t.id = cs.tariff_id
@@ -116,9 +179,8 @@ async def _notify_expiring_async() -> int:
         for r in rows_3d:
             ok = await _send_pluson_message(
                 r["chat_id"],
-                f"⚠️ Через 3 дня истекает подписка «{r['tariff_name']}».\n"
-                f"Дата окончания: {r['expires_at'].strftime('%d.%m.%Y')}.\n"
-                f"Продлите чтобы рассылки продолжали работать: {settings.frontend_url}/dashboard/settings",
+                _expiry_text(days=3, tariff_slug=r["tariff_slug"],
+                             tariff_name=r["tariff_name"], expires_at=r["expires_at"]),
                 client_id=r["client_id"], db=db,
             )
             if ok:
@@ -131,7 +193,8 @@ async def _notify_expiring_async() -> int:
         # 1 день
         rows_1d = await db.fetch(
             """SELECT cs.id AS sub_id, cs.expires_at, c.id AS client_id, c.name,
-                      c.notifications_telegram_chat_id AS chat_id, t.name AS tariff_name
+                      c.notifications_telegram_chat_id AS chat_id,
+                      t.name AS tariff_name, t.slug AS tariff_slug
                  FROM client_subscriptions cs
                  JOIN clients c ON c.id = cs.client_id
                  JOIN tariffs t ON t.id = cs.tariff_id
@@ -144,9 +207,8 @@ async def _notify_expiring_async() -> int:
         for r in rows_1d:
             ok = await _send_pluson_message(
                 r["chat_id"],
-                f"🔴 Завтра истекает подписка «{r['tariff_name']}».\n"
-                f"После {r['expires_at'].strftime('%d.%m.%Y %H:%M')} рассылки и редактирование станут недоступны.\n"
-                f"Продлите: {settings.frontend_url}/dashboard/settings",
+                _expiry_text(days=1, tariff_slug=r["tariff_slug"],
+                             tariff_name=r["tariff_name"], expires_at=r["expires_at"]),
                 client_id=r["client_id"], db=db,
             )
             if ok:
@@ -181,7 +243,8 @@ async def _notify_expiring_email(db) -> int:
     for days, flag in [(7, "notified_email_7d"), (3, "notified_email_3d"), (1, "notified_email_1d")]:
         rows = await db.fetch(
             f"""SELECT cs.id AS sub_id, cs.expires_at, cs.client_id,
-                       c.email, c.name, c.brand_name, t.name AS tariff_name
+                       c.email, c.name, c.brand_name,
+                       t.name AS tariff_name, t.slug AS tariff_slug
                   FROM client_subscriptions cs
                   JOIN clients c ON c.id = cs.client_id
                   JOIN tariffs t ON t.id = cs.tariff_id
@@ -215,18 +278,14 @@ async def _notify_expiring_email(db) -> int:
                     channel=channel_dict,
                     client_brand_name="iViSiON: ПЛЮСОН",
                     to_email=r["email"],
-                    subject=(
-                        f"Через {days} дн{'я' if days < 5 else 'ей'} истекает подписка ПЛЮСОНа"
-                        if days > 1 else "🔴 Завтра истекает подписка ПЛЮСОНа"
-                    ),
+                    subject=_expiry_subject(days=days, tariff_slug=r["tariff_slug"]),
                     body_text=(
-                        f"Здравствуйте, {r['name'] or 'друг'}!\n\n"
-                        f"Через {days} дн{'я' if days < 5 else 'ей'} истекает ваша подписка "
-                        f"на тариф «{r['tariff_name']}» в ПЛЮСОНе.\n\n"
-                        f"Дата окончания: {r['expires_at'].strftime('%d.%m.%Y %H:%M')} МСК.\n\n"
-                        f"Продлите подписку, чтобы рассылки и редактирование продолжали работать:\n"
-                        f"{settings.frontend_url}/dashboard/subscription\n\n"
-                        f"— Команда ПЛЮСОН"
+                        _expiry_text(
+                            days=days, tariff_slug=r["tariff_slug"],
+                            tariff_name=r["tariff_name"], expires_at=r["expires_at"],
+                            name=r["name"], for_email=True,
+                        )
+                        + "\n\n— Команда ПЛЮСОН"
                     ),
                     unsubscribe_token=unsub_token,
                 )
