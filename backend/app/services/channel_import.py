@@ -60,6 +60,12 @@ PLATFORMS = {
         'human_id':      'номер в Telegram',
         'human_nick':    'ник',
         'human_nick_pl': 'ники',
+        # ⚠️ Как называть саму точку доставки в текстах для клиента. Слово
+        # «канал» пришло из БД (боты, сообщества и почта лежат в одной таблице
+        # `channels`) и вылезало в отчёт как есть: клиент читал «подписано на
+        # канал» и не понимал, речь про бот, куда он грузит базу, или про его
+        # личный Telegram-канал.
+        'unit':          'бот',
         # Только у Telegram по числовому id можно спросить ник у самой площадки.
         'resolve_usernames': True,
     },
@@ -70,6 +76,7 @@ PLATFORMS = {
         'human_id':      'номер ВКонтакте',
         'human_nick':    'короткий адрес',
         'human_nick_pl': 'короткие адреса',
+        'unit':          'сообщество',
         # ВК отдаёт короткие адреса пачкой (users.get, до 1000 за запрос).
         'resolve_usernames': True,
     },
@@ -80,6 +87,7 @@ PLATFORMS = {
         'human_id':      'номер в MAX',
         'human_nick':    'ник',
         'human_nick_pl': 'ники',
+        'unit':          'бот',
         'resolve_usernames': False,
     },
 }
@@ -361,6 +369,10 @@ async def import_csv_to_channel(
     human_id: str = conf['human_id']
     human_nick: str = conf['human_nick']
     human_nick_pl: str = conf['human_nick_pl']
+    unit: str = conf.get('unit', 'канал')
+    # Название точки доставки для текстов отчёта: «подписано на «Бот МАСТЕР
+    # ОЧИЩЕНИЯ»» вместо безымянного «подписано на канал».
+    where: str = f"«{channel['display_name']}»"
     if channel['is_system']:
         raise ValueError("Импорт CSV в системный канал запрещён — подписчики приходят сами через /start или Mini App.")
     client_channel_id: int = channel['cc_id']
@@ -825,14 +837,14 @@ async def import_csv_to_channel(
         f"Отчёт о загрузке в «{channel['display_name']}»",
         f"Строк в файле: {stats['total_rows']}",
         f"Новых людей добавлено: {stats['created_contacts']}",
-        f"Уже были в вашей базе: {stats['matched_by_tg_id']}",
+        f"Уже были у вас — добавлены еще и в этот {unit}: {stats['matched_by_tg_id']}",
         f"Узнали по почте или телефону и объединили с прежней записью: {stats['merged_by_email_phone']}",
         f"Узнали {human_nick_pl} у {plat_title} (в файле их не было): {stats['usernames_resolved']}",
         f"Уже знали {human_nick_pl}, не запрашивали: {stats['usernames_already_known']}",
         f"Перенесли настоящую дату подписки: {stats['dates_kept']}",
         f"Людей, которым добавили метки: {stats['tags_added']}",
-        f"Подписано на канал: {stats['subscribed']}",
-        f"Отписано от канала: {stats['unsubscribed']}",
+        f"Подписано на {where}: {stats['subscribed']} человек",
+        f"Отписано от {where}: {stats['unsubscribed']} человек",
         f"Пропущено — не указан {human_id}: {stats['skipped_no_tgid']}",
         f"Пропущено — {human_id} не похож на настоящий: {stats['skipped_invalid_tgid']}",
         f"Повторов внутри самого файла: {stats['duplicates_in_file']}",
@@ -867,10 +879,11 @@ async def import_csv_to_channel(
     tg_match_section: list[str] = []
     if tg_match_log:
         tg_match_section.append('')
-        tg_match_section.append(f"УЖЕ БЫЛИ В ВАШЕЙ БАЗЕ — {len(tg_match_log)}")
+        tg_match_section.append(f"УЖЕ БЫЛИ У ВАС — ДОБАВЛЕНЫ ЕЩЕ И В {where.upper()} — {len(tg_match_log)}")
         tg_match_section.append(
-            'Эти люди у вас уже есть — пришли раньше, через другой канал. '
-            'Заново не заводили, просто добавили им подписку на этот канал.'
+            f'Эти люди у вас уже есть — пришли раньше, через другой {unit}. '
+            f'Заново не заводили: добавили им подписку на {where}, они остаются '
+            f'и там, где были.'
         )
         tg_match_section.append('')
         for m in tg_match_log:

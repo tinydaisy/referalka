@@ -22,11 +22,23 @@ from app.services.features import client_has_feature
 
 router = APIRouter(prefix="/clients/me/call-settings", tags=["Автообзвоны"])
 
-_FIELDS = (
-    "calls_calldog_api_key",
-    "calls_calldog_outgoing_phone",
-    "calls_calldog_duty_phone",
-)
+# ⚠️ Номер, с которого звоним, клиент НЕ выбирает — всегда карусель
+# (dutyPhone=1). Колонки `calls_calldog_outgoing_phone` / `_duty_phone` в БД
+# остались (миграция 359), но не читаются и не пишутся: показывать свой номер
+# при обзвоне тысяч человек нельзя, а карусель ещё и дешевле.
+_FIELDS = ("calls_calldog_api_key",)
+
+
+def _webhook_url() -> str:
+    """Адрес нашего приёмника результатов звонка.
+
+    ⚠️ Тот же, что подставляется автоматически при запуске обзвона из ПЛЮСОНа.
+    Здесь он показывается клиенту, чтобы вписать его в ШАБЛОН Звонопса — у
+    действия по нажатию 1 свой вебхук, и его подставить за клиента нельзя:
+    шаблон живёт в их кабинете.
+    """
+    from app.services.client_domains import platform_base_url
+    return f"{platform_base_url()}/api/v1/public/calls/webhook"
 
 
 async def assert_calls_feature(db, client_id: int) -> None:
@@ -39,8 +51,6 @@ async def assert_calls_feature(db, client_id: int) -> None:
 
 class SettingsIn(BaseModel):
     calls_calldog_api_key: Optional[str] = None
-    calls_calldog_outgoing_phone: Optional[str] = None
-    calls_calldog_duty_phone: Optional[bool] = None
 
 
 class CheckIn(BaseModel):
@@ -70,6 +80,11 @@ def _public(d: dict) -> dict:
     # Ссылка на регистрацию в Звонопсе — ключ выдаёт их менеджер, человеку надо
     # знать, куда идти. Держим в сервисе, а не в вёрстке: адрес один на проект.
     out["signup_url"] = calldog.SIGNUP_URL
+    # Адрес нашего вебхука — клиент вписывает его в шаблоне Звонопса, чтобы по
+    # нажатию 1 приходило уведомление и ставился тег. Отдаём с бэкенда, а не
+    # литералом в вёрстке: домен платформы живёт в одном месте.
+    out["webhook_url"] = _webhook_url()
+    out["interest_tag"] = calldog.INTEREST_TAG
     return out
 
 
@@ -100,13 +115,6 @@ async def patch_settings(
         val = getattr(data, field)
         if isinstance(val, str):
             val = val.strip() or None
-        # Галочка — не текст: NULL в NOT NULL-колонку не пройдёт.
-        if field == "calls_calldog_duty_phone":
-            val = bool(val)
-        # Номер храним только цифрами — сервису он нужен в таком виде.
-        if field == "calls_calldog_outgoing_phone" and val:
-            digits = "".join(ch for ch in val if ch.isdigit())
-            val = digits or None
         vals.append(val)
         sets.append(f"{field} = ${len(vals)}")
 
@@ -132,30 +140,6 @@ async def check_settings(
         saved = await _load(db, client_id)
         key = (saved.get("calls_calldog_api_key") or "").strip()
     return await calldog.check_credentials(key)
-
-
-@router.get("/phones", summary="Исходящие номера аккаунта Звонопса")
-async def list_phones(
-    client=Depends(get_current_client),
-    db: asyncpg.Connection = Depends(get_db),
-):
-    """Номера подтягиваем из их API — руками вводить не нужно.
-
-    ⚠️ Отдаём и неподтверждённые (enable=false), но с флагом: клиент должен
-    видеть, что номер есть, но с него звонить пока нельзя — иначе он решит,
-    что номер потерялся.
-    """
-    client_id = int(client["sub"])
-    await assert_calls_feature(db, client_id)
-    saved = await _load(db, client_id)
-    key = (saved.get("calls_calldog_api_key") or "").strip()
-    if not key:
-        return {"phones": [], "message": "Сначала укажите API-ключ."}
-    try:
-        phones = await calldog.get_phones(key)
-    except calldog.CalldogError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"phones": phones}
 
 
 @router.get("/templates", summary="Сценарии звонка из кабинета Звонопса")

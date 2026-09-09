@@ -112,13 +112,11 @@ async def _run_campaign(campaign_id: int):
             return
 
         st = await conn.fetchrow(
-            """SELECT calls_calldog_api_key, calls_calldog_outgoing_phone,
-                      calls_calldog_duty_phone FROM clients WHERE id = $1""",
-            client_id,
+            "SELECT calls_calldog_api_key FROM clients WHERE id = $1", client_id
         )
         st = dict(st or {})
         if not calldog.is_configured(st):
-            await _fail(conn, campaign_id, "Звонопёс не подключён: нет ключа или номера.")
+            await _fail(conn, campaign_id, "Звонопёс не подключён: не указан API-ключ.")
             return
         api_key = (st["calls_calldog_api_key"] or "").strip()
 
@@ -169,8 +167,11 @@ async def _run_campaign(campaign_id: int):
                     api_key,
                     template_id=camp["template_id"],
                     phones=phones,
-                    outgoing_phone=st.get("calls_calldog_outgoing_phone"),
-                    duty_phone=bool(st.get("calls_calldog_duty_phone")),
+                    # ⚠️ Всегда карусель (dutyPhone=1): свой номер при обзвоне
+                    # тысяч человек показывать нельзя — на него начнут
+                    # перезванивать и жаловаться. Плюс по их тарифам карусель
+                    # дешевле: платится только за прослушанные секунды.
+                    duty_phone=True,
                     smart_delay=camp["smart_delay"],
                     start_time=camp["start_time"],
                     end_time=camp["end_time"],

@@ -544,18 +544,6 @@ async def _apply_paid_addon_order(
                         sub_id, order["client_id"],
                     )
 
-        # Уроки по модулю — доступ к продукту в кабинете системного клиента.
-        # ⚠️ Срок берём У МОДУЛЯ (уже посчитан выше с учётом продления), а не
-        # считаем заново: иначе оплата заранее укоротила бы доступ к урокам.
-        # ⚠️ В транзакции: модуль и уроки выдаются вместе или никак.
-        _mod_expires = await db.fetchval(
-            "SELECT expires_at FROM client_addons WHERE id = $1", addon_id)
-        from app.services.module_product_access import grant_module_product_access
-        await grant_module_product_access(
-            db, client_id=order["client_id"], feature_slug=_feature_slug,
-            expires_at=_mod_expires,
-        )
-
     # Кэшбэк рефоводу — со ВСЕГО, что купил приведённый клиент, а не только с
     # тарифов. Раньше модули начисление не давали вовсе: клиент мог купить
     # Турниры за 5000 ₽, и рефовод не получал ничего.

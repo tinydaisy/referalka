@@ -40,9 +40,8 @@ from app.services.features import client_has_feature
 router = APIRouter(prefix="/module-materials", tags=["Материалы модулей"])
 
 # Какая ФИЧА какой продукт открывает.
-# ⚠️ Ключ — slug фичи, значение — slug продукта в СИСТЕМНОМ кабинете. Тот же
-# словарь, что в `module_product_access.MODULE_PRODUCTS`: новый обучающий
-# продукт под модуль = строка в обоих местах.
+# ⚠️ Ключ — slug фичи, значение — slug продукта в СИСТЕМНОМ кабинете. Новый
+# набор материалов под модуль = одна строка сюда, без правок кода.
 MODULE_MATERIALS: dict[str, str] = {
     "collab_hub": "collab-hub",
 }

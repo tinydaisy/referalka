@@ -244,15 +244,13 @@ async def start_campaign(
     # Настройки подключения проверяем ДО постановки в очередь — иначе кампания
     # молча упадёт в фоне, и клиент увидит «ошибка» без объяснения.
     settings = await db.fetchrow(
-        """SELECT calls_calldog_api_key, calls_calldog_outgoing_phone,
-                  calls_calldog_duty_phone FROM clients WHERE id = $1""",
-        client_id,
+        "SELECT calls_calldog_api_key FROM clients WHERE id = $1", client_id
     )
     if not calldog.is_configured(dict(settings or {})):
         raise HTTPException(
             status_code=400,
-            detail="Сначала подключите Звонопёс: укажите API-ключ и номер, "
-                   "с которого звонить (Настройки → Интеграция).",
+            detail="Сначала подключите Звонопёс: укажите API-ключ "
+                   "(Настройки → Интеграция).",
         )
 
     res = await collect_call_targets(
@@ -475,7 +473,77 @@ async def calls_webhook(
     if ivr and str(ivr).strip() == "9" and row["contact_id"]:
         await _handle_opt_out(db, row["contact_id"], row["phone"])
 
+    # Нажал 1 — заинтересовался. Ставим тег и сообщаем клиенту в канал
+    # уведомлений: без этого лид виден только тому, кто зайдёт в отчёт, а
+    # человек в этот момент как раз ждёт ответа.
+    if ivr and str(ivr).strip() == "1" and row["contact_id"]:
+        await _handle_interested(db, row)
+
     return {"ok": True}
+
+
+INTEREST_TAG = calldog.INTEREST_TAG
+
+
+async def _handle_interested(db, row) -> None:
+    """Человек нажал 1: тег контакту + уведомление клиенту.
+
+    ⚠️ Целиком завёрнуто в try/except: сбой уведомления не должен превращаться
+    в ошибку вебхука — сервис тогда пришлёт его повторно, и тег поставится
+    дважды, а клиент получит два сообщения об одном человеке.
+    """
+    contact_id = row["contact_id"]
+    try:
+        # Тег дописываем к существующим — база сегментирована клиентом, и
+        # затирать её нельзя. Дубль не создаём.
+        info = await db.fetchrow(
+            """UPDATE contacts
+                  SET tags = CASE
+                        WHEN jsonb_typeof(tags) = 'array' AND NOT (tags ? $2)
+                          THEN tags || to_jsonb($2::text)
+                        WHEN jsonb_typeof(tags) = 'array' THEN tags
+                        ELSE to_jsonb(ARRAY[$2]::text[])
+                      END,
+                      updated_at = NOW()
+                WHERE id = $1
+            RETURNING client_id, name""",
+            contact_id, INTEREST_TAG,
+        )
+        if not info:
+            return
+
+        camp = await db.fetchrow(
+            """SELECT cc.name, e.title AS event_title
+                 FROM call_campaigns cc
+                 LEFT JOIN events e ON e.id = cc.event_id
+                WHERE cc.id = $1""",
+            row["campaign_id"],
+        )
+
+        from app.services.channels import notify_organizer_all_channels
+        from app.services.client_domains import platform_base_url
+
+        name = (info["name"] or "").strip() or "Без имени"
+        lines = [
+            "📞 <b>Нажал 1 в обзвоне — заинтересовался</b>",
+            "",
+            f"<b>Имя:</b> {name}",
+            f"<b>Телефон:</b> {row['phone']}",
+        ]
+        if camp:
+            lines.append(f"<b>Обзвон:</b> {camp['name'] or '—'}")
+            if camp["event_title"]:
+                lines.append(f"<b>Событие:</b> {camp['event_title']}")
+        lines += [
+            f"<b>Тег:</b> {INTEREST_TAG}",
+            "",
+            f"<b>Карточка:</b> {platform_base_url()}/dashboard/clients?contact={contact_id}",
+        ]
+        await notify_organizer_all_channels(
+            info["client_id"], "\n".join(lines), db, kind="calls",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("не удалось обработать нажатие 1 (contact=%s): %s", contact_id, e)
 
 
 async def _handle_opt_out(db, contact_id: int, phone: str) -> None:

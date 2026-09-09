@@ -31,6 +31,14 @@ BASE_URL = "https://lk.calldog.ru"
 # Реферальная ссылка на регистрацию в Звонопсе (наша).
 SIGNUP_URL = "https://lk.calldog.ru?utm_ref_id=67da73ff05315"
 
+# Тег, который ставится нажавшему «1» (заинтересовался). По нему клиент потом
+# фильтрует базу для рассылки или повторного обзвона.
+# ⚠️ Имя менять нельзя: у клиента накопятся отмеченные этим тегом контакты, и
+# после переименования старые из фильтра выпадут.
+# ⚠️ Живёт здесь, а не в api/call_campaigns.py: константу читают И вебхук, И
+# настройки — импорт между двумя модулями api дал бы круговую зависимость.
+INTEREST_TAG = "звонок_конфа_интерес"
+
 # Их эндпоинты (все POST, кроме getAvailableLanguages).
 _EP_CREATE_WITH_TEMPLATE = "/apiCalls/createWithTemplate"
 _EP_CREATE = "/apiCalls/create"
@@ -70,18 +78,16 @@ class CalldogError(Exception):
 
 
 def is_configured(client: dict) -> bool:
-    """Можно ли звонить: есть ключ и есть с какого номера.
+    """Можно ли звонить: достаточно API-ключа.
 
-    ⚠️ Номер обязателен — без outgoingPhone (или дежурных номеров) сервис
-    звонок не создаст. Проверять только наличие ключа недостаточно: клиент
-    сохранил бы ключ, нажал «Обзвонить» и получил невнятную ошибку от них.
+    ⚠️ Номер, с которого звоним, клиент НЕ выбирает — всегда «карусель»
+    (`dutyPhone=1`, в их документации «случайный из списка дежурных номеров»).
+    Решение владельца: свой номер при обзвоне тысяч человек показывать нельзя —
+    на него начнут перезванивать и жаловаться, он превратится в горячую линию.
+    По их тарифам карусель к тому же дешевле: платится только за прослушанные
+    секунды, без платы за сам вызов.
     """
-    key = (client.get("calls_calldog_api_key") or "").strip()
-    if not key:
-        return False
-    phone = (client.get("calls_calldog_outgoing_phone") or "").strip()
-    duty = bool(client.get("calls_calldog_duty_phone"))
-    return bool(phone or duty)
+    return bool((client.get("calls_calldog_api_key") or "").strip())
 
 
 def normalize_phone_for_calldog(phone_normalized: str) -> Optional[str]:
