@@ -315,6 +315,18 @@ async def check_name(data: CheckNameRequest,
 class StartRequest(BaseModel):
     bot_username: str
     bot_title: Optional[str] = None
+    # ⚠️⚠️ ССЫЛКА НА КАНАЛ КЛИЕНТА — СПРАШИВАЕМ В НАЧАЛЕ, А НЕ УГАДЫВАЕМ.
+    #
+    # Раньше канал ловился апдейтом `my_chat_member` при добавлении бота — но
+    # апдейт доходит, только пока бот в поллинге, а список ботов `plusson-bot`
+    # читает один раз при старте: бот услуги создан позже и туда не попадает.
+    # На живом заказе 09.09.2026 клиент бота добавил, а система об этом не
+    # узнала и отвечала «не удалось подтвердить».
+    #
+    # ⚠️ Ссылка идёт в «Каналы основателя» (`clients.social_links`) — по ним
+    # работает проверка подписки в воронках лид-магнитов и гейт в чатах.
+    # `client_broadcast_chats` (куда рассылать) — ДРУГОЕ место и другая задача.
+    channel_url: Optional[str] = None
 
 
 @router.post("/confirm-started-bot", summary="Клиент подтверждает, что зашёл в бота")
@@ -474,21 +486,137 @@ async def confirm_channel(user=Depends(get_current_client), db=Depends(get_db)):
     }
 
 
+async def _resolve_channel_id(db, client_id: int, nick: str) -> int | None:
+    """Числовой id публичного канала по его нику — через `getChat`.
+
+    ⚠️⚠️ ID НУЖЕН ОБЯЗАТЕЛЬНО. Без него проверка подписки в воронках работать
+    не может: `getChatMember` принимает `@ник` только у публичных каналов, а
+    хранить сам id надёжнее — ник могут сменить.
+
+    ⚠️ Спрашиваем ЛЮБЫМ ботом клиента, а не только ботом услуги: на момент
+    запуска бот услуги ещё не создан. Бот при этом не обязан быть в канале —
+    для публичного канала `getChat` по нику отвечает и постороннему боту
+    (проверено на живом канале).
+    """
+    try:
+        from app.services.channels import get_client_telegram_token
+        token = await get_client_telegram_token(client_id, db)
+        if not token:
+            return None
+        import httpx
+        async with httpx.AsyncClient(timeout=15) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{token}/getChat",
+                params={"chat_id": f"@{nick}"},
+            )
+            res = (r.json() or {}).get("result") or {}
+            cid = res.get("id")
+            return int(cid) if cid else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("tg_setup: не резолвится канал @%s клиента %s: %s",
+                       nick, client_id, e)
+    return None
+
+
+async def _save_founder_channel(db, client_id: int, nick: str) -> None:
+    """Кладёт канал клиента в «Каналы основателя» (`clients.social_links`).
+
+    ⚠️⚠️ ЭТО НЕ ТО ЖЕ, ЧТО «Каналы для рассылок». Два разных места под каналы,
+    и путать их нельзя:
+      • `clients.social_links.telegram_channels` — по ним идёт ПРОВЕРКА ПОДПИСКИ
+        в воронках лид-магнитов (`get_founder_tg_channels`) и гейт в чатах;
+      • `client_broadcast_chats` — КУДА РАССЫЛАТЬ.
+    Автонастройка раньше не заполняла первое вовсе: после «настройки под ключ»
+    у клиента оставался пустой `social_links`, и проверка подписки в воронках
+    проверять было нечего.
+
+    ⚠️ Не перетираем уже заведённые каналы — только дописываем свой, если его
+    там ещё нет: у клиента их может быть несколько.
+    """
+    try:
+        from app.services.social_links import (
+            normalize_telegram_link, normalize_telegram_channels,
+        )
+        # ⚠️ Клиент вводит ГОЛЫЙ НИК (символ @ уже стоит в форме) — ссылку
+        # собираем сами, чтобы в настройках лежал канонический вид, как во
+        # всём проекте: https://t.me/ник.
+        link = normalize_telegram_link(nick)
+        if not link:
+            return
+
+        # ⚠️ Числовой id резолвим сразу: по нему работает проверка подписки, и
+        # он переживает смену ника. Не резолвится — канал всё равно записываем
+        # (человек увидит его в настройках), но без id.
+        chat_id = await _resolve_channel_id(db, client_id, nick)
+
+        social = await db.fetchval(
+            "SELECT COALESCE(social_links, '{}'::jsonb) FROM clients WHERE id=$1",
+            client_id,
+        )
+        if isinstance(social, str):
+            social = json.loads(social)
+        social = dict(social or {})
+
+        channels = normalize_telegram_channels(social.get("telegram_channels") or [])
+        same = link.rstrip("/").lower()
+        if not any((c.get("url") or "").rstrip("/").lower() == same for c in channels):
+            channels.append({
+                "url": link,
+                "chat_id": str(chat_id) if chat_id else None,
+                "name": "",
+            })
+            social["telegram_channels"] = channels
+            await db.execute(
+                "UPDATE clients SET social_links = $2::jsonb WHERE id = $1",
+                client_id, json.dumps(social, ensure_ascii=False),
+            )
+            logger.info("tg_setup: канал %s (id=%s) записан в каналы основателя "
+                        "клиента %s", link, chat_id, client_id)
+
+        # ⚠️⚠️ И В КАРТОЧКУ ОСНОВАТЕЛЯ (self-коллаб) — это ВТОРОЕ место, где
+        # живёт канал, и по нему идёт проверка подписки на события
+        # (`subscription_check.py` читает `collaborators.tg_channel_id`).
+        # Заполнить одно и забыть второе — значит оставить половину проверок
+        # неработающими, а внешне всё будет выглядеть настроенным.
+        from app.services.self_collaborator import ensure_self_collaborator
+        collab_id = await ensure_self_collaborator(db, client_id)
+        if collab_id:
+            await db.execute(
+                """UPDATE collaborators
+                      SET tg_channel_url = COALESCE(NULLIF(tg_channel_url,''), $2),
+                          tg_channel_id  = COALESCE(NULLIF(tg_channel_id,''), $3)
+                    WHERE id = $1""",
+                collab_id, link, str(chat_id) if chat_id else None,
+            )
+    except Exception as e:  # noqa: BLE001
+        # Fail-safe: настройка не должна падать из-за канала.
+        logger.warning("tg_setup: не записал канал основателя клиенту %s: %s",
+                       client_id, e)
+
+
 async def _find_bot_channel(db, client_id: int, bot_token: str) -> dict | None:
     """Проверяет, что бот РЕАЛЬНО админ в канале клиента.
 
-    ⚠️⚠️ КАНАЛ БЕРЁМ ИЗ БАЗЫ, А НЕ ЧЕРЕЗ `getUpdates`.
-    Добавление бота ловит штатный обработчик `on_bot_added_to_channel`
-    ([tg_setup_events.py](backend/app/services/tg_setup_events.py)) и сам кладёт
-    канал в `client_broadcast_chats` — механизм давно написан и работает, потому
-    что бот подключён к кабинету (`channels` + `client_channels`) и попадает в
-    поллинг. Своего `getUpdates` здесь быть НЕ ДОЛЖНО: Telegram отдаёт апдейты
-    только одному получателю, и наш запрос отобрал бы их у поллера (`409
-    Conflict`) — добавления в канал перестали бы доходить вовсе.
+    ⚠️⚠️ ИЩЕМ В ДВУХ МЕСТАХ: сначала база, потом очередь апдейтов Telegram.
 
-    ⚠️ Права всё же перепроверяем `getChatMember`: между добавлением и нажатием
-    кнопки их могли снять. У КАНАЛА нужен ещё и `can_post_messages` — без него
-    бот числится админом, но публиковать не может, и рассылка молча не уходит.
+    Добавление бота ловит штатный обработчик `on_bot_added_to_channel` и кладёт
+    канал в `client_broadcast_chats`. Но доходит апдейт, только пока бот в
+    поллинге, а список ботов `plusson-bot` читает ОДИН раз при старте: бот
+    услуги создан позже — и апдейт до нас не доходит вовсе.
+
+    Ровно так и вышло на живом заказе 09.09.2026: бот создан в 14:29, поллер
+    стартовал в 14:02. Клиент добавил бота в свой канал, а проверка отвечала
+    «не удалось подтвердить» — потому что смотрела только в пустую базу.
+    Апдейт при этом ЛЕЖАЛ в очереди Telegram и ждал.
+
+    ⚠️ Очередь читаем ТОЛЬКО когда в базе пусто, и БЕЗ `offset` — то есть не
+    подтверждаем получение. Иначе апдейты пропали бы для поллера, когда бот в
+    него всё-таки попадёт (Telegram отдаёт их одному получателю).
+
+    ⚠️ Права в любом случае перепроверяем `getChatMember`: между добавлением и
+    нажатием кнопки их могли снять. У КАНАЛА нужен ещё и `can_post_messages` —
+    без него бот числится админом, но публиковать не может, и рассылка молча
+    не уходит.
     """
     if not bot_token:
         return None
@@ -506,16 +634,41 @@ async def _find_bot_channel(db, client_id: int, bot_token: str) -> dict | None:
                 ORDER BY cbc.id DESC""",
             client_id,
         )
-        if not rows:
-            return None
-
         import httpx
         bot_id = bot_token.split(":", 1)[0]
+        # Кандидаты: сначала база, затем — очередь апдейтов (см. докстринг).
+        candidates: list[tuple[str, str]] = [
+            (r["chat_id"], r["title"] or "") for r in rows
+        ]
+
         async with httpx.AsyncClient(timeout=20) as http:
-            for row in rows:
+            if not candidates:
+                # ⚠️ БЕЗ `offset` — получение не подтверждаем, апдейты остаются
+                # в очереди для поллера, когда бот в него попадёт.
+                u = await http.get(
+                    f"https://api.telegram.org/bot{bot_token}/getUpdates",
+                    params={"allowed_updates": '["my_chat_member"]', "limit": 100},
+                )
+                seen: set[str] = set()
+                for upd in reversed((u.json() or {}).get("result") or []):
+                    chat = (upd.get("my_chat_member") or {}).get("chat") or {}
+                    cid, ctype = chat.get("id"), chat.get("type")
+                    if not cid or ctype not in ("channel", "supergroup", "group"):
+                        continue
+                    # Группу уведомлений пропускаем — она не канал клиента.
+                    is_ours = await db.fetchval(
+                        "SELECT EXISTS(SELECT 1 FROM service_orders "
+                        " WHERE group_chat_id = $1)", int(cid),
+                    )
+                    if is_ours or str(cid) in seen:
+                        continue
+                    seen.add(str(cid))
+                    candidates.append((str(cid), chat.get("title") or ""))
+
+            for chat_id, title in candidates:
                 m = await http.get(
                     f"https://api.telegram.org/bot{bot_token}/getChatMember",
-                    params={"chat_id": row["chat_id"], "user_id": bot_id},
+                    params={"chat_id": chat_id, "user_id": bot_id},
                 )
                 res = (m.json() or {}).get("result") or {}
                 status = res.get("status", "")
@@ -524,7 +677,18 @@ async def _find_bot_channel(db, client_id: int, bot_token: str) -> dict | None:
                 # У канала право публикации отдельным тумблером; у создателя оно есть всегда.
                 if status != "creator" and res.get("can_post_messages") is False:
                     continue
-                return {"chat_id": row["chat_id"], "title": row["title"] or ""}
+                # ⚠️ Найденный через очередь канал записываем в базу рассылок —
+                # иначе он потеряется: поллер этот апдейт уже не обработает.
+                await db.execute(
+                    """INSERT INTO client_broadcast_chats
+                           (client_id, platform, chat_id, title, added_via,
+                            is_active, use_for_broadcasts)
+                       VALUES ($1, 'telegram', $2, $3, 'manual', TRUE, TRUE)
+                       ON CONFLICT (client_id, platform, chat_id) DO UPDATE
+                           SET is_active = TRUE, updated_at = NOW()""",
+                    client_id, str(chat_id), title or None,
+                )
+                return {"chat_id": chat_id, "title": title}
     except Exception as e:  # noqa: BLE001
         logger.warning("tg_setup: проверка канала клиента %s не удалась: %s",
                        client_id, e)
@@ -628,6 +792,22 @@ async def start_setup(data: StartRequest,
 
     username = data.bot_username.strip().lstrip("@")
     title = (data.bot_title or "").strip() or username
+
+    # ⚠️ Канал записываем СРАЗУ, до создания заказа: он нужен не настройке, а
+    # самому клиенту (проверка подписки в воронках), и не должен зависеть от
+    # того, чем закончится прогон.
+    channel_nick = (data.channel_url or "").strip().lstrip("@")
+    if channel_nick:
+        # ⚠️ Ссылку вместо ника не принимаем молча: у закрытого канала id не
+        # получить, и «настройка» вышла бы бутафорской. Скажем прямо.
+        if "/" in channel_nick or "+" in channel_nick:
+            raise HTTPException(
+                400,
+                "Укажите никнейм публичного канала без ссылки — например "
+                "my_channel. У закрытого канала Telegram не отдаёт "
+                "идентификатор, и проверка подписки на нём работать не будет.",
+            )
+        await _save_founder_channel(db, client_id, channel_nick)
 
     # ── перезапуск уже оплаченного ──
     existing = await db.fetchrow(

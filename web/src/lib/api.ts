@@ -833,9 +833,13 @@ export const api = {
       request('/api/v1/clients/me/tg-autosetup/check-name', {
         method: 'POST', body: JSON.stringify({ username }),
       }),
-    start: (bot_username: string, bot_title?: string) =>
+    // ⚠️ `channel_url` — ссылка на канал клиента, спрашивается СРАЗУ при
+    // запуске: её нельзя поймать автоматически (бот услуги не в поллинге), а
+    // без неё не работает проверка подписки в воронках лид-магнитов.
+    start: (bot_username: string, bot_title?: string, channel_url?: string) =>
       request('/api/v1/clients/me/tg-autosetup/start', {
-        method: 'POST', body: JSON.stringify({ bot_username, bot_title }),
+        method: 'POST',
+        body: JSON.stringify({ bot_username, bot_title, channel_url }),
       }),
     // Открыть услугу по коду доступа — пока идёт обкатка, она раздаётся
     // точечно, а не продаётся всем.

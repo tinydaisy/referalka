@@ -64,6 +64,8 @@ export default function AutoSetupTab() {
   const [checking, setChecking] = useState(false)
   const [nameCheck, setNameCheck] = useState<{ free: boolean; message: string } | null>(null)
   const [starting, setStarting] = useState(false)
+  /** Ссылка на канал клиента — спрашивается при запуске, идёт в «Каналы основателя». */
+  const [channelUrl, setChannelUrl] = useState('')
   /**
    * Услуга ещё не открыта этому кабинету (ручка ответила 403).
    *
@@ -222,7 +224,8 @@ export default function AutoSetupTab() {
   const start = async () => {
     setStarting(true)
     try {
-      const r = await api.tgAutosetup.start(username, title || undefined)
+      const r = await api.tgAutosetup.start(
+        username, title || undefined, channelUrl.trim() || undefined)
       if (r.payment_url) { window.location.href = r.payment_url; return }
       await load()
     } catch (e: any) {
@@ -583,6 +586,42 @@ export default function AutoSetupTab() {
             placeholder="Клуб МедиаЛифт"
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400"
           />
+
+          {/* ⚠️⚠️ ССЫЛКУ НА КАНАЛ СПРАШИВАЕМ ЗДЕСЬ, В НАЧАЛЕ.
+              Поймать канал автоматически нельзя: апдейт о добавлении бота
+              доходит, только пока бот в поллинге, а бот услуги создан позже его
+              старта. На живом заказе клиент бота в канал добавил, а система об
+              этом не узнала и писала «не удалось подтвердить».
+              ⚠️ Ссылка идёт в «Каналы основателя» — по ним работает проверка
+              подписки в воронках лид-магнитов и гейт в чатах. Без неё «настройка
+              под ключ» оставляет эту часть пустой. */}
+          {/* ⚠️⚠️ ТОЛЬКО ПУБЛИЧНЫЙ КАНАЛ, И ТОЛЬКО НИКНЕЙМОМ.
+              По нику Telegram отдаёт числовой id канала (`getChat`) — проверено
+              на живом канале. По ссылке-приглашению закрытого канала
+              (t.me/+abc…) id получить НЕЛЬЗЯ: Bot API её не резолвит, метода
+              нет. Без id не работает ни проверка подписки в воронках, ни гейт
+              в чатах — то есть закрытый канал сюда вписывать бессмысленно.
+              Поэтому просим именно ник и говорим об этом прямо. */}
+          <label className="block text-sm font-medium text-gray-700 mt-5 mb-1.5">
+            Никнейм вашего Telegram-канала
+            <span className="text-gray-400 font-normal"> — если он есть</span>
+          </label>
+          <div className="flex items-center rounded-lg border border-gray-300 focus-within:border-gray-400">
+            <span className="pl-3 pr-1 text-gray-400 select-none">@</span>
+            <input
+              value={channelUrl}
+              onChange={e => setChannelUrl(e.target.value.replace(/^@+/, ''))}
+              placeholder="my_channel"
+              className="flex-1 rounded-r-lg px-1 py-2.5 text-sm outline-none"
+              style={{ minWidth: 0 }}
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1.5">
+            Пропишем канал в настройках — по нему заработает проверка подписки
+            в воронках подарков. Нужен <b>публичный</b> канал: у закрытого
+            Telegram не отдаёт идентификатор, и проверка на нём работать не
+            будет. Ник виден в канале: «Информация» → «Ссылка».
+          </p>
 
           {/* ⚠️ Условие про 3 дня показываем ДО оплаты, а не после — иначе споры. */}
           <div className="mt-5 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-600">
