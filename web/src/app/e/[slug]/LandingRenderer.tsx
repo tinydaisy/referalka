@@ -703,8 +703,17 @@ function Section({
   const _sv = block.kind === 'survey' ? (content?.surveys || {})[String(block.id)] : null
   const title = block.kind === 'hero'
     ? ''
-    : (block.kind === 'survey' ? (_sv?.form_title || block.title) : block.title)
-  const body = block.body
+    // ⚠️ У секции «Описание» заголовок по умолчанию — «ПОДРОБНОСТИ»: без него
+    // абзац висел бы без подписи. Клиент его правит как обычный заголовок,
+    // и своё значение всегда главнее.
+    : block.kind === 'description'
+      ? (block.title || 'ПОДРОБНОСТИ')
+      : (block.kind === 'survey' ? (_sv?.form_title || block.title) : block.title)
+  // ⚠️ Секция «Описание» ЖИВАЯ: текст приходит из `events.description` — того
+  // же поля, что показывает Mini App. Своего содержимого у неё нет, иначе
+  // описание пришлось бы держать в двух местах и оно бы разъехалось.
+  // HTML в нём понимается: ниже `body` идёт через SafeHtml, как у всех секций.
+  const body = block.kind === 'description' ? (event?.description || '') : block.body
 
   // Свечение карточек: класс на контейнер сетки + переменные цвета.
   // Задержку каждой карточке проставляем инлайном (--i), чтобы огонёк бежал.
@@ -1080,13 +1089,15 @@ function BlockBody(props: any) {
             </>
           ) : (
             <>
-              {/* Подзаголовок — описание из настроек события/продукта; поле
-                  блока его переопределяет (как и заголовок выше). */}
-              {(block.subtitle || event.description) && (
+              {/* ⚠️ Подзаголовок — ТОЛЬКО своё поле блока. Раньше сюда падало
+                  `event.description`, а туда пишут большой текст (его же
+                  показывает Mini App) — в шапке он выглядел простынёй под
+                  названием. Описание теперь показывает секция «Описание». */}
+              {block.subtitle && (
                 // ⚠️ mx-auto только при центре: при сдвиге влево/вправо он
                 // вернул бы абзац на середину и выравнивание не сработало бы.
                 <SafeHtml
-                  html={block.subtitle || event.description}
+                  html={block.subtitle}
                   className={`mt-5 max-w-3xl opacity-90 ${hAlign === 'center' ? 'mx-auto' : ''}`}
                   style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}
                 />
@@ -1983,8 +1994,12 @@ function BlockBody(props: any) {
     // картинку — блок image_url. Здесь дополнительного содержимого нет.
     case 'el_heading':
     case 'el_text':
+    case 'el_heading_text':
     case 'el_button':
     case 'el_image':
+    // «Описание» — заголовок и текст рисует сама секция (body подставлен выше
+    // из events.description). Своего содержимого у блока нет.
+    case 'description':
       return null
 
     /* ── Своя секция и всё остальное (values, mission, difference) ─────── */

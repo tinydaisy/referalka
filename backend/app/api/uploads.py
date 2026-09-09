@@ -506,7 +506,9 @@ async def storage_files(
         'product_content': 'состав продукта', 'survey': 'анкета',
         'partners': 'партнёры',
         'el_heading': 'заголовок', 'el_text': 'текст',
+        'el_heading_text': 'заголовок + текст',
         'el_button': 'кнопка', 'el_image': 'изображение',
+        'description': 'описание',
     }
     landing_use: dict = {}
     for r in await db.fetch(

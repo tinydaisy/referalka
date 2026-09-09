@@ -233,8 +233,13 @@ export default function BlockCard({
                         название из кабинета. */}
                     {block.kind === 'hero' && (
                       <p className="mt-1 text-xs text-gray-500">
-                        Пусто — возьмётся название продукта. Заполните, если на
-                        странице нужен другой текст.
+                        Пусто — возьмётся название со вкладки «Основное».
+                        Заполните, если на странице нужен другой текст.
+                      </p>
+                    )}
+                    {block.kind === 'description' && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Пусто — будет «ПОДРОБНОСТИ».
                       </p>
                     )}
                   </Field>
@@ -242,26 +247,10 @@ export default function BlockCard({
                 </>
               )}
 
-              {has('subtitle') && (
-                <Field label="Подзаголовок">
-                  <input
-                    type="text"
-                    value={block.subtitle || ''}
-                    onChange={e => onPatch({ subtitle: e.target.value })}
-                    className="input"
-                  />
-                  {block.kind === 'hero' && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      Пусто — возьмётся описание со вкладки «Основное».
-                    </p>
-                  )}
-                </Field>
-              )}
-
               {/* ⚠️ НАДЗАГОЛОВОК — мелкая строка НАД крупным заголовком
-                  («ВИДЕНИЕ / iViSiON-8: БИЗНЕС-СОЗДАТЕЛИ»). Стоит после
-                  подзаголовка: так все три текстовых поля шапки идут подряд,
-                  одной группой. */}
+                  («ВИДЕНИЕ / iViSiON-8: БИЗНЕС-СОЗДАТЕЛИ»). Стоит ПЕРЕД
+                  подзаголовком — в том же порядке, в каком строки идут на
+                  самой странице: надзаголовок, название, подзаголовок. */}
               {block.kind === 'hero' && (
                 <Field label="Надзаголовок">
                   <input
@@ -274,6 +263,28 @@ export default function BlockCard({
                   <p className="mt-1 text-xs text-gray-500">
                     Например, название события или направления. Пусто — строки не будет.
                   </p>
+                </Field>
+              )}
+
+              {has('subtitle') && (
+                <Field label="Подзаголовок">
+                  <input
+                    type="text"
+                    value={block.subtitle || ''}
+                    onChange={e => onPatch({ subtitle: e.target.value })}
+                    className="input"
+                  />
+                  {/* ⚠️ Это КОРОТКАЯ строка под названием, а НЕ описание
+                      события: описание — большой текст, и его показывает
+                      отдельная секция «Описание». Раньше оно падало сюда, и
+                      шапка превращалась в простыню. */}
+                  {block.kind === 'hero' && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Короткая строка под названием. Полное описание события
+                      показывает секция «Описание» — она берёт его со вкладки
+                      «Основное».
+                    </p>
+                  )}
                 </Field>
               )}
 

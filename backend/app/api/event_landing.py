@@ -42,6 +42,11 @@ router = APIRouter(prefix="/events/{event_id}/landing", tags=["Конструк�
 # лендинге появлялся бы текст, которого нет в настройках, и править его негде.
 DEFAULT_MAIN_BLOCKS: list[dict] = [
     {"kind": "hero",       "is_active": True},
+    # ⚠️ ОПИСАНИЕ СОБЫТИЯ — отдельной секцией СРАЗУ ПОСЛЕ ШАПКИ, а не в
+    # подзаголовке. В `events.description` пишут большой текст (его же
+    # показывает Mini App), и в шапке он выглядел простынёй под названием.
+    # Здесь у него есть заголовок, своё место в порядке секций и оформление.
+    {"kind": "description", "is_active": True},
     {"kind": "audience",   "is_active": True},
     {"kind": "benefits",   "is_active": True},
     {"kind": "seats",      "is_active": False},
@@ -78,18 +83,22 @@ DEFAULT_POST_PAY_BLOCKS: list[dict] = [
 # В блоке правится только заголовок секции, оформление и вид показа — иначе
 # текст вопроса пришлось бы держать в двух местах и он бы разъехался.
 LIVE_KINDS = {"speakers", "partners", "program", "tariffs", "organizer",
-              "gifts", "seats", "support", "footer", "survey"}
+              "gifts", "seats", "support", "footer", "survey",
+              # ⚠️ `description` — живой: текст приходит из `events.description`
+              # (то же поле, что у Mini App). Руками правятся только заголовок
+              # и оформление, иначе описание пришлось бы держать в двух местах.
+              "description"}
 
 # `text` и `gallery` можно добавлять по кнопке сколько угодно раз — их нет
 # в дефолтном наборе (gallery там есть, но выключенный) или он единичный.
-VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery", "partners", "el_button", "el_heading", "el_text", "el_image"}
+VALID_KINDS = {b["kind"] for b in DEFAULT_MAIN_BLOCKS} | {"text", "gallery", "partners", "el_button", "el_heading", "el_text", "el_image", "el_heading_text"}
 
 # Блоки, которых на странице может быть много (кнопка «Добавить секцию»).
 # ⚠️ `survey` повторяемый: анкет у клиента несколько, и на длинной странице
 # одну и ту же форму ставят и в середине, и в конце — чтобы не искать её
 # прокруткой.
 REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text",
-                    "el_image", "survey"}
+                    "el_image", "el_heading_text", "survey"}
 
 
 # ⚠️ Списки полей вынесены в константы: их переиспользует конструктор

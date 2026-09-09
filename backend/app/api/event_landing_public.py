@@ -141,6 +141,13 @@ async def get_public_landing(
         "ORDER BY sort_order, id",
         page["id"],
     )
+    # ⚠️ Секция «Описание» живая: текст берётся из `events.description`. Пустое
+    # описание → секции нет вовсе, иначе на странице остался бы голый заголовок
+    # «ПОДРОБНОСТИ» без текста — это читается как поломка. Отсекаем ЗДЕСЬ, а не
+    # во фронте: иначе пустая секция всё равно попала бы в меню навигации.
+    if not (event["description"] or "").strip():
+        blocks = [b for b in blocks if b["kind"] != "description"]
+
     kinds = {b["kind"] for b in blocks}
 
     # Владелец события — event_owners(accepted); у events нет client_id.

@@ -13,8 +13,8 @@ export type BlockKind =
   | 'hero' | 'seats' | 'gifts' | 'audience' | 'benefits' | 'values' | 'mission'
   | 'numbers' | 'difference' | 'process' | 'speakers' | 'organizer' | 'program'
   | 'tariffs' | 'gallery' | 'text' | 'support' | 'footer' | 'partners'
-  | 'product_content' | 'survey'
-  | 'el_button' | 'el_heading' | 'el_text' | 'el_image'
+  | 'product_content' | 'survey' | 'description'
+  | 'el_button' | 'el_heading' | 'el_text' | 'el_image' | 'el_heading_text'
 
 export interface BlockMeta {
   kind: BlockKind
@@ -30,9 +30,20 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
   hero: {
     kind: 'hero',
     label: 'Шапка',
-    hint: 'Название, описание и даты берутся из настроек события. Здесь — только подпись кнопки.',
+    // ⚠️ ПОДЗАГОЛОВОК ШАПКИ — СВОЁ ПОЛЕ, а не описание события. Раньше поля не
+    // было, и в подзаголовок падало `events.description` — а туда пишут
+    // большой текст, который в шапке выглядит простынёй. Само описание теперь
+    // живёт в отдельной секции «Описание» (kind `description`).
+    hint: 'Название и даты берутся из настроек события. Подзаголовок — короткая строка под названием; полное описание показывает секция «Описание».',
     live: true,
-    fields: ['button'],
+    fields: ['title', 'subtitle', 'button'],
+  },
+  description: {
+    kind: 'description',
+    label: 'Описание',
+    hint: 'Текст берётся из поля «Описание» на вкладке «Основное» — там же, откуда его берёт Mini App. Здесь — заголовок и оформление.',
+    live: true,
+    fields: ['title', 'button'],
   },
   seats: {
     kind: 'seats',
@@ -181,6 +192,17 @@ export const BLOCK_META: Record<BlockKind, BlockMeta> = {
     repeatable: true,
     fields: ['body'],
   },
+  // ⚠️ Самый частый случай: абзац с заголовком. Раньше его собирали из двух
+  // отдельных элементов (заголовок + текст) — и они разъезжались по отступам,
+  // а перетаскивать приходилось по одному. «Своя секция» для этого избыточна:
+  // там ещё подзаголовок и кнопка.
+  el_heading_text: {
+    kind: 'el_heading_text',
+    label: 'Заголовок + текст',
+    hint: 'Заголовок и абзац под ним. Размеры, цвет и выравнивание — во вкладке «Оформление».',
+    repeatable: true,
+    fields: ['title', 'body'],
+  },
   el_button: {
     kind: 'el_button',
     label: 'Элемент: кнопка',
@@ -231,7 +253,7 @@ export const PRODUCT_STANDARD: BlockKind[] = [
 ]
 
 export const REPEATABLE: BlockKind[] = [
-  'text', 'gallery', 'el_heading', 'el_text', 'el_button', 'el_image',
+  'text', 'gallery', 'el_heading_text', 'el_heading', 'el_text', 'el_button', 'el_image',
   // Анкету ставят и в середине длинной страницы, и в конце — чтобы до формы
   // не пришлось листать обратно.
   'survey',
@@ -241,7 +263,7 @@ export const REPEATABLE: BlockKind[] = [
  *  ⚠️ Раз удалить можно любую секцию, её надо и уметь вернуть: кнопка
  *  добавления показывает те из них, которых на странице сейчас нет. */
 export const STANDARD: BlockKind[] = [
-  'hero', 'seats', 'gifts', 'audience', 'benefits', 'values', 'mission',
+  'hero', 'description', 'seats', 'gifts', 'audience', 'benefits', 'values', 'mission',
   'numbers', 'difference', 'speakers', 'organizer', 'program', 'tariffs',
   'partners', 'support', 'footer',
 ]

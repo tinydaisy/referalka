@@ -79,11 +79,15 @@ LIVE_KINDS_PRODUCT = {"product_content", "tariffs", "organizer", "support",
 
 VALID_KINDS_PRODUCT = (
     {b["kind"] for b in DEFAULT_PRODUCT_BLOCKS}
-    | {"text", "gallery", "el_button", "el_heading", "el_text", "el_image"}
+    # ⚠️ `description` здесь НЕТ намеренно: он берёт текст из
+    # `events.description`, а у продукта такого поля нет — шапка и текст там
+    # заполняются руками.
+    | {"text", "gallery", "el_button", "el_heading", "el_text", "el_image",
+       "el_heading_text"}
 )
 
 REPEATABLE_KINDS = {"text", "gallery", "el_button", "el_heading", "el_text",
-                    "el_image", "survey"}
+                    "el_image", "el_heading_text", "survey"}
 
 
 def _ser_product_block(r: asyncpg.Record) -> dict:
