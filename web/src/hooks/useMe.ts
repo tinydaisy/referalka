@@ -1,13 +1,17 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import { displayName } from '@/lib/personName'
 
 export type MeRole = 'owner' | 'assistant'
 export type AssistantAccessLevel = 'full' | 'limited' | 'orders'
 
 export interface Me {
   id?: number
+  /** Имя владельца кабинета — уже СКЛЕЕННОЕ с фамилией (миграция 381). */
   name?: string
+  /** Фамилия отдельным полем: нужна форме настроек, где её правят. */
+  last_name?: string
   email?: string
   features?: string[]
   role?: MeRole
@@ -44,11 +48,14 @@ async function fetchMe(): Promise<Me> {
   _pending = api.auth.me().then((data: any) => {
     _cache = {
       id: data?.id,
-      name: data?.name,
       email: data?.email,
       features: data?.features || [],
       role: (data?.role as MeRole) || 'owner',
       ...data,
+      // ⚠️ ПОСЛЕ спреда, иначе `...data` вернёт сырое имя без фамилии.
+      // Имя владельца кабинета склеивается с фамилией (миграция 381) —
+      // общим хелпером, чтобы формат не разъехался между экранами.
+      name: displayName(data?.name, data?.last_name),
     }
     return _cache!
   }).catch(() => {

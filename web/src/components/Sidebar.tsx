@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
 import { SUPPORT_URL, SUPPORT_NAV_LABEL } from '@/lib/support'
+import { displayName } from '@/lib/personName'
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -28,7 +29,9 @@ export default function Sidebar() {
 
   useEffect(() => {
     api.auth.me().then((data: any) => setMe({
-      name: data?.name,
+      // ⚠️ Имя владельца кабинета — С ФАМИЛИЕЙ (миграция 381): в шапке меню
+      // человек видит себя, и по одному имени кабинет не опознать.
+      name: displayName(data?.name, data?.last_name),
       email: data?.email,
       features: data?.features || [],
       role: data?.role || 'owner',
