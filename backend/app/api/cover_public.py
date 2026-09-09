@@ -54,6 +54,16 @@ async def cover_data(
     )
     theme = dict(c) if c else {}
 
+    # Фото на прозрачном фоне — своя карточка клиента. ⚠️ Нужно здесь тоже:
+    # страница отрисовки берёт его запасным значением, когда фото не передали
+    # явно (обложка материала, у которого своего человека нет).
+    theme["sample_photo_url"] = await db.fetchval(
+        """SELECT co.cutout_photo_url
+             FROM clients cl JOIN collaborators co ON co.id = cl.self_collaborator_id
+            WHERE cl.id = $1""",
+        client_id,
+    )
+
     # Справочник шрифтов: в теме лежит ключ (`BebasNeue`), а семейство в CSS
     # называется иначе — без него страница нарисуется запасным шрифтом.
     from app.services.landing_fonts import FONTS
