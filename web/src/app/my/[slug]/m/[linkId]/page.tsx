@@ -15,7 +15,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
+import MaterialNav from '@/components/products/MaterialNav'
+import { ArrowLeft } from 'lucide-react'
 import MaterialBlockView from '@/components/products/MaterialBlockView'
 import CabinetShell from '@/components/products/CabinetShell'
 
@@ -144,24 +145,10 @@ export default function CabinetMaterialPage() {
           </div>
         )}
 
-        {(prev || next) && (
-          <div className="mt-6 flex items-center justify-between gap-3">
-            {prev ? (
-              <Link href={myHref(`/my/${slug}/m/${prev.link_id}`)}
-                    className="inline-flex min-w-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:border-gray-300">
-                <ChevronLeft size={15} className="shrink-0" />
-                <span className="truncate">{prev.title}</span>
-              </Link>
-            ) : <span />}
-            {next && (
-              <Link href={myHref(`/my/${slug}/m/${next.link_id}`)}
-                    className="inline-flex min-w-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:border-gray-300">
-                <span className="truncate">{next.title}</span>
-                <ChevronRight size={15} className="shrink-0" />
-              </Link>
-            )}
-          </div>
-        )}
+        <MaterialNav
+          prev={prev ? { href: myHref(`/my/${slug}/m/${prev.link_id}`), title: prev.title } : null}
+          next={next ? { href: myHref(`/my/${slug}/m/${next.link_id}`), title: next.title } : null}
+        />
       </div>
     </CabinetShell>
   )

@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import MaterialNav from '@/components/products/MaterialNav'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import MaterialEditor from '@/components/products/MaterialEditor'
@@ -32,6 +33,10 @@ export default function ProductMaterialPage() {
   const [product, setProduct] = useState<any>(null)
   const [title, setTitle] = useState<string>('')
   const [sectionId, setSectionId] = useState<number | null>(null)
+  // Соседние материалы — чтобы листать состав, не возвращаясь в оглавление за
+  // каждым. ⚠️ Берём из УЖЕ загруженного состава продукта, без второго запроса.
+  const [prev, setPrev] = useState<any>(null)
+  const [next, setNext] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   // ⚠️ Предпросмотр «как видит ученик»: в редакторе урок разобран на блоки с
   // полями и кнопками, и понять, как он выглядит для купившего, нельзя. Без
@@ -59,9 +64,15 @@ export default function ProductMaterialPage() {
           api.products.materials(productId),
         ])
         setProduct(p)
-        const link = (c.items || []).find((i: any) => i.material_id === matId)
+        const items = c.items || []
+        const link = items.find((i: any) => i.material_id === matId)
         setTitle(link?.title || '')
         setSectionId(link?.section_id ?? null)
+        // ⚠️ Порядок берём такой же, как в составе (`sort_order`), а не по id:
+        // иначе «дальше» повело бы не туда, куда показывает оглавление.
+        const idx = items.findIndex((i: any) => i.material_id === matId)
+        setPrev(idx > 0 ? items[idx - 1] : null)
+        setNext(idx >= 0 && idx < items.length - 1 ? items[idx + 1] : null)
       } finally { setLoading(false) }
     })()
   }, [productId, matId])
@@ -137,6 +148,11 @@ export default function ProductMaterialPage() {
           onRenamed={(t: string) => setTitle(t)}
         />
       )}
+
+      <MaterialNav
+        prev={prev ? { href: `/dashboard/products/${productId}/materials/${prev.material_id}`, title: prev.title } : null}
+        next={next ? { href: `/dashboard/products/${productId}/materials/${next.material_id}`, title: next.title } : null}
+      />
     </div>
   )
 }

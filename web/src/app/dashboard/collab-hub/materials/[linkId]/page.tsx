@@ -12,11 +12,12 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import FeatureLock from '@/components/FeatureLock'
 import MaterialBlockView from '@/components/products/MaterialBlockView'
+import MaterialNav from '@/components/products/MaterialNav'
 
 const MODULE = 'collab_hub'
 const BASE = '/dashboard/collab-hub/materials'
@@ -71,24 +72,10 @@ export default function CollabMaterialPage() {
             </div>
           )}
 
-          {/* Соседние материалы — чтобы не возвращаться в оглавление за каждым
-              следующим. Порядок тот же, что в дереве: считает бэкенд. */}
-          {(data.prev || data.next) && (
-            <div className="mt-6 flex flex-wrap gap-3">
-              {data.prev && (
-                <Link href={`${BASE}/${data.prev.link_id}`}
-                      className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition hover:border-gray-300">
-                  <ChevronLeft size={15} /> {data.prev.title}
-                </Link>
-              )}
-              {data.next && (
-                <Link href={`${BASE}/${data.next.link_id}`}
-                      className="ml-auto flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 transition hover:border-gray-300">
-                  {data.next.title} <ChevronRight size={15} />
-                </Link>
-              )}
-            </div>
-          )}
+          <MaterialNav
+            prev={data.prev ? { href: `${BASE}/${data.prev.link_id}`, title: data.prev.title } : null}
+            next={data.next ? { href: `${BASE}/${data.next.link_id}`, title: data.next.title } : null}
+          />
         </>
       )}
     </div>
