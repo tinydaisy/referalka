@@ -175,16 +175,34 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         client_id, svc["id"],
     )
 
-    # Место в очереди — сколько оплаченных заказов стоит перед этим.
+    # ─── Очередь ───
+    #
+    # ⚠️ Человек должен видеть, что он ПРОДВИГАЕТСЯ: услуга идёт минутами, и
+    # без цифры экран выглядит зависшим — клиент решает, что ничего не
+    # работает, и пишет в поддержку.
+    #
+    # ⚠️ Порядок — ПО `id`, а не по `paid_at`: при выдаче по промокоду оплаты
+    # нет вовсе и `paid_at` пустой, сортировка по нему складывала бы такие
+    # заказы в непредсказуемом порядке. `id` растёт всегда и по нему же берёт
+    # задачи поллер (tasks/tg_setup.tick).
+    #
+    # ⚠️ Считаем и `running` тоже: заказ, который уже настраивается, занимает
+    # слот аккаунта — для стоящего в очереди он «впереди».
     queue_position = None
     if order and order["setup_state"] == "queued":
         queue_position = await db.fetchval(
             """SELECT COUNT(*) + 1 FROM service_orders
                 WHERE setup_state IN ('queued','running')
-                  AND status='paid'
-                  AND (paid_at < $1 OR (paid_at = $1 AND id < $2))""",
-            order["paid_at"], order["id"],
+                  AND status = 'paid'
+                  AND id < $1""",
+            order["id"],
         )
+
+    # Сколько всего задач в работе — видно и тому, кто ещё не запускал.
+    queue_total = await db.fetchval(
+        """SELECT COUNT(*) FROM service_orders
+            WHERE setup_state IN ('queued','running') AND status = 'paid'"""
+    ) or 0
 
     # Ник клиента в Telegram — без него передать права некому.
     # ⚠️ Рядом отдаём «Службу заботы»: экран правит ник и заодно заполняет её,
@@ -225,6 +243,7 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         },
         "order": _order_out(order, svc),
         "queue_position": queue_position,
+        "queue_total": queue_total,
         "telegram_username": tg_nick,
         # Заполнена ли «Служба заботы» — экран по ней решает, можно ли
         # подставить туда ник, не затирая уже настроенный аккаунт поддержки.

@@ -43,6 +43,8 @@ type State = {
   }
   order?: Order
   queue_position?: number | null
+  /** Сколько всего задач сейчас в очереди и в работе (по всей платформе). */
+  queue_total?: number | null
   telegram_username?: string | null
   /** Заполнена ли «Служба заботы» — по ней решаем, подставлять ли туда ник. */
   support_filled?: boolean
@@ -488,11 +490,22 @@ export default function AutoSetupTab() {
                    && !waitingUser && !finished)) && (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h3 className="font-semibold text-gray-900 mb-1">Как назвать бота</h3>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-sm text-gray-500 mb-1">
             {paid
-              ? 'Услуга оплачена. Придумайте имя боту — и мы начнём настройку.'
+              ? 'Придумайте имя боту — и мы начнём настройку.'
               : 'Имя латиницей, заканчивается на «bot». Проверим, свободно ли оно, ещё до оплаты.'}
           </p>
+          {/* ⚠️ Длину очереди показываем ДО запуска: человек сразу понимает,
+              ждать ему минуту или дольше, и не пишет в поддержку «почему не
+              начинается». */}
+          {!!state.queue_total && state.queue_total > 0 && (
+            <p className="text-sm text-gray-500 mb-4">
+              Сейчас в очереди {state.queue_total}{' '}
+              {state.queue_total === 1 ? 'задача' : state.queue_total < 5 ? 'задачи' : 'задач'}
+              {' '}— вы встанете следующим.
+            </p>
+          )}
+          {!state.queue_total && <div className="mb-4" />}
 
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Адрес бота
@@ -577,14 +590,41 @@ export default function AutoSetupTab() {
               {st === 'queued' ? 'Вы в очереди' : 'Настраиваем…'}
             </div>
           </div>
-          {st === 'queued' && state.queue_position && state.queue_position > 1 && (
-            <p className="text-sm text-gray-600">
-              Перед вами {state.queue_position - 1} — начнём, как только освободится место.
-              Обычно это занимает несколько минут.
-            </p>
+          {/*
+            ⚠️ Показываем НОМЕР В ОЧЕРЕДИ ЦИФРОЙ, а не только словами.
+            Настройка идёт минутами, и без цифры экран выглядит зависшим:
+            человек решает, что услуга не работает, и пишет в поддержку.
+            По номеру видно движение — обновил страницу, номер уменьшился.
+          */}
+          {st === 'queued' && !!state.queue_position && (
+            <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-[#25455D]">
+                  {state.queue_position}
+                </span>
+                <span className="text-sm text-gray-600">
+                  — ваш номер в очереди
+                  {!!state.queue_total && state.queue_total > 1 && (
+                    <span className="text-gray-400"> из {state.queue_total}</span>
+                  )}
+                </span>
+              </div>
+              <p className="text-sm text-gray-600 mt-1.5">
+                {state.queue_position === 1
+                  ? 'Вы первый — настройка начнётся в ближайшую минуту.'
+                  : `Перед вами ${state.queue_position - 1} — начнём, как только освободится место.`}
+              </p>
+              {/* Обновлять руками не обязательно: экран сам перезапрашивает
+                  состояние каждые 5 секунд, пока настройка идёт. */}
+              <p className="text-xs text-gray-400 mt-1.5">
+                Страница обновляется сама — можно не перезагружать.
+              </p>
+            </div>
           )}
-          {st === 'queued' && state.queue_position === 1 && (
-            <p className="text-sm text-gray-600">Вы первый в очереди, начинаем.</p>
+          {st === 'running' && (
+            <p className="text-sm text-gray-600">
+              Ваша очередь подошла — выполняем шаги настройки.
+            </p>
           )}
           <SetupLog log={order?.setup_log || []} />
         </div>

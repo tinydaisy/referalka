@@ -195,6 +195,15 @@ async def connect(acc: SetupAccount):
         # ⚠️ catch_up=False — не догонять пропущенные апдейты за оффлайн.
         # Иначе Telethon может залипнуть на разборе истории вместо работы.
         catch_up=False,
+        # ⚠️⚠️ ЯЗЫК ЗАДАЁМ ЯВНО. Служебные боты Telegram (@SpamBot, @BotFather)
+        # отвечают НА ЯЗЫКЕ АККАУНТА. Узбекский номер отвечал по-узбекски
+        # («cheklov yoʻq» вместо «no limits»), разбор ответа этого не понимал,
+        # и живой аккаунт получал health='unknown' — очередь берёт только 'ok',
+        # то есть услуга не работала при исправном аккаунте.
+        # Русский, а не английский: остальные тексты услуги на русском, и
+        # ответы ботов удобнее читать в админке на одном языке.
+        lang_code="ru",
+        system_lang_code="ru",
     )
     await client.connect()
     if not await client.is_user_authorized():
@@ -762,9 +771,30 @@ async def check_health(acc: SetupAccount) -> Health:
         r = await _ask(client, SPAMBOT, "/start", wait=8)
         out.note = (r or "").strip()[:500]
         low = out.note.lower()
-        if "no limits" in low or "free as a bird" in low:
+        # ⚠️⚠️ @SPAMBOT ОТВЕЧАЕТ НА ЯЗЫКЕ АККАУНТА, А НЕ ПО-АНГЛИЙСКИ.
+        #
+        # Здесь искались только английские фразы, и живой узбекский аккаунт
+        # (998700388279) попадал в `unknown` — очередь берёт лишь `ok`, то есть
+        # услуга не работала при исправном аккаунте. Дословный ответ 09.09.2026:
+        # «Sizga xushxabarimiz bor! Hozirda hisobingizda hech qanday cheklov
+        #  yoʻq. Misoli erkin qushsiz!» — «ограничений нет, свободен как птица».
+        #
+        # ⚠️ Сверяем по КОРНЯМ слов, а не по целым фразам: формулировки Telegram
+        # меняются, а «cheklov» (ограничение) и «erkin qush» (свободная птица)
+        # устойчивы. Русский добавлен на случай аккаунта с русским интерфейсом.
+        OK_MARKERS = (
+            "no limits", "free as a bird",          # английский
+            "cheklov yo", "erkin qush",             # узбекский: «ограничений нет»
+            "ограничений нет", "свободны как птица",  # русский
+        )
+        BAD_MARKERS = (
+            "limited", "restricted",                # английский
+            "cheklangan", "cheklandi",              # узбекский: «ограничен»
+            "ограничен",                            # русский
+        )
+        if any(m in low for m in OK_MARKERS):
             out.state = "ok"
-        elif "limited" in low or "restricted" in low:
+        elif any(m in low for m in BAD_MARKERS):
             out.state = "limited"
         else:
             out.state = "unknown"

@@ -229,6 +229,26 @@ export default function AdminTgSetupPage() {
 
       {/* ─── Заказы ─── */}
       {!loading && tab === 'orders' && (
+        <>
+        {/* ⚠️ Сводка по очереди — сразу над списком. Без неё владелец видел
+            только простыню заказов и не понимал, сколько людей ЖДЁТ прямо
+            сейчас: очередь упирается в слоты сервисных аккаунтов, и её длина —
+            главный признак, что пора добавлять аккаунт.
+            Считаем из уже загруженного списка, отдельная ручка не нужна. */}
+        <div className="flex flex-wrap gap-3 mb-4">
+          {([
+            ['В очереди', orders.filter(o => o.setup_state === 'queued').length, '#25455D'],
+            ['Настраивается', orders.filter(o => o.setup_state === 'running').length, '#0ea5e9'],
+            ['Ждём клиента', orders.filter(o => o.setup_state === 'awaiting_user').length, '#f59e0b'],
+            ['Готово', orders.filter(o => o.setup_state === 'done').length, '#16a34a'],
+          ] as const).map(([label, value, color]) => (
+            <div key={label} className="rounded-xl border border-gray-200 px-4 py-3 min-w-[130px]">
+              <div className="text-2xl font-bold" style={{ color }}>{value}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+            </div>
+          ))}
+        </div>
+
         <div className="rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
@@ -295,6 +315,7 @@ export default function AdminTgSetupPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ─── Услуга ─── */}
