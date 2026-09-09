@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
-import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
+import { SUPPORT_URL } from '@/lib/support'
 import {
   AUTOSETUP_STEPS, AUTOSETUP_FROM_CLIENT, AUTOSETUP_NOT_INCLUDED,
 } from '@/lib/autosetupSteps'
@@ -323,86 +323,16 @@ export default function AutoSetupTab() {
 
   return (
     <div className="max-w-3xl">
-      {/* ─── Шапка услуги ─── */}
-      <div className="rounded-2xl p-6 mb-6 text-white"
-           style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-        <div className="flex items-start gap-3">
-          <Sparkles size={22} style={{ color: '#FFCFA4' }} className="mt-1 shrink-0" />
-          <div className="flex-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-xl font-bold">{state.service.name}</h2>
-              {paid && (
-                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-green-500 text-white">
-                  ВЫДАНА
-                </span>
-              )}
-            </div>
-            {state.service.tagline && (
-              <p className="text-white/80 text-sm mt-1">{state.service.tagline}</p>
-            )}
+      {/*
+        ⚠️ ТЁМНОЙ ВИТРИНЫ ЗДЕСЬ НЕТ НАМЕРЕННО.
 
-            {/* ⚠️ Перечень шагов — ОБЩИЙ с карточкой услуги на странице
-                «Подписка» (lib/autosetupSteps.ts). Раньше списки были разные
-                (в базе своё `bullet_points`, здесь своё) и уже разъехались:
-                человек читал в одном месте одно, в другом другое. */}
-            <p className="text-white/60 text-xs uppercase tracking-wide mt-5 mb-2">
-              Что сделаем за вас
-            </p>
-            <ul className="space-y-1.5">
-              {AUTOSETUP_STEPS.map((b, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-white/85">
-                  <Check size={15} style={{ color: '#FFCFA4' }} className="mt-0.5 shrink-0" />
-                  <span>{b}</span>
-                </li>
-              ))}
-            </ul>
-
-            <p className="text-white/60 text-xs uppercase tracking-wide mt-5 mb-2">
-              От вас — два действия
-            </p>
-            <ul className="space-y-1.5">
-              {AUTOSETUP_FROM_CLIENT.map((b, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-white/85">
-                  <span className="shrink-0 mt-0.5 w-[15px] text-center text-xs font-bold"
-                        style={{ color: '#FFCFA4' }}>{i + 1}</span>
-                  <span>{b}</span>
-                </li>
-              ))}
-            </ul>
-
-            {/* Честно о том, чего услуга НЕ делает — про это спрашивают. */}
-            <ul className="mt-5 space-y-1.5">
-              {AUTOSETUP_NOT_INCLUDED.map((b, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs text-white/55">
-                  <span className="shrink-0 mt-0.5">—</span>
-                  <span>{b}</span>
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-5 flex items-center gap-3">
-              {/* Ноль показываем словом: «0 ₽» читается как сбой. */}
-              <div className="text-2xl font-bold" style={{ color: '#FFCFA4' }}>
-                {state.service.price > 0 ? `${state.service.price} ₽` : 'Бесплатно'}
-              </div>
-              {state.service.price > 0 && <div className="text-white/60 text-sm">разово</div>}
-            </div>
-
-            {/* ⚠️ Контакт поддержки — прямо здесь: услугу за человека делает
-                служебный аккаунт, и вопрос «что происходит» возникает именно
-                на этом экране. Искать поддержку в другом разделе он не пойдёт. */}
-            {/* ⚠️ Адрес поддержки — только из lib/support.ts, руками путь не
-                прописывать: там единая точка на весь кабинет. */}
-            <p className="mt-5 pt-4 border-t border-white/15 text-sm text-white/70">
-              Вопросы по настройке —{' '}
-              <a href={SUPPORT_URL} className="underline hover:text-white"
-                 style={{ color: '#FFCFA4' }}>
-                {SUPPORT_LABEL}
-              </a>
-            </p>
-          </div>
-        </div>
-      </div>
+        До этого экрана доходит только тот, у кого услуга УЖЕ подключена:
+        без доступа ручка отдаёт 403 и рисуется отдельный экран «Скоро будет»
+        с описанием и переходом в «Подписку». Значит рассказывать здесь, что
+        входит в услугу и сколько она стоит, некому — человек за этим уже
+        пришёл. Блок на пол-экрана только отодвигал вниз то, ради чего
+        открывают вкладку: поля ника и имени бота.
+      */}
 
       {/*
         ─── Ник в Telegram: спрашиваем и сохраняем ЗДЕСЬ ЖЕ ───
