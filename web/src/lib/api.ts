@@ -1373,6 +1373,16 @@ export const api = {
       request(`/api/v1/materials/${id}/blocks/${blockId}`, { method: 'DELETE' }),
   },
 
+  // Материалы, которые открывает КУПЛЕННЫЙ МОДУЛЬ (Коллабораторная и далее).
+  // ⚠️ Только чтение и только своим клиентским токеном: право смотреть даёт
+  // фича модуля, а сами материалы лежат в системном кабинете. Правятся они
+  // обычными `materials.*` — тем, у кого есть доступ в тот кабинет.
+  moduleMaterials: {
+    list: (module: string) => request(`/api/v1/module-materials/${module}`),
+    one: (module: string, linkId: number) =>
+      request(`/api/v1/module-materials/${module}/${linkId}`),
+  },
+
   collabHub: {
     settings: () => request('/api/v1/collab-hub/settings'),
     niches: () => request('/api/v1/collab-hub/niches'),

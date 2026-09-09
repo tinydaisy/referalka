@@ -19,7 +19,7 @@
 INSERT INTO products (client_id, slug, title, subtitle, status, wording_preset)
 SELECT c.id, 'collab-hub', 'Коллабораторная ПЛЮСОН (Материалы)',
        'Записи вебинаров, афиши и тексты для приглашений',
-       'draft', 'education'
+       'draft', 'consulting'
   FROM clients c
  WHERE c.is_system_service = TRUE
 ON CONFLICT (client_id, slug) DO NOTHING;

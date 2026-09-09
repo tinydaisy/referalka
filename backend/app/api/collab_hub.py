@@ -546,25 +546,8 @@ async def get_collab_hub_settings(db=Depends(get_db)):
     """
     row = await db.fetchrow(
         "SELECT chat_url, chat_url_max, chat_title FROM collab_hub_settings WHERE id = 1")
-    # База материалов — уроки по Коллабораторной. Лежат продуктом в кабинете
-    # СИСТЕМНОГО клиента, поэтому адрес отдаём отсюда, а не собираем во фронте:
-    # там нет ни номера этого клиента, ни slug продукта.
-    # ⚠️ `?client_id=` в адресе обязателен: без него `/my` не знает, чей кабинет
-    # открывать, и отвечает «Не удалось определить кабинет» — по почте он
-    # угадывает только когда доступ ровно у одного клиента.
-    # ⚠️ Продукта ещё нет (миграция не накачена, или его удалили) → пусто, и
-    # пункт меню просто не рисуется вместо ссылки в никуда — как у чата.
-    mat = await db.fetchrow(
-        """SELECT p.slug, p.client_id
-             FROM products p JOIN clients c ON c.id = p.client_id
-            WHERE c.is_system_service = TRUE AND p.slug = 'collab-hub'
-              AND p.status <> 'archived'
-            LIMIT 1""")
     return {
         "chat_url": (row["chat_url"] if row else None) or "",
         "chat_url_max": (row["chat_url_max"] if row else None) or "",
         "chat_title": (row["chat_title"] if row else None) or "Закрытый чат",
-        "materials_url": (
-            f"/my/{mat['slug']}?client_id={mat['client_id']}" if mat else ""
-        ),
     }

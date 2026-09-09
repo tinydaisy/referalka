@@ -128,17 +128,11 @@ export default function Sidebar() {
   // площадок две, прямой ссылкой в меню их не уместить.
   // Грузим только тем, у кого раздел есть; ошибку глотаем — без ссылок просто
   // не будет пункта меню, ломать сайдбар из-за этого нельзя.
-  // ⚠️ Адрес базы материалов приходит ТЕМ ЖЕ запросом, а не вторым: во фронте
-  // нет ни номера системного клиента, ни slug продукта — их знает только бэк.
   const [hasCollabChat, setHasCollabChat] = useState(false)
-  const [materialsUrl, setMaterialsUrl] = useState('')
   useEffect(() => {
     if (!hasCollabHub) return
     api.collabHub.settings()
-      .then((r: any) => {
-        setHasCollabChat(!!(r?.chat_url || r?.chat_url_max))
-        setMaterialsUrl(r?.materials_url || '')
-      })
+      .then((r: any) => setHasCollabChat(!!(r?.chat_url || r?.chat_url_max)))
       .catch(() => {})
   }, [hasCollabHub])
 
@@ -262,15 +256,11 @@ export default function Sidebar() {
         { href: '/dashboard/collab-hub', label: 'Каталог', icon: Search, exact: true },
         { href: '/dashboard/collab-hub/events', label: 'Коллабы', icon: Calendar },
         { href: '/dashboard/collab-hub/requests', label: 'Запросы', icon: Inbox },
-        // База материалов — уроки по Коллабораторной. Ведёт в кабинет
-        // покупателя `/my` СИСТЕМНОГО клиента: уроки одни на всю платформу,
-        // модуль продаёт кто угодно своим тарифом, а кабинет открывается по
-        // почте, которой человек зарегистрирован в ПЛЮСОНе.
-        // ⚠️ Продукта ещё нет (миграция не накачена) → адрес пустой и пункта
-        // не будет — как у чата, вместо ссылки в никуда.
-        ...(materialsUrl
-          ? [{ href: materialsUrl, label: 'База материалов', icon: BookOpen, external: true }]
-          : []),
+        // База материалов Коллабораторной — страница ВНУТРИ кабинета.
+        // ⚠️ Не кабинет покупателя `/my`: смотрит клиент платформы, он уже
+        // авторизован, и право смотреть даёт сам модуль. Второй вход по коду
+        // на почту тут был бы лишним шагом к данным, доступ к которым есть.
+        { href: '/dashboard/collab-hub/materials', label: 'База материалов', icon: BookOpen },
         // Закрытый чат участников — страница с кнопками на площадки (TG/MAX),
         // адреса задаёт администратор платформы. Ни одной ссылки → пункта нет.
         ...(hasCollabChat

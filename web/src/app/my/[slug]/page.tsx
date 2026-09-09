@@ -13,8 +13,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, FileText, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import CabinetShell from '@/components/products/CabinetShell'
+import MaterialsTree from '@/components/products/MaterialsTree'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -27,11 +28,6 @@ function myHref(path: string): string {
 }
 const TOKEN_KEY = 'product_cabinet_token'
 
-function wording(preset: string) {
-  return preset === 'education'
-    ? { unit: 'Урок', content: 'Программа' }
-    : { unit: 'Материал', content: 'Что входит' }
-}
 
 // ⚠️ См. комментарий в dashboard/products/[id]: use(params) — это Next 15,
 // на нашем Next 14.2.3 страница падала с Application error.
@@ -92,7 +88,6 @@ export default function CabinetProductPage() {
     )
   }
 
-  const W = wording(data.product.wording_preset)
 
   return (
     <CabinetShell brand={data.brand} active="materials">
@@ -110,11 +105,10 @@ export default function CabinetProductPage() {
           </p>
         )}
 
-        <div className="space-y-3">
-          {tree.map((n: any) => (
-            <Node key={`${n.type}-${n.id ?? n.link_id}`} node={n} W={W} slug={slug} />
-          ))}
-        </div>
+        {/* ⚠️ Дерево рисует ОБЩИЙ компонент — тот же, что в кабинете ПЛЮСОНа
+            у материалов модулей. Своей копии здесь быть не должно: их уже было
+            три, и они разошлись поведением. */}
+        <MaterialsTree nodes={tree} hrefFor={(n) => `/my/${slug}/m/${n.link_id}`} />
       </div>
     </CabinetShell>
   )
@@ -141,70 +135,4 @@ function buildTree(sections: any[], items: any[]) {
   const roots = (byParent['root'] || []).map(attach)
   return [...roots, ...(bySection['root'] || [])]
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-}
-
-/**
- * Узел оглавления. ⚠️ Раньше здесь разворачивалось СОДЕРЖИМОЕ всех материалов
- * сразу: программа из двадцати уроков превращалась в бесконечную страницу, где
- * нельзя ни найти нужный урок, ни вернуться к прочитанному. Теперь это
- * оглавление: материал — ссылка на свою страницу, разделы свёрнуты.
- */
-function Node({ node, W, slug, depth = 0 }: {
-  node: any; W: any; slug: string; depth?: number
-}) {
-  // ⚠️ Разделы СВЁРНУТЫ по умолчанию — так виден весь состав целиком,
-  // а не первый раздел на весь экран.
-  const [open, setOpen] = useState(false)
-
-  if (node.type === 'material') {
-    const n = node.blocks?.length || 0
-    return (
-      <Link
-        href={`/my/${slug}/m/${node.link_id}`}
-        style={{ marginLeft: depth * 16 }}
-        className="flex items-center gap-3 rounded-xl bg-white p-4 shadow-sm transition hover:shadow"
-      >
-        <FileText size={16} className="shrink-0 text-gray-400" />
-        <div className="min-w-0 flex-1">
-          <div className="font-medium text-gray-900">{node.title}</div>
-          {node.description && (
-            <div className="mt-0.5 text-sm text-gray-500">{node.description}</div>
-          )}
-        </div>
-        <span className="shrink-0 text-xs text-gray-400">
-          {n ? 'Открыть' : 'Скоро'}
-        </span>
-      </Link>
-    )
-  }
-
-  const count = (node.children || []).filter((c: any) => c.type === 'material').length
-
-  return (
-    <div style={{ marginLeft: depth * 16 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left transition hover:border-gray-300"
-      >
-        {open
-          ? <ChevronDown size={16} className="shrink-0 text-gray-400" />
-          : <ChevronRight size={16} className="shrink-0 text-gray-400" />}
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold text-gray-900">{node.title}</div>
-          {node.description && (
-            <div className="text-sm text-gray-500">{node.description}</div>
-          )}
-        </div>
-        {count > 0 && <span className="shrink-0 text-xs text-gray-400">{count}</span>}
-      </button>
-      {open && node.children?.length > 0 && (
-        <div className="mt-2 space-y-2">
-          {node.children.map((ch: any) => (
-            <Node key={`${ch.type}-${ch.id ?? ch.link_id}`}
-                  node={ch} W={W} slug={slug} depth={depth + 1} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
