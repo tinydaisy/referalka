@@ -62,6 +62,28 @@ def _norm_link_mode(v):
     return v if v in ('text', 'button', 'both') else 'text'
 
 
+def _norm_link_source(v):
+    """Источник ссылки → безопасное значение (миграция 385).
+
+    ⚠️ Мусор приводим к 'fixed' (прежнее поведение), а не роняем запрос: колонка
+    под ограничением CHECK, и неизвестное значение иначе сорвало бы сохранение
+    у старого фронта.
+    """
+    return v if v in ('fixed', 'support') else 'fixed'
+
+
+def _norm_support_prefill(v):
+    """Кодовое слово для поля ввода Telegram.
+
+    ⚠️ Пробелы заменяем подчёркиванием: слово уходит в адрес ссылки
+    (`?text=…`), и пробел в нём ломает ссылку у части клиентов.
+    """
+    s = (v or "").strip()
+    if not s:
+        return None
+    return "_".join(s.split())[:200]
+
+
 def _norm_button_label(v):
     """Надпись кнопки: обрезаем под лимит площадок и чистим пробелы.
 
@@ -87,6 +109,14 @@ class LeadMagnetIn(BaseModel):
     # Надпись на кнопке, до 40 символов (предел ВКонтакте). Пусто → берём
     # название материала и режем под лимит.
     button_label: Optional[str] = None
+    # Откуда берётся ссылка (миграция 385):
+    #   fixed   — адрес из `url`, как было;
+    #   support — служба заботы клиента, резолвится по площадке человека
+    #             (из ВКонтакте → ВКонтакте, из MAX → MAX).
+    link_source: Optional[str] = None
+    # Кодовое слово в поле ввода. ⚠️ Работает ТОЛЬКО в Telegram: у ВКонтакте и
+    # MAX параметр ссылки читает бот сообщества, текстом сообщения он не станет.
+    support_prefill: Optional[str] = None
     # Участвует ли материал в партнёрской программе клиента (миграция 376).
     # ⚠️ FALSE по умолчанию, как у событий и продуктов: доступ РАЗРЕШАЮТ явно.
     # Партнёр видит в кабинете только отмеченные — остальное клиент держит
@@ -102,7 +132,7 @@ async def list_lead_magnets(
     cid = int(client["sub"])
     rows = await db.fetch(
         """SELECT id, name, description, url, slug, require_survey_id,
-                  link_mode, button_label, partner_enabled, created_at, updated_at
+                  link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at
            FROM lead_magnets WHERE client_id = $1
            ORDER BY name""",
         cid
@@ -126,13 +156,16 @@ async def create_lead_magnet(
     slug = await _make_unique_lead_magnet_slug(db)
     row = await db.fetchrow(
         """INSERT INTO lead_magnets (client_id, name, description, url, slug,
-                                     link_mode, button_label, partner_enabled)
-           VALUES ($1, $2, $3, $4, $5, COALESCE($6,'text'), $7, COALESCE($8, FALSE))
+                                     link_mode, button_label, partner_enabled,
+                                     link_source, support_prefill)
+           VALUES ($1, $2, $3, $4, $5, COALESCE($6,'text'), $7, COALESCE($8, FALSE),
+                   COALESCE($9,'fixed'), $10)
            RETURNING id, name, description, url, slug, require_survey_id,
-                      link_mode, button_label, partner_enabled, created_at, updated_at""",
+                      link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at""",
         cid, data.name.strip(), data.description, data.url.strip(), slug,
         _norm_link_mode(data.link_mode), _norm_button_label(data.button_label),
         data.partner_enabled,
+        _norm_link_source(data.link_source), _norm_support_prefill(data.support_prefill),
     )
     out = dict(row)
     out["platform_links"] = await build_funnel_landing_links(
@@ -195,7 +228,7 @@ async def get_lead_magnet(
     cid = int(client["sub"])
     row = await db.fetchrow(
         """SELECT id, name, description, url, slug, require_survey_id,
-                  link_mode, button_label, partner_enabled, created_at, updated_at
+                  link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at
            FROM lead_magnets WHERE id = $1 AND client_id = $2""",
         lead_magnet_id, cid
     )
@@ -230,16 +263,23 @@ async def update_lead_magnet(
                   button_label = CASE WHEN $10 THEN $11 ELSE button_label END,
                   partner_enabled = CASE WHEN $12 THEN COALESCE($13, FALSE)
                                          ELSE partner_enabled END,
+                  -- Источник ссылки и кодовое слово (миграция 385) — по тому же
+                  -- правилу «правим только присланное».
+                  link_source     = CASE WHEN $14 THEN COALESCE($15,'fixed')
+                                         ELSE link_source END,
+                  support_prefill = CASE WHEN $16 THEN $17 ELSE support_prefill END,
                   updated_at = NOW()
             WHERE id = $4 AND client_id = $5
             RETURNING id, name, description, url, slug, require_survey_id,
-                      link_mode, button_label, partner_enabled, created_at, updated_at""",
+                      link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at""",
         data.name.strip(), data.description, data.url.strip(),
         lead_magnet_id, cid,
         'require_survey_id' in data.model_fields_set, data.require_survey_id,
         'link_mode' in data.model_fields_set, _norm_link_mode(data.link_mode),
         'button_label' in data.model_fields_set, _norm_button_label(data.button_label),
         'partner_enabled' in data.model_fields_set, data.partner_enabled,
+        'link_source' in data.model_fields_set, _norm_link_source(data.link_source),
+        'support_prefill' in data.model_fields_set, _norm_support_prefill(data.support_prefill),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")

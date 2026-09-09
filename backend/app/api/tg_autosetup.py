@@ -370,6 +370,30 @@ async def start_setup(data: StartRequest,
         raise HTTPException(409, "Настройка уже идёт")
 
     # ── новый заказ ──
+    #
+    # ⚠️⚠️ БЕСПЛАТНАЯ УСЛУГА ЗАПУСКАЕТСЯ БЕЗ ОПЛАТЫ.
+    #
+    # Сюда доходит только тот, у кого доступ ЕСТЬ (_assert_feature выше), — то
+    # есть услугу ему выдали по промокоду. Раньше поток шёл дальше в проверку
+    # `coming_soon` и упирался в «Услуга скоро появится»: человек с доступом
+    # вводил имя бота и получал отказ. Ветка «перезапуск оплаченного» его тоже
+    # не спасала — она ищет ЗАКАЗ, а при выдаче по промокоду заказа нет вовсе.
+    #
+    # Цена 0 → заказ сразу `paid` и в очередь: платить нечего, а сгенерировать
+    # ссылку на оплату нулевой суммы платёжная система всё равно не даст.
+    if int(svc["price"] or 0) <= 0:
+        order_id = await db.fetchval(
+            """INSERT INTO service_orders (client_id, service_id, amount,
+                                           bot_username, bot_title,
+                                           status, setup_state,
+                                           payment_provider, paid_at)
+                    VALUES ($1, $2, 0, $3, $4, 'paid', 'queued', 'free', NOW())
+                 RETURNING id""",
+            client_id, svc["id"], username, title,
+        )
+        return {"ok": True, "order_id": order_id, "paid": True,
+                "message": "Настройка поставлена в очередь"}
+
     # ⚠️ coming_soon — оплату не открываем вовсе. Услуга видна, но не продаётся.
     if svc["coming_soon"]:
         raise HTTPException(400, "Услуга скоро появится")

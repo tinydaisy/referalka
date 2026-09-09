@@ -13,6 +13,7 @@
 контекста (FastAPI/Celery/aiogram-handler).
 """
 from typing import Optional, Tuple
+from urllib.parse import quote
 import httpx
 import json
 import logging
@@ -228,14 +229,16 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
     (реф-коды рефовода) — см. _referrer_link_params."""
     if run["lead_magnet_id"]:
         rows = await db.fetch(
-            "SELECT id, slug, name, url, description, link_mode, button_label "
+            "SELECT id, slug, name, url, description, link_mode, button_label, "
+            "       link_source, support_prefill "
             "  FROM lead_magnets WHERE id = $1",
             run["lead_magnet_id"]
         )
     else:
         rows = await db.fetch(
             """SELECT lm.id, lm.slug, lm.name, lm.url, lm.description,
-                      lm.link_mode, lm.button_label
+                      lm.link_mode, lm.button_label,
+                      lm.link_source, lm.support_prefill
                  FROM lead_magnet_package_items pi
                  JOIN lead_magnets lm ON lm.id = pi.lead_magnet_id
                 WHERE pi.package_id = $1
@@ -243,6 +246,44 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
             run["package_id"]
         )
     materials = [dict(r) for r in rows]
+
+    # ─── Ссылка на службу заботы вместо фиксированного адреса (миграция 385) ───
+    #
+    # ⚠️ РЕЗОЛВ ПО ПЛОЩАДКЕ ЧЕЛОВЕКА, а не «первый заполненный контакт»:
+    # пришёл из ВКонтакте — ссылка во ВКонтакте, из MAX — в MAX. Иначе человека
+    # отправляли бы писать в мессенджер, которым он не пользуется.
+    #
+    # ⚠️ Владелец лид-магнита — НЕ обязательно владелец события: у спикера может
+    # быть свой кабинет ([[feedback_gift_funnel_link_owner_bot]]). Берём контакты
+    # того клиента, чей это лид-магнит.
+    if any((m.get("link_source") or "fixed") == "support" for m in materials):
+        from app.services.support_message import support_url_for_platform
+        sup = await db.fetchrow(
+            """SELECT cl.work_tg_username, cl.work_vk, cl.work_max
+                 FROM lead_magnets lm
+                 JOIN clients cl ON cl.id = lm.client_id
+                WHERE lm.id = $1""",
+            materials[0]["id"],
+        )
+        platform = (run.get("platform_slug") or "telegram")
+        for m in materials:
+            if (m.get("link_source") or "fixed") != "support":
+                continue
+            url = support_url_for_platform(
+                platform,
+                sup["work_tg_username"] if sup else None,
+                sup["work_vk"] if sup else None,
+                sup["work_max"] if sup else None,
+            ) if sup else ""
+            # ⚠️ Кодовое слово подставляется ТОЛЬКО в Telegram: там `?text=`
+            # заполняет поле ввода. У ВКонтакте (`?ref=`) и MAX (`?start=`)
+            # параметр читает бот сообщества, текстом сообщения он не станет —
+            # дописывать его туда значит ломать ссылку без всякой пользы.
+            prefill = (m.get("support_prefill") or "").strip()
+            if url and prefill and platform == "telegram":
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}text={quote(prefill)}"
+            m["url"] = url
 
     # Раскрываем плейсхолдеры реф-кодов ({plsn_ref}/{ext_ref}) в url материалов,
     # только если они реально встречаются — иначе не дёргаем БД за рефоводом.
