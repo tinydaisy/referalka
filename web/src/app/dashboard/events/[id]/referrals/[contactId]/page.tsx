@@ -31,7 +31,6 @@ interface Person {
   max_username: string | null
   is_registered: boolean
   registered_at: string | null
-  created_at: string | null
   paid_amount: number
   paid_tariffs: string | null
 }

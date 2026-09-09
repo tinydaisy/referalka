@@ -1263,7 +1263,11 @@ async def referral_report_person(
                (SELECT pu.username FROM platform_users pu
                  WHERE pu.contact_id = c.id AND pu.platform_slug = 'max'
                  LIMIT 1)                   AS max_username,
-               ep.is_registered, ep.registered_at, ep.created_at,
+               -- ⚠️ Колонки `created_at` у event_participants НЕТ. Момент
+               -- появления строки хранит `registered_at` (DEFAULT now()), он
+               -- же становится временем регистрации — отдельного «когда зашёл»
+               -- в таблице не существует.
+               ep.is_registered, ep.registered_at,
                {_PAID_SUM_SQL}              AS paid_amount,
                (SELECT STRING_AGG(t.title, ', ' ORDER BY t.sort_order)
                   FROM event_participant_tariffs pt
@@ -1277,7 +1281,7 @@ async def referral_report_person(
                         WHERE rc.id = $2
                           AND (rc.ref_code = ep.referrer_ref_code
                                OR rc.merged_ref_codes ? ep.referrer_ref_code))
-         ORDER BY ep.is_registered DESC, ep.created_at DESC
+         ORDER BY ep.is_registered DESC, ep.registered_at DESC NULLS LAST
         """,
         event_id, contact_id,
     )
