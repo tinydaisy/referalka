@@ -1111,22 +1111,16 @@ async def export_speaker_materials(
 
 # Оплата участника — сумма его тарифов со статусом `paid`.
 #
-# ⚠️⚠️ ПУСТОЙ `amount` — ЭТО НЕ НОЛЬ, а «сумму не вписали»: при отметке оплаты
-# вручную (`source='manual'`) поле часто остаётся NULL, хотя цена тарифа
-# известна. На проде у события 24 из 31 оплаты сумма заполнена у 6 — считая
-# только по `amount`, отчёт показывал 32 700 ₽ вместо реальных сотен тысяч, а у
-# рефовода выходило «оплатили 2, сумма 0 ₽» (жалоба владельца 09.09.2026).
-# Поэтому берём цену тарифа как запасное значение.
+# ⚠️⚠️ СЧИТАЕМ ТОЛЬКО ПО `amount`. Цену тарифа подставлять вместо пустой суммы
+# НЕЛЬЗЯ (решение владельца 09.09.2026): вручную отмечают и тех, кто прошёл
+# бесплатно — например пришедших от Михайленко на событии 24 за 0 ₽. Подстановка
+# приписала бы им деньги, которых они не платили, и завысила выручку.
 #
-# ⚠️ `event_tariffs.price` — INTEGER, а `pt.amount` — numeric(12,2):
-# приводим явно, иначе COALESCE ругается на несовпадение типов.
-# ⚠️ Настоящий ноль (`amount = 0`, бесплатный тариф) при этом сохраняется —
-# COALESCE подменяет только NULL.
+# Пустая сумма — это дыра в ДАННЫХ, а не в подсчёте: форма «Отметить
+# оплатившим» не спрашивала сумму вовсе и всегда слала NULL (починено там же).
 _PAID_SUM_SQL = (
-    "(SELECT COALESCE(SUM(COALESCE(pt.amount, t_price.price::numeric, 0)), 0) "
-    "   FROM event_participant_tariffs pt "
-    "   LEFT JOIN event_tariffs t_price ON t_price.id = pt.tariff_id "
-    "  WHERE pt.participant_id = ep.id AND pt.status = 'paid')"
+    "(SELECT COALESCE(SUM(pt.amount), 0) FROM event_participant_tariffs pt "
+    "WHERE pt.participant_id = ep.id AND pt.status = 'paid')"
 )
 _PAID_EXISTS_SQL = (
     "EXISTS (SELECT 1 FROM event_participant_tariffs pt "

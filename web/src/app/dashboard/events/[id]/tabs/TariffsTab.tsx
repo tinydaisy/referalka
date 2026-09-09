@@ -919,6 +919,7 @@ function BuyersPanel({ eventId, tariff, allTariffs, onChanged }: { eventId: numb
         <AddBuyerPicker
           eventId={eventId}
           tariffId={tariff.id}
+          tariffPrice={tariff.price}
           status={addStatus}
           paidParticipantIds={paidIds}
           unpaidParticipantIds={unpaidIds}
@@ -1065,10 +1066,12 @@ function BuyerCard({ b, unpaid, currentTariffId, allTariffs, onRemove, onPatch }
 
 // Выбор кого отметить оплатившим: участники события ИЛИ контакты базы.
 function AddBuyerPicker({
-  eventId, tariffId, status, paidParticipantIds, unpaidParticipantIds, onDone,
+  eventId, tariffId, tariffPrice, status, paidParticipantIds, unpaidParticipantIds, onDone,
 }: {
   eventId: number
   tariffId: number
+  /** Цена тарифа — только ПОДСКАЗКА для поля суммы, не подстановка в расчёт. */
+  tariffPrice?: number | null
   status: 'paid' | 'unpaid'
   paidParticipantIds: Set<number>
   unpaidParticipantIds: Set<number>
@@ -1080,6 +1083,16 @@ function AddBuyerPicker({
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [noteVal, setNoteVal] = useState('')
+  // ⚠️⚠️ Поля суммы здесь НЕ БЫЛО ВОВСЕ, и форма всегда слала пустое значение:
+  // на проде у события 24 сумма отсутствует у 24 оплат из 31. Отчёт по
+  // рефералам из-за этого показывал «оплатили 2, сумма 0 ₽».
+  //
+  // ⚠️ Подставлять цену тарифа при расчёте НЕЛЬЗЯ (решение владельца
+  // 09.09.2026): вручную отмечают и тех, кто прошёл бесплатно, — им
+  // приписались бы чужие деньги. Поэтому сумма спрашивается ЗДЕСЬ, в момент
+  // отметки, когда человек знает, платил покупатель или нет.
+  const [amountVal, setAmountVal] = useState<string>(
+    tariffPrice != null ? String(tariffPrice) : '')
 
   useEffect(() => {
     let cancelled = false
@@ -1111,10 +1124,20 @@ function AddBuyerPicker({
     setBusyId(row.id)
     try {
       const note = noteVal.trim() || undefined
+      // Пустое поле — сумма неизвестна (шлём undefined, в базе останется
+      // пусто). Явный «0» — это осознанный ноль: человек прошёл бесплатно.
+      const raw = amountVal.trim().replace(',', '.')
+      const parsed = raw === '' ? undefined : Number(raw)
+      if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0)) {
+        alert('Сумма должна быть числом (0 — если человек прошёл бесплатно)')
+        setBusyId(null)
+        return
+      }
+      const amount = parsed === undefined ? undefined : Math.round(parsed)
       if (source === 'participants') {
-        await api.eventTariffs.addBuyer(eventId, tariffId, { participant_id: row.id, status, note })
+        await api.eventTariffs.addBuyer(eventId, tariffId, { participant_id: row.id, status, note, amount })
       } else {
-        await api.eventTariffs.addBuyer(eventId, tariffId, { contact_id: row.id, status, note })
+        await api.eventTariffs.addBuyer(eventId, tariffId, { contact_id: row.id, status, note, amount })
       }
       onDone()
     } catch (e: any) {
@@ -1126,6 +1149,20 @@ function AddBuyerPicker({
 
   return (
     <div className="border border-gray-200 bg-white rounded-xl p-3 space-y-2.5">
+      {/* Сумма — первым полем: без неё оплата не попадёт ни в отчёт по
+          рефералам, ни в суммы по событию. */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-gray-600 shrink-0">Сумма, ₽</label>
+        <input
+          value={amountVal}
+          onChange={e => setAmountVal(e.target.value)}
+          inputMode="numeric"
+          className="w-28 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:border-brand"
+        />
+        <span className="text-[11px] text-gray-400 leading-tight">
+          0 — если прошёл бесплатно. Пусто — сумма не попадёт в отчёты.
+        </span>
+      </div>
       <input
         value={noteVal}
         onChange={e => setNoteVal(e.target.value)}
@@ -1315,11 +1352,19 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
     return true
   })
 
-  const sumOf = (o: OrderRow) => (o.amount ?? o.tariff_price ?? 0)
+  // ⚠️⚠️ Считаем ТОЛЬКО по вписанной сумме. Раньше здесь стояло
+  // `amount ?? tariff_price` — цена тарифа подставлялась вместо незаполненной
+  // суммы, и итог завышался: вручную отмечают и тех, кто прошёл БЕСПЛАТНО
+  // (на событии 24 так приходили люди от Михайленко), а им приписывалась
+  // полная цена. Решение владельца 09.09.2026: сумма берётся как есть.
+  const sumOf = (o: OrderRow) => (o.amount ?? 0)
   const paidRows = filtered.filter(o => o.status === 'paid')
   const unpaidRows = filtered.filter(o => o.status === 'unpaid')
   const paidSum = paidRows.reduce((s, o) => s + sumOf(o), 0)
   const unpaidSum = unpaidRows.reduce((s, o) => s + sumOf(o), 0)
+  // Сколько строк без вписанной суммы — иначе итог молча занижен и непонятно
+  // почему: человек видит 20 оплат и сумму от четырёх из них.
+  const paidNoAmount = paidRows.filter(o => o.amount == null).length
 
   // Экспорт CSV — ровно тех заказов, что видны после фильтра (массив filtered).
   // UTF-8 с BOM + ;-разделитель — открывается в Excel без танцев с кодировкой.

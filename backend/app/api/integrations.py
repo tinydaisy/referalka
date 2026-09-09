@@ -946,7 +946,7 @@ async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection, *, sta
                 detail="Не передан tariff_code (или tariff_id) — непонятно, какой тариф",
             )
         tariff = await db.fetchrow(
-            "SELECT id, code FROM event_tariffs WHERE event_id = $1 AND code = $2",
+            "SELECT id, code, price FROM event_tariffs WHERE event_id = $1 AND code = $2",
             event_id, code,
         )
     if tariff is None:
@@ -954,6 +954,19 @@ async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection, *, sta
             status_code=404,
             detail=f"Тариф «{data.tariff_code or data.tariff_id}» не найден у события {event_id}",
         )
+
+    # ⚠️⚠️ ОПЛАТА С САЙТА БЕЗ СУММЫ — берём цену тарифа.
+    # Внешняя система (GetCourse и т.п.) не всегда присылает `amount`: на проде
+    # у события 24 из 11 заказов `source='getcourse'` сумма пришла у 3, и
+    # остальные лежали пустыми — человек оплатил по прайсу, а в отчётах и в
+    # итогах «Заказов» его деньги не считались вовсе.
+    #
+    # ⚠️ Это ТОЛЬКО для оплат из внешней системы. При РУЧНОЙ отметке в кабинете
+    # подставлять цену нельзя (решение владельца 09.09.2026): вручную отмечают
+    # и тех, кто прошёл бесплатно, — там сумму спрашивает форма.
+    amount = data.amount
+    if status == "paid" and amount is None and tariff["price"] is not None:
+        amount = int(tariff["price"])
 
     # 4. UPSERT записи о тарифе — идемпотентно.
     #    paid:   paid_at=NOW(), status='paid'. Перетирает предыдущий unpaid.
@@ -970,7 +983,7 @@ async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection, *, sta
                  source = COALESCE(EXCLUDED.source, event_participant_tariffs.source),
                  amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
                  external_payment_id = COALESCE(EXCLUDED.external_payment_id, event_participant_tariffs.external_payment_id)""",
-            event_id, pid_int, tariff["id"], data.source, data.amount, data.external_payment_id,
+            event_id, pid_int, tariff["id"], data.source, amount, data.external_payment_id,
         )
     else:  # unpaid
         await db.execute(
@@ -984,7 +997,7 @@ async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection, *, sta
                  source = COALESCE(EXCLUDED.source, event_participant_tariffs.source),
                  amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
                  external_payment_id = COALESCE(EXCLUDED.external_payment_id, event_participant_tariffs.external_payment_id)""",
-            event_id, pid_int, tariff["id"], data.source, data.amount, data.external_payment_id,
+            event_id, pid_int, tariff["id"], data.source, amount, data.external_payment_id,
         )
 
     # 5. И заказ, и оплата = регистрация. Помечаем (только в сторону TRUE) + финализируем.
