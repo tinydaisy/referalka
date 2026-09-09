@@ -32,6 +32,7 @@ from fastapi.responses import HTMLResponse
 
 from app.database import get_db
 from app.services.unsubscribe_token import parse_email_unsubscribe_token
+from app.services.person_name import DISPLAY_NAME_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +291,10 @@ async def email_unsubscribe_get(token: str, request: Request, db=Depends(get_db)
     brand_label = "ПЛЮСОН"
     try:
         row = await db.fetchrow(
-            "SELECT name, brand_name FROM clients WHERE id=$1",
+            # ⚠️ Имя с фамилией (миграция 381): строка «Имя и Бренд» видна
+            # человеку на публичной странице отписки.
+            "SELECT " + DISPLAY_NAME_SQL("clients") + " AS name, brand_name "
+            "  FROM clients WHERE id=$1",
             payload["client_id"],
         )
         if row:

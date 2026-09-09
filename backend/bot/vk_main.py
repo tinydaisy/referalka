@@ -440,7 +440,7 @@ async def _vk_handle_plusson_ref(referral_code: str, vk_user_id: int,
     referrer_name = None
     if referrer_client_id:
         referrer_name = await db.fetchval(
-            "SELECT name FROM clients WHERE id = $1", referrer_client_id)
+            "SELECT btrim(CASE WHEN COALESCE(btrim(last_name), '') = '' THEN COALESCE(name, '') ELSE COALESCE(name, '') || ' ' || COALESCE(last_name, '') END) FROM clients WHERE id = $1", referrer_client_id)
         # Контакт нужен ДО закрепления кода: persist ищет его по platform_users.
         try:
             await upsert_contact_with_identity(

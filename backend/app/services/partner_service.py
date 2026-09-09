@@ -45,7 +45,9 @@ async def _get_brand_owner(client_id: int, db) -> dict:
     row = await db.fetchrow(
         """SELECT
               COALESCE(NULLIF(brand_name, ''), name) AS brand_name,
-              name AS owner_name,
+              -- ⚠️ Имя с фамилией (миграция 381): уходит в сообщение бота
+              -- «Вы регистрируетесь Партнёром у {owner}».
+              btrim(CASE WHEN COALESCE(btrim(last_name), '') = '' THEN COALESCE(name, '') ELSE COALESCE(name, '') || ' ' || COALESCE(last_name, '') END) AS owner_name,
               work_tg_username,
               partner_landing_url
              FROM clients WHERE id = $1""",

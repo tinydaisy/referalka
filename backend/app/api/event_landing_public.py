@@ -30,6 +30,7 @@ from app.services.collaborator_sort import order_by_sql
 from app.services.preview_token import preview_client_id
 from app.services.tariff_discount import with_discount
 from app.services.share_links import TG_DOMAIN
+from app.services.person_name import DISPLAY_NAME_SQL
 
 router = APIRouter(prefix="/api/v1/public/event-landing", tags=["Лендинг события (публично)"])
 
@@ -144,7 +145,11 @@ async def get_public_landing(
 
     # Владелец события — event_owners(accepted); у events нет client_id.
     owner = await db.fetchrow(
-        """SELECT cl.id, cl.name, cl.brand_name, cl.brand_logo_url, cl.profile_photo_url,
+        # ⚠️ `owner_full_name` — имя основателя С ФАМИЛИЕЙ (миграция 381).
+        # Отдельным выражением, потому что `cl.name` тут используется ещё и как
+        # фолбэк для НАЗВАНИЯ БРЕНДА, а бренду фамилия не нужна.
+        """SELECT cl.id, cl.name, """ + DISPLAY_NAME_SQL("cl") + """ AS owner_full_name,
+                  cl.brand_name, cl.brand_logo_url, cl.profile_photo_url,
                   cl.positioning, cl.achievements, cl.owner_photo_url, cl.owner_positioning,
                   cl.owner_achievements, cl.bio, cl.social_links,
                   cl.work_tg_username, cl.work_vk, cl.work_max,
@@ -286,13 +291,17 @@ async def get_public_landing(
             # оказалось бы имя спикера.
             keys = row.keys()
             client_name = row["client_name"] if "client_name" in keys else row["name"]
+            # ⚠️ Имя человека — с фамилией (миграция 381). У КОЛЛАБЫ в `name`
+            # уже лежит склейка из карточки коллаба, у обычного события фамилию
+            # приносит `owner_full_name`. Поэтому берём его, когда оно есть.
+            owner_name = row["owner_full_name"] if "owner_full_name" in keys else row["name"]
             return {
                 "brand_name": row["brand_name"] or client_name,
                 "brand_logo_url": row["brand_logo_url"],
                 "brand_photo_url": row["profile_photo_url"],
                 "brand_positioning": row["positioning"],
                 "brand_achievements": _jsonb(row["achievements"]),
-                "owner_name": row["name"],
+                "owner_name": owner_name,
                 "owner_photo_url": row["owner_photo_url"],
                 "owner_positioning": row["owner_positioning"],
                 "owner_achievements": _jsonb(row["owner_achievements"]),
@@ -338,12 +347,11 @@ async def get_public_landing(
                                  THEN array_to_string(c.achievements, E'\\n') END,
                             cl.bio
                           ) AS bio,
+                          -- ⚠️ Склейка — хелпером, не руками. Фолбэк тоже с
+                          -- фамилией: у clients она есть с миграции 381.
                           COALESCE(
-                            NULLIF(btrim(CASE
-                              WHEN COALESCE(btrim(c.last_name),'') = '' THEN COALESCE(c.name,'')
-                              ELSE COALESCE(c.name,'') || ' ' || COALESCE(c.last_name,'')
-                            END), ''),
-                            cl.name
+                            NULLIF(""" + DISPLAY_NAME_SQL("c") + """, ''),
+                            """ + DISPLAY_NAME_SQL("cl") + """
                           ) AS name,
                           COALESCE(NULLIF(c.photo_url, ''), cl.owner_photo_url) AS owner_photo_url,
                           COALESCE(NULLIF(c.title, ''), cl.owner_positioning)  AS owner_positioning,
@@ -480,7 +488,9 @@ async def get_public_landing(
                 if owner and owner["privacy_policy_version"] else None
             ),
             "brand_name": (owner["brand_name"] or owner["name"]) if owner else None,
-            "owner_name": owner["name"] if owner else None,
+            # ⚠️ Уходит в текст согласия на странице заказа — там имя человека
+            # должно быть полным (с фамилией, миграция 381).
+            "owner_name": owner["owner_full_name"] if owner else None,
         }
 
     # ── Подарки за регистрацию ────────────────────────────────────────────

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from app.database import get_db
 from app.services.collaborator_sort import order_by_sql
+from app.services.person_name import DISPLAY_NAME_SQL
 from app.services.client_domains import (
     client_public_link,
     client_public_url,
@@ -449,7 +450,10 @@ async def _load_venue(db, client_id):
     """Профиль клиента (бренд + основатель) + продукты — для вкладки «О площадке»
     (повторяет EcosystemTab + OwnerPage Mini App)."""
     profile = await db.fetchrow(
-        """SELECT brand_name, name, brand_logo_url, profile_photo_url, positioning, achievements,
+        # ⚠️ `owner_full_name` — имя основателя с фамилией (миграция 381) для
+        # блока «Об основателе». `name` остаётся фолбэком названия бренда.
+        """SELECT brand_name, name, """ + DISPLAY_NAME_SQL("clients") + """ AS owner_full_name,
+                  brand_logo_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements, bio,
                   social_links
              FROM clients WHERE id = $1""",
@@ -1585,7 +1589,7 @@ def _venue_panel(profile, offerings) -> str:
     brand = esc(profile["brand_name"] or profile["name"] or "")
     brand_role = esc(profile["positioning"] or "")
     brand_ach = _parse_jsonb(profile["achievements"])[:4]
-    owner_name = esc(profile["name"] or "")
+    owner_name = esc(profile["owner_full_name"] or profile["name"] or "")
     owner_role = esc(profile["owner_positioning"] or "")
     owner_ach = _parse_jsonb(profile["owner_achievements"])
     bio = profile["bio"] or ""
@@ -3515,7 +3519,9 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
     if ev.get("is_collab"):
         ev["_collab_owners"] = [
             dict(r) for r in await db.fetch(
-                """SELECT COALESCE(c.name, '') AS owner_name,
+                # ⚠️ Уходит в текст согласия на рассылку («организаторов
+                # события: Имя (Бренд), …») — имя человека с фамилией.
+                """SELECT COALESCE(""" + DISPLAY_NAME_SQL("c") + """, '') AS owner_name,
                           COALESCE(c.brand_name, '') AS brand_name
                      FROM event_owners eo JOIN clients c ON c.id = eo.client_id
                     WHERE eo.event_id = $1 AND eo.status = 'accepted'

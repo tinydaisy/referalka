@@ -23,6 +23,7 @@ from app.services.tariff_discount import with_discount
 import asyncpg
 import json
 from app.services.share_links import TG_DOMAIN
+from app.services.person_name import DISPLAY_NAME_SQL
 
 router = APIRouter(
     prefix="/api/v1/public/landing-widget",
@@ -198,7 +199,11 @@ async def widget_organizer(
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     row = await db.fetchrow(
-        """SELECT cl.id, cl.name, cl.brand_name, cl.brand_logo_url,
+        # ⚠️ Два РАЗНЫХ имени, не смешивать: `owner_name` — человек-основатель
+        # (с фамилией, миграция 381), `brand_name` — название бренда, фамилия к
+        # нему не относится. Поэтому имя человека берём отдельным выражением.
+        """SELECT cl.id, cl.name, """ + DISPLAY_NAME_SQL("cl") + """ AS owner_full_name,
+                  cl.brand_name, cl.brand_logo_url,
                   cl.profile_photo_url, cl.positioning, cl.achievements,
                   cl.owner_photo_url, cl.owner_positioning, cl.owner_achievements,
                   cl.bio, cl.social_links
@@ -230,7 +235,7 @@ async def widget_organizer(
         "brand_positioning": row["positioning"],
         "brand_achievements": _parse_jsonb(row["achievements"]),
         # основатель
-        "owner_name": row["name"],
+        "owner_name": row["owner_full_name"],
         "owner_photo_url": row["owner_photo_url"],
         "owner_positioning": row["owner_positioning"],
         "owner_achievements": _parse_jsonb(row["owner_achievements"]),

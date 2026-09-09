@@ -982,7 +982,7 @@ async def handle_start(message: Message, command: CommandObject):
                 referrer_name = None
                 if referrer_client_id:
                     referrer_name = await conn.fetchval(
-                        "SELECT name FROM clients WHERE id = $1", referrer_client_id
+                        "SELECT btrim(CASE WHEN COALESCE(btrim(last_name), '') = '' THEN COALESCE(name, '') ELSE COALESCE(name, '') || ' ' || COALESCE(last_name, '') END) FROM clients WHERE id = $1", referrer_client_id
                     )
                     # Закрепляем реф-код за контактом человека в базе клиента ЭТОГО
                     # бота. Первый рефовод выигрывает — не перезатираем непустое.

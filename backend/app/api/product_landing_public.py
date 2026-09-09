@@ -25,6 +25,7 @@ from app.services.preview_token import is_preview_owner
 from app.services.landing_theme import apply_theme_fields
 from app.services.landing_support import support_links
 from app.services.tariff_discount import with_discount
+from app.services.person_name import DISPLAY_NAME_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +162,11 @@ async def get_product_landing(
     client = None
     if True:
         client = await db.fetchrow(
-            """SELECT id, name, brand_name, brand_logo_url, profile_photo_url,
+            # ⚠️ `owner_full_name` — имя основателя С ФАМИЛИЕЙ (миграция 381).
+            # Отдельным выражением: `name` тут ещё и фолбэк для НАЗВАНИЯ БРЕНДА,
+            # а бренду фамилия не нужна.
+            """SELECT id, name, """ + DISPLAY_NAME_SQL("clients") + """ AS owner_full_name,
+                      brand_name, brand_logo_url, profile_photo_url,
                       owner_photo_url, owner_positioning, positioning, bio,
                       work_tg_username, work_vk, work_max, phone,
                       legal_name, legal_inn, legal_inn_label, privacy_policy_version
@@ -211,13 +216,18 @@ async def get_product_landing(
                 if client and client["privacy_policy_version"] else None
             ),
             "brand_name": (client["brand_name"] or client["name"]) if client else None,
-            "owner_name": client["name"] if client else None,
+            # ⚠️ Идёт в текст согласия на странице заказа — имя с фамилией.
+            "owner_name": client["owner_full_name"] if client else None,
         }
 
     # ── Организатор и реквизиты ──
     if kinds & {"organizer", "footer", "support"}:
         if client:
             c = dict(client)
+            # ⚠️ Блок «организатор» рисует общий LandingRenderer, а он ждёт
+            # `owner_name` — имя ЧЕЛОВЕКА с фамилией (миграция 381). Ключ `name`
+            # оставляем: он служит фолбэком для названия бренда.
+            c["owner_name"] = c.get("owner_full_name") or c.get("name")
             data["organizer"] = c
             data["footer"] = {
                 "brand": c.get("brand_name") or c.get("name"),

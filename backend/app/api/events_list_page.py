@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from app.database import get_db
 from app.services.safe_html import safe_html
+from app.services.person_name import DISPLAY_NAME_SQL
 import asyncpg
 import html as _html
 import urllib.parse as _up
@@ -264,7 +265,7 @@ def _about_html(client, brand: str) -> str:
     brand_photo = client["profile_photo_url"] or client["brand_logo_url"]
     brand_facts = _facts_html(_jsonb_list(client.get("achievements")))
 
-    owner_name = esc(client["name"] or "")
+    owner_name = esc(client["owner_full_name"] or client["name"] or "")
     owner_pos = safe_html(client["owner_positioning"] or "")
     owner_photo = client["owner_photo_url"]
     owner_facts = _facts_html(_jsonb_list(client.get("owner_achievements")))
@@ -317,7 +318,10 @@ async def events_list_page(
     db: asyncpg.Connection = Depends(get_db),
 ):
     client = await db.fetchrow(
-        """SELECT brand_name, name, positioning, profile_photo_url, brand_logo_url,
+        # ⚠️ `owner_full_name` — имя основателя с фамилией (миграция 381) для
+        # блока «ОБ ОСНОВАТЕЛЕ». `name` остаётся фолбэком названия бренда.
+        """SELECT brand_name, name, """ + DISPLAY_NAME_SQL("clients") + """ AS owner_full_name,
+                  positioning, profile_photo_url, brand_logo_url,
                   achievements, owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links
              FROM clients WHERE id = $1""",

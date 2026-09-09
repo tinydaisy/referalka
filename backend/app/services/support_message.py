@@ -176,7 +176,7 @@ async def support_text_for_event(db, event_id: int, *, html: bool,
     """
     is_collab = await db.fetchval("SELECT is_collab FROM events WHERE id = $1", event_id)
     rows = await db.fetch(
-        """SELECT c.id, c.name, c.brand_name,
+        """SELECT c.id, btrim(CASE WHEN COALESCE(btrim(c.last_name), '') = '' THEN COALESCE(c.name, '') ELSE COALESCE(c.name, '') || ' ' || COALESCE(c.last_name, '') END) AS name, c.brand_name,
                   c.work_tg_username, c.work_vk, c.work_max
              FROM events e
              JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'

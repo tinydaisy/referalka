@@ -39,6 +39,7 @@ from app.services.external_landing import (
 from app.services.webinar_service import day_stream_url
 from app.services.client_domains import client_public_link
 from app.services.miniapp_theme import theme_dict
+from app.services.person_name import DISPLAY_NAME_SQL
 from app.services.features import has_feature_sql, client_has_feature
 
 # Готовое SQL-условие «клиенту доступен фирменный стиль Mini App» (мигр. 332).
@@ -168,7 +169,12 @@ def _parse_jsonb(v: Any, default):
 @public.get("/clients/{client_id}/profile", summary="Визитка клиента (для Mini App)")
 async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
-        """SELECT id, name, telegram_username,
+        # ⚠️ `name` — ИМЯ ОСНОВАТЕЛЯ, и с миграции 381 оно склеивается с фамилией
+        # (`clients.last_name`). Отдаём готовой строкой в том же поле: Mini App
+        # («Об основателе», Экосистема) печатает её как есть, и правок во фронте
+        # не потребовалось. Склейка — общим хелпером, не руками: ручные копии в
+        # этом файле уже расползались и разъезжались по формату.
+        """SELECT id, """ + DISPLAY_NAME_SQL("clients") + """ AS name, telegram_username,
                   brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links, events_tab_visibility, partner_tab_visibility, tab_label_partner,
@@ -220,7 +226,8 @@ async def public_speaker_page(client_ref: str, db: asyncpg.Connection = Depends(
     """
     by_id = client_ref.isdigit()
     row = await db.fetchrow(
-        f"""SELECT id, name, brand_name,
+        # ⚠️ Личная визитка человека — фамилия тут особенно нужна (миграция 381).
+        f"""SELECT id, {DISPLAY_NAME_SQL("clients")} AS name, brand_name,
                   brand_logo_url, brand_logo_light_url,
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links, media_assets
@@ -1155,9 +1162,11 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                       -- списке проектов одни названия компаний, и непонятно,
                       -- чей это проект. Фолбэк на clients.name — техническое
                       -- имя из регистрации, лучше чем пусто.
-                      COALESCE(NULLIF(btrim(
-                        COALESCE(col.name, '') || ' ' || COALESCE(col.last_name, '')
-                      ), ''), c.name) AS owner_name,
+                      -- ⚠️ Склейка — хелпером, не руками: ручные копии
+                      -- разъезжаются по формату. Фолбэк — тоже с фамилией
+                      -- (у clients она есть с миграции 381).
+                      COALESCE(NULLIF(""" + DISPLAY_NAME_SQL("col") + """, ''),
+                               """ + DISPLAY_NAME_SQL("c") + """) AS owner_name,
                       c.brand_logo_url, c.profile_photo_url, c.positioning,
                       (c.privacy_policy_published_at IS NOT NULL
                        AND COALESCE(c.privacy_policy_text, '') <> '') AS has_policy

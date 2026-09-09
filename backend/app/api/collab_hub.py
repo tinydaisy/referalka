@@ -20,6 +20,7 @@ from app.services.features import client_has_feature
 # каталоге его просто забыли — NameError глотался except, каталог молча
 # показывал подписчиков без каналов.
 from app.services.channel_audience import channel_audience
+from app.services.person_name import display_name, DISPLAY_NAME_SQL
 import asyncpg
 import json
 import logging
@@ -211,14 +212,17 @@ def _client_card(row, public: bool = False, channel_counts: dict | None = None) 
     карточки (public=False) поля отдаём всегда — он их редактирует.
     """
     d = dict(row)
+    # ⚠️ Имя основателя — С ФАМИЛИЕЙ (миграция 381): карточку видит ДРУГОЙ
+    # клиент, и по одному имени партнёра не опознать. Склейка общим хелпером.
+    owner_full = display_name(d.get('name'), d.get('last_name'))
     _auto = {**_plusson_base(d.get('hub_base_by_platform')), **(channel_counts or {})}
     ma = _with_plusson_assets(_parse_json(d.get('media_assets'), []), _auto)
     impact_public = d.get('hub_impact_public')
     wow_public = d.get('hub_wow_public')
     return {
         'client_id': d.get('id'),
-        'name': d.get('name') or d.get('brand_name'),
-        'owner_name': d.get('name'),
+        'name': owner_full or d.get('brand_name'),
+        'owner_name': owner_full,
         'brand_name': d.get('brand_name'),
         'photo_url': d.get('owner_photo_url') or d.get('profile_photo_url'),
         'bio': d.get('bio'),
@@ -249,7 +253,7 @@ def _client_card(row, public: bool = False, channel_counts: dict | None = None) 
     }
 
 
-_CLIENT_COLS = """id, name, brand_name, owner_photo_url, profile_photo_url, bio,
+_CLIENT_COLS = """id, name, last_name, brand_name, owner_photo_url, profile_photo_url, bio,
     owner_positioning, positioning, owner_achievements, social_links, media_assets,
     is_published_in_hub, hub_category, hub_niche, hub_niches, hub_city, hub_about,
     hub_impact, hub_impact_public, hub_wow, hub_wow_public,
@@ -382,8 +386,14 @@ async def catalog(
         args.append(f"%{city}%"); where.append(f"cl.hub_city ILIKE ${len(args)}")
     if q:
         # Ищем и по имени основателя, и по названию проекта (бренду), и по «что предлагает».
+        # ⚠️ Фамилия — тоже (миграция 381): людей чаще ищут именно по ней, и без
+        # неё партнёра было бы не найти.
         args.append(f"%{q}%")
-        where.append(f"(cl.name ILIKE ${len(args)} OR cl.brand_name ILIKE ${len(args)} OR cl.hub_about ILIKE ${len(args)})")
+        where.append(
+            f"(cl.name ILIKE ${len(args)} OR cl.last_name ILIKE ${len(args)}"
+            f" OR {DISPLAY_NAME_SQL('cl')} ILIKE ${len(args)}"
+            f" OR cl.brand_name ILIKE ${len(args)} OR cl.hub_about ILIKE ${len(args)})"
+        )
     sql = f"""
         SELECT {_CLIENT_COLS},
                (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=cl.id) AS collabs_count,

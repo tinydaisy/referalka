@@ -20,6 +20,7 @@ from app.api.collab_hub import require_collab_hub
 # Win-Win коэффициент — ОДНА функция на отчёт в событии и карточку в Хабе,
 # иначе цифры в двух местах разойдутся.
 from app.services.collab_history import win_win_coefficient, brought_count_sql
+from app.services.person_name import DISPLAY_NAME_SQL, display_name
 import asyncpg
 
 router = APIRouter(prefix="/collab", tags=["Коллаборации"],
@@ -180,8 +181,10 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
             else:
                 # Название по умолчанию: «Событие между {основатель1} и {основатель2}».
                 # Берём ИМЯ ОСНОВАТЕЛЯ (clients.name), НЕ бренд.
-                names = await db.fetch("SELECT id, name FROM clients WHERE id=ANY($1)", [initiator, acceptor])
-                nm = {r["id"]: r["name"] for r in names}
+                # ⚠️ Имя — с фамилией (миграция 381): заголовок события
+                # публичный, по одному имени партнёров не различить.
+                names = await db.fetch("SELECT id, name, last_name FROM clients WHERE id=ANY($1)", [initiator, acceptor])
+                nm = {r["id"]: display_name(r["name"], r["last_name"]) for r in names}
                 title = f"Событие между {nm.get(initiator) or '?'} и {nm.get(acceptor) or '?'}"
                 slug = await _make_collab_slug(db)
                 ev = await db.fetchrow(
@@ -252,7 +255,8 @@ async def event_owners(event_id: int, client=Depends(get_current_client), db: as
     if not iam:
         raise HTTPException(403, "Вы не организатор этого события")
     rows = await db.fetch(
-        """SELECT o.client_id, c.name, c.telegram_username, o.status, o.role, o.created_at, o.responded_at
+        """SELECT o.client_id, """ + DISPLAY_NAME_SQL("c") + """ AS name,
+                  c.telegram_username, o.status, o.role, o.created_at, o.responded_at
              FROM event_owners o LEFT JOIN clients c ON c.id=o.client_id
             WHERE o.event_id=$1 ORDER BY o.role='owner' DESC, o.created_at""", event_id)
     return {"owners": [dict(r) for r in rows]}
@@ -298,7 +302,8 @@ async def collab_organizers_with_links(event_id: int, mode: Optional[str] = None
 
     rows = await db.fetch(
         """SELECT o.client_id, o.role, o.status,
-                  c.name, c.brand_name, c.telegram_username,
+                  """ + DISPLAY_NAME_SQL("c") + """ AS name,
+                  c.brand_name, c.telegram_username,
                   COALESCE(c.owner_photo_url, c.profile_photo_url) AS photo_url,
                   c.self_collaborator_id,
                   -- Реф-код организатора = ref_code контакта его self-коллаба
@@ -421,7 +426,8 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
 
     ev = await db.fetchrow("SELECT slug, status FROM events WHERE id=$1", event_id)
     row = await db.fetchrow(
-        """SELECT c.id AS client_id, c.name, c.brand_name,
+        """SELECT c.id AS client_id, """ + DISPLAY_NAME_SQL("c") + """ AS name,
+                  c.brand_name,
                   COALESCE(c.owner_photo_url, c.profile_photo_url) AS photo_url,
                   c.owner_positioning, c.positioning,
                   o.role,
@@ -862,7 +868,10 @@ async def matchmaker(client=Depends(get_current_client), db: asyncpg.Connection 
     mine = await db.fetchrow("SELECT hub_niche, hub_city FROM clients WHERE id=$1", me)
     niche = mine["hub_niche"] if mine else None
     rows = await db.fetch(
-        """SELECT cl.id AS client_id, cl.name AS name, cl.name AS owner_name, cl.brand_name,
+        """SELECT cl.id AS client_id,
+                  """ + DISPLAY_NAME_SQL("cl") + """ AS name,
+                  """ + DISPLAY_NAME_SQL("cl") + """ AS owner_name,
+                  cl.brand_name,
                   cl.hub_about, cl.bio, cl.owner_positioning, cl.positioning,
                   COALESCE(cl.owner_photo_url,cl.profile_photo_url) AS photo_url,
                   cl.hub_category, cl.hub_niche, cl.hub_city, cl.media_assets,

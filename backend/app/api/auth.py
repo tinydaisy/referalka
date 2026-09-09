@@ -400,7 +400,7 @@ async def referrer_info(
     # Имя ОСНОВАТЕЛЯ (clients.name), не бренд — «Вас пригласил Марго Форбс»,
     # а не «Вас пригласил ВИДЕНИЕ / iViSiON».
     name = await db.fetchval(
-        "SELECT name FROM clients WHERE id = $1", client_id,
+        "SELECT btrim(CASE WHEN COALESCE(btrim(last_name), '') = '' THEN COALESCE(name, '') ELSE COALESCE(name, '') || ' ' || COALESCE(last_name, '') END) FROM clients WHERE id = $1", client_id,
     )
     # Итоговое число дней триала = база тарифа trial + реф-бонус (+ активная промо,
     # если есть). Чтобы на лендинге писать конкретно «37 дней», а не «на 7 больше».

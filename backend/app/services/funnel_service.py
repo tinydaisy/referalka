@@ -50,7 +50,9 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
     row = await db.fetchrow(
         """SELECT
               COALESCE(NULLIF(brand_name, ''), name) AS brand_name,
-              name AS owner_name,
+              -- ⚠️ Имя основателя с фамилией (миграция 381): уходит в
+              -- плейсхолдер {client_owner_name} текстов воронки.
+              btrim(CASE WHEN COALESCE(btrim(last_name), '') = '' THEN COALESCE(name, '') ELSE COALESCE(name, '') || ' ' || COALESCE(last_name, '') END) AS owner_name,
               bio,
               owner_positioning,
               owner_achievements,

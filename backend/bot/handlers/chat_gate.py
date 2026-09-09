@@ -205,7 +205,7 @@ async def handle_group_message(message: Message, bot: Bot):
             user_name = "Друг"
 
         founder_name = await db.fetchval(
-            "SELECT name FROM clients WHERE id = $1", gate["client_id"]
+            "SELECT btrim(CASE WHEN COALESCE(btrim(last_name), '') = '' THEN COALESCE(name, '') ELSE COALESCE(name, '') || ' ' || COALESCE(last_name, '') END) FROM clients WHERE id = $1", gate["client_id"]
         ) or ""
         warning_text = _render_warning(
             gate["warning_text"],

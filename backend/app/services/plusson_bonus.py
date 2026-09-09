@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
+from app.services.person_name import DISPLAY_NAME_SQL
 from app.services.plusson_bonus_days import bonus_day_numbers
 from app.services import plusson_bonus_texts as T
 
@@ -51,7 +52,9 @@ def _link(token: str) -> str:
 async def _owner(db, event_id: int):
     """Владелец события: он дарит бонус и становится рефералом покупателя."""
     return await db.fetchrow(
-        """SELECT cl.id, cl.name, cl.brand_name
+        # ⚠️ Имя дарителя с фамилией (миграция 381): уходит в письмо и в бот
+        # покупателю строкой «Подарок от: Имя, Бренд».
+        """SELECT cl.id, """ + DISPLAY_NAME_SQL("cl") + """ AS name, cl.brand_name
              FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
             WHERE eo.event_id = $1 AND eo.status = 'accepted'
             ORDER BY eo.id LIMIT 1""",

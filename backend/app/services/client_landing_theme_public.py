@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 
+from app.services.person_name import display_name
+
 logger = logging.getLogger(__name__)
 
 # Колонки темы. Порядок неважен, важно, чтобы список был ОДИН на все страницы.
@@ -85,7 +87,9 @@ async def client_brand_header(db, client_id: int) -> dict:
         return {}
     try:
         b = await db.fetchrow(
-            "SELECT name, brand_name, brand_logo_url, brand_logo_light_url, "
+            # ⚠️ Имя основателя — с фамилией (миграция 381): шапка видна
+            # посетителю на оферте и в анкете, где он оставляет свои данные.
+            "SELECT name, last_name, brand_name, brand_logo_url, brand_logo_light_url, "
             "       profile_photo_url "
             "FROM clients WHERE id = $1",
             client_id,
@@ -96,7 +100,7 @@ async def client_brand_header(db, client_id: int) -> dict:
     if not b:
         return {}
     return {
-        "owner_name": b["name"],
+        "owner_name": display_name(b["name"], b["last_name"]),
         "brand_name": b["brand_name"],
         # Пусто → берём основной: у большинства клиентов второго файла нет,
         # и поведение остаётся прежним.
