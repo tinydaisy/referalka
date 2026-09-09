@@ -73,7 +73,10 @@ export default function TestimonialsPage() {
       for (const f of list) {
         const fd = new FormData()
         fd.append('file', f)
-        fd.append('kind', 'landing_media')
+        // ⚠️ Свой вид, а не `landing_media`: тот требует event_id, а отзывы —
+        // общая база КАБИНЕТА и к событию не привязаны. Загрузка падала с 400
+        // «landing_media требует event_id».
+        fd.append('kind', 'testimonial')
         // ⚠️ Две правки разом. Ключ токена — 'plusson_token' (две «с»), как во
         // всём проекте: под 'token' лежит пустота, и сервер отвечал 401. И адрес
         // АБСОЛЮТНЫЙ: относительный '/api/v1/...' уходит в Next.js, а не в API.
