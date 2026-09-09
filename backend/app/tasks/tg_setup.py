@@ -221,6 +221,22 @@ async def _run_setup(db, order) -> None:
                         }},
                     )
                     ok = bool(r.json().get("ok"))
+
+                    # ── меню команд бота ──
+                    #
+                    # ⚠️ Без `setMyCommands` человек не знает, что боту вообще
+                    # можно писать команды: списка в интерфейсе Telegram нет,
+                    # пока его не задали. Обе команды в боте УЖЕ работают
+                    # (`/app` и `/support` в bot/handlers/start.py) — мы лишь
+                    # показываем их в меню. Ставить команду, которой нет в коде,
+                    # нельзя: человек нажмёт, а бот промолчит.
+                    await http.post(
+                        f"https://api.telegram.org/bot{bot_token}/setMyCommands",
+                        json={"commands": [
+                            {"command": "app", "description": "Открыть приложение"},
+                            {"command": "support", "description": "Служба поддержки"},
+                        ]},
+                    )
             except Exception as e:  # noqa: BLE001 — шаг не должен ронять настройку
                 log.warning("tg_setup: не удалось поставить кнопку Mini App: %s", e)
 
