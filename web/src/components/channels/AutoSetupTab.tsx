@@ -798,8 +798,14 @@ export default function AutoSetupTab() {
               раз в минуту, и человек, отметивший шаги, смотрит в неизменившийся
               экран и не понимает — ждать или сломалось. Кнопка даёт явное
               действие. Своей логики передачи здесь нет: она «будит» ту же
-              задачу, чтобы не разошлись две реализации. */}
-          {!order.steps?.bot_transferred && (
+              задачу, чтобы не разошлись две реализации.
+
+              ⚠️⚠️ ПРИ ОСТАНОВЛЕННОЙ НАСТРОЙКЕ КНОПКИ НЕТ. Она висела и там:
+              человек жал «Передать мне» на задаче, которая уже закрыта после
+              двух неудач, — нажатие ничего не меняло. Плюс внутри блока
+              печаталась та же `setup_error`, что и в шапке провала, и «служебный
+              аккаунт заморожен» показывалось ДВАЖДЫ. Причина — одна, вверху. */}
+          {!order.steps?.bot_transferred && !failedTransfer && (
             <div className="rounded-lg border-2 px-4 py-3 mb-2.5"
                  style={{ borderColor: '#FFCFA4' }}>
               <div className="flex items-center gap-3">
@@ -851,7 +857,10 @@ export default function AutoSetupTab() {
           {/* ⚠️ «Заберите бота» убрано: человек не понимал, что от него нужно —
               казалось, что есть какое-то отдельное действие «забрать». Забрать
               = зайти в бота, то есть тот же первый шаг. Так и пишем. */}
-          {order.claim_deadline && !order.steps?.bot_transferred && (
+          {/* ⚠️ Срок «зайдите до…» на ОСТАНОВЛЕННОЙ настройке не показываем:
+              торопить человека к действию, которое уже ничего не изменит,
+              бессмысленно — сначала разбирается поддержка. */}
+          {order.claim_deadline && !order.steps?.bot_transferred && !failedTransfer && (
             <div className="mt-4 flex items-start gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
               <Clock size={15} className="mt-0.5 shrink-0" />
               <span>
