@@ -75,6 +75,7 @@ class ItemPatch(BaseModel):
 async def list_items(
     kind: Optional[str] = None,
     tag: Optional[str] = None,
+    q: Optional[str] = None,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
@@ -89,6 +90,12 @@ async def list_items(
     if tag:
         args.append(tag.strip().lower())
         where.append(f"${len(args)} = ANY(tags)")
+    # ⚠️ Поиск по НАЗВАНИЮ и подписи. Метки отвечают за отбор в подборки, а
+    # найти конкретный отзыв среди сотни снимков ими нельзя: они общие для
+    # десятков записей. Название даёт поиск по смыслу — «Иванова», «вебинар».
+    if q and q.strip():
+        args.append(f"%{q.strip()}%")
+        where.append(f"(title ILIKE ${len(args)} OR caption ILIKE ${len(args)})")
 
     rows = await db.fetch(
         f"""SELECT * FROM client_testimonials

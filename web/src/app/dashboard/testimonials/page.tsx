@@ -41,17 +41,23 @@ export default function TestimonialsPage() {
   const [tags, setTags] = useState<any[]>([])
   const [kind, setKind] = useState<Kind>('photo')
   const [tag, setTag] = useState<string>('')
+  // Поиск по названию: `q` уходит на сервер, `qInput` — то, что человек
+  // печатает. Разделены, чтобы не дёргать сервер на каждую букву.
+  const [qInput, setQInput] = useState('')
+  const [q, setQ] = useState('')
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [bulkTags, setBulkTags] = useState('')
   const [videoUrls, setVideoUrls] = useState('')
+  // Какая ссылка только что скопирована — чтобы показать «скопировано».
+  const [copiedId, setCopiedId] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const hasFeature = (me?.features || []).includes('testimonials')
 
   const load = async () => {
     try {
-      const res = await api.testimonials.list({ kind, tag: tag || undefined })
+      const res = await api.testimonials.list({ kind, tag: tag || undefined, q: q || undefined })
       setItems(res.items || [])
       setTags(res.tags || [])
     } catch (e: any) {
@@ -61,7 +67,14 @@ export default function TestimonialsPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [kind, tag])
+  useEffect(() => { load() }, [kind, tag, q])
+
+  // ⚠️ Задержка 400 мс: без неё запрос уходил бы на каждую букву, а список
+  // мигал бы при наборе.
+  useEffect(() => {
+    const t = setTimeout(() => setQ(qInput.trim()), 400)
+    return () => clearTimeout(t)
+  }, [qInput])
 
   /* Массовая загрузка фото: файлы → R2 → записи в базе с общими тегами. */
   const uploadPhotos = async (files: FileList) => {
@@ -133,6 +146,25 @@ export default function TestimonialsPage() {
     } catch (e: any) { alert(e?.message || 'Не удалось сохранить') }
   }
 
+  /**
+   * Название отзыва — чтобы потом искать его глазами и поиском.
+   *
+   * ⚠️ Файлы называются машинным именем (1f79a988…png), и в галерее из сотни
+   * снимков найти нужный было нечем: метки отвечают за отбор в подборки, а не
+   * за «как этот отзыв называется».
+   *
+   * ⚠️ Список НЕ перезагружаем: перезагрузка сбросила бы фокус и соседние
+   * несохранённые поля. Правим запись на месте — поле `title` уже есть в БД
+   * и в PATCH, миграция не нужна.
+   */
+  const setItemTitle = async (id: number, value: string) => {
+    const title = value.trim() || null
+    try {
+      await api.testimonials.update(id, { title })
+      setItems(prev => prev.map(i => i.id === id ? { ...i, title } : i))
+    } catch (e: any) { alert(e?.message || 'Не удалось сохранить название') }
+  }
+
   // ⚠️ Раздел не подменяем заглушкой: отзывы видно замыленными, чтобы человек
   // видел, что его база на месте. Запрет на запись — на сервере.
   const locked = !hasFeature && !loading
@@ -160,6 +192,26 @@ export default function TestimonialsPage() {
             {label}
           </button>
         ))}
+      </div>
+
+      {/* Поиск по названию. ⚠️ Отдельно от меток: метки отбирают в подборки
+          (одна метка — десятки записей), а поиск находит КОНКРЕТНЫЙ отзыв. */}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={qInput}
+          onChange={e => setQInput(e.target.value)}
+          placeholder="Поиск по названию отзыва"
+          className="w-full max-w-md rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+        />
+        {q && (
+          <span className="ml-3 text-xs text-gray-500">
+            найдено: {items.length}
+            <button onClick={() => setQInput('')} className="ml-2 text-brand hover:underline">
+              сбросить
+            </button>
+          </span>
+        )}
       </div>
 
       {/* Метки */}
@@ -257,7 +309,13 @@ export default function TestimonialsPage() {
             <div key={it.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
               <div className="relative">
                 {it.kind === 'photo' ? (
-                  <img src={it.url} alt="" className="aspect-[4/3] w-full object-cover" />
+                  // ⚠️ Открывается в полный размер по клику: в карточке снимок
+                  // обрезан по 4:3 и текст отзыва на нём не прочитать.
+                  <a href={it.url} target="_blank" rel="noreferrer"
+                     title="Открыть в полном размере" className="block">
+                    <img src={it.url} alt={it.title || ''}
+                         className="aspect-[4/3] w-full cursor-zoom-in object-cover" />
+                  </a>
                 ) : /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(it.url || '') ? (
                   // Свой видеофайл показываем плеером — иконка-заглушка не
                   // давала понять, что именно загружено.
@@ -292,13 +350,37 @@ export default function TestimonialsPage() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="p-3">
-                {it.kind === 'video' && (
+              <div className="space-y-2 p-3">
+                {/* ⚠️ Название правится прямо здесь: файлы лежат под машинными
+                    именами (1f79a988….png), и найти нужный отзыв в галерее из
+                    сотни снимков было нечем. Сохраняется по уходу из поля. */}
+                <input
+                  type="text"
+                  defaultValue={it.title || ''}
+                  onBlur={e => setItemTitle(it.id, e.target.value)}
+                  placeholder="Название отзыва"
+                  className="w-full rounded border border-gray-200 px-2 py-1 text-sm font-medium"
+                />
+                {/* ⚠️ Ссылка у ВСЕХ, не только у видео: у фото её не было, и
+                    отдать отзыв ссылкой или открыть оригинал было нельзя. */}
+                <div className="flex items-center gap-2">
                   <a href={it.url} target="_blank" rel="noreferrer"
-                     className="mb-2 block truncate text-xs text-blue-600 hover:underline">
+                     className="flex-1 truncate text-xs text-blue-600 hover:underline"
+                     title={it.url}>
                     {it.url}
                   </a>
-                )}
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(it.url || '')
+                      setCopiedId(it.id)
+                      setTimeout(() => setCopiedId(null), 1500)
+                    }}
+                    className="shrink-0 rounded border border-gray-200 px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50"
+                    title="Скопировать ссылку"
+                  >
+                    {copiedId === it.id ? 'скопировано' : 'копировать'}
+                  </button>
+                </div>
                 <input
                   type="text"
                   defaultValue={(it.tags || []).join(', ')}

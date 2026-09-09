@@ -713,10 +713,12 @@ export const api = {
 
   // База отзывов и кейсов (миграция 249). Гейт — фича testimonials.
   testimonials: {
-    list: (params?: { kind?: string; tag?: string }) => {
+    list: (params?: { kind?: string; tag?: string; q?: string }) => {
       const q = new URLSearchParams()
       if (params?.kind) q.set('kind', params.kind)
       if (params?.tag) q.set('tag', params.tag)
+      // Поиск по названию отзыва (и подписи).
+      if (params?.q) q.set('q', params.q)
       const qs = q.toString()
       return request(`/api/v1/clients/me/testimonials${qs ? `?${qs}` : ''}`)
     },
