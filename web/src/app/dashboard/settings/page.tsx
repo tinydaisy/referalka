@@ -75,6 +75,15 @@ export default function SettingsPage() {
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
   const [vkAppId, setVkAppId] = useState<number | null>(null)
+  /**
+   * Ссылка-приглашение в группу уведомлений (миграция 386).
+   *
+   * ⚠️ Только для чтения, поэтому не в `form`: её заполняет автонастройка,
+   * руками клиент её не вводит. Нужна здесь, потому что мастер настройки —
+   * процесс: он завершается и уходит, а вступить в группу человек может позже.
+   * По одному `chat_id` в Telegram вступить нельзя.
+   */
+  const [notifyInviteLink, setNotifyInviteLink] = useState<string>('')
   const [tariff, setTariff] = useState<any>(null)
   const [clientFeatures, setClientFeatures] = useState<string[]>([])
   // Роль текущего токена: ограниченный ассистент не видит email/пароль владельца
@@ -123,6 +132,7 @@ export default function SettingsPage() {
       setAvailablePlatforms(Array.isArray(c.available_platforms) ? c.available_platforms : ['telegram'])
       setBotHandles(c.bot_handles || null)
       setVkAppId(c.vk_app_id ? Number(c.vk_app_id) : null)
+      setNotifyInviteLink(c.notifications_telegram_invite_link || '')
     }).catch(() => {})
     // fetch storage usage
     const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
@@ -209,7 +219,7 @@ export default function SettingsPage() {
   // до них добраться — вкладки бы просто не было.
   const hasCalls = clientFeatures.includes('calls')
   const hasPartnerRegistration = clientFeatures.includes('partner_registration') || hasCalls
-  // Стили лендингов — та же фича, что и сам конструктор лендинга (миграция 241).
+  // Стили бренда и лендинга — та же фича, что и сам конструктор лендинга (миграция 241).
   const hasLandingTheme = clientFeatures.includes('event_landing')
   // Приём оплаты за тарифы своей платёжной системой (миграция 257).
   const hasPayments = clientFeatures.includes('payments')
@@ -222,7 +232,7 @@ export default function SettingsPage() {
     { id: 'tech',         label: 'Техническое',  icon: Wrench    },
     ...(hasPartnerRegistration ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
-    ...(hasLandingTheme ? [{ id: 'landing-theme' as Tab, label: 'Стили лендингов', icon: Palette }] : []),
+    ...(hasLandingTheme ? [{ id: 'landing-theme' as Tab, label: 'Стили бренда и лендинга', icon: Palette }] : []),
     // Шаблоны обложек (миграция 387) — рядом со «Стилями»: это тоже
     // фирменное оформление, только для картинок к записям и материалам.
     { id: 'covers' as Tab, label: 'Шаблоны обложек', icon: ImageIcon },
@@ -561,6 +571,36 @@ export default function SettingsPage() {
                 placeholder="-1001234567890"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
               />
+
+              {/*
+                ⚠️ ССЫЛКА-ПРИГЛАШЕНИЕ В ГРУППУ — ЗДЕСЬ, а не только в мастере
+                автонастройки. Мастер это ПРОЦЕСС: он завершается и уходит, а
+                вступить человек может позже — с другого устройства, после
+                выхода из группы или просто вспомнив о ней через неделю. По
+                одному `chat_id` в Telegram вступить нельзя, и группа
+                становилась недостижимой.
+
+                ⚠️ В «Группы/Каналы для рассылок» она намеренно НЕ попадает:
+                там чаты, куда уходят анонсы аудитории, а это служебная группа
+                уведомлений (см. `is_setup_group` в tg_setup_events.py).
+
+                Показываем, только когда ссылка есть: её заполняет
+                автонастройка, у остальных поля просто не будет.
+              */}
+              {notifyInviteLink && (
+                <a href={notifyInviteLink}
+                   target="_blank" rel="noreferrer"
+                   className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3 hover:border-gray-300 transition-colors">
+                  <span className="text-sm text-gray-700">
+                    Открыть группу уведомлений
+                    <span className="block text-xs text-gray-400 mt-0.5">
+                      Ссылка-приглашение — по ней можно вступить в любой момент
+                    </span>
+                  </span>
+                  <ExternalLink size={16} className="text-gray-400 shrink-0" />
+                </a>
+              )}
+
               <details className="mt-3 text-sm text-gray-600">
                 <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
                 {notifyBotHandle ? (

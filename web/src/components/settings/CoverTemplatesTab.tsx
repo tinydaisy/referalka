@@ -8,13 +8,14 @@
  * с файлом, и клиент правил бы одно, а получал другое.
  *
  * ⚠️ Цвета, шрифты и логотипы НЕ настраиваются здесь — они берутся из «Стилей
- * лендингов». Иначе фирменный цвет пришлось бы менять в двух местах, и однажды
+ * бренда и лендинга». Иначе фирменный цвет пришлось бы менять в двух местах, и однажды
  * лендинги оказались бы одного цвета, а обложки другого.
  */
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
 import CoverCanvas, { COVER_W, COVER_H, type CoverTemplate, type CoverTheme } from '@/components/covers/CoverCanvas'
+import { ensureBrandFonts } from '@/lib/brandFonts'
 
 type Kind = 'material' | 'speaker'
 
@@ -33,13 +34,29 @@ export default function CoverTemplatesTab() {
   const [saved, setSaved] = useState(false)
   const [photo, setPhoto] = useState<string | null>(null)
 
+  // ⚠️ Файл фирменных шрифтов подключён только на публичных страницах — в
+  // кабинете его надо добавить самим, иначе превью рисуется запасным шрифтом
+  // и выглядит «не тем», хотя в теме выбран правильный.
+  useEffect(() => { ensureBrandFonts() }, [])
+
   useEffect(() => {
     setLoading(true)
     api.coverTemplates.get(kind)
-      .then((r: any) => { setTpl(r.template); setTheme(r.theme || {}) })
+      // ⚠️ Сливаем, а не заменяем: справочник шрифтов приезжает вторым
+      // запросом, и замена целиком стирала бы его при смене вида шаблона —
+      // превью моргало бы запасным шрифтом.
+      .then((r: any) => { setTpl(r.template); setTheme(t => ({ ...t, ...(r.theme || {}) })) })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [kind])
+
+  // Справочник шрифтов: в теме лежит ключ (`BebasNeue`), а семейство в CSS
+  // называется иначе («Bebas Neue»). Берём тот же список, что и «Стили».
+  useEffect(() => {
+    api.landingTheme.get()
+      .then((r: any) => setTheme(t => ({ ...t, fonts: r?.fonts || [] })))
+      .catch(() => {})
+  }, [])
 
   // Фото для предпросмотра — любая вырезка из базы коллабораторов. Пусто →
   // показываем раскладку «без фото», она тоже настоящая.
@@ -85,7 +102,7 @@ export default function CoverTemplatesTab() {
         <h2 className="text-lg font-semibold text-gray-900">Шаблоны обложек</h2>
         <p className="mt-1 text-sm text-gray-500">
           Обложка собирается сама — для записей эфиров и материалов. Цвета, шрифты
-          и логотип берутся из «Стилей лендингов», здесь настраивается раскладка.
+          и логотип берутся из «Стилей бренда и лендинга», здесь настраивается раскладка.
         </p>
       </div>
 
@@ -116,7 +133,7 @@ export default function CoverTemplatesTab() {
         {/* ── Фон ── */}
         <Card title="Фон">
           <p className="mb-3 text-xs text-gray-500">
-            Пусто — берётся фирменный фон из «Стилей лендингов».
+            Пусто — берётся фирменный фон из «Стилей бренда и лендинга».
           </p>
           <FileUploader
             mode="single" kind="cover_bg"

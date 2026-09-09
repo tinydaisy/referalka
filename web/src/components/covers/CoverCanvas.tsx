@@ -19,6 +19,8 @@
  * подключённое.
  */
 
+import { brandFontCss } from '@/lib/brandFonts'
+
 export type CoverTemplate = {
   bg_url?: string | null
   bg_dim?: number
@@ -38,6 +40,9 @@ export type CoverTemplate = {
 }
 
 export type CoverTheme = {
+  /** Справочник шрифтов (`fonts` из /clients/me/landing-theme) — нужен, чтобы
+   *  превратить ключ `PlayfairDisplay` в семейство «Playfair Display». */
+  fonts?: { key: string; label: string }[]
   lp_bg_color?: string
   lp_bg_color_2?: string
   lp_bg_angle?: number
@@ -102,8 +107,12 @@ export default function CoverCanvas({
   const tw = hasPhoto ? (t.text_w ?? 45) : 84
   const align = hasPhoto ? (t.text_align || 'left') : 'center'
 
-  const titleFont = `'${th.lp_font_heading || 'BebasNeue'}', 'Oswald', sans-serif`
-  const bodyFont = `'${th.lp_font_body || 'Roboto'}', sans-serif`
+  // ⚠️ Через общий хелпер, а не подстановкой ключа: в теме лежит `BebasNeue`,
+  // а семейство в CSS называется «Bebas Neue». Ключ как есть браузер не найдёт
+  // и молча нарисует запасным шрифтом.
+  const label = (k?: string | null) => th.fonts?.find(f => f.key === k)?.label
+  const titleFont = brandFontCss(th.lp_font_heading || 'BebasNeue', label(th.lp_font_heading))
+  const bodyFont = brandFontCss(th.lp_font_body || 'Roboto', label(th.lp_font_body))
 
   return (
     <div

@@ -110,7 +110,7 @@ type SpeakerMe = {
   client_logo?: string | null
   client_logo_light?: string | null
   client_brand?: string | null
-  // Тема клиента («Стили лендингов») — кабинет красится в его цвета.
+  // Тема клиента («Стили бренда и лендинга») — кабинет красится в его цвета.
   lp_bg_color?: string | null
   lp_bg_color_2?: string | null
   lp_bg_angle?: number | null
@@ -705,7 +705,7 @@ export default function SpeakerCabinetPage() {
   // Старый бэк поле не отдаёт (undefined) → считаем, что редактировать можно.
   const canEdit = me.can_edit !== false
 
-  // Тема кабинета из настроек клиента («Стили лендингов»). Раньше цвета были
+  // Тема кабинета из настроек клиента («Стили бренда и лендинга»). Раньше цвета были
   // захардкожены — кабинет у всех клиентов выглядел в фирменных цветах
   // ПЛЮСОНа, а не в их собственных.
   const theme = (() => {
