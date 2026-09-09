@@ -465,7 +465,7 @@ function NonVipView({ channels, onUpgrade }: { channels: Channel[]; onUpgrade: (
           />
         ))
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 text-sm text-gray-500">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-5 text-sm text-gray-500">
           Общие каналы сервиса пока не подключены к вашему кабинету.
         </div>
       )}

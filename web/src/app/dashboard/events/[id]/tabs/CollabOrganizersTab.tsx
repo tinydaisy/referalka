@@ -40,7 +40,7 @@ export default function CollabOrganizersTab({ eventId }: { eventId: number }) {
         </p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100">
+      <div className="bg-white rounded-2xl border card-border divide-y divide-gray-100">
         {rows.map(o => (
           <button
             key={o.client_id}

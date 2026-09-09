@@ -176,7 +176,7 @@ export default function ConferencesPage() {
       )}
 
       {events.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+        <div className="bg-white rounded-2xl border card-border p-16 text-center">
           <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center"
                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
             <HeaderIcon size={36} className="text-white" />
@@ -249,7 +249,7 @@ export default function ConferencesPage() {
               <div key={event.id} className="relative group">
                 <Link
                   href={`${basePath}/${event.id}`}
-                  className={`block bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
+                  className={`block bg-white rounded-2xl border card-border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
                 >
                   <div className="h-3" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }} />
                   <div className="p-5">

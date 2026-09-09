@@ -263,7 +263,7 @@ export default function PublicLinks({
   )
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6">
+    <div className="bg-white rounded-2xl border card-border p-6">
       <div className="flex items-center gap-2 mb-1">
         <Globe size={18} className="text-gray-500" />
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-800">Публичные ссылки</h2>

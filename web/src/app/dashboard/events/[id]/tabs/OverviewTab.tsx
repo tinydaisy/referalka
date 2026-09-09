@@ -173,7 +173,7 @@ export default function OverviewTab({
   return (
     <div className="space-y-6">
       {/* 1) ПАРАМЕТРЫ МЕРОПРИЯТИЯ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+      <div className="bg-white rounded-2xl border card-border p-6">
         <h2 className="block-title mb-4">Параметры мероприятия</h2>
 
         <div className="space-y-4">
@@ -217,7 +217,7 @@ export default function OverviewTab({
       </div>
 
       {/* 2) НАСТРОЙКА ССЫЛОК */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+      <div className="bg-white rounded-2xl border card-border p-6">
         <h2 className="block-title mb-4">Настройка ссылок</h2>
 
         <div className="space-y-4">
@@ -254,30 +254,30 @@ export default function OverviewTab({
             </>
           )}
 
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-600">
-            Ссылка на эфир настраивается в разделе «Вебинары» — участник попадёт в вебинарную комнату дня.
-            {isOffline && (
-              // ⚠️ У офлайн-события эфир тоже бывает (трансляция из зала) —
-              // тогда показываются обе кнопки. Отдельного «гибрида» не нужно:
-              // наличие эфира решает галочка дня в разделе «Вебинары».
-              <span className="block mt-1.5 text-xs text-gray-500">
-                Если событие ещё и транслируется — настройте эфир там же,
-                участник получит обе кнопки: адрес и эфир.
-              </span>
-            )}
-          </div>
+          {/* ⚠️ У ОФЛАЙН-СОБЫТИЯ ПРО ЭФИР НЕ ПИШЕМ ВОВСЕ (решение владельца).
+              Пояснение про вебинарную комнату и галочка «скрыть кнопку стрима»
+              относятся к тому, чего у офлайна нет: человек настраивает адрес, а
+              ему рассказывают про стрим. Трансляция из зала возможна, но её
+              включают в разделе «Вебинары» — там об этом и написано. */}
+          {!isOffline && (
+            <>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-600">
+                Ссылка на эфир настраивается в разделе «Вебинары» — участник попадёт в вебинарную комнату дня.
+              </div>
 
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input type="checkbox" checked={hideStreamButton}
-              onChange={e => setHideStreamButton(e.target.checked)}
-              className="mt-0.5 accent-[#25455D]" />
-            <span className="text-sm text-gray-700">
-              Скрыть кнопку стрима
-              <span className="block text-xs text-gray-400 mt-0.5">
-                Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
-              </span>
-            </span>
-          </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" checked={hideStreamButton}
+                  onChange={e => setHideStreamButton(e.target.checked)}
+                  className="mt-0.5 accent-[#25455D]" />
+                <span className="text-sm text-gray-700">
+                  Скрыть кнопку стрима
+                  <span className="block text-xs text-gray-400 mt-0.5">
+                    Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
+                  </span>
+                </span>
+              </label>
+            </>
+          )}
 
           {isMedialift && (
             <Field label="Сколько каналов обязательно подписать" hint="МедиаЛифт: участнику показывается до 7 человек из его ветки, и он обязан подписаться минимум на это число, чтобы войти в систему.">
@@ -307,7 +307,7 @@ export default function OverviewTab({
       />
 
       {/* 3) ПРОВЕРКА ПОДПИСКИ НА КАНАЛЫ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+      <div className="bg-white rounded-2xl border card-border p-6">
         <h2 className="block-title mb-1">Проверка подписки на каналы</h2>
         <p className="text-sm text-gray-500 mb-4">
           Сначала выберите, на чьи каналы должен быть подписан участник, а затем — где это проверять.

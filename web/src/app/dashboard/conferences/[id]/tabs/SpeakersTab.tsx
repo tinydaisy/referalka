@@ -714,7 +714,7 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
       {loading ? (
         <div className="flex justify-center py-12"><Spinner className="text-brand text-2xl" /></div>
       ) : speakers.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-10 text-center text-gray-400">
           <User size={32} className="mx-auto mb-3 opacity-40" />
           <p className="text-sm">{ts.empty}</p>
         </div>
@@ -734,7 +734,7 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
             if (items.length === 0) return null
             const collapsed = !!collapsedGroups[group.key]
             return (
-              <div key={group.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div key={group.key} className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
                 <button
                   onClick={() => setCollapsedGroups(g => ({ ...g, [group.key]: !collapsed }))}
                   className="w-full flex items-center gap-2 px-5 py-3 bg-gray-50/70 hover:bg-gray-100 transition-colors text-left"
@@ -756,7 +756,7 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
           })}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
           {speakers.map((sp, i) => renderSpeakerRow(sp, i))}
         </div>
       )}

@@ -496,7 +496,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   if (stages.length === 0 && days.length === 0) {
     return (
       <div className="max-w-3xl">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-10 text-center text-gray-400">
           <Layers size={32} className="mx-auto mb-3 opacity-40" />
           <p className="text-sm mb-2">У турнира пока нет программы.</p>
           <p className="text-xs text-gray-400 mb-4">Создайте первый этап (например, «Предстарт» или «Основной этап»). В этап можно добавить дни — с программой по спикерам.</p>

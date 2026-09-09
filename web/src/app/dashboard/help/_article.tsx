@@ -48,7 +48,7 @@ export function Hero({ title, subtitle }: { title: string; subtitle: string }) {
 export function Step({ step, title, id, children }:
   { step?: string; title: string; id?: string; children: React.ReactNode }) {
   return (
-    <section id={id} className="mb-5 bg-white rounded-2xl border border-gray-100 p-5 scroll-mt-4">
+    <section id={id} className="mb-5 bg-white rounded-2xl border card-border p-5 scroll-mt-4">
       <div className="flex items-center gap-3 mb-3">
         {step && (
           <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0"
@@ -110,7 +110,7 @@ export function ArticleToc({ items }: { items: { id: string; title: string }[] }
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   return (
-    <nav className="mb-5 bg-white rounded-2xl border border-gray-100 p-4">
+    <nav className="mb-5 bg-white rounded-2xl border card-border p-4">
       <div className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-2.5">
         Содержание статьи
       </div>
@@ -137,7 +137,7 @@ export function NextArticle({ href, title, description }:
   { href: string; title: string; description: string }) {
   return (
     <Link href={href}
-          className="flex items-start gap-3 p-4 bg-white rounded-2xl border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all">
+          className="flex items-start gap-3 p-4 bg-white rounded-2xl border card-border hover:border-gray-300 hover:shadow-sm transition-all">
       <div className="flex-1 min-w-0">
         <div className="text-xs text-gray-400 mb-0.5">Читать дальше</div>
         <div className="text-sm font-bold" style={{ color: BRAND }}>{title}</div>

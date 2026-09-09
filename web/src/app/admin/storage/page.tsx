@@ -109,7 +109,7 @@ export default function AdminStoragePage() {
       </div>
 
       {tab === 'clients' && (
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border card-border bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px] text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-500">
@@ -152,7 +152,7 @@ export default function AdminStoragePage() {
 
       {tab === 'service' && (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="rounded-2xl border card-border bg-white p-5 shadow-sm">
             <h3 className="mb-3 font-semibold text-gray-800">По папкам</h3>
             <div className="flex flex-wrap gap-2">
               {data.service_groups.map(g => (
@@ -167,7 +167,7 @@ export default function AdminStoragePage() {
               В квоты кабинетов они не входят.
             </p>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-2xl border card-border bg-white shadow-sm">
             <div className="max-h-[480px] overflow-auto">
               <table className="w-full min-w-[520px] text-sm">
                 <thead className="sticky top-0 bg-gray-50 text-xs uppercase text-gray-500">
@@ -191,7 +191,7 @@ export default function AdminStoragePage() {
       )}
 
       {tab === 'orphans' && (
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border card-border bg-white shadow-sm">
           {data.orphans.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-gray-400">
               Всё сходится — записей без файла нет.
@@ -224,7 +224,7 @@ export default function AdminStoragePage() {
 
 function Card({ icon, label, value, sub }: { icon: any; label: string; value: string; sub: string }) {
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border card-border bg-white p-5 shadow-sm">
       <div className="mb-2 flex items-center gap-2 text-gray-400">
         {icon}<span className="text-xs uppercase tracking-wide">{label}</span>
       </div>

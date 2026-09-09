@@ -83,23 +83,23 @@ export default function AdminOrdersPage() {
 
       {/* Сводка */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="bg-white rounded-2xl border card-border p-4">
           <div className="text-xs text-gray-500">Оплачено заказов</div>
           <div className="text-2xl font-bold text-gray-900 mt-1">{summary.paid_count || 0}</div>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="bg-white rounded-2xl border card-border p-4">
           <div className="text-xs text-gray-500">Получено картой</div>
           <div className="text-2xl font-bold text-emerald-700 mt-1">
             {fmtMoney(summary.total_card_paid || 0)} ₽
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="bg-white rounded-2xl border card-border p-4">
           <div className="text-xs text-gray-500">Списано бонусами</div>
           <div className="text-2xl font-bold text-amber-700 mt-1">
             {fmtMoney(summary.total_bonus_paid || 0)} ₽
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="bg-white rounded-2xl border card-border p-4">
           <div className="text-xs text-gray-500">Заказов в ожидании</div>
           <div className="text-2xl font-bold text-gray-900 mt-1">{summary.pending_count || 0}</div>
         </div>
@@ -139,12 +139,12 @@ export default function AdminOrdersPage() {
       {loading ? (
         <div className="text-gray-500">Загрузка…</div>
       ) : list.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+        <div className="bg-white rounded-2xl border card-border p-12 text-center">
           <CreditCard size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-500">Заказов нет</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl border card-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">

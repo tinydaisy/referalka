@@ -40,7 +40,7 @@ function TemplatesSection({ eventId, templates, setTemplates }: { eventId: numbe
       </div>
 
       {templates.length === 0 ? (
-        <div className="py-8 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
+        <div className="py-8 text-center text-gray-400 bg-white rounded-2xl border card-border">
           <Edit2 size={24} className="mx-auto mb-2 opacity-30" />
           <p className="text-sm">Шаблонов нет</p>
           <p className="text-xs mt-1">Создайте шаблон «За 5 мин до старта» и «Подарок спикера»</p>
@@ -234,7 +234,7 @@ export default function BroadcastsTab({ eventId }: { eventId: number }) {
       {msg && <div className="mb-3 text-sm text-green-700 bg-green-50 rounded-xl px-4 py-2">{msg}</div>}
 
       {schedules.length === 0 ? (
-        <div className="py-12 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
+        <div className="py-12 text-center text-gray-400 bg-white rounded-2xl border card-border">
           <Send size={28} className="mx-auto mb-2 opacity-30" />
           <p className="text-sm">Рассылок нет</p>
           <p className="text-xs mt-1">Создайте шаблоны и нажмите «Создать из программы»</p>

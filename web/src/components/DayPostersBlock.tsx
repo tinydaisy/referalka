@@ -122,7 +122,7 @@ export default function DayPostersBlock({ eventId }: { eventId: number }) {
 
       {err && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{err}</div>}
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
           {lang === 'ru' ? 'День события' : 'Event day'}
         </label>
@@ -151,7 +151,7 @@ export default function DayPostersBlock({ eventId }: { eventId: number }) {
           .filter(p => p.day === selectedDay && p.orientation === o.key)
           .map(p => p.url)
         return (
-          <div key={`${selectedDay}-${o.key}`} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div key={`${selectedDay}-${o.key}`} className="bg-white rounded-2xl border card-border shadow-sm p-6">
             <div className="mb-4">
               <h3 className="font-semibold text-gray-900">{lang === 'ru' ? o.labelRu : o.labelEn}</h3>
               <p className="text-xs text-gray-400 mt-0.5">

@@ -193,7 +193,7 @@ export default function EventsPage() {
             return (
               <div key={e.id} className="relative group">
                 <Link href={`/dashboard/events/${e.id}`}
-                      className="block bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden">
+                      className="block bg-white rounded-2xl border card-border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden">
                   <div className="h-3" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }} />
                   <div className="p-5">
                     <div className="flex items-start justify-between mb-2">

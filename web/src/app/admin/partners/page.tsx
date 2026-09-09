@@ -69,7 +69,7 @@ export default function AdminPartnersPage() {
         </form>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>

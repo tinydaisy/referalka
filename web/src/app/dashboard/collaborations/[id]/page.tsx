@@ -215,7 +215,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           ⚠️ Шахматка под картинкой — чтобы прозрачность было ВИДНО: на белом
           фоне вырезка и обычное фото с белой заливкой выглядят одинаково, и
           подменённый JPEG обнаружился бы только в готовой афише. */}
-      <div className="mb-6 bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="mb-6 bg-white rounded-2xl border card-border shadow-sm p-6">
         <h2 className="font-semibold text-gray-900 mb-1">Фото на прозрачном фоне</h2>
         <p className="text-xs text-gray-500 mb-3">
           Вырезка человека без фона — из неё собираются афиши. Нужен <b>PNG</b> с
@@ -304,7 +304,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.basicInfo}</h2>
           {/* Имя и фамилия — РАЗНЫЕ поля (миграция 302): по фамилии сортируются
               списки людей, из одной строки её достоверно не вытащить.
@@ -337,7 +337,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.media}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото для сайта</label>
@@ -388,7 +388,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.contacts}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.instagram}</label>
@@ -402,7 +402,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Медийные активы</h2>
           <MediaAssetsField
             value={Array.isArray(form.media_assets) ? form.media_assets as MediaAsset[] : []}
@@ -410,7 +410,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           />
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.accounts}</h2>
           <p className="text-sm text-gray-500 -mt-1">Каналы коллаборатора для проверки подписки при входе в чат события.</p>
 

@@ -104,7 +104,7 @@ export default function StorageTab() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
@@ -187,7 +187,7 @@ export default function StorageTab() {
   return (
     <div className="space-y-5">
       {/* Занято */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="flex items-start gap-3 mb-5">
           <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
             <HardDrive size={18} className="text-white" />
@@ -228,7 +228,7 @@ export default function StorageTab() {
 
       {/* Из чего складывается */}
       {groups.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h4 className="font-semibold text-gray-800 mb-4">Что занимает больше всего</h4>
           <div className="space-y-3">
             {groups.slice(0, 6).map(g => (
@@ -388,7 +388,7 @@ function OwnStorageBlock() {
   if (cfg && cfg.feature === false) return null
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
       <div className="flex items-start gap-3 mb-3">
         <div className="w-9 h-9 rounded-lg bg-[#F1F6FA] border border-[#B9CEDD] flex items-center justify-center shrink-0">
           <Cloud size={18} className="text-[#25455D]" />

@@ -148,7 +148,7 @@ function PostersBlock({ eventId }: { eventId: number }) {
       {POSTER_TYPES.map(o => {
         const urls = items.filter(p => p.orientation === o.key).map(p => p.url)
         return (
-          <div key={o.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div key={o.key} className="bg-white rounded-2xl border card-border shadow-sm p-6">
             <div className="mb-4">
               <h3 className="font-semibold text-gray-900">{lang === 'ru' ? o.labelRu : o.labelEn}</h3>
               <p className="text-xs text-gray-400 mt-0.5">
@@ -171,7 +171,7 @@ function PostersBlock({ eventId }: { eventId: number }) {
       })}
 
       {/* Афиша, пока регистрация не открыта (миграция 345) */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="mb-4">
           <h3 className="font-semibold text-gray-900">
             {lang === 'ru' ? 'Афиша до старта регистрации' : 'Pre-registration poster'}
@@ -204,7 +204,7 @@ function PostersBlock({ eventId }: { eventId: number }) {
       </div>
 
       {/* Общее видео события — для скачивания спикерами */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="mb-4">
           <h3 className="font-semibold text-gray-900">{lang === 'ru' ? 'Общее видео' : 'Common video'}</h3>
           <p className="text-xs text-gray-400 mt-0.5">

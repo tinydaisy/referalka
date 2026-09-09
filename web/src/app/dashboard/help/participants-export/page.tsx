@@ -35,7 +35,7 @@ function CopyBox({ text }: { text: string }) {
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-4">
+    <div className="bg-white rounded-2xl border card-border p-5 mb-4">
       <div className="flex items-start gap-3 mb-3">
         <div
           className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
@@ -387,7 +387,7 @@ for p in data["participants"]:
         </p>
       </Step>
 
-      <div className="bg-white rounded-2xl border border-gray-100 p-5 text-sm text-gray-700 leading-relaxed">
+      <div className="bg-white rounded-2xl border card-border p-5 text-sm text-gray-700 leading-relaxed">
         <div className="font-bold mb-2" style={{ color: BRAND }}>Кого мы исключаем из списков</div>
         <p>
           Из обоих списков убираются все, кто добавлен в команду события —

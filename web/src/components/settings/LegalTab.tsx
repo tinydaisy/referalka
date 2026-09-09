@@ -270,7 +270,7 @@ export default function LegalTab() {
       )}
 
       {/* Юр-данные */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <h3 className="font-semibold text-gray-800 mb-1">Юридические данные оператора персональных данных</h3>
         <p className="text-xs text-gray-500 mb-5">
           По 152-ФЗ обязательно для публикации политики. Эти данные показываются внизу публичной странички политики.
@@ -347,7 +347,7 @@ export default function LegalTab() {
       </div>
 
       {/* Текст политики */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <h3 className="font-semibold text-gray-800 mb-1">Текст политики обработки персональных данных</h3>
         <p className="text-xs text-gray-500 mb-4">
           Минимум 100 символов. После «Опубликовать» текст становится публично доступным по адресу:{' '}

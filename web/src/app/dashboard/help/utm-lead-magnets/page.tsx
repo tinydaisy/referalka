@@ -266,7 +266,7 @@ export default function UtmLeadMagnetsPage() {
 
 function Section({ step, title, children }: { step: string; title: string; children: React.ReactNode }) {
   return (
-    <section className="bg-white rounded-2xl border border-gray-100 p-5 mb-4 shadow-sm">
+    <section className="bg-white rounded-2xl border card-border p-5 mb-4 shadow-sm">
       <div className="flex items-center gap-3 mb-3">
         <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
              style={{ background: PEACH, color: BRAND }}>

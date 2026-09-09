@@ -184,7 +184,7 @@ export default function CollabOrganizerCardPage() {
       </button>
 
       {/* Шапка */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-5">
+      <div className="bg-white rounded-2xl border card-border p-6 mb-5">
         <div className="flex items-start gap-4">
           {o.photo_url
             ? <img src={o.photo_url} alt="" className="w-16 h-16 rounded-xl object-cover shrink-0" />
@@ -264,7 +264,7 @@ export default function CollabOrganizerCardPage() {
           )}
 
           {/* Тема */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl border card-border p-6">
             <h2 className="font-bold text-gray-900 mb-1">Тема выступления</h2>
             <p className="text-xs text-gray-500 mb-3">Показывается в программе и на странице события.</p>
             {canEdit ? (
@@ -293,7 +293,7 @@ export default function CollabOrganizerCardPage() {
           </div>
 
           {/* Подарки — ТОЛЬКО из ПЛЮСОНа, до 4 */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl border card-border p-6">
             <h2 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
               <Gift className="w-4 h-4" style={{ color: '#C77B3B' }} />Подарки (до 4)
             </h2>
@@ -353,7 +353,7 @@ export default function CollabOrganizerCardPage() {
           </div>
 
           {/* Индивидуальная афиша */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl border card-border p-6">
             <h2 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
               <ImageIcon className="w-4 h-4" style={{ color: '#C77B3B' }} />Индивидуальная афиша
             </h2>
@@ -418,7 +418,7 @@ export default function CollabOrganizerCardPage() {
                 personLabel="этого организатора"
               />
 
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+              <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
                 <h2 className="font-semibold text-gray-900">Основная информация</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -456,7 +456,7 @@ export default function CollabOrganizerCardPage() {
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+              <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
                 <h2 className="font-semibold text-gray-900">Фото</h2>
                 <FileUploader
                   mode="single" kind="speaker_photo"
@@ -467,7 +467,7 @@ export default function CollabOrganizerCardPage() {
                 />
               </div>
 
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+              <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
                 <h2 className="font-semibold text-gray-900">Каналы и ссылки</h2>
                 {/* ⚠️ Номер TG-канала нужен для ПРОВЕРКИ ПОДПИСКИ при входе в чат
                     события: без него канал показывается человеку, но подтвердить

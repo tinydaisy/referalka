@@ -157,7 +157,7 @@ function CallsInner() {
       {loading ? (
         <div className="text-sm text-gray-500">Загружаем…</div>
       ) : items.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-10 text-center">
           <Phone size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-700 font-medium">Обзвонов пока нет</p>
           <p className="text-sm text-gray-500 mt-1">
@@ -167,7 +167,7 @@ function CallsInner() {
       ) : (
         <div className="space-y-3">
           {items.map(c => (
-            <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div key={c.id} className="bg-white rounded-2xl border card-border shadow-sm p-4">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">

@@ -245,7 +245,7 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-5">
         <h3 className="font-semibold text-gray-900 flex items-center gap-2">
           <Clock size={18} /> {audience === 'reg' ? 'Воронка догрева — зарегистрированным' : 'Воронка догрева — незарегистрированным'}
         </h3>

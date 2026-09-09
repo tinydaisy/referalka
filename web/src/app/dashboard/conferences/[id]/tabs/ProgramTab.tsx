@@ -296,7 +296,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   return (
     <div className="max-w-2xl space-y-5">
       {days.length === 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-10 text-center text-gray-400">
           <Calendar size={32} className="mx-auto mb-3 opacity-40" />
           <p className="text-sm mb-4">{tp.noDays}</p>
           <button onClick={addDay} className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 mx-auto">
@@ -325,7 +325,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
         const df = dayForms[dayNum] || {}
 
         return (
-          <div key={dayNum} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div key={dayNum} className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
             <div className="gradient-bg px-5 py-3.5 flex items-center justify-between">
               <span className="text-white font-semibold">{tp.day(dayNum)}</span>
               <button onClick={() => deleteDay(dayNum)} className="text-white/50 hover:text-red-300 transition-colors">

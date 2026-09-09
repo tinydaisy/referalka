@@ -1522,7 +1522,7 @@ export default function TemplatesPage() {
             const def: TypeDef = TYPE_DEFS.find(d => d.type === tpl.type)
               || { type: tpl.type, title: tpl.name, hint: '', variables: [], showPhoto: false }
             return (
-              <div key={tpl.id} className="bg-white rounded-2xl border border-gray-100 p-5">
+              <div key={tpl.id} className="bg-white rounded-2xl border card-border p-5">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
                     {/* Название — то, что клиент задал в шаблоне (tpl.name из БД).
@@ -1611,7 +1611,7 @@ export default function TemplatesPage() {
           <h3 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Ваши шаблоны</h3>
           <div className="space-y-4">
             {customTemplates.map(tpl => (
-              <div key={tpl.id} className="bg-white rounded-2xl border border-gray-100 p-5">
+              <div key={tpl.id} className="bg-white rounded-2xl border card-border p-5">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
                     <h4 className="font-semibold text-gray-800">{tpl.name}</h4>

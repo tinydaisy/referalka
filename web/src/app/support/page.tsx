@@ -39,7 +39,7 @@ export default function PublicSupportPage() {
         <div className="grid sm:grid-cols-2 gap-3">
           {SUPPORT_CHANNELS.map(ch => (
             <a key={ch.key} href={ch.url} target="_blank" rel="noopener noreferrer"
-               className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all">
+               className="flex items-center gap-3 p-4 bg-white rounded-2xl border card-border hover:border-gray-300 hover:shadow-sm transition-all">
               <span className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0"
                     style={{ background: ch.color }}>
                 {ch.label[0]}

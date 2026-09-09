@@ -30,7 +30,7 @@ export default function CollabChatPage() {
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
       <HubHeader subtitle="Закрытые чаты участников Коллабораторной." />
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 max-w-xl">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 max-w-xl">
         <div className="flex items-center gap-2 mb-1">
           <MessageCircle size={18} className="text-gray-400" />
           <h2 className="font-semibold text-gray-800">Войти в чат</h2>

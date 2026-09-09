@@ -122,7 +122,7 @@ export default function PartnerProgramPage() {
           {/* Баланс + действия.
               До вступления показываем в приглушённом виде: цифры видны, но
               действия недоступны — иначе непонятно, ради чего вступать. */}
-          <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-6 ${
+          <div className={`bg-white rounded-2xl border card-border shadow-sm p-6 ${
             !data.partner?.accepted_at ? 'opacity-50 pointer-events-none select-none' : ''
           }`}>
             <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -190,7 +190,7 @@ export default function PartnerProgramPage() {
               это уже участие в программе, и выдавать её до согласия с условиями
               неправильно. До акцепта на месте блока стоит объяснение и кнопка. */}
           {!data.partner?.accepted_at ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 opacity-50 select-none">
+            <div className="bg-white rounded-2xl border card-border shadow-sm p-6 opacity-50 select-none">
               <h3 className="font-semibold text-gray-800 mb-3">Ваши реф-ссылки</h3>
               {/* Показываем «скелет» ссылок вместо пустоты: видно, что именно
                   откроется после вступления. */}
@@ -204,7 +204,7 @@ export default function PartnerProgramPage() {
               </div>
             </div>
           ) : (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
             <h3 className="font-semibold text-gray-800 mb-1">Ваши реф-ссылки</h3>
             <p className="text-xs text-gray-400 mb-4">
               Реф-код: <code className="bg-gray-50 px-1.5 py-0.5 rounded">{data.referral_code}</code>
@@ -240,7 +240,7 @@ export default function PartnerProgramPage() {
 
       {/* ── ПРИВЕДЁННЫЕ КЛИЕНТЫ ── */}
       {tab === 'referrals' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h3 className="font-semibold text-gray-800 flex items-center gap-2">
               <Users size={16} /> Приведённые клиенты
@@ -315,7 +315,7 @@ export default function PartnerProgramPage() {
       {tab === 'payouts' && (
         <>
           {/* Заявки на вывод */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
             <h3 className="font-semibold text-gray-800 mb-4">Заявки на вывод</h3>
             {data.withdrawal_requests.length === 0 ? (
               <p className="text-sm text-gray-400">Заявок на вывод пока не было</p>
@@ -343,7 +343,7 @@ export default function PartnerProgramPage() {
           </div>
 
           {/* История бонусов */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
             <h3 className="font-semibold text-gray-800 mb-4">История бонусов</h3>
             {data.transactions.length === 0 ? (
               <p className="text-sm text-gray-400">Операций пока нет</p>

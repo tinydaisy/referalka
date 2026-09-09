@@ -127,7 +127,7 @@ export default function LandingSettingsBlock({
   useEffect(() => { onValidity?.(error) }, [error])
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+    <div className="bg-white rounded-2xl border card-border p-6 space-y-5">
       <h2 className="block-title">Настройки страницы регистрации</h2>
 
       {error && (

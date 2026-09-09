@@ -88,7 +88,7 @@ export default async function PrivacyPage({
         </div>
 
         {/* Текст политики */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 mb-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-8 mb-6">
           <div
             className="prose prose-sm max-w-none text-gray-800 whitespace-pre-wrap leading-relaxed"
             style={{ fontFamily: 'inherit' }}
@@ -98,7 +98,7 @@ export default async function PrivacyPage({
         </div>
 
         {/* Оператор персональных данных */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-8">
           <h2 className="font-semibold text-gray-900 mb-4">Оператор персональных данных</h2>
           <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-3 text-sm">
             {data.legal_form && (

@@ -56,7 +56,7 @@ export default function AdminWithdrawalsPage() {
       {loading ? (
         <div className="text-gray-500">Загрузка…</div>
       ) : list.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+        <div className="bg-white rounded-2xl border card-border p-12 text-center">
           <AlertCircle size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-500">Заявок нет</p>
         </div>
@@ -65,7 +65,7 @@ export default function AdminWithdrawalsPage() {
           {list.map(w => {
             const st = STATUS[w.status] || { label: w.status, cls: 'bg-gray-100 text-gray-600' }
             return (
-              <div key={w.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div key={w.id} className="bg-white rounded-2xl border card-border shadow-sm p-5">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">

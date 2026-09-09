@@ -71,7 +71,7 @@ function ClickReportBlock({ eventId }: { eventId: number }) {
     (Number(r.tg_channel) + Number(r.vk) + Number(r.max_clicks) + Number(r.instagram) + Number(r.website) + Number(r.knowledge_base)) > 0
   )
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen(v => !v)}

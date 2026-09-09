@@ -97,7 +97,7 @@ maria@yandex.ru`}</pre>
         </p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 mb-6">
         <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center">
           <Upload size={32} className="mx-auto mb-3 text-gray-400" />
           <input type="file" accept=".csv,text/csv,text/plain"
@@ -124,7 +124,7 @@ maria@yandex.ru`}</pre>
       )}
 
       {result && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-semibold text-gray-800 mb-4">Результат импорта</h2>
           <dl className="space-y-2 text-sm">
             {typeof result.rows_total === 'number' && (

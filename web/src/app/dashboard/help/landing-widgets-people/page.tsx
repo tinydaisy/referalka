@@ -240,7 +240,7 @@ export default function PeopleWidgetHelpPage() {
         </section>
 
         {/* Что это и зачем */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Что это</h2>
           <p className="text-sm text-gray-700 leading-relaxed mb-3">
             Публичный JSON-эндпоинт, который отдаёт всех коллабораторов вашего события одним запросом.
@@ -254,7 +254,7 @@ export default function PeopleWidgetHelpPage() {
         </section>
 
         {/* Подготовка данных */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Шаг 1. Подготовьте данные в ПЛЮСОНе</h2>
           <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-700">
             <li>
@@ -284,7 +284,7 @@ export default function PeopleWidgetHelpPage() {
         </section>
 
         {/* Эндпоинт */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Шаг 2. Эндпоинт</h2>
           <CodeBlock
             code={`GET https://pluson.ru/api/v1/public/landing-widget/events/{ID-или-SLUG}/collaborators
@@ -301,7 +301,7 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/collaborators`}
         </section>
 
         {/* Минимальный пример */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Шаг 3. Минимальный пример</h2>
           <p className="text-sm text-gray-700 mb-3">
             Вставьте на свой лендинг (Tilda HTML-блок, GetCourse «Произвольный код», свой Vercel-сайт):
@@ -314,7 +314,7 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/collaborators`}
         </section>
 
         {/* Детали */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Детали</h2>
           <div className="space-y-3 text-sm text-gray-700">
             <div>

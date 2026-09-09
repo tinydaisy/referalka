@@ -37,7 +37,7 @@ export default function AdminOverviewPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         {cards.map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div key={label} className="bg-white rounded-2xl border card-border shadow-sm p-5">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-gray-500">{label}</span>
               <Icon size={20} className={color} />
@@ -48,7 +48,7 @@ export default function AdminOverviewPage() {
       </div>
 
       {/* Сводка по оплатам подписок */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-800 flex items-center gap-2">
             <CreditCard size={18} /> Оплаты подписок

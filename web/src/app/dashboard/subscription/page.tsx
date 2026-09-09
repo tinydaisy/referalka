@@ -192,7 +192,7 @@ export default function SubscriptionPage() {
       )}
 
       {/* Текущий статус */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             {/* ⚠️ Триалу отдельной карточки среди тарифов НЕ заводим — просто
@@ -227,7 +227,7 @@ export default function SubscriptionPage() {
 
       {/* Выбор тарифа */}
       {tariffs.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h3 id="tariffs" className="scroll-mt-24 font-semibold text-gray-800 mb-2">Продлить или сменить тариф</h3>
           {/* ⚠️ Названия платёжной системы здесь нет намеренно: клиенту важно,
               что придёт чек, а через кого проведён платёж — наша кухня. */}
@@ -473,7 +473,7 @@ export default function SubscriptionPage() {
       {/* Партнёрская */}
       <Link
         href="/dashboard/partner-program"
-        className="block bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:border-[#FFCFA4] hover:bg-amber-50/30 transition-colors"
+        className="block bg-white rounded-2xl border card-border shadow-sm p-5 hover:border-[#FFCFA4] hover:bg-amber-50/30 transition-colors"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -528,7 +528,7 @@ function ModulesBlock() {
   if (addons.length === 0) return null
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
       <h3 id="modules" className="scroll-mt-24 font-semibold text-gray-800 mb-1">Модули</h3>
       <p className="text-sm text-gray-500 mb-5">
         Подключаются поверх тарифа. Оплата помесячно.
@@ -682,7 +682,7 @@ function SubscriptionHistoryBlock() {
   ]
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h3 className="font-semibold text-gray-800">История заказов и оплат</h3>
         <div className="flex gap-1.5">
@@ -848,7 +848,7 @@ function ServicesBlock() {
     slug === 'tg_autosetup' && autosetup?.service ? autosetup : null
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
       <h3 id="services" className="scroll-mt-24 font-semibold text-gray-800 mb-1">Услуги</h3>
       <p className="text-sm text-gray-500 mb-5">
         Разовые — платите один раз, продлевать не нужно.

@@ -207,7 +207,7 @@ export default function EventReferrerPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
         {/* Счётчика «N чел.» здесь нет намеренно — та же цифра стоит выше
             в плитке «Пришло от него», дублировать её незачем. */}
         <div className="px-5 py-3 border-b border-gray-100">

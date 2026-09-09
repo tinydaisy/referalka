@@ -776,7 +776,7 @@ export default function ConferenceSpeakerPage() {
 
       {/* ── ВКЛАДКА «СТАТИСТИКА» ── */}
       {subTab === 'stats' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 mb-8">
           <div className="font-semibold text-gray-900 mb-1">Переходы по подаркам {pw.gen}</div>
           <div className="text-xs text-gray-500 mb-4">
             Считается со дня выступления. То же самое {pw.nom} видит у себя в кабинете.
@@ -855,7 +855,7 @@ export default function ConferenceSpeakerPage() {
         <h2 className="font-bold text-gray-900 text-lg">Выступление в этой конференции</h2>
 
         {/* Роль + коммерческое */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
               <label className="label">Роль</label>
@@ -898,7 +898,7 @@ export default function ConferenceSpeakerPage() {
 
         {/* В каких этапах участвует — только при наличии этапов (турнир) */}
         {stages.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm">В каких этапах участвует</h3>
             <p className="text-xs text-gray-500 -mt-1">
               Отметьте этапы. Влияет на распределение жюри, турнирную таблицу и кабинет {pw.gen} —
@@ -947,7 +947,7 @@ export default function ConferenceSpeakerPage() {
         )}
 
         {/* Что спикер видит в своей форме — сразу после галочки «Коммерческое» */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm">Что {pw.nom} видит в своей форме</h3>
           <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются {pw.dat} на странице <code className="bg-gray-50 px-1 rounded">https://{publicHost}/speaker/{eventSlug || '…'}</code>.</p>
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
@@ -984,7 +984,7 @@ export default function ConferenceSpeakerPage() {
         </div>
 
         {/* Темы выступления — перед подарками */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <FieldLabel label="Темы выступления" empty={!eventForm.topics.some(t => t.trim())} />
           <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))}
             descriptions={(eventForm as any).topic_descriptions || []}
@@ -1009,7 +1009,7 @@ export default function ConferenceSpeakerPage() {
             ? giftMagnets
             : (giftPluson ? [{ name: giftPluson.name, url: giftPluson.url, kind: 'magnet' }] : [])
           return (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Подарок после эфира</h3>
 
           <div className="flex gap-2">
@@ -1107,7 +1107,7 @@ export default function ConferenceSpeakerPage() {
         })()}
 
         {/* Подарок для розыгрыша */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Подарок для розыгрыша</h3>
           <div>
             <FieldLabel label="Название" empty={!eventForm.gift_raffle_title.trim()} />
@@ -1124,7 +1124,7 @@ export default function ConferenceSpeakerPage() {
         </div>
 
         {/* Материал в базу знаний */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Материал в базу знаний</h3>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Название материала</label>
@@ -1141,7 +1141,7 @@ export default function ConferenceSpeakerPage() {
         </div>
 
         {/* Заметки */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
             <span>Заметки</span>
             <span className="text-xs text-gray-400 font-normal">— только для вас, не показывается участникам</span>
@@ -1156,7 +1156,7 @@ export default function ConferenceSpeakerPage() {
         </div>
 
         {/* Чёрный список */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
             <span>Чёрный список</span>
             <span className="text-xs text-gray-400 font-normal">— исключения для этого {pw.gen}</span>
@@ -1222,7 +1222,7 @@ export default function ConferenceSpeakerPage() {
           personLabel={`этого ${pw.gen}`}
         />
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">{t.fields.basicInfo}</h3>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.nameRequired}</label>
@@ -1245,7 +1245,7 @@ export default function ConferenceSpeakerPage() {
         </div>
 
         {/* С какими вопросами можно обращаться (глобально на коллабе) */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
           <h3 className="font-semibold text-gray-900 text-sm">С какими вопросами можно обращаться?</h3>
           <p className="text-xs text-gray-500">
             Список тем/вопросов эксперта. Подставляется в рассылку «Экспертный день» (плейсхолдер {'{speaker_ask_topics}'}). Если пусто — блок в рассылке не показывается.
@@ -1264,7 +1264,7 @@ export default function ConferenceSpeakerPage() {
           </label>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">{t.fields.media}</h3>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото для сайта</label>
@@ -1465,7 +1465,7 @@ export default function ConferenceSpeakerPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">{t.fields.contacts}</h3>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.instagram}</label>
@@ -1491,7 +1491,7 @@ export default function ConferenceSpeakerPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Медийные активы</h3>
           <MediaAssetsField
             value={Array.isArray(profile.media_assets) ? profile.media_assets as MediaAsset[] : []}
@@ -1500,7 +1500,7 @@ export default function ConferenceSpeakerPage() {
         </div>
 
         {/* Личные аккаунты VK и MAX */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Личный аккаунт VK / MAX</h3>
           <p className="text-xs text-gray-500 -mt-2">Используется для отправки ссылок и контакта с {pw.ins}. Не показывается участникам.</p>
           <div className="grid grid-cols-2 gap-4">
@@ -1530,7 +1530,7 @@ export default function ConferenceSpeakerPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">{t.fields.accounts}</h3>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
@@ -1723,7 +1723,7 @@ function SpeakerClickStats({ confId, speakerEventId }: { confId: number; speaker
   if (loading) return null
   if (!stats || (stats.total ?? 0) === 0) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mt-8 text-sm text-gray-500">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 mt-8 text-sm text-gray-500">
         <h2 className="font-bold text-gray-900 text-lg mb-2">Статистика интереса</h2>
         Пока никто не нажимал на ссылки в карточке этого спикера в Mini App.
       </div>
@@ -1734,7 +1734,7 @@ function SpeakerClickStats({ confId, speakerEventId }: { confId: number; speaker
     .sort((a, b) => b.count - a.count)
   return (
     <div className="mt-8 space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <h2 className="font-bold text-gray-900 text-lg mb-3">Статистика интереса</h2>
         <p className="text-xs text-gray-500 mb-4">Сколько участников нажали на ссылки в карточке этого спикера в Mini App.</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1747,7 +1747,7 @@ function SpeakerClickStats({ confId, speakerEventId }: { confId: number; speaker
         </div>
       </div>
       {stats.recent && stats.recent.length > 0 && (
-        <details className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <details className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <summary className="font-semibold text-gray-900 text-sm cursor-pointer">
             Последние клики ({stats.recent.length}) — подробно
           </summary>

@@ -46,7 +46,7 @@ export default function ReferralsPage() {
       </div>
 
       {events.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-16 text-center">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-16 text-center">
           <div className="w-20 h-20 rounded-full gradient-bg flex items-center justify-center mx-auto mb-6">
             <Link2 size={36} className="text-white" />
           </div>
@@ -69,7 +69,7 @@ export default function ReferralsPage() {
               <Link
                 key={event.id}
                 href={`/dashboard/events/${event.id}`}
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden group"
+                className="bg-white rounded-2xl border card-border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden group"
               >
                 <div className="gradient-bg h-24 flex items-end p-4 relative">
                   {event.poster_url && (

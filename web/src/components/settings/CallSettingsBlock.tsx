@@ -74,7 +74,7 @@ export default function CallSettingsBlock() {
   const signupUrl = data?.signup_url || 'https://lk.calldog.ru'
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
       <div className="flex items-start gap-3 mb-4">
         <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
           <Phone size={18} className="text-white" />

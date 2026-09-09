@@ -262,7 +262,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   return (
     <div className="space-y-6 max-w-2xl">
       {/* 1) ПАРАМЕТРЫ КОНФЕРЕНЦИИ */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
         <h2 className="block-title">Параметры</h2>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">{ts.confTitle}</label>
@@ -302,7 +302,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       </div>
 
       {/* 2) НАСТРОЙКА ССЫЛОК */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
         <h2 className="block-title">Настройка ссылок</h2>
 
         {/* Куда вести человека после оплаты тарифа (миграция 261). */}
@@ -347,8 +347,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
               Офлайн-событие
               <span className="block text-xs text-gray-400 mt-0.5">
                 Вместо кнопки эфира участник увидит адрес и карту — в боте,
-                в Mini App и на лендинге. Если событие ещё и транслируется,
-                эфир настраивается по дням в «Вебинарах» — тогда будут обе кнопки.
+                в Mini App и на лендинге.
               </span>
             </span>
           </label>
@@ -377,23 +376,28 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           )}
         </div>
 
-        <div>
-          {/* Ссылка эфира — ПО ДНЯМ в разделе «Вебинары» (комната дня/сторонняя). */}
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.hide_stream_button}
-              onChange={e => setForm(f => ({ ...f, hide_stream_button: e.target.checked }))}
-              className="mt-0.5 accent-[#25455D]" />
-            <span className="text-sm text-gray-700">
-              Скрыть кнопку стрима
-              <span className="block text-xs text-gray-400 mt-0.5">
-                Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
-                {' '}Ссылки на эфир настраиваются в разделе{' '}
-                <a href={`/dashboard/tournaments/${eventId}?tab=webinar`} className="text-[#25455D] underline hover:opacity-70">Вебинары</a>
-                {' '}(у каждого дня своя).
+        {/* ⚠️ У ОФЛАЙН-СОБЫТИЯ ПРО ЭФИР НЕ ПИШЕМ ВОВСЕ (решение владельца):
+            человек настраивает адрес, а ему рассказывают про стрим. Трансляция
+            из зала возможна — её включают в «Вебинарах», там об этом и сказано. */}
+        {!form.is_offline && (
+          <div>
+            {/* Ссылка эфира — ПО ДНЯМ в разделе «Вебинары» (комната дня/сторонняя). */}
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={form.hide_stream_button}
+                onChange={e => setForm(f => ({ ...f, hide_stream_button: e.target.checked }))}
+                className="mt-0.5 accent-[#25455D]" />
+              <span className="text-sm text-gray-700">
+                Скрыть кнопку стрима
+                <span className="block text-xs text-gray-400 mt-0.5">
+                  Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
+                  {' '}Ссылки на эфир настраиваются в разделе{' '}
+                  <a href={`/dashboard/tournaments/${eventId}?tab=webinar`} className="text-[#25455D] underline hover:opacity-70">Вебинары</a>
+                  {' '}(у каждого дня своя).
+                </span>
               </span>
-            </span>
-          </label>
-        </div>
+            </label>
+          </div>
+        )}
         <EventChatsField value={chats} onChange={setChats} />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -482,7 +486,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       />
 
       {/* 3) ПОДПИСКА НА КАНАЛЫ ОРГАНИЗАТОРОВ */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
         <h2 className="block-title">{ts.subscription}</h2>
         <p className="text-sm text-gray-500">{ts.subscriptionHint}</p>
         {[

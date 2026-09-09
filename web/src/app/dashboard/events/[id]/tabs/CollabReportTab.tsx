@@ -98,7 +98,7 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
           ⚠️ Отдельных карточек с рейтингом сверху НЕ заводим: коэффициент уже
           стоит столбцом в этой таблице, и дублировать ту же цифру рядом —
           лишний экран. Вместо этого выделяем сам столбец. */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
           <Users size={17} className="text-gray-400" />
           {/* ⚠️ «От кого сколько ЗАРЕГИСТРИРОВАЛОСЬ», а не «кто сколько привёл»:
@@ -225,7 +225,7 @@ export default function CollabReportTab({ eventId }: { eventId: number }) {
           ⚠️ Рефовод ≠ организатор. Чаще всего людей приводит СПИКЕР или
           обычный участник, а по итоговой цифре организатора этого не видно. */}
       {refs.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
             <TrendingUp size={17} className="text-gray-400" />
             {/* Здесь как раз видно обе цифры — сколько перешло и сколько

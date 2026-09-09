@@ -57,7 +57,7 @@ export default function AnalyticsPage() {
           { label: 'Конверсий (бесплатно)', value: analytics?.conversions_free || 0 },
           { label: 'Конверсий (платно)', value: analytics?.conversions_paid || 0 },
         ].map(({ label, value }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div key={label} className="bg-white rounded-2xl border card-border shadow-sm p-5">
             <p className="text-sm text-gray-500 mb-2">{label}</p>
             <p className="text-3xl font-bold text-gray-900">{value}</p>
           </div>
@@ -65,7 +65,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Participants table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h3 className="font-semibold text-gray-800">Участники</h3>
           <div className="flex items-center gap-3">

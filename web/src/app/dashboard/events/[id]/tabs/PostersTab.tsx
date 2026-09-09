@@ -134,7 +134,7 @@ function PostersBlock({ eventId }: { eventId: number }) {
       {ORIENTATIONS.map(o => {
         const urls = items.filter(p => p.orientation === o.key).map(p => p.url)
         return (
-          <div key={o.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div key={o.key} className="bg-white rounded-2xl border card-border shadow-sm p-6">
             <div className="mb-4">
               <h3 className="font-semibold text-gray-900">{o.label}</h3>
               <p className="text-xs text-gray-400 mt-0.5">Соотношение сторон {o.ratio}</p>
@@ -155,7 +155,7 @@ function PostersBlock({ eventId }: { eventId: number }) {
       })}
 
       {/* Афиша, пока регистрация не открыта (миграция 345) */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="mb-4">
           <h3 className="font-semibold text-gray-900">Афиша до старта регистрации</h3>
           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
@@ -184,7 +184,7 @@ function PostersBlock({ eventId }: { eventId: number }) {
       </div>
 
       {/* Общее видео события — отдаётся всем спикерам на их странице «Материалы». */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="mb-4">
           <h3 className="font-semibold text-gray-900">Общее видео</h3>
           <p className="text-xs text-gray-400 mt-0.5">

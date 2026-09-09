@@ -251,7 +251,7 @@ export default function ProgramWidgetHelpPage() {
         </section>
 
         {/* Что это и зачем */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Что это</h2>
           <p className="text-sm text-gray-700 leading-relaxed mb-3">
             Публичный JSON-эндпоинт, который отдаёт всю программу события: этапы (для турниров),
@@ -265,7 +265,7 @@ export default function ProgramWidgetHelpPage() {
         </section>
 
         {/* Подготовка */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Шаг 1. Заполните программу</h2>
           <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-700">
             <li>
@@ -294,7 +294,7 @@ export default function ProgramWidgetHelpPage() {
         </section>
 
         {/* Эндпоинт */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Шаг 2. Эндпоинт</h2>
           <CodeBlock
             code={`GET https://pluson.ru/api/v1/public/landing-widget/events/{ID-или-SLUG}/program
@@ -311,7 +311,7 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/program`}
         </section>
 
         {/* Минимальный пример */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Шаг 3. Минимальный пример</h2>
           <p className="text-sm text-gray-700 mb-3">Вставьте на свой лендинг:</p>
           <CodeBlock code={SAMPLE_HTML} lang="HTML" />
@@ -322,7 +322,7 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/program`}
         </section>
 
         {/* Детали */}
-        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Детали</h2>
           <div className="space-y-3 text-sm text-gray-700">
             <div>

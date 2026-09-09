@@ -84,7 +84,7 @@ export default function ContestReportTab({ eventId }: { eventId: number }) {
   }
   if (stats.total === 0) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-12 text-center">
         <BarChart2 className="mx-auto mb-3 text-gray-300" size={32} />
         <p className="text-gray-500 text-sm">Пока нет данных — ждём первых голосующих.</p>
       </div>
@@ -101,7 +101,7 @@ export default function ContestReportTab({ eventId }: { eventId: number }) {
       </div>
 
       {/* ТОП партнёров */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60">
           <div className="text-sm font-semibold" style={{ color: DARK }}>
             🏆 ТОП партнёров — кто привёл голосующих
@@ -161,7 +161,7 @@ function StatCard({
   icon: React.ReactNode; label: string; value: number; sub?: string; accent: 'dark' | 'peach'
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-4">
       <div className="flex items-center gap-2 mb-2"
            style={{ color: accent === 'peach' ? PEACH : DARK }}>
         {icon}

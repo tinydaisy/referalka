@@ -486,7 +486,7 @@ export default function ContactsPage() {
           ⚠️ Мобильный: три колонки на узкий экран не помещаются — показываем ЧТО-ТО ОДНО.
           Выбран контакт → список СКРЫВАЕМ (видна карточка+чат с кнопкой «Назад»). Не выбран
           → список во всю ширину. На десктопе (md:) список виден всегда рядом с чатом. */}
-      <div className={`${(selected || deepLinkError) ? 'hidden md:flex' : 'flex'} w-full md:w-80 shrink-0 flex-col bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden`}>
+      <div className={`${(selected || deepLinkError) ? 'hidden md:flex' : 'flex'} w-full md:w-80 shrink-0 flex-col bg-white rounded-2xl border card-border shadow-sm overflow-hidden`}>
         <div className="p-3 border-b border-gray-100">
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -667,7 +667,7 @@ export default function ContactsPage() {
       </div>
 
       {/* Центральная колонка — чат с контактом */}
-      <div className="hidden md:flex flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex-col">
+      <div className="hidden md:flex flex-1 bg-white rounded-2xl border card-border shadow-sm overflow-hidden flex-col">
         {selected && !loadingDetail ? (
           <DialogChat
             key={selected.id}
@@ -687,7 +687,7 @@ export default function ContactsPage() {
 
       {/* Правая колонка — параметры контакта (на десктопе уже, в одну колонку).
           Мобильный: если контакт не выбран — колонку прячем (виден список во всю ширину). */}
-      <div className={`${(selected || deepLinkError) ? 'flex flex-col w-full' : 'hidden md:block'} md:flex-none md:w-[380px] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto`}>
+      <div className={`${(selected || deepLinkError) ? 'flex flex-col w-full' : 'hidden md:block'} md:flex-none md:w-[380px] bg-white rounded-2xl border card-border shadow-sm overflow-y-auto`}>
         {/* Мобильная кнопка «Назад к списку» — только когда контакт открыт. */}
         {selected && (
           <button

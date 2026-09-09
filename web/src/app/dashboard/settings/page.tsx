@@ -255,7 +255,7 @@ export default function SettingsPage() {
     return (
       <div className="max-w-5xl">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Настройки</h1>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-8 text-center">
           <p className="text-gray-700 font-medium">Раздел доступен только владельцу кабинета</p>
           <p className="text-sm text-gray-500 mt-2">
             Здесь хранятся email и пароль владельца. Если вам нужны эти настройки —
@@ -329,7 +329,7 @@ export default function SettingsPage() {
         {effectiveTab === 'profile' && (
         <>
         {/* Profile */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h3 className="font-semibold text-gray-800 mb-5">Профиль</h3>
           <div className="space-y-4">
             {/* ⚠️ Фамилия — отдельное поле (миграция 381), а не часть имени.
@@ -374,7 +374,7 @@ export default function SettingsPage() {
 
         {/* Security — change password (в Профиле). Пароль владельца ассистенту недоступен. */}
         {!isAnyAssistant && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
             <div className="flex items-start gap-3 mb-4">
               <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
                 <Lock size={18} className="text-white" />
@@ -397,7 +397,7 @@ export default function SettingsPage() {
         )}
 
         {/* Язык интерфейса (в Профиле) */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <Globe size={18} className="text-white" />
@@ -428,7 +428,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Служба поддержки (перенесено из «Техническое») */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <UserCheck size={18} className="text-white" />
@@ -503,7 +503,7 @@ export default function SettingsPage() {
         <NewsEmailBlock />
 
         {/* Notifications channel — первый блок (важнейшая настройка) */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <Bell size={18} className="text-white" />
@@ -699,7 +699,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Test recipient IDs (TG / VK / MAX) — разворачиваемый блок */}
-        <details className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 group">
+        <details className="bg-white rounded-2xl border card-border shadow-sm p-6 group">
           <summary className="flex items-start gap-3 cursor-pointer list-none">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <FlaskConical size={18} className="text-white" />
@@ -848,7 +848,7 @@ export default function SettingsPage() {
         </details>
 
         {/* Broadcast speed */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <Gauge size={18} className="text-white" />
@@ -881,7 +881,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Timezone */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <Globe size={18} className="text-white" />
@@ -907,7 +907,7 @@ export default function SettingsPage() {
             привыкший видеть объём в «Техническом», не решил, что раздел пропал. */}
         {storage && (
           <a href="/dashboard/settings?tab=storage"
-            className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 hover:border-gray-200 text-left">
+            className="w-full bg-white rounded-2xl border card-border shadow-sm p-4 flex items-center gap-3 hover:border-gray-200 text-left">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <HardDrive size={18} className="text-white" />
             </div>
@@ -1092,7 +1092,7 @@ function IntegrationTab() {
 
       {/* МедиаЛифт — карточка клиента в системе автоподписки */}
       {mlCard && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h3 className="font-semibold text-gray-800 mb-1">МедиаЛифт — ваша карточка</h3>
           {mlCard.linked ? (
             <>
@@ -1130,7 +1130,7 @@ function IntegrationTab() {
       )}
 
       {/* Зачем нужна эта вкладка */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="flex items-start gap-3 mb-4">
           <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
             <Plug size={18} className="text-white" />
@@ -1151,7 +1151,7 @@ function IntegrationTab() {
       </div>
 
       {/* Client ID */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <h3 className="font-semibold text-gray-800 mb-1">Ваш client_id</h3>
         <p className="text-sm text-gray-500 mb-3">
           Подставляется в каждый запрос. У каждого клиента он свой — <strong>не «1»</strong>, как в примерах.
@@ -1172,7 +1172,7 @@ function IntegrationTab() {
       </div>
 
       {/* Token */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <h3 className="font-semibold text-gray-800 mb-1">Секретный токен</h3>
         <p className="text-sm text-gray-500 mb-3">
           Передаётся в заголовке <code className="bg-gray-100 px-1 rounded">X-Salebot-Secret</code>{' '}
@@ -1342,7 +1342,7 @@ function PartnerRegistrationBlock({
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
       <div className="flex items-start gap-3 mb-4">
         <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
           <UserPlus size={18} className="text-white" />

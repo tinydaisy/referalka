@@ -146,7 +146,7 @@ function MaterialCard({ m, link }: { m: Material; link: string }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-3 p-4 text-left hover:bg-gray-50 transition-colors"
@@ -223,7 +223,7 @@ export default function MaterialsTab({ link }: { link: string }) {
         </div>
 
         {/* Афиши */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-5">
           <div className="flex items-center gap-2 mb-1">
             <ImageIcon size={16} className="text-gray-400" />
             <h3 className="font-semibold text-gray-800 text-sm">Афиши для сторис</h3>
@@ -277,7 +277,7 @@ export default function MaterialsTab({ link }: { link: string }) {
       {/* ── ПРАВИЛА ── */}
       <section>
         <h2 className="text-lg font-bold text-gray-900 mb-3">Общие правила</h2>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-5">
           <ul className="space-y-2.5">
             {RULES.map((r, i) => (
               <li key={i} className="flex gap-3 text-sm text-gray-700 leading-relaxed">

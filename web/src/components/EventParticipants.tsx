@@ -182,7 +182,7 @@ function StatsBlock({
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-4 mb-4">
       <h3 className="text-sm font-bold text-gray-900 mb-1">Регистрации по площадкам</h3>
       <p className="text-xs text-gray-400 mb-3">Нажмите на число, чтобы отфильтровать список ниже</p>
       <div className="overflow-x-auto">
@@ -1140,7 +1140,7 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
   if (counts.total === 0) {
     return (
       <div className="max-w-2xl">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-16 text-center">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-16 text-center">
           <div className="w-16 h-16 rounded-full gradient-bg flex items-center justify-center mx-auto mb-5">
             <Users size={28} className="text-white" />
           </div>
@@ -1289,7 +1289,7 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
         ))}
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
         {filtered.length === 0 ? (
           <div className="py-10 text-center text-gray-400 text-sm">
             {participants.length === 0 ? 'В этой группе пусто' : 'Никого не найдено'}

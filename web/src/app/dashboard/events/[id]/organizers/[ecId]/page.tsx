@@ -186,7 +186,7 @@ export default function EventOrganizerPage() {
 
       {/* Приоритет — управляет порядком отображения в Mini App
           (попап подписки, лендинг, программа). Меньше число = выше в списке. */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-5 mb-6">
         <div className="flex items-center justify-between gap-3 mb-2">
           <h2 className="text-sm font-semibold text-gray-800">Приоритет в этом мероприятии</h2>
           <span className="text-xs text-gray-400">меньше число = выше в списке</span>
@@ -219,7 +219,7 @@ export default function EventOrganizerPage() {
 
       {/* Регалии (read-only превью; правится в карточке коллаборатора) */}
       {Array.isArray(item.achievements) && item.achievements.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-5 mb-6">
           <h2 className="text-sm font-semibold text-gray-800 mb-3">Регалии</h2>
           <ul className="space-y-1.5">
             {item.achievements.map((a: string, i: number) => (
@@ -237,7 +237,7 @@ export default function EventOrganizerPage() {
       )}
 
       {/* Проверка подписки на канал */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-5 mb-6">
         <h2 className="text-sm font-semibold text-gray-800 mb-3">Канал для проверки подписки</h2>
 
         {!channelMatters ? (

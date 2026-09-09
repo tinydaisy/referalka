@@ -335,7 +335,7 @@ function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-4 flex items-center gap-3">
       <div className="min-w-0 flex-1">
         <h3 className="font-semibold text-gray-900 truncate">
           {chat.title || <span className="text-gray-400 font-normal">Без названия</span>}

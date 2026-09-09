@@ -219,7 +219,7 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
 
   if (all.length === 0) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-8 text-center">
         <Users size={28} className="mx-auto text-gray-300 mb-3" />
         <p className="font-medium text-gray-700">Пока никто никого не привёл</p>
         <p className="text-sm text-gray-500 mt-1">
@@ -265,7 +265,7 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[1180px]">
             {/* ⚠️ КАЖДОЕ ПОЛЕ — СВОЯ КОЛОНКА (требование владельца 09.09.2026).

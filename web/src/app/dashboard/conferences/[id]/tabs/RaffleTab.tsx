@@ -421,11 +421,11 @@ function ParticipantsPane({ eventId, eventSlug }: { eventId: number; eventSlug: 
       {loading ? (
         <div className="py-10 text-center text-gray-500"><Spinner /></div>
       ) : items.length === 0 ? (
-        <div className="p-10 text-center text-gray-500 text-sm bg-white rounded-2xl border border-gray-100">
+        <div className="p-10 text-center text-gray-500 text-sm bg-white rounded-2xl border card-border">
           Пока никто не получил билеты.
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl border card-border overflow-hidden">
           <div className="overflow-auto max-h-[60vh]">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 sticky top-0 z-10">
@@ -570,11 +570,11 @@ function TicketsPane({ eventId }: { eventId: number }) {
       {loading ? (
         <div className="py-10 text-center text-gray-500"><Spinner /></div>
       ) : items.length === 0 ? (
-        <div className="p-10 text-center text-gray-500 text-sm bg-white rounded-2xl border border-gray-100">
+        <div className="p-10 text-center text-gray-500 text-sm bg-white rounded-2xl border card-border">
           Пока ни одного билета.
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl border card-border overflow-hidden">
           <div className="overflow-auto max-h-[60vh]">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 sticky top-0 z-10">
@@ -683,7 +683,7 @@ function GeneratorPane({ eventId }: { eventId: number }) {
 
   if (speakers.length === 0) {
     return (
-      <div className="p-10 text-center text-gray-500 text-sm bg-white rounded-2xl border border-gray-100">
+      <div className="p-10 text-center text-gray-500 text-sm bg-white rounded-2xl border card-border">
         Сначала добавьте спикеров на вкладке «Спикеры» и заполните им поле «Подарок для розыгрыша».
       </div>
     )
@@ -708,7 +708,7 @@ function GeneratorPane({ eventId }: { eventId: number }) {
         {drawable.map(s => {
           const winner = winners.find(w => w.speaker_event_id === s.id)
           return (
-            <div key={s.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+            <div key={s.id} className="bg-white rounded-2xl border card-border p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="text-xs uppercase tracking-wider text-gray-500">Спикер</div>

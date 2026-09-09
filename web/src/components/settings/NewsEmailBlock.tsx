@@ -40,7 +40,7 @@ export default function NewsEmailBlock() {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
           <Megaphone size={18} className="text-white" />

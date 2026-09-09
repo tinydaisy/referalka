@@ -130,7 +130,7 @@ export default function AssistantTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="flex items-start gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-[#FFCFA4]/30 flex items-center justify-center shrink-0">
             <UserPlus className="text-[#25455D]" size={20} />
@@ -191,7 +191,7 @@ export default function AssistantTab() {
       </div>
 
       {rows.map(row => (
-        <div key={row.grant_id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <div key={row.grant_id} className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
               <Mail size={15} className="text-gray-400 shrink-0" />

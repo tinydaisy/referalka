@@ -85,7 +85,7 @@ export default function VideoPlaylistsPage() {
       {tab === 'yt' && (
         <div className="space-y-4">
           {LESSONS.map((l) => (
-            <div key={l.step} className="bg-white rounded-2xl border border-gray-100 p-4">
+            <div key={l.step} className="bg-white rounded-2xl border card-border p-4">
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
                      style={{ background: 'linear-gradient(135deg, #25455D, #0a1520)' }}>
@@ -114,7 +114,7 @@ export default function VideoPlaylistsPage() {
           без прямых ссылок) + список шагов. Навигация по урокам — внутри плеера. */}
       {tab === 'vk' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+          <div className="bg-white rounded-2xl border card-border p-5">
             <h2 className="text-base font-bold mb-3" style={{ color: BRAND }}>Уроки в плейлисте — по шагам</h2>
             <div className="space-y-2.5">
               {LESSONS.map((l) => (

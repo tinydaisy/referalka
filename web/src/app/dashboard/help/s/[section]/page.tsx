@@ -32,7 +32,7 @@ export default function HelpSectionPage() {
           <span className="text-gray-300">/</span>
           <span className="text-sm text-gray-700">Раздел не найден</span>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-6">
+        <div className="bg-white rounded-2xl border card-border p-6">
           <div className="text-base font-bold mb-1" style={{ color: BRAND }}>Такого раздела нет</div>
           <p className="text-sm text-gray-500 mb-4">
             Возможно, ссылка устарела. Откройте общий список — все разделы там.

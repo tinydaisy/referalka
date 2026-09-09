@@ -36,7 +36,7 @@ export default function IndexView() {
               <Link
                 key={s.id}
                 href={`/help/s/${s.id}`}
-                className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all"
+                className="flex items-center gap-3 p-4 bg-white rounded-2xl border card-border hover:border-gray-300 hover:shadow-sm transition-all"
               >
                 <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
                      style={{ background: `linear-gradient(135deg, #fff4e0, ${PEACH})` }}>

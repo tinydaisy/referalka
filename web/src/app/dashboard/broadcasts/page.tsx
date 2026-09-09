@@ -281,7 +281,7 @@ export default function GeneralBroadcastsPage() {
       </div>
 
       {/* Статусная плашка */}
-      <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-4">
+      <div className="mb-4 rounded-2xl border card-border bg-white p-4">
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-amber-500" />
@@ -346,7 +346,7 @@ export default function GeneralBroadcastsPage() {
 
       {/* Список */}
       {schedules.length === 0 ? (
-        <div className="py-16 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
+        <div className="py-16 text-center text-gray-400 bg-white rounded-2xl border card-border">
           <Send size={32} className="mx-auto mb-3 opacity-20" />
           <p className="text-sm font-medium">Очередь пуста</p>
           <p className="text-xs mt-1">Нажмите «Произвольное» или «Пакетом» чтобы создать рассылку.</p>

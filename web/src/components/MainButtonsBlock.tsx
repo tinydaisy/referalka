@@ -29,7 +29,7 @@ export default function MainButtonsBlock({
   vipLabel, chatLabel, accent, onVipLabel, onChatLabel, onAccent,
 }: Props) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+    <div className="bg-white rounded-2xl border card-border p-6 space-y-5">
       <div>
         <h2 className="block-title">Главные кнопки в Mini App</h2>
         <p className="text-xs text-gray-400 mt-1">

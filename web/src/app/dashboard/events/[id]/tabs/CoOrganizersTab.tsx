@@ -97,7 +97,7 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
           <div>
             <h3 className="font-semibold text-gray-800">Спикеры / соорганизаторы</h3>

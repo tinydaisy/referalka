@@ -212,7 +212,7 @@ export default function AdminPromotionsPage() {
       )}
 
       {list.length === 0 && editingId === null && (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+        <div className="bg-white rounded-2xl border card-border p-12 text-center">
           <Tag size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-gray-500">Пока нет ни одной акции</p>
         </div>

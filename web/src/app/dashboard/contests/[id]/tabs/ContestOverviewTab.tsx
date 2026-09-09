@@ -80,7 +80,7 @@ export default function ContestOverviewTab({
   return (
     <div className="space-y-6">
       {/* 1) ПАРАМЕТРЫ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+      <div className="bg-white rounded-2xl border card-border p-6">
         <h2 className="block-title mb-4">Параметры конкурса</h2>
 
         <div className="space-y-4">
@@ -121,7 +121,7 @@ export default function ContestOverviewTab({
       </div>
 
       {/* 2) НАСТРОЙКА ССЫЛОК */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+      <div className="bg-white rounded-2xl border card-border p-6">
         <h2 className="block-title mb-4">Настройка ссылок</h2>
 
         <div className="space-y-4">
@@ -133,7 +133,7 @@ export default function ContestOverviewTab({
       </div>
 
       {/* 3) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+      <div className="bg-white rounded-2xl border card-border p-6 space-y-5">
         <h2 className="block-title">Настройки страницы регистрации</h2>
 
         <Field
