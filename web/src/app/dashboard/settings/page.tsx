@@ -64,7 +64,7 @@ export default function SettingsPage() {
       window.location.replace('/dashboard/subscription')
     }
   }, [])
-  const [form, setForm] = useState({ name: '', last_name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
+  const [form, setForm] = useState({ name: '', last_name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_telegram_invite_link: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
   const [notifyTab, setNotifyTab] = useState<'telegram' | 'max' | 'vk'>('telegram')
   // Тестовые рассылки — площадки вкладками, как в «Каналах уведомлений»:
@@ -75,15 +75,6 @@ export default function SettingsPage() {
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
   const [vkAppId, setVkAppId] = useState<number | null>(null)
-  /**
-   * Ссылка-приглашение в группу уведомлений (миграция 386).
-   *
-   * ⚠️ Только для чтения, поэтому не в `form`: её заполняет автонастройка,
-   * руками клиент её не вводит. Нужна здесь, потому что мастер настройки —
-   * процесс: он завершается и уходит, а вступить в группу человек может позже.
-   * По одному `chat_id` в Telegram вступить нельзя.
-   */
-  const [notifyInviteLink, setNotifyInviteLink] = useState<string>('')
   const [tariff, setTariff] = useState<any>(null)
   const [clientFeatures, setClientFeatures] = useState<string[]>([])
   // Роль текущего токена: ограниченный ассистент не видит email/пароль владельца
@@ -117,6 +108,7 @@ export default function SettingsPage() {
         work_max: c.work_max || '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
+        notifications_telegram_invite_link: c.notifications_telegram_invite_link || '',
         notifications_max_chat_id: c.notifications_max_chat_id ? String(c.notifications_max_chat_id) : '',
         notifications_max_url: c.notifications_max_url ? String(c.notifications_max_url) : '',
         notifications_vk_peer_id: c.notifications_vk_peer_id ? String(c.notifications_vk_peer_id) : '',
@@ -132,7 +124,6 @@ export default function SettingsPage() {
       setAvailablePlatforms(Array.isArray(c.available_platforms) ? c.available_platforms : ['telegram'])
       setBotHandles(c.bot_handles || null)
       setVkAppId(c.vk_app_id ? Number(c.vk_app_id) : null)
-      setNotifyInviteLink(c.notifications_telegram_invite_link || '')
     }).catch(() => {})
     // fetch storage usage
     const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
@@ -196,6 +187,7 @@ export default function SettingsPage() {
         broadcast_concurrency: concurrency,
         notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
         notifications_max_chat_id: form.notifications_max_chat_id?.trim() || null,
+        notifications_telegram_invite_link: form.notifications_telegram_invite_link?.trim() || null,
         notifications_max_url: form.notifications_max_url?.trim() || null,
         notifications_vk_peer_id: form.notifications_vk_peer_id?.trim() || null,
         partner_landing_url: form.partner_landing_url.trim() || null,
@@ -584,22 +576,42 @@ export default function SettingsPage() {
                 там чаты, куда уходят анонсы аудитории, а это служебная группа
                 уведомлений (см. `is_setup_group` в tg_setup_events.py).
 
-                Показываем, только когда ссылка есть: её заполняет
-                автонастройка, у остальных поля просто не будет.
+                ⚠️ Поле видно ВСЕГДА, а не только когда ссылка уже есть:
+                автонастройкой пользуются не все, а канал заводят руками —
+                и тогда ссылку тоже нужно куда-то записать, иначе она
+                теряется в переписке.
+
+                ⚠️ Это ПАМЯТКА, а не рабочая настройка: платформа по ней ничего
+                не отправляет — отправка идёт по ID выше. Так и подписано, чтобы
+                человек не искал, на что поле влияет.
               */}
-              {notifyInviteLink && (
-                <a href={notifyInviteLink}
-                   target="_blank" rel="noreferrer"
-                   className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3 hover:border-gray-300 transition-colors">
-                  <span className="text-sm text-gray-700">
-                    Открыть группу уведомлений
-                    <span className="block text-xs text-gray-400 mt-0.5">
-                      Ссылка-приглашение — по ней можно вступить в любой момент
-                    </span>
-                  </span>
-                  <ExternalLink size={16} className="text-gray-400 shrink-0" />
-                </a>
-              )}
+              <div className="mt-3">
+                <label className="block text-sm text-gray-600 mb-1.5">
+                  Ссылка на канал или группу
+                  <span className="text-gray-400"> — просто для вас, чтобы не потерять</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={form.notifications_telegram_invite_link}
+                    onChange={set('notifications_telegram_invite_link')}
+                    placeholder="https://t.me/+abcDEF…"
+                    className="flex-1 min-w-0 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
+                  />
+                  {form.notifications_telegram_invite_link && (
+                    <a href={form.notifications_telegram_invite_link}
+                       target="_blank" rel="noreferrer"
+                       title="Открыть"
+                       className="shrink-0 flex items-center px-4 rounded-xl border border-gray-200 text-gray-500 hover:border-gray-300">
+                      <ExternalLink size={16} />
+                    </a>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Заполняется сама при автонастройке. По ID вступить в Telegram
+                  нельзя — нужна именно ссылка-приглашение.
+                </p>
+              </div>
 
               <details className="mt-3 text-sm text-gray-600">
                 <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>

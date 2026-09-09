@@ -770,6 +770,11 @@ class ProfileUpdate(BaseModel):
     payments_max_chat_id: Optional[str] = None
     payments_vk_peer_id: Optional[str] = None
     notifications_max_url: Optional[str] = None
+    # Ссылка-приглашение в группу уведомлений (миграция 386). Заполняется
+    # автонастройкой, но правится и руками: канал часто заводят сами, и
+    # ссылку тоже нужно где-то держать — по одному ID в Telegram не вступишь.
+    # ⚠️ Это ПАМЯТКА: отправка уведомлений идёт по chat_id, не по ней.
+    notifications_telegram_invite_link: Optional[str] = None
     notifications_vk_peer_id: Optional[str] = None
     partner_landing_url: Optional[str] = None
     partner_dashboard_url: Optional[str] = None
