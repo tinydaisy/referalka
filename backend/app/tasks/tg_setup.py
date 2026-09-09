@@ -210,9 +210,14 @@ async def _run_setup(db, order) -> None:
             )
             # Сразу прописываем в кабинет — уведомления заработают, как только
             # клиент вступит.
+            # ⚠️ Ссылку-приглашение сохраняем КЛИЕНТУ, а не только в заказе
+            # (миграция 386): заказ завершится и уйдёт из активных, а вступить в
+            # группу человек может позже — с другого устройства или после
+            # выхода. По одному `chat_id` в Telegram вступить нельзя.
             await db.execute(
-                "UPDATE clients SET notifications_telegram_chat_id=$2 WHERE id=$1",
-                client_id, grp.chat_id,
+                "UPDATE clients SET notifications_telegram_chat_id=$2, "
+                "       notifications_telegram_invite_link=$3 WHERE id=$1",
+                client_id, grp.chat_id, grp.invite_link,
             )
             await _log_step(db, order_id, "group",
                             "Группа создана и прописана в настройках")
