@@ -306,6 +306,99 @@ class StartRequest(BaseModel):
     bot_title: Optional[str] = None
 
 
+@router.post("/confirm-started-bot", summary="Клиент подтверждает, что зашёл в бота")
+async def confirm_started_bot(user=Depends(get_current_client), db=Depends(get_db)):
+    """Отметка «я зашёл в бота» — РУКАМИ КЛИЕНТА, кнопкой в кабинете.
+
+    ⚠️⚠️ ЗАЧЕМ РУЧНАЯ ОТМЕТКА, ЕСЛИ ЕСТЬ АВТОМАТИЧЕСКАЯ.
+    Автоматическая (`on_client_started_bot`) ловит момент, когда человек пишет
+    боту, и работает — но ТОЛЬКО если бот уже слушается процессом `plusson-bot`.
+    Список ботов там читается ОДИН РАЗ при старте (`bot/main.py:_load_vip_tokens`),
+    а бот услуги создаётся позже — и до ближайшего перезапуска сервиса его
+    сообщения до нас не доходят. Поймано на живом заказе: клиент нажал
+    «Запустить», а отметки не появилось, и настройка встала намертво.
+    Перезапустить сервис из Celery нельзя — задача идёт под www-data, systemctl
+    требует root.
+
+    Поэтому отметка ещё и ручная: человек видит бота у себя и подтверждает сам.
+    Автоматическая при этом остаётся — если сработает раньше, кнопка просто не
+    понадобится.
+
+    ⚠️ Права на бота передаёт та же фоновая задача, что и раньше: она сверяет
+    `client_started_bot_at` и вызывает Transfer Ownership. Здесь мы только
+    ставим отметку — своей передачи не заводим, иначе логика раздвоится.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    order = await db.fetchrow(
+        """SELECT id, bot_username, bot_created_at, client_started_bot_at
+             FROM service_orders
+            WHERE client_id = $1 AND setup_state = 'awaiting_user'
+            ORDER BY id DESC LIMIT 1""",
+        client_id,
+    )
+    if not order:
+        raise HTTPException(404, "Нет настройки, ожидающей ваших действий")
+    # ⚠️ Пока бот не создан, подтверждать нечего: человек физически не мог в
+    # него зайти, а отметка запустила бы передачу несуществующего бота.
+    if not order["bot_created_at"]:
+        raise HTTPException(400, "Бот ещё создаётся — подождите немного")
+    if order["client_started_bot_at"]:
+        return {"ok": True, "already": True}
+
+    await db.execute(
+        "UPDATE service_orders SET client_started_bot_at = NOW(), updated_at = NOW() "
+        " WHERE id = $1",
+        order["id"],
+    )
+    logger.info("tg_setup: клиент %s подтвердил заход в бота @%s вручную",
+                client_id, order["bot_username"])
+    return {"ok": True, "already": False}
+
+
+@router.post("/confirm-joined-group", summary="Клиент подтверждает, что вступил в группу")
+async def confirm_joined_group(user=Depends(get_current_client), db=Depends(get_db)):
+    """Отметка «я вступил в группу» — руками, кнопкой в кабинете.
+
+    ⚠️ ЗАЧЕМ. Добавить человека в группу мы можем далеко не всегда: у
+    большинства закрыты настройки приватности («кто может добавлять в группы»),
+    и Telegram нам это запрещает — тогда он вступает сам по ссылке. Автоматика
+    ловит вступление через `chat_member`, но апдейт приходит, только пока наш
+    сервисный аккаунт в группе и видит событие; если он уже вышел или апдейт
+    потерялся, отметки не будет никогда, и настройка встанет.
+
+    ⚠️ АДМИНОМ ДЕЛАЕМ ПОСЛЕ ВСТУПЛЕНИЯ, а не до: назначить права можно только
+    участнику группы. Поэтому подтверждение и запускает выдачу прав — этим
+    занимается та же фоновая задача, что и раньше (`_finish_setup`), здесь мы
+    только ставим отметку.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    order = await db.fetchrow(
+        """SELECT id, group_chat_id, client_joined_at
+             FROM service_orders
+            WHERE client_id = $1 AND setup_state = 'awaiting_user'
+            ORDER BY id DESC LIMIT 1""",
+        client_id,
+    )
+    if not order:
+        raise HTTPException(404, "Нет настройки, ожидающей ваших действий")
+    if not order["group_chat_id"]:
+        raise HTTPException(400, "Группа ещё создаётся — подождите немного")
+    if order["client_joined_at"]:
+        return {"ok": True, "already": True}
+
+    await db.execute(
+        "UPDATE service_orders SET client_joined_at = NOW(), updated_at = NOW() "
+        " WHERE id = $1",
+        order["id"],
+    )
+    logger.info("tg_setup: клиент %s подтвердил вступление в группу вручную", client_id)
+    return {"ok": True, "already": False}
+
+
 @router.post("/start")
 async def start_setup(data: StartRequest,
                       user=Depends(get_current_client), db=Depends(get_db)):

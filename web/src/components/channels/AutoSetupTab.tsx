@@ -140,6 +140,30 @@ export default function AutoSetupTab() {
   // ⚠️ Ввода кода здесь НЕТ: он живёт в ОДНОМ месте — в карточке услуги на
   // странице «Подписка». Держать вторую форму значило бы чинить обе.
 
+  /**
+   * Отметки «я это сделал» — их ставит сам клиент.
+   *
+   * ⚠️ Нужны потому, что автоматика срабатывает не всегда: бот услуги не
+   * слушается процессом до его перезапуска, а вступление в группу проходит
+   * мимо нас, если человек вступил сам (у большинства закрыты настройки
+   * приватности, и добавить его мы не можем). По этим отметкам фоновая задача
+   * передаёт права.
+   */
+  const [confirming, setConfirming] = useState<'bot' | 'group' | null>(null)
+
+  const confirmStep = async (step: 'bot' | 'group') => {
+    setConfirming(step)
+    try {
+      if (step === 'bot') await api.tgAutosetup.confirmStartedBot()
+      else await api.tgAutosetup.confirmJoinedGroup()
+      await load(true)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось отметить шаг')
+    } finally {
+      setConfirming(null)
+    }
+  }
+
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Автообновление статуса.
@@ -533,6 +557,14 @@ export default function AutoSetupTab() {
       )}
 
       {/* ─── Очередь ─── */}
+      {/* ⚠️ Чек-лист виден С НАЧАЛА и заполняется по ходу: человек должен
+          видеть ОБЪЁМ работы, а не только то, что уже сделано. */}
+      {(inProgress || waitingUser) && order && (
+        <ServiceChecklist steps={order.steps}
+                          botUsername={order.bot_username}
+                          groupLink={order.group_invite_link} />
+      )}
+
       {inProgress && (
         <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5">
           <div className="flex items-center gap-2.5 mb-3">
@@ -606,15 +638,19 @@ export default function AutoSetupTab() {
             href={order.bot_username ? `https://telegram.me/${order.bot_username}` : undefined}
             label={order.bot_username ? `@${order.bot_username}` : 'Открыть бота'}
             icon={<MessageSquare size={16} />}
+            onConfirm={() => confirmStep('bot')}
+            confirming={confirming === 'bot'}
           />
           <ActionRow
             done={!!order.steps?.client_joined}
             title="Группа уведомлений"
-            hint="Вступите — мы сразу сделаем вас админом"
-            doneHint="Вы в группе и назначены админом. Сохраните ссылку — она же в Настройках → «Каналы уведомлений»"
+            hint="Вступите по ссылке — после этого сделаем вас админом"
+            doneHint="Вы в группе. Ссылка продублирована в Настройках → «Каналы уведомлений»"
             href={order.group_invite_link || undefined}
             label="Перейти в группу"
             icon={<Users size={16} />}
+            onConfirm={() => confirmStep('group')}
+            confirming={confirming === 'group'}
           />
 
           {/* ⚠️ «Заберите бота» убрано: человек не понимал, что от него нужно —
@@ -640,7 +676,7 @@ export default function AutoSetupTab() {
       {finished && order && (
         <div className="rounded-xl border border-green-300 bg-green-50 p-5 mb-5">
           <div className="flex items-center gap-2 font-bold text-green-900 mb-2">
-            <Check size={18} /> Настройка завершена
+            <Check size={18} /> Поздравляем — всё готово!
           </div>
           <p className="text-sm text-green-900/80">
             Бот <b>@{order.bot_username}</b> и группа уведомлений теперь ваши.
@@ -651,6 +687,24 @@ export default function AutoSetupTab() {
             тогда сможете рассылать и туда. Права можно отключить все,
             кроме «Публикация сообщений». Как добавите — мы увидим это сами
             и подключим канал.
+          </div>
+
+          {/* ⚠️ Не бросаем человека на «готово»: бот есть, а что с ним делать —
+              непонятно. Сразу предлагаем взять готовую воронку, чтобы бот начал
+              приносить заявки, а не стоял пустым. */}
+          <div className="mt-4 rounded-lg bg-white border border-green-200 px-4 py-3">
+            <p className="text-sm font-medium text-gray-900">
+              Какое готовое решение вам нужно?
+            </p>
+            <p className="text-sm text-gray-600 mt-1">
+              Загрузим в вашего бота готовую воронку — например, запись на
+              консультацию: человек подписывается, заполняет анкету, а заявка
+              приходит вам.
+            </p>
+            <Link href="/dashboard/lead-magnets"
+                  className="btn-gold inline-block mt-3 px-4 py-2 text-sm font-semibold">
+              Выбрать готовое решение
+            </Link>
           </div>
         </div>
       )}
@@ -680,39 +734,143 @@ export default function AutoSetupTab() {
 }
 
 /** Строка «что сделать» с галочкой готовности. */
-function ActionRow({ done, title, hint, doneHint, href, label, icon }: {
+/**
+ * Чек-лист услуги: ВСЕ обещанные шаги сразу, галочки — по мере выполнения.
+ *
+ * ⚠️ Показывается С НАЧАЛА настройки, а не по факту сделанного. Раньше внизу
+ * копился только список уже выполненного, и объём работы был не виден: человек
+ * не понимал, что вообще происходит и сколько ещё осталось. Здесь он видит
+ * весь перечень и как он заполняется — это и есть подтверждение услуги.
+ *
+ * ⚠️ Шаги берутся из ОТМЕТОК ЗАКАЗА (`order.steps`), а не из текстового лога:
+ * лог — это лента сообщений, по ней нельзя понять, что именно уже готово.
+ */
+function ServiceChecklist({ steps, botUsername, groupLink }: {
+  steps?: Record<string, boolean>
+  botUsername?: string | null
+  groupLink?: string | null
+}) {
+  const s = steps || {}
+  const rows: { done: boolean; text: string; proof?: string; proofLabel?: string }[] = [
+    { done: !!s.bot_created, text: 'Создали вашего бота',
+      proof: botUsername ? `https://telegram.me/${botUsername}` : undefined,
+      proofLabel: botUsername ? `@${botUsername}` : undefined },
+    { done: !!s.bot_created, text: 'Подключили бота к кабинету' },
+    { done: !!s.miniapp_linked, text: 'Привязали приложение (Mini App)' },
+    { done: !!s.group_created, text: 'Создали закрытую группу для уведомлений',
+      proof: groupLink || undefined, proofLabel: 'Открыть группу' },
+    { done: !!s.group_created, text: 'Прописали группу в настройках кабинета',
+      proof: '/dashboard/settings?tab=tech', proofLabel: 'Проверить' },
+    { done: !!s.group_created, text: 'Заполнили «Службу заботы»',
+      proof: '/dashboard/settings', proofLabel: 'Проверить' },
+    { done: !!s.client_started_bot, text: 'Вы зашли в бота' },
+    { done: !!s.bot_transferred, text: 'Передали вам права на бота' },
+    { done: !!s.client_joined, text: 'Вы вступили в группу' },
+    { done: !!s.group_transferred, text: 'Сделали вас админом группы' },
+    { done: !!s.channel_linked, text: 'Подключили ваш канал к рассылкам' },
+  ]
+  const doneCount = rows.filter(r => r.done).length
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className="font-semibold text-gray-900">Что делаем за вас</h3>
+        <span className="text-sm text-gray-500 shrink-0">
+          {doneCount} из {rows.length}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center gap-2.5 text-sm">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+              r.done ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>
+              {r.done ? <Check size={12} /> : <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />}
+            </span>
+            <span className={r.done ? 'text-gray-800' : 'text-gray-400'}>{r.text}</span>
+            {/* ⚠️ Ссылка-подтверждение: чтобы человек мог УБЕДИТЬСЯ, что шаг
+                действительно выполнен, а не поверить на слово. */}
+            {r.done && r.proof && (
+              <a href={r.proof}
+                 target={r.proof.startsWith('http') ? '_blank' : undefined}
+                 rel="noreferrer"
+                 className="text-xs text-[#25455D] underline shrink-0 ml-auto">
+                {r.proofLabel || 'Открыть'}
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Шаг, который делает САМ КЛИЕНТ: перейти по ссылке и отметить галочкой.
+ *
+ * ⚠️⚠️ ГАЛОЧКУ СТАВИТ ЧЕЛОВЕК, А НЕ ТОЛЬКО АВТОМАТИКА.
+ *
+ * Автоматика есть, но срабатывает не всегда:
+ *   • заход в бота ловится, лишь пока бот слушается процессом `plusson-bot`,
+ *     а бот услуги создан позже его старта — до перезапуска сервиса сообщения
+ *     до нас не доходят (поймано на живом заказе: человек нажал «Запустить»,
+ *     отметки нет, настройка встала);
+ *   • вступление в группу приходит апдейтом `chat_member`, но только пока наш
+ *     аккаунт в группе; добавить человека мы часто вообще не можем — у него
+ *     закрыты настройки приватности, и он вступает сам.
+ *
+ * Поэтому: перешёл → отметил галочкой → по ней запускается передача прав.
+ * Автоматика остаётся: сработала раньше — галочка уже стоит.
+ */
+function ActionRow({ done, title, hint, doneHint, href, label, icon,
+                     onConfirm, confirming }: {
   done: boolean; title: string; hint: string
   /** Что написать, когда шаг уже сделан. Пусто → «Сделано». */
   doneHint?: string
   href?: string; label: string; icon: React.ReactNode
+  /** Отметить шаг выполненным. Нет — галочка не показывается. */
+  onConfirm?: () => void
+  confirming?: boolean
 }) {
   return (
-    <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 mb-2.5 ${
+    <div className={`rounded-lg border px-4 py-3 mb-2.5 ${
       done ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'}`}>
-      <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-        done ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
-        {done ? <Check size={15} /> : icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className={`text-sm font-medium ${done ? 'text-green-900' : 'text-gray-900'}`}>
-          {title}
+      <div className="flex items-center gap-3">
+        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+          done ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+          {done ? <Check size={15} /> : icon}
         </div>
-        <div className="text-xs text-gray-500 mt-0.5">
-          {done ? (doneHint || 'Сделано') : hint}
+        <div className="flex-1 min-w-0">
+          <div className={`text-sm font-medium ${done ? 'text-green-900' : 'text-gray-900'}`}>
+            {title}
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {done ? (doneHint || 'Сделано') : hint}
+          </div>
         </div>
+        {/* ⚠️ Кнопка остаётся и у ВЫПОЛНЕННОГО шага: после вступления в группу
+            попасть в неё было неоткуда — ссылку человек уже закрыл, а по
+            chat_id в Telegram не вступишь. */}
+        {href && (
+          <a href={href} target="_blank" rel="noreferrer"
+             className={`px-3 py-2 text-sm whitespace-nowrap flex items-center gap-1.5 rounded-lg ${
+               done
+                 ? 'border border-green-300 text-green-800 hover:bg-green-100'
+                 : 'btn-primary'}`}>
+            {label} <ArrowRight size={14} />
+          </a>
+        )}
       </div>
-      {/* ⚠️ Кнопка остаётся и у ВЫПОЛНЕННОГО шага. Раньше она пряталась
-          (`!done && href`), и после вступления в группу попасть в неё было
-          неоткуда — ссылку человек уже закрыл, а по chat_id в Telegram не
-          вступишь. То же с ботом: зайти в него нужно и позже. */}
-      {href && (
-        <a href={href} target="_blank" rel="noreferrer"
-           className={`px-3 py-2 text-sm whitespace-nowrap flex items-center gap-1.5 rounded-lg ${
-             done
-               ? 'border border-green-300 text-green-800 hover:bg-green-100'
-               : 'btn-primary'}`}>
-          {label} <ArrowRight size={14} />
-        </a>
+
+      {/* Галочка «я это сделал» — под строкой, чтобы не тесниться с кнопкой. */}
+      {!done && onConfirm && (
+        <label className="flex items-center gap-2 mt-3 pl-10 cursor-pointer select-none">
+          <input type="checkbox" checked={false} disabled={confirming}
+                 onChange={onConfirm}
+                 className="w-4 h-4 rounded border-gray-300 cursor-pointer" />
+          <span className="text-sm text-gray-700">
+            {confirming ? 'Отмечаем…' : 'Я это сделал(а) — продолжайте'}
+          </span>
+        </label>
       )}
     </div>
   )

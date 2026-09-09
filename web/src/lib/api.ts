@@ -843,6 +843,14 @@ export const api = {
       request('/api/v1/clients/me/tg-autosetup/activate-code', {
         method: 'POST', body: JSON.stringify({ code }),
       }),
+    // ⚠️ Клиент сам отмечает выполненные шаги. Автоматика их тоже ловит, но
+    // ненадёжно: бот услуги не слушается процессом до его перезапуска, а
+    // вступление в группу вообще может пройти мимо нас, если аккаунт уже вышел.
+    // По этим отметкам фоновая задача передаёт права.
+    confirmStartedBot: () =>
+      request('/api/v1/clients/me/tg-autosetup/confirm-started-bot', { method: 'POST' }),
+    confirmJoinedGroup: () =>
+      request('/api/v1/clients/me/tg-autosetup/confirm-joined-group', { method: 'POST' }),
   },
 
   // Админская панель автонастройки — сервисные аккаунты и заказы.
