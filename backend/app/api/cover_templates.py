@@ -270,3 +270,53 @@ async def download_cover(
                 f"attachment; filename=\"cover.png\"; filename*=UTF-8\'\'{quote(safe)}.png",
         },
     )
+
+@router.post("/{kind}/render", summary="Собрать обложку и сохранить в хранилище")
+async def render_cover_to_storage(
+    kind: str,
+    title: str = Query("", description="Название на обложке"),
+    subtitle: str = Query(""),
+    overline: str = Query(""),
+    photo: str = Query("", description="Фото на прозрачном фоне"),
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """То же, что `/png`, но картинка сразу ложится в хранилище и отдаётся ссылкой.
+
+    ⚠️ Зачем отдельно от `/png`: скачать файл и тут же загрузить его обратно —
+    ровно та ручная работа, ради которой конструктор и делали. У курса из
+    двадцати уроков это сорок действий мышью на каждую смену оформления.
+
+    ⚠️ Рисуется ТЕМ ЖЕ `render_cover_png`, что и скачивание, — второй
+    рисовальщик разошёлся бы с предпросмотром.
+    """
+    if kind not in KINDS:
+        raise HTTPException(404, "Такого шаблона нет")
+    client_id = int(user["sub"])
+
+    from urllib.parse import urlencode
+
+    from app.services.client_domains import platform_base_url
+    from app.services.cover_render import CoverRenderError, render_cover_png
+    from app.services.preview_token import make_preview_token
+    from app.services.store_file import store_bytes
+
+    qs = urlencode({
+        "kind": kind, "t": make_preview_token(client_id),
+        "title": title, "subtitle": subtitle,
+        "overline": overline, "photo": photo,
+    })
+    url = f"{platform_base_url().rstrip('/')}/cover?{qs}"
+
+    try:
+        png = await render_cover_png(url)
+    except CoverRenderError as e:
+        raise HTTPException(503, str(e))
+
+    # ⚠️ kind='material_media' — обложка живёт рядом с материалами и попадает
+    # в тот же раздел хранилища, где человек её потом ищет.
+    saved = await store_bytes(
+        db, client_id=client_id, data=png,
+        kind="material_media", ext="png", content_type="image/png",
+    )
+    return saved

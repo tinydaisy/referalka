@@ -175,6 +175,7 @@ export default function MaterialEditor({
                 <BlockEditor
                   key={b.id}
                   block={b}
+                  materialTitle={name}
                   canUp={i > 0}
                   canDown={i < blocks.length - 1}
                   onMove={(dir) => move(i, dir)}
@@ -215,7 +216,8 @@ export default function MaterialEditor({
 
 /* ────────────────────────────── Блок ────────────────────────────────────── */
 
-function BlockEditor({ block, canUp, canDown, onMove, onPatch, onRemove }: {
+function BlockEditor({ block, materialTitle, canUp, canDown, onMove, onPatch, onRemove }: {
+  materialTitle?: string
   block: any
   canUp: boolean
   canDown: boolean
@@ -224,6 +226,8 @@ function BlockEditor({ block, canUp, canDown, onMove, onPatch, onRemove }: {
   onRemove: () => void
 }) {
   const meta = KINDS.find(k => k.kind === block.kind) || KINDS[0]
+  const [coverBusy, setCoverBusy] = useState(false)
+  const [coverError, setCoverError] = useState('')
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -309,6 +313,40 @@ function BlockEditor({ block, canUp, canDown, onMove, onPatch, onRemove }: {
               aspectClass="aspect-video"
               onChange={(u: string | null) => onPatch({ poster_url: u || null })}
             />
+            {/* ⚠️ Обложку собираем ПРЯМО ЗДЕСЬ, а не «скачайте в Настройках и
+                загрузите сюда»: у курса из двадцати уроков это сорок действий
+                мышью на каждую смену оформления. Рисуется тем же шаблоном
+                бренда, что в конструкторе, — название подставляется само. */}
+            <button
+              type="button"
+              onClick={async () => {
+                if (coverBusy) return
+                setCoverBusy(true); setCoverError('')
+                try {
+                  const r: any = await api.coverTemplates.render('material', {
+                    title: materialTitle || block.title || '',
+                  })
+                  onPatch({ poster_url: r.url })
+                } catch (e: any) {
+                  setCoverError(e?.message || 'Не удалось собрать обложку')
+                } finally {
+                  setCoverBusy(false)
+                }
+              }}
+              disabled={coverBusy}
+              className="mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs
+                         font-medium text-gray-700 transition hover:bg-gray-50
+                         disabled:opacity-50"
+            >
+              {coverBusy ? 'Собираем обложку…' : 'Собрать обложку по шаблону бренда'}
+            </button>
+            {coverError && (
+              <div className="mt-1 text-xs text-red-600">{coverError}</div>
+            )}
+            <p className="mt-1 text-xs text-gray-400">
+              Возьмёт ваш шаблон из Настроек → «Шаблоны обложек» и подставит
+              название материала.
+            </p>
           </div>
         </div>
       )}

@@ -1473,6 +1473,13 @@ export const api = {
       return downloadPdf(`/api/v1/clients/me/cover-templates/${kind}/png?${qs}`,
                          'cover.png')
     },
+    // Собрать обложку и сразу положить в хранилище — чтобы не качать картинку
+    // и не загружать её обратно руками для каждого урока.
+    render: (kind: 'material' | 'speaker', p: Record<string, string>) => {
+      const qs = new URLSearchParams(p).toString()
+      return request(`/api/v1/clients/me/cover-templates/${kind}/render?${qs}`,
+                     { method: 'POST' })
+    },
   },
 
   // Материалы, которые открывает КУПЛЕННЫЙ МОДУЛЬ (Коллабораторная и далее).
