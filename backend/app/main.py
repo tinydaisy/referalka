@@ -10,7 +10,7 @@ from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
 from app.middleware.email_verification_guard import email_verification_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public, request_forms, instagram_webhook, instagram_funnels, module_materials
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public, request_forms, instagram_webhook, instagram_funnels, module_materials, cover_templates
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
 from app.api import client_call_settings, call_campaigns
 from app.api import tg_autosetup, admin_tg_setup
@@ -144,6 +144,8 @@ app.include_router(products.router, prefix="/api/v1")
 # ⚠️ Отдельный роутер, а не ветка в products: там всё завязано на владение
 # продуктом, а тут право даёт фича. Только чтение — правка в products.
 app.include_router(module_materials.router, prefix="/api/v1")
+# Шаблоны обложек (миграция 387): настройка «как выглядит обложка».
+app.include_router(cover_templates.router, prefix="/api/v1/clients/me")
 # Публичный заказ тарифа продукта. ⚠️ Свой префикс у роутера уже есть
 # (/api/v1/public/product-orders), поэтому без prefix=. Вебхуки оплаты
 # приходят на ОБЩИЙ роут /integrations/client-pay/* (см. event_orders.py):

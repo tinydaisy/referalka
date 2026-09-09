@@ -187,6 +187,10 @@ def build_key(
             raise ValueError("speaker_video требует collaborator_id")
         return f"{base}/speakers/{collaborator_id}/videos/{fname}"
 
+    if kind == "cover_bg":
+        # Шаблон обложки один на кабинет — рядом с профилем, не в событиях.
+        return f"{base}/covers/bg/{name}"
+
     raise ValueError(f"Неизвестный kind: {kind}")
 
 

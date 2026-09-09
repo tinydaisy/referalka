@@ -1373,6 +1373,18 @@ export const api = {
       request(`/api/v1/materials/${id}/blocks/${blockId}`, { method: 'DELETE' }),
   },
 
+  // Шаблоны обложек (миграция 387): «как выглядит обложка по умолчанию».
+  // ⚠️ Цвета и шрифты сюда НЕ входят — они приходят в поле `theme` из «Стилей
+  // лендингов»: два места настройки фирменного стиля разошлись бы.
+  coverTemplates: {
+    get: (kind: 'material' | 'speaker') =>
+      request(`/api/v1/clients/me/cover-templates/${kind}`),
+    save: (kind: 'material' | 'speaker', data: any) =>
+      request(`/api/v1/clients/me/cover-templates/${kind}`, {
+        method: 'PUT', body: JSON.stringify(data),
+      }),
+  },
+
   // Материалы, которые открывает КУПЛЕННЫЙ МОДУЛЬ (Коллабораторная и далее).
   // ⚠️ Только чтение и только своим клиентским токеном: право смотреть даёт
   // фича модуля, а сами материалы лежат в системном кабинете. Правятся они

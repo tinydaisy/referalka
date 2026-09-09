@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus, ChevronDown, Palette, CreditCard } from 'lucide-react'
+import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus, ChevronDown, Palette, CreditCard, Image as ImageIcon } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
@@ -8,6 +8,7 @@ import { useLang, type Lang } from '@/contexts/LangContext'
 import MiniAppSettingsPage from '../mini-app/page'
 import LegalTab from '@/components/settings/LegalTab'
 import LandingThemeTab from '@/components/settings/LandingThemeTab'
+import CoverTemplatesTab from '@/components/settings/CoverTemplatesTab'
 import AssistantTab from '@/components/settings/AssistantTab'
 import ChatGatesTab from '@/components/settings/ChatGatesTab'
 import StorageTab from '@/components/settings/StorageTab'
@@ -22,7 +23,7 @@ import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/c
 // страница, а все ссылки («осталось N дней», баннеры, возврат после оплаты) —
 // на вкладку, то есть человек попадал в раздел настроек, которого в меню нет.
 // Два экрана с одним смыслом расходились при каждой правке.
-type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme' | 'payments' | 'domains' | 'storage'
+type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'legal' | 'assistant' | 'chat-gates' | 'landing-theme' | 'covers' | 'payments' | 'domains' | 'storage'
 
 const TIMEZONES = [
   { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
@@ -222,6 +223,9 @@ export default function SettingsPage() {
     ...(hasPartnerRegistration ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     ...(hasLandingTheme ? [{ id: 'landing-theme' as Tab, label: 'Стили лендингов', icon: Palette }] : []),
+    // Шаблоны обложек (миграция 387) — рядом со «Стилями»: это тоже
+    // фирменное оформление, только для картинок к записям и материалам.
+    { id: 'covers' as Tab, label: 'Шаблоны обложек', icon: ImageIcon },
     // ⚠️ Вкладка видна ВСЕГДА: скрытый раздел выглядит как «у нас такого нет».
     // Без фичи внутри показывается замок с объяснением и ссылкой на тариф.
     { id: 'payments' as Tab, label: 'Платёжные системы', icon: CreditCard },
@@ -311,6 +315,7 @@ export default function SettingsPage() {
       {/* Юр. данные + Политика — отдельный блок */}
       {effectiveTab === 'legal' && <LegalTab />}
       {effectiveTab === 'landing-theme' && hasLandingTheme && <LandingThemeTab />}
+      {effectiveTab === 'covers' && <CoverTemplatesTab />}
 
       {/* Ассистент кабинета — миграция 106 */}
       {effectiveTab === 'assistant' && <AssistantTab />}

@@ -66,6 +66,9 @@ IMAGE_UPLOAD_KINDS = {
     # принадлежит кабинету того, кто ведёт новости (админ грузит из своего
     # кабинета, сервисный клиент — из своего).
     "news_media",
+    # Фон шаблона обложки (миграция 387). Без привязки к событию:
+    # шаблон один на кабинет.
+    "cover_bg",
 }
 
 router = APIRouter(tags=["Загрузка файлов"])
@@ -395,6 +398,7 @@ _KIND_LABEL = {
     "owner_photo": "Фото основателя",
     "speaker_gallery": "Фото спикера",
     "broadcast_photo": "Фото рассылки",
+    "cover_bg": "Фон обложки",
     "broadcast_video": "Видео рассылки",
     "dialog_media": "Медиа переписки",
     "webinar_recording": "Запись эфира",
@@ -673,6 +677,9 @@ async def storage_files(
         elif kind in ("brand_photo", "brand_logo", "owner_photo", "speaker_gallery"):
             link = "/dashboard/mini-app"
             place = "Профиль и бренд"
+        elif kind == "cover_bg":
+            link = "/dashboard/settings?tab=covers"
+            place = "Шаблоны обложек"
         elif kind in ("broadcast_photo", "broadcast_video"):
             link = "/dashboard/broadcasts"
             place = "Рассылки"
