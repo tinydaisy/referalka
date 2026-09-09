@@ -313,6 +313,10 @@ class ConferenceUpdate(BaseModel):
     offer_url: Optional[str] = None                # оферта ссылкой на чужой сайт (миграция 157)
     offer_id: Optional[int] = None                 # оферта из раздела «Оферты» (миграция 249)
     chat_button_label: Optional[str] = None        # заголовок кнопки чата (миграция 117)
+    # Формат события (миграция 394): онлайн / офлайн / гибрид — от него
+    # зависит, показывать кнопку эфира или кнопку адреса с картой.
+    event_format: Optional[str] = None
+    address_button_label: Optional[str] = None
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
     # ⚠️ Поля обязаны быть ЗДЕСЬ, а не только в списке EVENT_FIELDS: Pydantic
@@ -379,6 +383,7 @@ async def get_conference(
                e.offer_url   AS event_offer_url,
                e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
+               e.event_format, e.address_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.disabled_platforms AS event_disabled_platforms,
@@ -488,6 +493,7 @@ async def update_conference(
         "primary_chat_platform",
         "vip_url", "vip_button_label", "offer_url", "offer_id",
         "chat_button_label", "accent_button", "hide_stream_button",
+        "event_format", "address_button_label",
         # Выключенные площадки события (миграция 263)
         "disabled_platforms",
         # Куда вести со страницы после оплаты (миграция 261)
@@ -594,6 +600,7 @@ async def update_conference(
                e.offer_url   AS event_offer_url,
                e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
+               e.event_format, e.address_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.disabled_platforms AS event_disabled_platforms,

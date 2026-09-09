@@ -152,6 +152,11 @@ class UpdateEventRequest(BaseModel):
     chat_member_count_label: Optional[str] = None
     # Заголовок кнопки чата в Mini App (миграция 117). NULL = дефолт «Чат события».
     chat_button_label: Optional[str] = None
+    # ⚠️ Формат события (миграция 394): от него зависит, что видит человек —
+    # кнопку эфира или кнопку адреса с картой. Явный выбор организатора, а не
+    # догадка по заполненному адресу (адрес вписывают позже, а бывает и ссылка).
+    event_format: Optional[str] = None
+    address_button_label: Optional[str] = None
     # Какая из главных кнопок красная: 'vip' | 'chat' | 'none' (миграция 117).
     # NULL = 'vip' (обратная совместимость).
     accent_button: Optional[str] = None
@@ -887,7 +892,7 @@ async def copy_event(
                   tg_chat_ref, vk_chat_ref, max_chat_ref, primary_chat_platform,
                   vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
-                  chat_button_label, accent_button,
+                  chat_button_label, accent_button, event_format, address_button_label,
                   skip_contact_form, landing_cta_label, landing_cta_repeat, registration_mode,
                   person_wording,
                   registration_closed, pre_reg_text, pre_reg_btn_label, pre_reg_btn_url,
@@ -900,8 +905,9 @@ async def copy_event(
                        $17,$18,
                        $19,$20,
                        $21,$22,
-                       $23,$24,$25,$26,$27,
-                       $28,$29,$30,$31,$32,$33,$34)
+                       $23,$24,
+                       $25,$26,$27,$28,$29,
+                       $30,$31,$32,$33,$34,$35,$36)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -918,6 +924,9 @@ async def copy_event(
             src.get('chat_member_count_label'),
             src.get('chat_button_label'),
             src.get('accent_button'),
+            # ⚠️ Порядок значений обязан совпадать с порядком колонок выше:
+            # `event_format` и `address_button_label` идут ПОСЛЕ accent_button.
+            src.get('event_format') or 'online', src.get('address_button_label'),
             src.get('skip_contact_form') or False,
             src.get('landing_cta_label'),
             src.get('landing_cta_repeat'),

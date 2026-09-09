@@ -903,6 +903,9 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
                    e.primary_chat_platform,
                    e.chat_member_count_label, e.chat_button_label, e.accent_button,
+                   # ⚠️ Формат события (миграция 394) — по нему Mini App решает,
+                   # показывать кнопку эфира или кнопку адреса с картой.
+                   e.event_format, e.address_button_label,
                    e.require_subscription,
                    -- Где проверяем подписку (мигр. 344). Mini App читает
                    -- sub_check_at_registration, чтобы решить, показывать ли
