@@ -179,11 +179,43 @@ async def _run_setup(db, order) -> None:
                                 "Бот подключён к вашему кабинету")
 
         # ── Mini App ──
+        #
+        # ⚠️⚠️ СТАВИМ КНОПКУ МЕНЮ ЧЕРЕЗ BOT API, а не /newapp у BotFather.
+        #
+        # Раньше шли к BotFather, и шаг ПРОВАЛИВАЛСЯ ВСЕГДА: он обязательно
+        # требует картинку 640×360, а мы отправляли ссылку на
+        # `pluson.ru/miniapp-cover.png`, которого не существует (404, файла нет
+        # в проекте вовсе). Диалог обрывался, и клиент читал «Приложение
+        # подключим отдельно» при каждой настройке.
+        #
+        # `setChatMenuButton` делает ровно то, что нужно человеку: в боте
+        # появляется кнопка, открывающая его кабинет. Тем же способом Mini App
+        # подключается в мастере «Каналов» (api/channels.py), то есть механика
+        # общая, а не своя. Картинка и short-name при этом не нужны вовсе.
         if not order["miniapp_linked_at"]:
             base = (settings.frontend_url or "https://pluson.ru").rstrip("/")
             url = f"{base}/c/{client_id}/tg/"
-            brand = await _client_brand(db, client_id)
-            ok = await tgs.link_mini_app(client, order["bot_username"], url, brand)
+            # ⚠️ Токен берём ИЗ ЗАКАЗА, а не из локальной переменной: она
+            # существует, только когда бота создали в этом же прогоне. При
+            # повторном заходе (бот уже был) её нет — упали бы с NameError.
+            bot_token = await db.fetchval(
+                "SELECT bot_token FROM service_orders WHERE id=$1", order_id
+            )
+            ok = False
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=20) as http:
+                    r = await http.post(
+                        f"https://api.telegram.org/bot{bot_token}/setChatMenuButton",
+                        json={"menu_button": {
+                            "type": "web_app",
+                            "text": "Открыть кабинет",
+                            "web_app": {"url": url},
+                        }},
+                    )
+                    ok = bool(r.json().get("ok"))
+            except Exception as e:  # noqa: BLE001 — шаг не должен ронять настройку
+                log.warning("tg_setup: не удалось поставить кнопку Mini App: %s", e)
             if ok:
                 await db.execute(
                     "UPDATE service_orders SET miniapp_linked_at=NOW(), updated_at=NOW() "

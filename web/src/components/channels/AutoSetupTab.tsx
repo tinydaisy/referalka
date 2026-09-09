@@ -653,6 +653,31 @@ export default function AutoSetupTab() {
             confirming={confirming === 'group'}
           />
 
+          {/*
+            ⚠️ Свой канал — НЕОБЯЗАТЕЛЬНЫЙ шаг, и это сказано вслух: канал есть
+            не у всех, а без пометки человек считает настройку незавершённой и
+            идёт в поддержку. Галочки-подтверждения здесь НЕТ намеренно: платформа
+            видит добавление бота сама (апдейт `my_chat_member`), в отличие от
+            захода в бота и вступления в группу — там подтверждение нужно.
+          */}
+          <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 mb-2.5">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center shrink-0">
+                <Users size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-900">
+                  Если у вас есть свой канал — добавьте туда бота
+                  <span className="text-gray-400 font-normal"> (необязательно)</span>
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Админом, с правом «Публикация сообщений» — тогда сможете
+                  рассылать и в канал. Мы увидим это сами и подключим его.
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* ⚠️ «Заберите бота» убрано: человек не понимал, что от него нужно —
               казалось, что есть какое-то отдельное действие «забрать». Забрать
               = зайти в бота, то есть тот же первый шаг. Так и пишем. */}
