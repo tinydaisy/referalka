@@ -216,7 +216,7 @@ async def _run_setup(db, order) -> None:
                         f"https://api.telegram.org/bot{bot_token}/setChatMenuButton",
                         json={"menu_button": {
                             "type": "web_app",
-                            "text": "Открыть",
+                            "text": "ОТКРЫТЬ",
                             "web_app": {"url": url},
                         }},
                     )
