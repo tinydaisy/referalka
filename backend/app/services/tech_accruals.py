@@ -123,18 +123,16 @@ async def _on_payment(db: asyncpg.Connection, order_id: int) -> None:
                           note=f"перерыв {(cur - prev).days} дн."):
                 logger.info("tech: оживление клиента %s спецу %s", client_id, spec_id)
 
-    # ── Процент за лично приведённого ────────────────────────────────────
-    # ⚠️ «Лично привёл» — это `referred_by_client_id` на КЛИЕНТЕ специалиста,
-    # а не факт закрепления: закрепить могли и чужого, а процент только за своих.
+    # ── Процент за приведённого ──────────────────────────────────────────
+    # ⚠️⚠️ «ПРИВЁЛ ЛИЧНО» — это `referred_by_tech_id` (миграция 393), а НЕ
+    # `referred_by_client_id`. Прежняя проверка спрашивала «тех-спец того, кто
+    # привёл = я» — то есть «привёл кто-то, кого я обслуживаю». Процент уходил
+    # бы не тому: закрепить могли и чужого клиента, а привёл его другой человек.
     _, percent = await _rate(db, "referral")
     if percent > 0 and paid > 0:
-        own = await db.fetchval(
-            """SELECT 1 FROM clients ref
-                WHERE ref.id = (SELECT referred_by_client_id FROM clients WHERE id = $1)
-                  AND ref.tech_specialist_id = $2""",
-            client_id, spec_id,
-        )
-        if own:
+        by_tech = await db.fetchval(
+            "SELECT referred_by_tech_id FROM clients WHERE id = $1", client_id)
+        if by_tech == spec_id:
             await _add(db, spec_id=spec_id, client_id=client_id, kind="referral",
                        amount=int(paid * percent / 100), order_id=order_id,
                        period=period, note=f"{percent:g}% с оплаты")

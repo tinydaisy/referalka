@@ -83,10 +83,18 @@ async def my_clients(
                    t.slug AS tariff_slug, t.name AS tariff_name,
                    cs.expires_at, cs.status AS sub_status, cs.source AS sub_source,
                    {paying} AS is_paying,
-                   -- Лично приведённый: за него идёт процент.
-                   (c.referred_by_client_id IS NOT NULL
-                    AND (SELECT tech_specialist_id FROM clients r
-                          WHERE r.id = c.referred_by_client_id) = $1) AS is_mine_referral,
+                   -- ⚠️ УРОВЕНЬ ПРИВЕДЁННОГО. Раньше здесь был признак,
+                   -- считавший «тех-спец того, кто привёл = я» — это «привёл
+                   -- кто-то, кого я обслуживаю», а не «привёл я сам».
+                   --   1 — привёл ЛИЧНО (по своей реф-ссылке);
+                   --   2 — привёл тот, кого привёл он;
+                   --   NULL — просто назначен на обслуживание.
+                   CASE
+                     WHEN c.referred_by_tech_id = $1 THEN 1
+                     WHEN (SELECT l1.referred_by_tech_id FROM clients l1
+                            WHERE l1.id = c.referred_by_client_id) = $1 THEN 2
+                     ELSE NULL
+                   END AS referral_level,
                    (SELECT COUNT(*) FROM subscription_orders so
                      WHERE so.client_id = c.id AND so.status='paid'
                        AND so.amount_paid_card_kopecks > 0) AS payments_count,

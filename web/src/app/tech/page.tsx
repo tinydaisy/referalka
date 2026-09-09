@@ -24,6 +24,11 @@ const TABS: { id: string; label: string }[] = [
   { id: 'paying', label: 'Платят' },
   { id: 'trial', label: 'На пробном' },
   { id: 'cold', label: 'Остыли' },
+  // ⚠️ Разрезы по происхождению: «за кого мне идёт процент» и «кого просто
+  // дали вести» — разные деньги, и смотрят их отдельно.
+  { id: 'mine', label: 'Привёл лично' },
+  { id: 'level2', label: '2-й уровень' },
+  { id: 'assigned', label: 'Назначенные' },
 ]
 
 export default function TechClientsPage() {
@@ -35,7 +40,9 @@ export default function TechClientsPage() {
   useEffect(() => {
     setLoading(true)
     const t = setTimeout(() => {
-      api.tech.clients({ search: search || undefined, status: status || undefined })
+      // Разрезы по уровню считаются здесь же, серверу их слать незачем.
+      const serverStatus = ['paying', 'trial', 'cold'].includes(status) ? status : undefined
+      api.tech.clients({ search: search || undefined, status: serverStatus })
         .then((r: any) => setItems(r.clients || []))
         .catch(() => {})
         .finally(() => setLoading(false))
@@ -44,6 +51,12 @@ export default function TechClientsPage() {
   }, [status, search])
 
   const paying = items.filter(i => i.is_paying).length
+  // ⚠️ Фильтр по уровню — на фронте, а не запросом: список уже загружен целиком
+  // и ограничен бэкендом «только мои», лишний поход на сервер тут ни к чему.
+  const shown = status === 'mine' ? items.filter(i => i.referral_level === 1)
+    : status === 'level2' ? items.filter(i => i.referral_level === 2)
+    : status === 'assigned' ? items.filter(i => !i.referral_level)
+    : items
 
   return (
     <div className="p-4 md:p-8">
@@ -70,7 +83,7 @@ export default function TechClientsPage() {
 
       {loading ? (
         <div className="text-sm text-gray-400">Загружаем…</div>
-      ) : !items.length ? (
+      ) : !shown.length ? (
         <div className="rounded-xl bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
           Здесь пока никого. Клиентов закрепляет владелец платформы.
         </div>
@@ -88,7 +101,7 @@ export default function TechClientsPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map(c => (
+              {shown.map(c => (
                 <tr key={c.id} className="border-b border-gray-50 last:border-0">
                   <td className="px-4 py-3">
                     <Link href={`/tech/clients/${c.id}`}
@@ -96,10 +109,23 @@ export default function TechClientsPage() {
                       {c.name || 'Без имени'}
                     </Link>
                     <div className="text-xs text-gray-400">{c.email}</div>
-                    {/* Признак «мой приведённый» — за него идёт процент. */}
-                    {c.is_mine_referral && (
+                    {/* ⚠️ Уровень видно сразу: за приведённого лично идёт
+                        процент, за второй уровень — по своей ставке, а за
+                        назначенного только фикс. Без пометки в списке эти
+                        случаи неразличимы. */}
+                    {c.referral_level === 1 && (
                       <span className="mt-0.5 inline-block rounded bg-[#FFCFA4] px-1.5 py-0.5 text-[10px] font-semibold text-[#0a1520]">
-                        мой приведённый
+                        привёл лично
+                      </span>
+                    )}
+                    {c.referral_level === 2 && (
+                      <span className="mt-0.5 inline-block rounded bg-[#25455D] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        2-й уровень
+                      </span>
+                    )}
+                    {!c.referral_level && (
+                      <span className="mt-0.5 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
+                        назначен
                       </span>
                     )}
                   </td>
