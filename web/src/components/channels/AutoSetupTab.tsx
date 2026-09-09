@@ -272,7 +272,18 @@ export default function AutoSetupTab() {
 
   if (!state) return null
 
-  const order = state.order
+  /**
+   * ⚠️⚠️ ЗАКАЗА НЕТ — ЭТО `{}`, А НЕ `undefined`.
+   *
+   * `_order_out` на бэкенде при отсутствии заказа возвращает ПУСТОЙ ОБЪЕКТ.
+   * В JavaScript `{}` — истина, поэтому проверка «заказа нет» (`!order`) не
+   * срабатывала, и форма ввода имени бота не рисовалась ВООБЩЕ: человек с
+   * выданной услугой видел только тёмную витрину и не мог ничего запустить.
+   *
+   * Приводим к `undefined` по наличию `id` — единственного поля, которое есть
+   * у настоящего заказа всегда.
+   */
+  const order = state.order?.id ? state.order : undefined
   const st = order?.setup_state
   const inProgress = st === 'queued' || st === 'running'
   const waitingUser = st === 'awaiting_user'
