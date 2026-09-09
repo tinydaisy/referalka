@@ -3,6 +3,10 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { CreditCard, CheckCircle2, XCircle, ArrowRight, Wallet } from 'lucide-react'
 import { api } from '@/lib/api'
+import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
+import {
+  AUTOSETUP_STEPS, AUTOSETUP_FROM_CLIENT, AUTOSETUP_NOT_INCLUDED,
+} from '@/lib/autosetupSteps'
 
 export default function SubscriptionPage() {
   const [me, setMe] = useState<any>(null)
@@ -790,11 +794,39 @@ function ServicesBlock() {
    * 403 — это норма, а не сбой, карточка просто останется витриной.
    */
   const [autosetup, setAutosetup] = useState<any>(null)
+  /**
+   * Ввод кода доступа — ПРЯМО ЗДЕСЬ, в карточке.
+   *
+   * ⚠️ Сначала кнопка «Приобрести по коду» уводила на страницу Каналов, где
+   * поле ввода. Это неверно: человек нажимает «приобрести» и вместо покупки
+   * оказывается в другом разделе, гадая, что произошло. Действие должно
+   * заканчиваться там, где начато.
+   */
+  const [codeFor, setCodeFor] = useState<string | null>(null)  // slug услуги
+  const [code, setCode] = useState('')
+  const [activating, setActivating] = useState(false)
+  const [codeError, setCodeError] = useState<string | null>(null)
+
+  const loadAutosetup = () =>
+    api.tgAutosetup.get().then((r: any) => setAutosetup(r)).catch(() => {})
 
   useEffect(() => {
     api.services.list().then((r: any) => setServices(r.services || [])).catch(() => {})
-    api.tgAutosetup.get().then((r: any) => setAutosetup(r)).catch(() => {})
+    loadAutosetup()
   }, [])
+
+  const activate = async () => {
+    setActivating(true); setCodeError(null)
+    try {
+      await api.tgAutosetup.activateCode(code.trim())
+      setCode(''); setCodeFor(null)
+      await loadAutosetup()
+    } catch (e: any) {
+      setCodeError(e?.message || 'Не удалось применить код')
+    } finally {
+      setActivating(false)
+    }
+  }
 
   if (services.length === 0) return null
 
@@ -841,14 +873,61 @@ function ServicesBlock() {
               {Number(s.price) > 0 && <span className="text-xs text-gray-400">разово</span>}
             </div>
 
-            <ul className="mt-3 space-y-1.5 text-xs text-gray-600 flex-1">
-              {(s.bullet_points || []).slice(0, 5).map((b: string, i: number) => (
+            {/* ⚠️ Перечень шагов — ОБЩИЙ с вкладкой «Автонастройка» в Каналах
+                (lib/autosetupSteps.ts). Раньше здесь показывался свой список из
+                базы (`bullet_points`), и он уже разошёлся с тем, что услуга
+                делает на самом деле: человек читал в двух местах разное.
+                ⚠️ Список НЕ обрезаем: это перечень того, за что платят. */}
+            <p className="text-[11px] uppercase tracking-wide text-gray-400 mt-4 mb-1.5">
+              Что сделаем за вас
+            </p>
+            <ul className="space-y-1.5 text-xs text-gray-600">
+              {(s.slug === 'tg_autosetup' ? AUTOSETUP_STEPS : (s.bullet_points || []))
+                .map((b: string, i: number) => (
                 <li key={i} className="flex items-start gap-1.5">
                   <CheckCircle2 size={12} className="text-emerald-500 shrink-0 mt-0.5" />
                   <span>{b}</span>
                 </li>
               ))}
             </ul>
+
+            {s.slug === 'tg_autosetup' && (
+              <>
+                <p className="text-[11px] uppercase tracking-wide text-gray-400 mt-4 mb-1.5">
+                  От вас — два действия
+                </p>
+                <ul className="space-y-1.5 text-xs text-gray-600">
+                  {AUTOSETUP_FROM_CLIENT.map((b, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="shrink-0 mt-0.5 w-3 text-center text-[10px] font-bold text-[#25455D]">
+                        {i + 1}
+                      </span>
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* Честно о том, чего услуга НЕ делает — про это спрашивают. */}
+                <ul className="mt-3 space-y-1 text-[11px] text-gray-400">
+                  {AUTOSETUP_NOT_INCLUDED.map((b, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="shrink-0">—</span>
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* ⚠️ Адрес поддержки — только из lib/support.ts. */}
+                <p className="mt-3 text-xs text-gray-500">
+                  Вопросы —{' '}
+                  <Link href={SUPPORT_URL} className="text-[#25455D] underline">
+                    {SUPPORT_LABEL}
+                  </Link>
+                </p>
+              </>
+            )}
+
+            <div className="flex-1" />
 
             {/*
               ⚠️ Выданная услуга главнее рычага «СКОРО»: он закрывает продажу,
@@ -868,11 +947,38 @@ function ServicesBlock() {
                     className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
                 {paid.setup_state === 'done' ? 'Настройка завершена' : 'Перейти к настройке'}
               </Link>
+            ) : codeFor === s.slug ? (
+              // Поле раскрывается ЗДЕСЬ ЖЕ — уводить на другую страницу за
+              // вводом кода нельзя, человек теряет контекст покупки.
+              <div className="mt-4">
+                <div className="flex gap-1.5">
+                  <input
+                    autoFocus
+                    value={code}
+                    onChange={e => { setCode(e.target.value); setCodeError(null) }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && code.trim()) activate()
+                      if (e.key === 'Escape') { setCodeFor(null); setCodeError(null) }
+                    }}
+                    placeholder="Код доступа"
+                    className="flex-1 min-w-0 rounded-lg border border-gray-300 px-2.5 py-2 text-xs outline-none focus:border-gray-400"
+                  />
+                  <button onClick={activate} disabled={activating || !code.trim()}
+                          className="btn-gold px-3 text-xs font-semibold disabled:opacity-50">
+                    {activating ? '…' : 'ОК'}
+                  </button>
+                </div>
+                {codeError && <p className="mt-2 text-xs text-red-600">{codeError}</p>}
+                <button onClick={() => { setCodeFor(null); setCodeError(null) }}
+                        className="mt-2 text-xs text-gray-400 hover:text-gray-600">
+                  Отмена
+                </button>
+              </div>
             ) : (
-              <Link href="/dashboard/channels?tab=autosetup"
-                    className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
+              <button onClick={() => { setCodeFor(s.slug); setCode(''); setCodeError(null) }}
+                      className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
                 Приобрести по коду
-              </Link>
+              </button>
             )}
           </div>
         )})}

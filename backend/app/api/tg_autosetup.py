@@ -187,9 +187,15 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         )
 
     # Ник клиента в Telegram — без него передать права некому.
-    tg_nick = await db.fetchval(
-        "SELECT telegram_username FROM clients WHERE id=$1", client_id
+    # ⚠️ Рядом отдаём «Службу заботы»: экран правит ник и заодно заполняет её,
+    # но ТОЛЬКО когда она пуста — у части клиентов поддержку ведёт отдельный
+    # аккаунт, и затирать его настройку нельзя. Без этого поля фронт не знает,
+    # занято ли оно, и перезаписал бы вслепую.
+    nick_row = await db.fetchrow(
+        "SELECT telegram_username, work_tg_username FROM clients WHERE id=$1",
+        client_id,
     )
+    tg_nick = nick_row["telegram_username"] if nick_row else None
     brand = await db.fetchval(
         "SELECT COALESCE(NULLIF(brand_name,''), name) FROM clients WHERE id=$1",
         client_id,
@@ -220,6 +226,9 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         "order": _order_out(order, svc),
         "queue_position": queue_position,
         "telegram_username": tg_nick,
+        # Заполнена ли «Служба заботы» — экран по ней решает, можно ли
+        # подставить туда ник, не затирая уже настроенный аккаунт поддержки.
+        "support_filled": bool((nick_row and nick_row["work_tg_username"] or "").strip()),
         "suggestions": tgs.suggest_bot_usernames(brand or ""),
         "claim_days": 3,
     }

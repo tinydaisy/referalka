@@ -232,6 +232,37 @@ async def _run_setup(db, order) -> None:
                     await _log_step(db, order_id, "group",
                                     "Вы добавлены в группу и назначены админом")
 
+        # ─── Служба заботы ───
+        #
+        # ⚠️⚠️ ЭТО ШАГ УСЛУГИ, А НЕ «клиент заполнит сам в Настройках».
+        # Поле `work_tg_username` необязательное, лежит отдельной вкладкой, и
+        # до него не доходят. А без него молча не работает всё, что на нём
+        # завязано: команда /support во всех ботах, кнопка «Тех. поддержка» в
+        # меню события и в рассылках, блок поддержки на лендинге, подпись в
+        # письмах о заказе. Настройка «под ключ» обязана закрыть и это.
+        #
+        # ⚠️ Ставим ТОЛЬКО в пустое поле: у части клиентов поддержку ведёт не
+        # владелец, а отдельный аккаунт — затирать его настройку нельзя.
+        # Нормализация общая с остальным проектом (ссылка https://…).
+        support_nick = await db.fetchval(
+            "SELECT telegram_username FROM clients WHERE id=$1", client_id
+        )
+        if support_nick:
+            from app.services.support_message import tg_support_link
+            link = tg_support_link(support_nick)
+            if link:
+                filled = await db.fetchval(
+                    """UPDATE clients
+                          SET work_tg_username = $2
+                        WHERE id = $1 AND COALESCE(work_tg_username, '') = ''
+                    RETURNING id""",
+                    client_id, link,
+                )
+                if filled:
+                    await _log_step(db, order_id, "support",
+                                    "Служба заботы прописана — заработают "
+                                    "«Тех. поддержка» в боте и на лендинге")
+
         # Всё, что могли — сделали. Дальше ждём клиента.
         await db.execute(
             "UPDATE service_orders SET setup_state='awaiting_user', updated_at=NOW() "

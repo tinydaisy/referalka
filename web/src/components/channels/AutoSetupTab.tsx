@@ -12,6 +12,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
+import {
+  AUTOSETUP_STEPS, AUTOSETUP_FROM_CLIENT, AUTOSETUP_NOT_INCLUDED,
+} from '@/lib/autosetupSteps'
 import {
   AlertTriangle, ArrowRight, Check, Clock, Copy, Loader2,
   MessageSquare, Sparkles, Users,
@@ -39,6 +43,8 @@ type State = {
   order?: Order
   queue_position?: number | null
   telegram_username?: string | null
+  /** Заполнена ли «Служба заботы» — по ней решаем, подставлять ли туда ник. */
+  support_filled?: boolean
   suggestions: string[]
   claim_days: number
 }
@@ -84,6 +90,50 @@ export default function AutoSetupTab() {
       setLoading(false)
     }
   }, [username])
+
+  /**
+   * Ник в Telegram — правится ПРЯМО ЗДЕСЬ, а не в Настройках.
+   *
+   * ⚠️ Раньше здесь висела плашка «укажите ник в Настройках»: человек уходил
+   * в другой раздел, искал нужную вкладку и часто не возвращался. Поле в
+   * кабинете НЕобязательное и лежит отдельно — значит закрыть этот пробел
+   * должна сама настройка «под ключ», раз без ника права передать некому.
+   *
+   * ⚠️ Сохраняется СРАЗУ в двух местах: ник профиля и «Служба заботы»
+   * (см. saveNick) — иначе останется незаполненным то, ради чего услуга
+   * и делается.
+   */
+  const [nick, setNick] = useState('')
+  const [savingNick, setSavingNick] = useState(false)
+  const [nickSaved, setNickSaved] = useState(false)
+  const [nickError, setNickError] = useState<string | null>(null)
+
+  const saveNick = async () => {
+    const value = nick.trim().replace(/^@/, '')
+    if (!value) return
+    setSavingNick(true); setNickError(null); setNickSaved(false)
+    try {
+      // ⚠️ Пишем ник профиля (по нему передаются права на бота) и заодно
+      // «Службу заботы» — по ней работают /support в ботах, кнопка
+      // «Тех. поддержка» на лендинге и в рассылках, подпись в письмах.
+      // Ссылкой, а не ником: так это поле заполняется во всём проекте.
+      //
+      // ⚠️ Службу заботы трогаем ТОЛЬКО когда она пуста: у части клиентов
+      // поддержку ведёт отдельный аккаунт, и затирать его настройку нельзя.
+      await api.auth.updateMe({
+        telegram_username: value,
+        ...(state?.support_filled
+          ? {}
+          : { work_tg_username: `https://telegram.me/${value}` }),
+      })
+      setNickSaved(true)
+      await load(true)
+    } catch (e: any) {
+      setNickError(e?.message || 'Не удалось сохранить')
+    } finally {
+      setSavingNick(false)
+    }
+  }
 
   /** Открыть услугу по коду доступа. */
   const activate = async () => {
@@ -219,86 +269,176 @@ export default function AutoSetupTab() {
    * не оплаченного.
    */
   const paid = order?.status === 'paid'
-  const sellingClosed = state.service.coming_soon && !paid
+
+  /**
+   * ⚠️⚠️ УСЛУГА ДОСТУПНА — ЗНАЧИТ ФОРМА ОТКРЫТА, даже если заказа ещё нет.
+   *
+   * Здесь была ошибка: доступ определялся по ОПЛАЧЕННОМУ ЗАКАЗУ (`paid`).
+   * Но при выдаче по коду заказа нет вовсе — есть только фича, а заказ
+   * рождается уже при запуске настройки. Из-за этого человек вводил код,
+   * получал доступ и всё равно видел «СКОРО» без единой кнопки.
+   *
+   * Признак доступа — сам факт, что эта ручка ответила: `_assert_feature`
+   * отдаёт 403 всем, у кого фичи нет, и до отрисовки дело не доходит
+   * (показывается экран ввода кода). Значит `coming_soon` здесь означает
+   * ровно одно: продажа за деньги закрыта — а доступ у человека уже есть,
+   * и прятать по нему форму нельзя.
+   */
 
   return (
     <div className="max-w-3xl">
-      {/*
-        ─── Шапка услуги: ТОЛЬКО ПОКА УСЛУГА НЕ ВЫДАНА ───
-
-        ⚠️ Это витрина — что входит в услугу и сколько стоит. Тому, у кого
-        услуга уже есть, продавать нечего: тёмный экран на пол-страницы просто
-        отодвигает вниз то, ради чего человек зашёл (форму и статус настройки).
-      */}
-      {!paid && (
-        <div className="rounded-2xl p-6 mb-6 text-white"
-             style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-          <div className="flex items-start gap-3">
-            <Sparkles size={22} style={{ color: '#FFCFA4' }} className="mt-1 shrink-0" />
-            <div className="flex-1">
+      {/* ─── Шапка услуги ─── */}
+      <div className="rounded-2xl p-6 mb-6 text-white"
+           style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+        <div className="flex items-start gap-3">
+          <Sparkles size={22} style={{ color: '#FFCFA4' }} className="mt-1 shrink-0" />
+          <div className="flex-1">
+            <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xl font-bold">{state.service.name}</h2>
-              {state.service.tagline && (
-                <p className="text-white/80 text-sm mt-1">{state.service.tagline}</p>
+              {paid && (
+                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-green-500 text-white">
+                  ВЫДАНА
+                </span>
               )}
-              {state.service.description && (
-                <p className="text-white/70 text-sm mt-3 leading-relaxed">
-                  {state.service.description}
-                </p>
-              )}
-              {!!state.service.bullet_points?.length && (
-                <ul className="mt-4 space-y-1.5">
-                  {state.service.bullet_points.map((b, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-white/85">
-                      <Check size={15} style={{ color: '#FFCFA4' }} className="mt-0.5 shrink-0" />
-                      <span>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="mt-4 flex items-center gap-3">
-                {/* Ноль показываем словом: «0 ₽» читается как сбой. */}
-                <div className="text-2xl font-bold" style={{ color: '#FFCFA4' }}>
-                  {state.service.price > 0 ? `${state.service.price} ₽` : 'Бесплатно'}
-                </div>
-                {state.service.price > 0 && <div className="text-white/60 text-sm">разово</div>}
-                {sellingClosed && (
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-semibold"
-                        style={{ background: '#FFCFA4', color: '#25455D' }}>
-                    СКОРО
-                  </span>
-                )}
-              </div>
             </div>
+            {state.service.tagline && (
+              <p className="text-white/80 text-sm mt-1">{state.service.tagline}</p>
+            )}
+
+            {/* ⚠️ Перечень шагов — ОБЩИЙ с карточкой услуги на странице
+                «Подписка» (lib/autosetupSteps.ts). Раньше списки были разные
+                (в базе своё `bullet_points`, здесь своё) и уже разъехались:
+                человек читал в одном месте одно, в другом другое. */}
+            <p className="text-white/60 text-xs uppercase tracking-wide mt-5 mb-2">
+              Что сделаем за вас
+            </p>
+            <ul className="space-y-1.5">
+              {AUTOSETUP_STEPS.map((b, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-white/85">
+                  <Check size={15} style={{ color: '#FFCFA4' }} className="mt-0.5 shrink-0" />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+
+            <p className="text-white/60 text-xs uppercase tracking-wide mt-5 mb-2">
+              От вас — два действия
+            </p>
+            <ul className="space-y-1.5">
+              {AUTOSETUP_FROM_CLIENT.map((b, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-white/85">
+                  <span className="shrink-0 mt-0.5 w-[15px] text-center text-xs font-bold"
+                        style={{ color: '#FFCFA4' }}>{i + 1}</span>
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+
+            {/* Честно о том, чего услуга НЕ делает — про это спрашивают. */}
+            <ul className="mt-5 space-y-1.5">
+              {AUTOSETUP_NOT_INCLUDED.map((b, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-white/55">
+                  <span className="shrink-0 mt-0.5">—</span>
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-5 flex items-center gap-3">
+              {/* Ноль показываем словом: «0 ₽» читается как сбой. */}
+              <div className="text-2xl font-bold" style={{ color: '#FFCFA4' }}>
+                {state.service.price > 0 ? `${state.service.price} ₽` : 'Бесплатно'}
+              </div>
+              {state.service.price > 0 && <div className="text-white/60 text-sm">разово</div>}
+            </div>
+
+            {/* ⚠️ Контакт поддержки — прямо здесь: услугу за человека делает
+                служебный аккаунт, и вопрос «что происходит» возникает именно
+                на этом экране. Искать поддержку в другом разделе он не пойдёт. */}
+            {/* ⚠️ Адрес поддержки — только из lib/support.ts, руками путь не
+                прописывать: там единая точка на весь кабинет. */}
+            <p className="mt-5 pt-4 border-t border-white/15 text-sm text-white/70">
+              Вопросы по настройке —{' '}
+              <a href={SUPPORT_URL} className="underline hover:text-white"
+                 style={{ color: '#FFCFA4' }}>
+                {SUPPORT_LABEL}
+              </a>
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Услуга выдана — вместо витрины короткая строка-заголовок. */}
-      {paid && (
-        <div className="flex items-center gap-2.5 mb-5">
-          <Sparkles size={18} className="text-[#25455D] shrink-0" />
-          <h2 className="font-semibold text-gray-900">{state.service.name}</h2>
-          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-green-100 text-green-700">
-            ВЫДАНА
-          </span>
-        </div>
-      )}
+      {/*
+        ─── Ник в Telegram: спрашиваем и сохраняем ЗДЕСЬ ЖЕ ───
 
-      {/* ─── Скоро: без кнопки оплаты ─── */}
-      {sellingClosed && !order && (
-        <div className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-4 text-sm text-gray-600">
-          Услуга скоро появится. Мы допишем последние детали и включим её —
-          пока настроить бота можно вручную на вкладке «Боты».
-        </div>
-      )}
+        ⚠️ Раньше тут висела плашка «укажите ник в Настройках»: человек уходил
+        в другой раздел, искал вкладку и часто не возвращался. Поле в кабинете
+        необязательное — значит закрыть пробел должна сама настройка «под ключ»:
+        без ника некому передать права на бота и группу.
 
-      {/* ─── Нет ника в Telegram — передать права будет некому ─── */}
-      {!state.telegram_username && !sellingClosed && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 mb-5 flex gap-3">
-          <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-amber-900">
-            <b>Укажите свой ник в Telegram</b> в Настройках — без него мы не сможем
-            передать вам права на бота и группу.
+        ⚠️ Ник показываем и когда он УЖЕ есть — с просьбой проверить: в кабинет
+        его мог вписать кто угодно (или это ник другого человека), а ошибка
+        всплывёт в самом конце, когда бот уже создан и передавать его будет
+        некому. Поправленное сохраняется сразу, без ухода со страницы.
+      */}
+      {!order && (
+        <div className={`rounded-xl border px-5 py-4 mb-5 ${
+          state.telegram_username
+            ? 'border-gray-200 bg-white'
+            : 'border-amber-300 bg-amber-50'}`}>
+          <div className="flex gap-3">
+            {!state.telegram_username && (
+              <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-medium ${
+                state.telegram_username ? 'text-gray-800' : 'text-amber-900'}`}>
+                {state.telegram_username
+                  ? 'Проверьте свой ник в Telegram'
+                  : 'Укажите свой ник в Telegram'}
+              </p>
+              <p className={`text-xs mt-0.5 ${
+                state.telegram_username ? 'text-gray-500' : 'text-amber-800'}`}>
+                На этот аккаунт мы передадим права на бота и группу.
+                {!state.support_filled && ' Он же станет вашей «Службой заботы» — по нему люди напишут вам из бота и с лендинга.'}
+              </p>
+
+              <div className="flex gap-2 mt-3">
+                <div className="flex-1 flex items-center rounded-lg border border-gray-300 bg-white px-3 focus-within:border-gray-400">
+                  <span className="text-gray-400 select-none">@</span>
+                  <input
+                    value={nick || (state.telegram_username || '').replace(/^@/, '')}
+                    onChange={e => {
+                      setNick(e.target.value.trim().replace(/^@/, ''))
+                      setNickSaved(false); setNickError(null)
+                    }}
+                    onKeyDown={e => { if (e.key === 'Enter') saveNick() }}
+                    placeholder="ваш_ник"
+                    className="flex-1 py-2.5 px-1 outline-none text-sm bg-transparent"
+                  />
+                </div>
+                <button onClick={saveNick} disabled={savingNick || !nick.trim()}
+                        className="btn-primary px-4 whitespace-nowrap disabled:opacity-50">
+                  {savingNick ? <Loader2 size={15} className="animate-spin" /> : 'Сохранить'}
+                </button>
+              </div>
+
+              {nickSaved && (
+                <p className="mt-2 text-sm text-green-700 flex items-center gap-1.5">
+                  <Check size={15} /> Сохранено
+                </p>
+              )}
+              {nickError && (
+                <p className="mt-2 text-sm text-red-600 flex items-center gap-1.5">
+                  <AlertTriangle size={15} /> {nickError}
+                </p>
+              )}
+              {state.telegram_username && !nick && !nickSaved && (
+                <p className="mt-2 text-xs text-gray-400">
+                  Всё верно — можно запускать настройку ниже.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -310,8 +450,8 @@ export default function AutoSetupTab() {
         `paid`, `setup_state='new'` — то есть человеку остаётся только назвать
         бота. Условие `!order` прятало форму, и запустить настройку было нечем.
       */}
-      {!sellingClosed && (!order || (paid && !order.bot_username && !inProgress
-                                     && !waitingUser && !finished)) && (
+      {(!order || (paid && !order.bot_username && !inProgress
+                   && !waitingUser && !finished)) && (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h3 className="font-semibold text-gray-900 mb-1">Как назвать бота</h3>
           <p className="text-sm text-gray-500 mb-4">
