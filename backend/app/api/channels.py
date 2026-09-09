@@ -564,7 +564,7 @@ async def connect_telegram_bot(
     await _tg_call(token, "setChatMenuButton", {
         "menu_button": {
             "type": "web_app",
-            "text": "Открыть кабинет",
+            "text": "Открыть",
             "web_app": {"url": mini_app_url},
         }
     })
