@@ -32,6 +32,7 @@ export default function CoverTemplatesTab() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   // ⚠️ Файл фирменных шрифтов подключён только на публичных страницах — в
   // кабинете его надо добавить самим, иначе превью рисуется запасным шрифтом
@@ -73,6 +74,26 @@ export default function CoverTemplatesTab() {
       alert(e?.message || 'Не удалось сохранить')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // ⚠️ Перед снимком СОХРАНЯЕМ: картинку рисует сервер по тому, что лежит в
+  // базе, а не по тому, что на экране. Без этого клиент подвинул бы фото,
+  // нажал «Скачать» и получил старую раскладку.
+  async function download() {
+    if (!tpl) return
+    setDownloading(true)
+    try {
+      await api.coverTemplates.save(kind, tpl)
+      const s = SAMPLE[kind]
+      await api.coverTemplates.png(kind, {
+        title: s.title, subtitle: s.subtitle || '', overline: s.overline || '',
+        photo: theme.sample_photo_url || '',
+      })
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось собрать картинку')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -225,6 +246,10 @@ export default function CoverTemplatesTab() {
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={saving} className="btn-gold px-6 py-2.5 text-sm">
           {saving ? 'Сохраняем…' : 'Сохранить'}
+        </button>
+        <button onClick={download} disabled={downloading}
+                className="btn-primary px-5 py-2.5 text-sm">
+          {downloading ? 'Собираем картинку…' : 'Скачать PNG'}
         </button>
         {saved && <span className="text-sm text-green-600">Сохранено</span>}
       </div>

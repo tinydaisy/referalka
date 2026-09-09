@@ -1391,6 +1391,13 @@ export const api = {
       request(`/api/v1/clients/me/cover-templates/${kind}`, {
         method: 'PUT', body: JSON.stringify(data),
       }),
+    // ⚠️ Скачивание через тот же `downloadPdf` (он про любой файл, не только
+    // PDF): там уже разобран заголовок с кириллическим именем.
+    png: (kind: 'material' | 'speaker', p: Record<string, string>) => {
+      const qs = new URLSearchParams(p).toString()
+      return downloadPdf(`/api/v1/clients/me/cover-templates/${kind}/png?${qs}`,
+                         'cover.png')
+    },
   },
 
   // Материалы, которые открывает КУПЛЕННЫЙ МОДУЛЬ (Коллабораторная и далее).

@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from app.auth import get_current_client
@@ -217,3 +217,56 @@ async def save_template(
         client_id, kind, *[merged[f] for f in _FIELDS],
     )
     return dict(row)
+
+
+@router.get("/{kind}/png", summary="Скачать обложку картинкой")
+async def download_cover(
+    kind: str,
+    title: str = Query("", description="Название на обложке"),
+    subtitle: str = Query(""),
+    overline: str = Query(""),
+    photo: str = Query("", description="Фото на прозрачном фоне"),
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """PNG 1280×720 — под обложку видео в VK и на YouTube.
+
+    ⚠️ Картинку снимает браузер с той же страницы, что показывает предпросмотр.
+    Отдельного рисовальщика нет: он разошёлся бы с тем, что клиент видит.
+    """
+    if kind not in KINDS:
+        raise HTTPException(404, "Такого шаблона нет")
+    client_id = int(user["sub"])
+
+    from urllib.parse import quote, urlencode
+
+    from app.services.client_domains import platform_base_url
+    from app.services.cover_render import CoverRenderError, render_cover_png
+    from app.services.preview_token import make_preview_token
+
+    # ⚠️ Адрес ПЛАТФОРМЫ, а не домен клиента: страница отрисовки живёт в
+    # кабинете и на свой домен не переезжает.
+    qs = urlencode({
+        "kind": kind, "t": make_preview_token(client_id),
+        "title": title, "subtitle": subtitle,
+        "overline": overline, "photo": photo,
+    })
+    url = f"{platform_base_url().rstrip('/')}/cover?{qs}"
+
+    try:
+        png = await render_cover_png(url)
+    except CoverRenderError as e:
+        raise HTTPException(503, str(e))
+
+    # Имя файла — по названию: человек ищет обложку глазами среди скачанных.
+    # ⚠️ Кириллица уходит заголовком по RFC 5987, иначе браузер её испортит.
+    base = (title or "обложка").strip()[:60] or "обложка"
+    safe = base.replace('"', "").replace("\\", "")
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            "Content-Disposition":
+                f"attachment; filename=\"cover.png\"; filename*=UTF-8\'\'{quote(safe)}.png",
+        },
+    )
