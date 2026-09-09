@@ -29,7 +29,7 @@ KINDS = ("material", "speaker")
 # разных перечня разъезжаются, и поле, добавленное в форму, молча не
 # сохраняется (так уже было с кабинетом спикера).
 _FIELDS = (
-    "bg_url", "bg_dim", "logo_variant",
+    "bg_url", "bg_dim", "logo_variant", "logo_size", "logo_x", "logo_y",
     "photo_side", "photo_scale", "photo_x", "photo_y",
     "text_x", "text_y", "text_w", "text_align", "title_size",
     "title_color", "text_color", "show_brand",
@@ -41,12 +41,16 @@ _DEFAULTS = {
     "material": {
         "photo_side": "left", "text_x": 50, "text_y": 50, "text_w": 45,
         "text_align": "left", "title_size": 8, "logo_variant": "light",
+        "logo_size": 7, "logo_x": 88, "logo_y": 6,
     },
     # У спикера имя по центру-слева, фото справа, сверху партнёры — раскладка
     # другая по смыслу, а не по вкусу.
     "speaker": {
         "photo_side": "right", "text_x": 6, "text_y": 45, "text_w": 55,
         "text_align": "left", "title_size": 9, "logo_variant": "light",
+        # У спикера сверху идут логотипы партнёров — свой логотип уводим ниже,
+        # к левому краю, чтобы они не наезжали друг на друга.
+        "logo_size": 6, "logo_x": 12, "logo_y": 14,
     },
 }
 
@@ -55,6 +59,9 @@ class TemplateIn(BaseModel):
     bg_url: Optional[str] = None
     bg_dim: Optional[int] = None
     logo_variant: Optional[str] = None
+    logo_size: Optional[int] = None
+    logo_x: Optional[int] = None
+    logo_y: Optional[int] = None
     photo_side: Optional[str] = None
     photo_scale: Optional[int] = None
     photo_x: Optional[int] = None
@@ -84,6 +91,11 @@ def _norm(data: dict, kind: str) -> dict:
     d = dict(data)
     if "bg_dim" in d:
         d["bg_dim"] = _clamp(d["bg_dim"], 0, 90, 0)
+    if "logo_size" in d:
+        d["logo_size"] = _clamp(d["logo_size"], 2, 30, 7)
+    for f, dflt in (("logo_x", 88), ("logo_y", 6)):
+        if f in d:
+            d[f] = _clamp(d[f], 0, 100, dflt)
     if "photo_scale" in d:
         d["photo_scale"] = _clamp(d["photo_scale"], 30, 200, 100)
     for f in ("photo_x", "photo_y"):
@@ -146,6 +158,18 @@ async def get_template(
         client_id,
     )
     theme = dict(c) if c else {}
+
+    # Фото для предпросмотра — СВОЯ карточка клиента (`self_collaborator_id`),
+    # а не первый попавшийся человек из базы. Клиент смотрит на образец своей
+    # обложки: чужое лицо в нём выглядит ошибкой, а не примером.
+    # ⚠️ Ищет БЭКЕНД: во фронте пришлось бы тянуть весь список коллабораторов
+    # и выбирать из него — лишний запрос ради одного адреса.
+    theme["sample_photo_url"] = await db.fetchval(
+        """SELECT co.cutout_photo_url
+             FROM clients cl JOIN collaborators co ON co.id = cl.self_collaborator_id
+            WHERE cl.id = $1""",
+        client_id,
+    )
     return {"template": tpl, "theme": theme}
 
 

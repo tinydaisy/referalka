@@ -25,6 +25,9 @@ export type CoverTemplate = {
   bg_url?: string | null
   bg_dim?: number
   logo_variant?: 'light' | 'dark' | 'none'
+  logo_size?: number
+  logo_x?: number
+  logo_y?: number
   photo_side?: 'left' | 'right' | 'none'
   photo_scale?: number
   photo_x?: number
@@ -51,6 +54,8 @@ export type CoverTheme = {
   lp_font_body?: string
   lp_color_heading?: string
   lp_color_body?: string
+  /** Вырезка самого клиента — образец для предпросмотра. */
+  sample_photo_url?: string | null
   brand_logo_url?: string | null
   brand_logo_light_url?: string | null
   brand_name?: string | null
@@ -101,10 +106,16 @@ export default function CoverCanvas({
   const brand = th.brand_name || th.name || ''
   const logo = logoUrl(t, th)
 
-  // ⚠️ Без фото текст идёт по центру во всю ширину: раскладка «текст справа»
-  // при пустой левой половине выглядит как ошибка вёрстки.
-  const tx = hasPhoto ? (t.text_x ?? 50) : 8
+  // ⚠️ Текст встаёт с ПРОТИВОПОЛОЖНОЙ стороны от фото. Клиент двигает фото
+  // вправо — текст обязан уйти влево сам, иначе они наложатся друг на друга и
+  // обложка станет нечитаемой. Отступ считаем от того края, у которого текст.
+  // ⚠️ Без фото — по центру во всю ширину: раскладка «текст справа» при пустой
+  // левой половине выглядит как ошибка вёрстки.
+  const photoRight = t.photo_side === 'right'
   const tw = hasPhoto ? (t.text_w ?? 45) : 84
+  const tx = hasPhoto
+    ? (photoRight ? Math.min(t.text_x ?? 6, 100 - tw) : (t.text_x ?? 50))
+    : 8
   const align = hasPhoto ? (t.text_align || 'left') : 'center'
 
   // ⚠️ Через общий хелпер, а не подстановкой ключа: в теме лежит `BebasNeue`,
@@ -165,16 +176,22 @@ export default function CoverCanvas({
         />
       )}
 
-      {/* Логотип бренда. Без фото — по центру над текстом, с фото — в углу со
-          стороны текста, чтобы не наезжать на человека. */}
+      {/* Логотип бренда. ⚠️ Положение задаёт клиент: фон у каждого свой, и в
+          жёстком углу логотип наезжал бы на рисунок или на лицо человека.
+          Координаты — центр логотипа, поэтому сдвигаем на половину себя. */}
       {logo && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={logo}
           alt=""
-          style={hasPhoto
-            ? { position: 'absolute', top: 40, [t.photo_side === 'right' ? 'left' : 'right']: 56, height: 52, objectFit: 'contain' } as React.CSSProperties
-            : { position: 'absolute', top: 48, left: 0, right: 0, height: 56, objectFit: 'contain', margin: '0 auto' }}
+          style={{
+            position: 'absolute',
+            left: `${t.logo_x ?? 88}%`,
+            top: `${t.logo_y ?? 6}%`,
+            transform: 'translate(-50%, -50%)',
+            height: `${(t.logo_size ?? 7) * COVER_H / 100}px`,
+            objectFit: 'contain',
+          }}
         />
       )}
 

@@ -32,7 +32,6 @@ export default function CoverTemplatesTab() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [photo, setPhoto] = useState<string | null>(null)
 
   // ⚠️ Файл фирменных шрифтов подключён только на публичных страницах — в
   // кабинете его надо добавить самим, иначе превью рисуется запасным шрифтом
@@ -55,17 +54,6 @@ export default function CoverTemplatesTab() {
   useEffect(() => {
     api.landingTheme.get()
       .then((r: any) => setTheme(t => ({ ...t, fonts: r?.fonts || [] })))
-      .catch(() => {})
-  }, [])
-
-  // Фото для предпросмотра — любая вырезка из базы коллабораторов. Пусто →
-  // показываем раскладку «без фото», она тоже настоящая.
-  useEffect(() => {
-    api.collaborators.list('', 'name')
-      .then((r: any) => {
-        const withCutout = (r?.collaborators || r || []).find((c: any) => c.cutout_photo_url)
-        setPhoto(withCutout?.cutout_photo_url || null)
-      })
       .catch(() => {})
   }, [])
 
@@ -125,7 +113,7 @@ export default function CoverTemplatesTab() {
         <CoverCanvas
           template={tpl} theme={theme} scale={scale}
           title={s.title} subtitle={s.subtitle} overline={s.overline}
-          photoUrl={photo}
+          photoUrl={theme.sample_photo_url}
         />
       </div>
 
@@ -159,6 +147,14 @@ export default function CoverTemplatesTab() {
               ['none', 'Без логотипа'],
             ]}
           />
+          {tpl.logo_variant !== 'none' && (<>
+            <Range label="Размер" value={tpl.logo_size ?? 7} min={2} max={30}
+                   onChange={v => patch({ logo_size: v })} />
+            <Range label="По горизонтали" value={tpl.logo_x ?? 88} min={0} max={100}
+                   onChange={v => patch({ logo_x: v })} />
+            <Range label="По вертикали" value={tpl.logo_y ?? 6} min={0} max={100}
+                   onChange={v => patch({ logo_y: v })} />
+          </>)}
           <p className="mt-2 text-xs text-gray-500">
             Логотипы загружаются в «Mini App» → «Бренд».
           </p>
