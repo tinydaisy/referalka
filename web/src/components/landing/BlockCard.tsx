@@ -129,13 +129,13 @@ export default function BlockCard({
             : 'border-gray-200 hover:shadow-sm'
       } ${!block.is_active ? 'bg-gray-50' : ''}`}
     >
-      {/* Шапка карточки.
-          ⚠️ Название — персиковым на ТЁМНОЙ плашке, а не на белом: персиковый
-          #FFCFA4 на белом почти не виден (правило проекта). Плашка стоит у
-          ВСЕХ карточек, свёрнутых тоже — иначе список секций распадался бы на
-          два разных вида. У раскрытой скругление только сверху: снизу к ней
-          примыкает содержимое. */}
-      <div className={`flex items-center gap-2 p-3 bg-[#25455D] ${
+      {/* Шапка карточки — ПЕРСИКОВАЯ плашка, текст фирменным синим.
+          ⚠️ Именно так, а не наоборот: персиковый #FFCFA4 сам по себе светлый,
+          на нём тёмный текст читается, а тёмная плашка с персиковыми буквами
+          делала список секций мрачным. Плашка у ВСЕХ карточек, свёрнутых тоже —
+          иначе список распадался бы на два разных вида. У раскрытой скругление
+          только сверху: снизу к ней примыкает содержимое. */}
+      <div className={`flex items-center gap-2 p-3 bg-[#FFCFA4] ${
         open ? 'rounded-t-[10px]' : 'rounded-[11px]'
       }`}>
         <span
@@ -145,7 +145,7 @@ export default function BlockCard({
           title="Перетащите, чтобы поменять порядок"
           className="shrink-0 cursor-grab active:cursor-grabbing"
         >
-          <GripVertical className="h-5 w-5 text-white/60" />
+          <GripVertical className="h-5 w-5 text-[#25455D]/50" />
         </span>
 
         <button
@@ -153,37 +153,41 @@ export default function BlockCard({
           className="flex flex-1 items-center gap-2 text-left min-w-0"
         >
           {open
-            ? <ChevronDown className="h-4 w-4 shrink-0 text-white/60" />
-            : <ChevronRight className="h-4 w-4 shrink-0 text-white/60" />}
+            ? <ChevronDown className="h-4 w-4 shrink-0 text-[#25455D]/60" />
+            : <ChevronRight className="h-4 w-4 shrink-0 text-[#25455D]/60" />}
           {/* Замок виден и в свёрнутой карточке — иначе про недоступность
               секции узнаёшь только раскрыв её. */}
-          {locked && <Lock className="h-4 w-4 shrink-0 text-amber-500" />}
-          {/* ⚠️ Персиковый — фирменный акцент; у выключенной секции он
-              приглушён, чтобы «не показывается» читалось с одного взгляда. */}
-          <span className={`font-medium truncate ${block.is_active ? 'text-[#FFCFA4]' : 'text-white/40'}`}>
+          {/* ⚠️ Тёмный, а не янтарный: янтарный на персиковой плашке сливается
+              с фоном, и замок переставало быть видно. */}
+          {locked && <Lock className="h-4 w-4 shrink-0 text-[#25455D]" />}
+          {/* ⚠️ Тёмно-синий на персиковом; у выключенной секции приглушён,
+              чтобы «не показывается» читалось с одного взгляда. */}
+          <span className={`font-medium truncate ${block.is_active ? 'text-[#25455D]' : 'text-[#25455D]/45'}`}>
             {block.admin_name || meta.label}
           </span>
           {(block.admin_name || block.title) && (
-            <span className="truncate text-sm text-white/50">
+            <span className="truncate text-sm text-[#25455D]/60">
               — {block.admin_name ? meta.label : block.title}
             </span>
           )}
           {meta.live && (
             <span
               title="Содержимое подтягивается из события автоматически"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/80"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#25455D]/12 px-2 py-0.5 text-[11px] font-medium text-[#25455D]"
             >
               <Zap className="h-3 w-3" /> авто
             </span>
           )}
         </button>
 
-        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-sm text-white/80">
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-sm text-[#25455D]">
           <input
             type="checkbox"
             checked={block.is_active}
             onChange={e => onPatch({ is_active: e.target.checked })}
-            className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+            // ⚠️ Рамка тёмная: серая на персиковом фоне не видна, и пустая
+            // галочка сливалась с плашкой.
+            className="h-4 w-4 rounded border-[#25455D]/40 text-[#25455D] focus:ring-[#25455D]"
           />
           показывать
         </label>
@@ -198,7 +202,7 @@ export default function BlockCard({
               'Её содержимое пропадёт. Пустую секцию потом можно добавить заново.'
             )) onRemove()
           }}
-          className="shrink-0 rounded p-1.5 text-white/60 hover:bg-red-500/20 hover:text-red-300"
+          className="shrink-0 rounded p-1.5 text-[#25455D]/60 hover:bg-red-100 hover:text-red-700"
           title="Удалить секцию"
         >
           <Trash2 className="h-4 w-4" />
