@@ -598,7 +598,16 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
         client_id
     )
     if not client:
-        raise HTTPException(status_code=404, detail="Клиент не найден")
+        # ⚠️⚠️ 401, А НЕ 404 — иначе удалённый клиент остаётся «в кабинете».
+        #
+        # Токен подписан и не истёк, поэтому браузер продолжает считать
+        # человека вошедшим. При 404 фронт не разлогинивает (это «не найдено»,
+        # а не «нет доступа»), и кабинет открывался ПУСТЫМ вместо страницы
+        # входа: меню на месте, разделы есть, данных нет.
+        #
+        # 401 — единственный ответ, по которому и браузер, и наш api.ts
+        # понимают, что вход недействителен и токен пора выбросить.
+        raise HTTPException(status_code=401, detail="Сессия недействительна")
 
     from app.services.features import get_client_features
     from app.services.subscriptions import get_subscription, days_until_expires

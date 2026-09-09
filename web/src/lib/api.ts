@@ -51,6 +51,35 @@ async function request(path: string, options?: RequestInit) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
+    /**
+     * ⚠️⚠️ 401 — ВХОД НЕДЕЙСТВИТЕЛЕН: выбрасываем токен и уводим на страницу входа.
+     *
+     * Раньше этого не делал никто, и удалённый (или заблокированный) клиент
+     * оставался «в кабинете»: токен подписан и не истёк, охрана маршрутов
+     * пускает по факту наличия куки, а данные не приходят — человек видел
+     * пустой кабинет с рабочим меню вместо страницы входа.
+     *
+     * ⚠️ Чистим И localStorage, И куку: по куке пускает middleware, по
+     * localStorage ходят запросы. Оставить одно из двух — половина проблемы.
+     *
+     * ⚠️ На самих страницах входа НЕ трогаем: там 401 — это «неверный пароль»,
+     * и перезагрузка страницы стёрла бы человеку введённые данные.
+     */
+    if (res.status === 401 && typeof window !== 'undefined') {
+      const path = window.location.pathname
+      // ⚠️ /admin/login тоже сюда: там 401 = «неверный пароль администратора»,
+      // и без этой ветки страница уводила бы админа на клиентский вход.
+      const onAuthPage = /^\/(login|register|password-reset|verify-email)/.test(path)
+        || path.startsWith('/admin/login')
+      if (!onAuthPage) {
+        try {
+          localStorage.removeItem('plusson_token')
+          document.cookie = 'plusson_token=; path=/; max-age=0'
+        } catch { /* приватный режим — не мешаем уходу на вход */ }
+        // Админа возвращаем в админский вход, клиента — в клиентский.
+        window.location.href = path.startsWith('/admin') ? '/admin/login' : '/login'
+      }
+    }
     // Глобальный UX-фоллбек для ассистента: middleware возвращает 403
     // с фиксированными detail'ами «Ассистент не может удалять данные.» /
     // «Этот раздел доступен только владельцу кабинета.» / «Ассистент может
