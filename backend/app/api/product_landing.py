@@ -215,9 +215,12 @@ async def get_or_create_product_page(db, *, client_id: int, product_id: int,
                 # ⚠️ Заголовки НОВЫХ лендингов — по центру (как у события).
                 # В колонке умолчание 'left' — менять его нельзя, сдвинуло бы
                 # уже собранные страницы задним числом.
-                "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align) "
-                "VALUES ($1,$2,$3,$4,'center')",
+                # ⚠️ Ширина колонки: у ШАПКИ 100% (во всю полосу), у секции
+                # 50% (пропорция двух колонок) — как у события.
+                "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align, split_ratio) "
+                "VALUES ($1,$2,$3,$4,'center',$5)",
                 page["id"], b["kind"], i, b["is_active"],
+                100 if b["kind"] == "hero" else 50,
             )
     return page
 
@@ -288,12 +291,14 @@ async def add_block(
     row = await db.fetchrow(
         # ⚠️ Как соседние секции этой страницы — иначе добавленная села бы
         # влево на лендинге с центрированными заголовками.
-        "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align) "
+        "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align, split_ratio) "
         "VALUES ($1,$2,$3,TRUE,"
         "  COALESCE((SELECT title_align FROM event_landing_blocks WHERE page_id=$1"
-        "             GROUP BY title_align ORDER BY count(*) DESC LIMIT 1), 'center')"
+        "             GROUP BY title_align ORDER BY count(*) DESC LIMIT 1), 'center'),"
+        "  $4"
         ") RETURNING *",
         page_id, data.kind, nxt,
+        100 if data.kind == "hero" else 50,
     )
     return _ser_product_block(row)
 
