@@ -34,13 +34,26 @@ export interface PlatformIdentities {
 function cleanNick(raw?: string | null): string {
   let v = String(raw || '').trim()
   if (!v) return ''
+
+  // ⚠️ В поле бывает не только ник и не только ссылка, но и ЦЕЛАЯ ФРАЗА —
+  // люди вставляют текст приглашения целиком: «Я пользуюсь мессенджером MAX.
+  // Присоединяйся! https://max.ru/u/f9L…». Такая строка распирала колонку
+  // «Площадки», и остальные колонки уезжали за край экрана. Вытаскиваем
+  // ссылку из текста, а если её нет — обрезаем до вменяемой длины.
+  const urlInText = v.match(/https?:\/\/\S+/i)
+  if (urlInText) v = urlInText[0]
+
   // Полная ссылка или домен без схемы — берём последний непустой сегмент.
   if (/^https?:\/\//i.test(v) || /^(t\.me|telegram\.me|vk\.com|max\.ru)\//i.test(v)) {
     v = v.replace(/^https?:\/\//i, '').split(/[?#]/)[0]
     const parts = v.split('/').filter(Boolean)
     v = parts.length > 1 ? parts[parts.length - 1] : ''
   }
-  return v.replace(/^@+/, '').trim()
+
+  v = v.replace(/^@+/, '').trim()
+  // Ников длиннее 32 символов не бывает ни на одной площадке — значит это
+  // мусор, и показывать его целиком незачем.
+  return v.length > 32 ? v.slice(0, 32) + '…' : v
 }
 
 export default function PlatformList({ p }: { p: PlatformIdentities }) {
@@ -85,7 +98,9 @@ export default function PlatformList({ p }: { p: PlatformIdentities }) {
   if (items.length === 0) return <span className="text-gray-300">—</span>
 
   return (
-    <div className="flex flex-col gap-1">
+    // ⚠️ Ширина ограничена: иначе длинное содержимое поля растягивает колонку,
+    // и соседние («Регистрация», «Оплата») уезжают за край экрана.
+    <div className="flex flex-col gap-1 max-w-[200px]">
       {items.map(i => {
         const badge = (
           <span

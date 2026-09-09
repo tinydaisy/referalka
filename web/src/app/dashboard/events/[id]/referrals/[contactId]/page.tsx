@@ -128,6 +128,8 @@ export default function EventReferrerPage() {
   const person = data.person || {}
   const people: Person[] = data.people || []
   const t = data.totals || {}
+  // Сколько оплат без вписанной суммы — из-за них итог занижен.
+  const noAmountCount = people.filter(p => p.has_paid && !(p.paid_amount > 0)).length
   const nick = person.tg_username ? String(person.tg_username).replace(/^@+/, '') : ''
 
   return (
@@ -194,6 +196,16 @@ export default function EventReferrerPage() {
         <StatCard icon={Wallet} label="Оплатили" value={String(t.paid_count ?? 0)} />
         <StatCard icon={Wallet} label="Сумма оплат" value={money(t.paid_sum ?? 0)} accent />
       </div>
+
+      {/* ⚠️ «Оплатили 2, сумма 0 ₽» — не ошибка расчёта, а пустое поле суммы у
+          самих оплат (их отмечали вручную, когда форма сумму не спрашивала).
+          Без этой строки цифра читается как поломка. */}
+      {noAmountCount > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 mb-5 -mt-2">
+          У <b>{noAmountCount}</b> из {t.paid_count ?? 0} оплат сумма не заполнена — поэтому она не вошла в итог.
+          Впишите её в «Платежи/Заявки» → «Заказы» (или <b>0</b>, если человек прошёл бесплатно).
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
