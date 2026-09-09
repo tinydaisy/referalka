@@ -539,12 +539,17 @@ async def configure_main_mini_app(client, bot_username: str, url: str) -> bool:
         if not await _click(client, BOTFATHER, "Configure Mini App"):
             return False
 
-        # ⚠️ «Enable Mini App» появляется, только если приложение ещё не
-        # включено. У включённого этой кнопки нет — отсутствие не ошибка.
-        await _click(client, BOTFATHER, "Enable Mini App", wait=4)
-
-        if not await _click(client, BOTFATHER, "Edit Mini App URL"):
-            return False
+        # ⚠️⚠️ ДВЕ РАЗНЫЕ ВЕТКИ, и на этом уже спотыкались:
+        #   • Mini App ВЫКЛЮЧЕН → есть кнопка «Enable Mini App», и сразу после
+        #     нажатия BotFather САМ просит адрес («Send me the Mini App URL») —
+        #     кнопки «Edit Mini App URL» в этот момент НЕТ;
+        #   • Mini App УЖЕ включён → кнопки «Enable» нет, зато есть
+        #     «Edit Mini App URL», её и жмём.
+        # Код ждал «Edit Mini App URL» всегда и на первой ветке выходил ни с чем.
+        enabled_now = await _click(client, BOTFATHER, "Enable Mini App", wait=6)
+        if not enabled_now:
+            if not await _click(client, BOTFATHER, "Edit Mini App URL"):
+                return False
         r = await _ask(client, BOTFATHER, url, wait=10)
         low = (r or "").lower()
         return "success" in low or "url updated" in low
