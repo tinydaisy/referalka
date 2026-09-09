@@ -151,15 +151,32 @@ export default function AutoSetupTab() {
    */
   const [confirming, setConfirming] = useState<'bot' | 'group' | 'channel' | null>(null)
 
+  /**
+   * Ответ на подтверждение шага — показывается ПОД шагом, а не в alert.
+   *
+   * ⚠️ Нужен из-за канала: там мы не верим на слово, а спрашиваем у Telegram,
+   * админ ли бот. Ответ «подтвердили» / «подтвердить не удалось» человек должен
+   * увидеть там же, где нажимал, — alert закрывается и не оставляет следа.
+   */
+  const [stepNote, setStepNote] = useState<
+    { step: string; ok: boolean; text: string } | null
+  >(null)
+
   const confirmStep = async (step: 'bot' | 'group' | 'channel') => {
     setConfirming(step)
+    setStepNote(null)
     try {
-      if (step === 'bot') await api.tgAutosetup.confirmStartedBot()
-      else if (step === 'group') await api.tgAutosetup.confirmJoinedGroup()
-      else await api.tgAutosetup.confirmChannel()
+      let res: any
+      if (step === 'bot') res = await api.tgAutosetup.confirmStartedBot()
+      else if (step === 'group') res = await api.tgAutosetup.confirmJoinedGroup()
+      else res = await api.tgAutosetup.confirmChannel()
+      // Бэкенд отвечает `verified:false` + текстом, когда подтвердить не вышло.
+      if (res?.message) {
+        setStepNote({ step, ok: res.verified !== false, text: res.message })
+      }
       await load(true)
     } catch (e: any) {
-      alert(e?.message || 'Не удалось отметить шаг')
+      setStepNote({ step, ok: false, text: e?.message || 'Не удалось отметить шаг' })
     } finally {
       setConfirming(null)
     }
@@ -344,6 +361,19 @@ export default function AutoSetupTab() {
   const waitingUser = st === 'awaiting_user' || failedTransfer
   const finished = st === 'done'
   const expired = st === 'expired'
+
+  /**
+   * Сколько действий реально осталось человеку — ровно столько карточек ниже.
+   *
+   * ⚠️ Заголовок «осталось одно действие» стоял намертво и противоречил тому,
+   * что видно под ним: там бывает до трёх шагов. Считаем то же самое, чем
+   * управляется показ карточек, — иначе цифра снова разойдётся с экраном.
+   */
+  const stepsLeft = order ? [
+    !!order.bot_username && !order.steps?.client_started_bot,
+    !!order.steps?.group_created && !order.steps?.client_joined,
+    !!order.bot_username && !order.steps?.channel_linked,
+  ].filter(Boolean).length : 0
 
   /**
    * ⚠️ ОПЛАЧЕННЫЙ ЗАКАЗ ГЛАВНЕЕ РЫЧАГА «СКОРО».
@@ -678,8 +708,17 @@ export default function AutoSetupTab() {
             </>
           ) : (
             <>
+              {/* ⚠️⚠️ ЗАГОЛОВОК СЧИТАЕТ ОСТАВШИЕСЯ ШАГИ, А НЕ ВРЁТ ПРО «ОДНО».
+                  «Осталось одно действие» стояло намертво, а ниже висели четыре
+                  карточки — заголовок противоречил тому, что человек видел
+                  прямо под ним. Считаем ровно то, что показано ниже. */}
               <h3 className="font-bold text-gray-900 mb-1">
-                Почти готово — осталось одно действие
+                {stepsLeft === 0
+                  ? 'Почти готово'
+                  : stepsLeft === 1
+                    ? 'Почти готово — осталось одно действие'
+                    : `Почти готово — осталось ${stepsLeft} ${
+                        stepsLeft < 5 ? 'действия' : 'действий'}`}
               </h3>
               {/* ⚠️ Прямо говорим, КАК мы поймём, что человек это сделал. Раньше
                   было «мы увидим ваши действия» — оставалось гадать, надо ли где-то
@@ -708,6 +747,7 @@ export default function AutoSetupTab() {
                   icon={<MessageSquare size={16} />}
                   onConfirm={() => confirmStep('bot')}
                   confirming={confirming === 'bot'}
+                  note={stepNote?.step === 'bot' ? stepNote : null}
                 />
               )}
 
@@ -722,6 +762,7 @@ export default function AutoSetupTab() {
                   icon={<Users size={16} />}
                   onConfirm={() => confirmStep('group')}
                   confirming={confirming === 'group'}
+                  note={stepNote?.step === 'group' ? stepNote : null}
                 />
               )}
 
@@ -746,6 +787,7 @@ export default function AutoSetupTab() {
                   label=""
                   onConfirm={() => confirmStep('channel')}
                   confirming={confirming === 'channel'}
+                  note={stepNote?.step === 'channel' ? stepNote : null}
                 />
               )}
             </>
@@ -945,7 +987,11 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }:
     { done: !!s.bot_transferred, text: 'Передали вам права на бота', key: 'transfer' },
     { done: !!s.client_joined, text: 'Вы вступили в группу' },
     { done: !!s.group_transferred, text: 'Сделали вас админом группы' },
-    { done: !!s.channel_linked, text: 'Подключили ваш канал к рассылкам' },
+    // ⚠️ Формулировка от лица КЛИЕНТА: это его действие, а не наше. «Подключили
+    // ваш канал к рассылкам» читалось как обещание платформы — человек ждал,
+    // что канал подключится сам.
+    { done: !!s.channel_linked, text: 'Вы добавили бота в админы канала',
+      proof: '/dashboard/channels?tab=chats', proofLabel: 'Проверить' },
   ]
   const doneCount = rows.filter(r => r.done).length
 
@@ -1025,7 +1071,7 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }:
  * Автоматика остаётся: сработала раньше — галочка уже стоит.
  */
 function ActionRow({ done, title, hint, doneHint, href, label, icon,
-                     onConfirm, confirming }: {
+                     onConfirm, confirming, note }: {
   done: boolean; title: string; hint: string
   /** Что написать, когда шаг уже сделан. Пусто → «Сделано». */
   doneHint?: string
@@ -1033,6 +1079,14 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
   /** Отметить шаг выполненным. Нет — галочка не показывается. */
   onConfirm?: () => void
   confirming?: boolean
+  /**
+   * Ответ на нажатие «Сделала» — прямо под шагом.
+   *
+   * ⚠️ Нужен там, где мы ПРОВЕРЯЕМ, а не верим на слово (бот в админах канала):
+   * человек должен видеть «подтвердили» или «подтвердить не удалось» там же,
+   * где нажимал. Раньше ответ уходил в alert и не оставлял следа.
+   */
+  note?: { ok: boolean; text: string } | null
 }) {
   return (
     <div className={`rounded-lg border px-4 py-3 mb-2.5 ${
@@ -1071,9 +1125,29 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
                  onChange={onConfirm}
                  className="w-4 h-4 rounded border-gray-300 cursor-pointer" />
           <span className="text-sm text-gray-700">
-            {confirming ? 'Отмечаем…' : 'Сделала'}
+            {confirming ? 'Проверяем…' : 'Сделала'}
           </span>
         </label>
+      )}
+
+      {/* Ответ проверки — под шагом, с крестом при неудаче и выходом в заботу. */}
+      {note && (
+        <div className={`mt-3 ml-10 flex items-start gap-2 rounded-lg px-3 py-2.5 border ${
+          note.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          {note.ok
+            ? <Check size={15} className="text-green-600 shrink-0 mt-0.5" />
+            : <XCircle size={15} className="text-red-600 shrink-0 mt-0.5" />}
+          <div className={`text-sm ${note.ok ? 'text-green-800' : 'text-red-800'}`}>
+            {note.text}
+            {!note.ok && (
+              <div className="mt-1.5">
+                <Link href={SUPPORT_URL} className="underline font-medium">
+                  {SUPPORT_LABEL}
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

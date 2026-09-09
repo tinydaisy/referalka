@@ -65,6 +65,8 @@ async def on_client_started_bot(db, bot_token_id: Optional[int],
             order["id"], int(tg_user_id),
         )
         await _remember_client_tg_id(db, order["client_id"], int(tg_user_id))
+        await _link_client_identity(db, order["client_id"], int(tg_user_id),
+                                    tg_username or "")
         log.info("tg_setup: клиент %s зашёл в своего бота @%s (tg_id=%s)",
                  order["client_id"], bot_username, tg_user_id)
         return True
@@ -93,6 +95,56 @@ async def _remember_client_tg_id(db, client_id: int, tg_user_id: int) -> None:
         )
     except Exception as e:  # noqa: BLE001
         log.warning("tg_setup: не записал тестовый id клиента %s: %s", client_id, e)
+
+
+async def _link_client_identity(db, client_id: int, tg_user_id: int,
+                                tg_username: str) -> None:
+    """Цепляет пойманный Telegram-id к КАРТОЧКЕ клиента (его self-коллаб).
+
+    ⚠️⚠️ ЗАЧЕМ. `personal_tg_id` карточки — это «пробный камень» проверки
+    подписки на каналы ([subscription_check.py](backend/app/api/subscription_check.py)):
+    боту дают заведомо подписанного человека — владельца канала. Прошёл
+    `getChatMember` по нему → бот реально админ, его ответам можно верить; не
+    прошёл → проверка ненадёжна и участников не режем.
+
+    Раньше клиент вписывал свой id руками, а услуга «под ключ» ровно эту возню
+    и убирает: id мы уже поймали в момент захода в бота, второй раз спрашивать
+    незачем.
+
+    ⚠️ Идентичность цепляем ОБЩЕЙ функцией `upsert_contact_with_identity`, а не
+    своим INSERT: там живут дедуп, дорастание псевдо-записи `@ник` до числового
+    id и защита от гонок. Свой запрос плодил бы вторые карточки человека.
+
+    ⚠️ Fail-safe: сбой не должен ломать заход клиента в бота — самое важное
+    (право передать бота) к этому моменту уже записано.
+    """
+    try:
+        from app.services.self_collaborator import ensure_self_collaborator
+        from app.services.contact_merge import upsert_contact_with_identity
+
+        collab_id = await ensure_self_collaborator(db, client_id)
+        if not collab_id:
+            return
+        contact_id = await db.fetchval(
+            "SELECT contact_id FROM collaborators WHERE id = $1", collab_id
+        )
+        if not contact_id:
+            return
+
+        # `known_contact_id` — ключевой параметр: идентичность цепляется именно
+        # к карточке клиента, а не заводит нового человека в его же базе.
+        await upsert_contact_with_identity(
+            db,
+            client_id=client_id,
+            platform_slug="telegram",
+            platform_user_id=str(tg_user_id),
+            username=(tg_username or "").lstrip("@") or None,
+            known_contact_id=int(contact_id),
+        )
+        log.info("tg_setup: tg_id клиента %s привязан к его карточке", client_id)
+    except Exception as e:  # noqa: BLE001
+        log.warning("tg_setup: не привязал tg_id клиента %s к карточке: %s",
+                    client_id, e)
 
 
 async def on_member_joined_group(db, chat_id: int, tg_user_id: int,

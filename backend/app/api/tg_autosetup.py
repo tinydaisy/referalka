@@ -423,12 +423,18 @@ async def confirm_channel(user=Depends(get_current_client), db=Depends(get_db)):
 
     Поэтому шаг подтверждается и вручную, как заход в бота и вступление в
     группу. Автоматика остаётся: сработала раньше — отметка уже стоит.
+
+    ⚠️⚠️ НО НА СЛОВО НЕ ВЕРИМ — СПРАШИВАЕМ У TELEGRAM.
+    Раньше нажатие просто ставило галочку, и человек уходил в уверенности, что
+    рассылки в канал заработают, — а бот мог быть добавлен без прав или не
+    добавлен вовсе. Проверяем по-настоящему и отвечаем прямо: подтвердили или
+    подтвердить не удалось (тогда — в службу заботы).
     """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
 
     order = await db.fetchrow(
-        """SELECT id, channel_linked_at FROM service_orders
+        """SELECT id, bot_token, channel_linked_at FROM service_orders
             WHERE client_id = $1 AND setup_state IN ('awaiting_user', 'done')
             ORDER BY id DESC LIMIT 1""",
         client_id,
@@ -436,15 +442,93 @@ async def confirm_channel(user=Depends(get_current_client), db=Depends(get_db)):
     if not order:
         raise HTTPException(404, "Нет настройки, ожидающей ваших действий")
     if order["channel_linked_at"]:
-        return {"ok": True, "already": True}
+        return {"ok": True, "already": True, "verified": True}
+
+    found = await _find_bot_channel(db, client_id, order["bot_token"] or "")
+
+    if not found:
+        # ⚠️ Отметку НЕ ставим: иначе шаг выглядел бы выполненным, а рассылки в
+        # канал молча не работали бы. Честный ответ лучше зелёной галочки.
+        return {
+            "ok": False,
+            "verified": False,
+            "message": "Не удалось подтвердить, что бот в админах канала. "
+                       "Проверьте, что добавили его администратором с правом "
+                       "«Публикация сообщений», и нажмите ещё раз.",
+        }
 
     await db.execute(
         "UPDATE service_orders SET channel_linked_at = NOW(), updated_at = NOW() "
         " WHERE id = $1",
         order["id"],
     )
-    logger.info("tg_setup: клиент %s подтвердил добавление бота в канал", client_id)
-    return {"ok": True, "already": False}
+    logger.info("tg_setup: бот клиента %s подтверждён в канале %s (%s)",
+                client_id, found.get("title"), found.get("chat_id"))
+    return {
+        "ok": True,
+        "already": False,
+        "verified": True,
+        "chat_title": found.get("title"),
+        "message": f"Бот подтверждён администратором канала "
+                   f"«{found.get('title') or 'без названия'}» — рассылки в канал заработают.",
+    }
+
+
+async def _find_bot_channel(db, client_id: int, bot_token: str) -> dict | None:
+    """Проверяет, что бот РЕАЛЬНО админ в канале клиента.
+
+    ⚠️⚠️ КАНАЛ БЕРЁМ ИЗ БАЗЫ, А НЕ ЧЕРЕЗ `getUpdates`.
+    Добавление бота ловит штатный обработчик `on_bot_added_to_channel`
+    ([tg_setup_events.py](backend/app/services/tg_setup_events.py)) и сам кладёт
+    канал в `client_broadcast_chats` — механизм давно написан и работает, потому
+    что бот подключён к кабинету (`channels` + `client_channels`) и попадает в
+    поллинг. Своего `getUpdates` здесь быть НЕ ДОЛЖНО: Telegram отдаёт апдейты
+    только одному получателю, и наш запрос отобрал бы их у поллера (`409
+    Conflict`) — добавления в канал перестали бы доходить вовсе.
+
+    ⚠️ Права всё же перепроверяем `getChatMember`: между добавлением и нажатием
+    кнопки их могли снять. У КАНАЛА нужен ещё и `can_post_messages` — без него
+    бот числится админом, но публиковать не может, и рассылка молча не уходит.
+    """
+    if not bot_token:
+        return None
+    try:
+        # ⚠️ Группу уведомлений исключаем: её создали мы сами, к каналам
+        # клиента она отношения не имеет и в рассылки не идёт.
+        rows = await db.fetch(
+            """SELECT cbc.chat_id, cbc.title
+                 FROM client_broadcast_chats cbc
+                WHERE cbc.client_id = $1 AND cbc.platform = 'telegram'
+                  AND cbc.is_active = TRUE
+                  AND NOT EXISTS (
+                        SELECT 1 FROM service_orders so
+                         WHERE so.group_chat_id::text = cbc.chat_id)
+                ORDER BY cbc.id DESC""",
+            client_id,
+        )
+        if not rows:
+            return None
+
+        import httpx
+        bot_id = bot_token.split(":", 1)[0]
+        async with httpx.AsyncClient(timeout=20) as http:
+            for row in rows:
+                m = await http.get(
+                    f"https://api.telegram.org/bot{bot_token}/getChatMember",
+                    params={"chat_id": row["chat_id"], "user_id": bot_id},
+                )
+                res = (m.json() or {}).get("result") or {}
+                status = res.get("status", "")
+                if status not in ("administrator", "creator"):
+                    continue
+                # У канала право публикации отдельным тумблером; у создателя оно есть всегда.
+                if status != "creator" and res.get("can_post_messages") is False:
+                    continue
+                return {"chat_id": row["chat_id"], "title": row["title"] or ""}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("tg_setup: проверка канала клиента %s не удалась: %s",
+                       client_id, e)
+    return None
 
 
 @router.post("/transfer-now", summary="Передать права на бота и группу прямо сейчас")
