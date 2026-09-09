@@ -291,6 +291,25 @@ function BlockEditor({ block, canUp, canDown, onMove, onPatch, onRemove }: {
               YouTube, VK Видео и Rutube.
             </p>
           )}
+
+          {/* ⚠️ Обложка нужна для VK и Rutube: адрес их обложки из ссылки не
+              достать, а метод их API требует токен владельца сообщества —
+              поэтому без своей картинки видео выглядит чёрным прямоугольником.
+              У YouTube обложка берётся из ссылки сама, поле можно не трогать. */}
+          <div className="pt-1">
+            <div className="mb-1 text-xs text-gray-600">
+              Обложка{' '}
+              <span className="text-gray-400">
+                — у видео из VK и Rutube без неё чёрный экран
+              </span>
+            </div>
+            <FileUploader
+              mode="single" kind="material_media"
+              value={block.poster_url || null}
+              aspectClass="aspect-video"
+              onChange={(u: string | null) => onPatch({ poster_url: u || null })}
+            />
+          </div>
         </div>
       )}
 

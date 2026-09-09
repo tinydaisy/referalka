@@ -32,7 +32,11 @@ export default function MaterialBlockView({ block }: { block: any }) {
         {/* ⚠️ Плеер грузится по клику: в уроке видео бывает несколько, и все
             они тянули бы плеер сразу при открытии страницы. */}
         <div className="overflow-hidden rounded-xl bg-black">
-          <LazyVideo url={url} title={title || undefined} className="aspect-video w-full" />
+          {/* ⚠️ Обложка передаётся явно: у VK и Rutube её нельзя достать из
+              ссылки, и без неё видео выглядит чёрным прямоугольником. У YouTube
+              плеер добудет сам, если поле пустое. */}
+          <LazyVideo url={url} poster={block.poster_url || null}
+                     title={title || undefined} className="aspect-video w-full" />
         </div>
       </div>
     )

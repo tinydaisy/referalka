@@ -1545,8 +1545,8 @@ async def copy_material(
     # карточка с названием, а смысл копии — переписать текст под другой продукт.
     await db.execute(
         """INSERT INTO material_blocks
-               (material_id, kind, title, body, url, size_bytes, duration_sec, sort_order)
-           SELECT $1, kind, title, body, url, size_bytes, duration_sec, sort_order
+               (material_id, kind, title, body, url, poster_url, size_bytes, duration_sec, sort_order)
+           SELECT $1, kind, title, body, url, poster_url, size_bytes, duration_sec, sort_order
              FROM material_blocks WHERE material_id = $2""",
         row["id"], material_id,
     )
@@ -1593,9 +1593,10 @@ async def add_material_block(
     )
     row = await db.fetchrow(
         """INSERT INTO material_blocks
-               (material_id, kind, title, body, url, size_bytes, duration_sec, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *""",
-        material_id, data.kind, data.title, data.body, data.url,
+               (material_id, kind, title, body, url, poster_url,
+                size_bytes, duration_sec, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *""",
+        material_id, data.kind, data.title, data.body, data.url, data.poster_url,
         data.size_bytes, data.duration_sec, nxt,
     )
     return dict(row)
@@ -1635,7 +1636,8 @@ async def update_material_block(
 
     # ⚠️ model_fields_set: пустая ссылка и пустой заголовок — осмысленные
     # значения (человек стёр поле), а не «не присылали».
-    for col in ("title", "body", "url", "size_bytes", "duration_sec", "sort_order"):
+    for col in ("title", "body", "url", "poster_url",
+                "size_bytes", "duration_sec", "sort_order"):
         if col in fs:
             put(col, getattr(data, col))
 
@@ -1818,9 +1820,9 @@ async def attach_material(
                 # Копия несёт и содержимое — иначе это пустая карточка с именем.
                 await db.execute(
                     """INSERT INTO material_blocks
-                           (material_id, kind, title, body, url,
+                           (material_id, kind, title, body, url, poster_url,
                             size_bytes, duration_sec, sort_order)
-                       SELECT $1, kind, title, body, url,
+                       SELECT $1, kind, title, body, url, poster_url,
                               size_bytes, duration_sec, sort_order
                          FROM material_blocks WHERE material_id = $2""",
                     mat["id"], src["id"],

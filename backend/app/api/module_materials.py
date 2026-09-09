@@ -151,7 +151,7 @@ async def get_module_material(
         raise HTTPException(404, "Материал не найден")
 
     blocks = await db.fetch(
-        """SELECT id, kind, title, body, url, size_bytes, duration_sec, sort_order
+        """SELECT id, kind, title, body, url, poster_url, size_bytes, duration_sec, sort_order
              FROM material_blocks WHERE material_id = $1
             ORDER BY sort_order, id""",
         row["material_id"],
