@@ -1462,6 +1462,17 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
         )}
       </div>
 
+      {/* ⚠️ Честная цифра требует объяснения: раньше вместо незаполненной суммы
+          подставлялась цена тарифа, и итог выглядел полным. Теперь считаем по
+          вписанным суммам — и сразу говорим, у скольких строк суммы нет, иначе
+          «упавший» итог читается как пропажа денег. */}
+      {paidNoAmount > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          У <b>{paidNoAmount}</b> из {paidRows.length} оплат сумма не заполнена — эти деньги в итог не попали.
+          Впишите сумму в столбце «Сумма» (или <b>0</b>, если человек прошёл бесплатно).
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <div className="text-center text-gray-400 text-sm py-10">Заказов нет.</div>
       ) : (
