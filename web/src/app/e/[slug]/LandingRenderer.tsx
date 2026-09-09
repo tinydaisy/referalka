@@ -987,10 +987,14 @@ function BlockBody(props: any) {
       // а без него падают на hero_align, как было до правки.
       const hText = block.title_align === 'left' || block.title_align === 'center'
         || block.title_align === 'right' ? block.title_align : hAlign
+      // ⚠️ Содержимое колонки прижимается ПО СТРОКАМ (hText), а не по
+      // положению самой колонки. Раньше `items-*` брались из hAlign, и при
+      // «строки по центру» пилюли, счётчик мест и кнопка всё равно жались к
+      // краю: клиент ставил центр и не видел никакой реакции.
       const heroAlignCls =
         `${hText === 'left' ? 'text-left' : hText === 'right' ? 'text-right' : 'text-center'} ${
-          hAlign === 'left' ? 'items-start'
-          : hAlign === 'right' ? 'items-end'
+          hText === 'left' ? 'items-start'
+          : hText === 'right' ? 'items-end'
           : 'items-center'}`
       // При сдвиге в сторону колонка занимает половину ширины, иначе строки
       // растянулись бы на весь экран и «прижатость» была бы не видна.
@@ -1098,7 +1102,10 @@ function BlockBody(props: any) {
                 // вернул бы абзац на середину и выравнивание не сработало бы.
                 <SafeHtml
                   html={block.subtitle}
-                  className={`mt-5 max-w-3xl opacity-90 ${hAlign === 'center' ? 'mx-auto' : ''}`}
+                  // ⚠️ mx-auto — по СТРОКАМ: у абзаца своя max-w-3xl, и при
+                  // центрированных строках без него он всё равно прижимался
+                  // бы к краю колонки.
+                  className={`mt-5 max-w-3xl opacity-90 ${hText === 'center' ? 'mx-auto' : ''}`}
                   style={{ fontSize: block.subtitle_size ? `${block.subtitle_size}px` : '1.25em' }}
                 />
               )}
@@ -1115,8 +1122,11 @@ function BlockBody(props: any) {
               )}
               {/* Счётчик мест — рядом с кнопкой, а не отдельной секцией.
                   Положение задаётся в блоке «Шапка»: над кнопкой или сбоку. */}
+              {/* ⚠️ Кнопка и счётчик мест идут ЗА СТРОКАМИ (hText), а не за
+                  положением колонки: выровнял текст по правому краю — кнопка
+                  обязана встать туда же, иначе она висит отдельно от текста. */}
               <div className={`mt-8 flex flex-wrap items-center gap-5 ${
-                hAlign === 'left' ? 'justify-start' : hAlign === 'right' ? 'justify-end' : 'justify-center'
+                hText === 'left' ? 'justify-start' : hText === 'right' ? 'justify-end' : 'justify-center'
               } ${
                 block.seats_position === 'side' ? 'flex-row' : 'flex-col'
               }`}>

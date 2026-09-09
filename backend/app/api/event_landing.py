@@ -793,7 +793,11 @@ async def patch_block(
         if field == "image_width" and val is not None:
             val = max(20, min(100, int(val)))
         if field == "split_ratio" and val is not None:
-            val = max(20, min(80, int(val)))
+            # ⚠️ У ШАПКИ потолок 100%: там это ширина колонки с текстом, и её
+            # штатно ставят во всю полосу (сдвиг влево при широком заголовке —
+            # обычная раскладка). У обычных секций это ПРОПОРЦИЯ двух колонок,
+            # и 100% означало бы, что второй колонке не осталось места.
+            val = max(20, min(100 if block_kind == "hero" else 80, int(val)))
         if field == "pad_y" and val is not None:
             val = max(0, min(200, int(val)))
         # Мусорное значение сломало бы вёрстку шапки — приводим к центру.

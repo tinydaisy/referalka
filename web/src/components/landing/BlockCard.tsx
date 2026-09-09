@@ -1041,15 +1041,20 @@ export default function BlockCard({
                     заголовок рвётся посреди слова. */}
                 {block.kind === 'hero' && (block.hero_align === 'left' || block.hero_align === 'right') && (
                   <Field label={`Ширина колонки: ${block.split_ratio || 56}%`}>
+                    {/* ⚠️ До 100%: у шапки это ширина колонки с текстом, и её
+                        штатно ставят во всю полосу. Потолок 80% не давал
+                        сделать текст во всю ширину при сдвиге влево — оставался
+                        необъяснимый зазор справа. */}
                     <input
-                      type="range" min={20} max={80} step={1}
+                      type="range" min={20} max={100} step={1}
                       value={block.split_ratio || 56}
                       onChange={e => onPatch({ split_ratio: Number(e.target.value) })}
                       className="w-full"
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                      Сколько места занимает текст. Уменьшите, если он наезжает
-                      на картинку фона. На телефоне колонка всегда во всю ширину.
+                      Сколько места занимает текст. 100% — во всю ширину.
+                      Уменьшите, если он наезжает на картинку фона. На телефоне
+                      колонка всегда во всю ширину.
                     </p>
                   </Field>
                 )}
