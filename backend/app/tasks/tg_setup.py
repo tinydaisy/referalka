@@ -106,6 +106,65 @@ async def _log_step(db, order_id: int, step: str, text: str, ok: bool = True):
 # ─────────────────────────────────────────────────────────────────────────
 # Выбор аккаунта под заказ
 # ─────────────────────────────────────────────────────────────────────────
+async def _fail_transfer(db, order_id: int, client_id: int,
+                         bot_username: str, reason: str) -> None:
+    """Неудачная передача прав: считаем попытки, после ВТОРОЙ — закрываем.
+
+    ⚠️⚠️ ПРАВИЛО ВЛАДЕЛЬЦА: две неудачи — и задача закрывается с ошибкой,
+    дальше разбирается человек. Раньше поллер повторял бесконечно (51 попытка
+    подряд за час на живом заказе) — это долбёжка в BotFather с ЕДИНСТВЕННОГО
+    служебного аккаунта, ровно то, за что Telegram ограничивает аккаунты.
+    Потеряем аккаунт — встанет вся услуга.
+
+    ⚠️ Счётчик живёт В ЗАКАЗЕ, а не в памяти: поллер перезапускается при каждом
+    деплое, и счётчик в памяти обнулялся бы, начиная цикл заново.
+
+    ⚠️ Первая неудача НЕ закрывает заказ: причина бывает временной (сеть,
+    BotFather не ответил), и человек может повторить кнопкой «Передать мне».
+    """
+    attempts = await db.fetchval(
+        "UPDATE service_orders SET transfer_attempts = transfer_attempts + 1, "
+        "       setup_error = $2, updated_at = NOW() "
+        " WHERE id = $1 RETURNING transfer_attempts",
+        order_id, reason,
+    ) or 1
+
+    if attempts < 2:
+        await _log_step(db, order_id, "transfer",
+                        f"{reason}. Попробуйте ещё раз кнопкой «Передать мне»",
+                        ok=False)
+        return
+
+    # ── вторая неудача: закрываем задачу и зовём человека ──
+    await db.execute(
+        "UPDATE service_orders SET setup_state='failed', updated_at=NOW() WHERE id=$1",
+        order_id,
+    )
+    await _log_step(db, order_id, "transfer",
+                    f"{reason}. Мы остановились и передали задачу в тех.поддержку",
+                    ok=False)
+
+    # ⚠️ Уведомление ОСНОВАТЕЛЮ — в группу «[Тех.поддержка] Увед. ПЛЮСОН».
+    # Используем готовую точку, своей отправки не заводим. Сбой уведомления не
+    # должен ломать обработку заказа — потому и try.
+    try:
+        from app.services.plusson_referral_notify import notify_founder_channel
+        row = await db.fetchrow(
+            "SELECT name, email, telegram_username FROM clients WHERE id=$1", client_id
+        )
+        await notify_founder_channel(db, (
+            "🔴 <b>Автонастройка: не удалось передать бота</b>\n\n"
+            f"Клиент: {row['name'] if row else client_id}"
+            f"{' · ' + row['email'] if row and row['email'] else ''}\n"
+            f"Ник: {row['telegram_username'] if row else '—'}\n"
+            f"Бот: @{bot_username}\n"
+            f"Причина: {reason}\n\n"
+            "Задача остановлена после двух попыток — нужен человек."
+        ))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("tg_setup: не удалось уведомить основателя: %s", e)
+
+
 async def _pick_account(db):
     """Свободный аккаунт с местом под ещё одного бота.
 
@@ -513,23 +572,14 @@ async def _finish_setup(db, order) -> None:
                     await _log_step(db, order_id, "transfer",
                                     "Бот теперь ваш — вы его владелец")
                 else:
-                    # ⚠️ Записываем причину в заказ — она и останавливает
-                    # повторы, и показывается клиенту красной строкой.
-                    await db.execute(
-                        "UPDATE service_orders SET setup_error=$2, updated_at=NOW() "
-                        " WHERE id=$1", order_id,
-                        "Не удалось передать права. Нажмите «Передать мне» ещё раз "
-                        "или напишите в тех.поддержку",
+                    await _fail_transfer(
+                        db, order_id, client_id, order["bot_username"],
+                        "Передача не подтвердилась",
                     )
-                    await _log_step(db, order_id, "transfer",
-                                    "Передача не подтвердилась — попробуйте ещё раз "
-                                    "кнопкой «Передать мне»", ok=False)
             except tgs.BotFatherError as e:
-                await db.execute(
-                    "UPDATE service_orders SET setup_error=$2, updated_at=NOW() "
-                    " WHERE id=$1", order_id, str(e),
+                await _fail_transfer(
+                    db, order_id, client_id, order["bot_username"], str(e),
                 )
-                await _log_step(db, order_id, "transfer", str(e), ok=False)
 
         # ── права на группу: только после вступления клиента ──
         if order["client_joined_at"] and not order["group_transferred_at"]:
