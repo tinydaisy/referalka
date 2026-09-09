@@ -506,6 +506,53 @@ async def create_bot(client, username: str, title: str) -> str:
     )
 
 
+async def configure_main_mini_app(client, bot_username: str, url: str) -> bool:
+    """Привязывает ГЛАВНЫЙ Mini App бота: Bot Settings → Configure Mini App.
+
+    ⚠️⚠️ ЭТО НЕ `/newapp`. Разница принципиальная, и на ней уже обожглись:
+      • `/newapp` заводит ОТДЕЛЬНОЕ приложение с коротким именем
+        (`t.me/бот/имя`) и ОБЯЗАТЕЛЬНО требует картинку 640×360 — там шаг
+        проваливался всегда, потому что обложки у нас нет;
+      • «Configure Mini App» настраивает ГЛАВНЫЙ Mini App, и там спрашивают
+        ТОЛЬКО адрес. Ни картинки, ни названия, ни описания в этом меню нет
+        вовсе — ровно так написано в нашей же инструкции клиентам
+        (/dashboard/help/connect-bot, шаг 3).
+
+    Ссылки при этом получаются короткие (`t.me/бот?startapp=…`) и одинаково
+    работают везде — именно их ждёт остальная платформа.
+
+    ⚠️ BotFather управляется КНОПКАМИ, а не текстом (см. `_click`). Порядок
+    задаёт он сам: /mybots → бот → Bot Settings → Configure Mini App →
+    (Enable Mini App, если ещё не включён) → Edit Mini App URL → адрес.
+
+    Шаг необязательный: не вышло — бот всё равно работает, кнопка меню
+    (`setChatMenuButton`) ставится отдельно и от этого не зависит.
+    """
+    u = bot_username.lstrip("@")
+    try:
+        await _ask(client, BOTFATHER, "/cancel", wait=3)
+        r = await _ask(client, BOTFATHER, "/mybots", wait=8)
+        if not await _click(client, BOTFATHER, f"@{u}"):
+            return False
+        if not await _click(client, BOTFATHER, "Bot Settings"):
+            return False
+        if not await _click(client, BOTFATHER, "Configure Mini App"):
+            return False
+
+        # ⚠️ «Enable Mini App» появляется, только если приложение ещё не
+        # включено. У включённого этой кнопки нет — отсутствие не ошибка.
+        await _click(client, BOTFATHER, "Enable Mini App", wait=4)
+
+        if not await _click(client, BOTFATHER, "Edit Mini App URL"):
+            return False
+        r = await _ask(client, BOTFATHER, url, wait=10)
+        low = (r or "").lower()
+        return "success" in low or "url updated" in low
+    except Exception as e:  # noqa: BLE001 — шаг необязательный
+        log.warning("configure main mini app failed for @%s: %s", u, e)
+        return False
+
+
 async def link_mini_app(client, bot_username: str, url: str, title: str) -> bool:
     """Привязывает Mini App к боту через /newapp у BotFather.
 

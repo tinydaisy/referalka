@@ -180,18 +180,20 @@ async def _run_setup(db, order) -> None:
 
         # ── Mini App ──
         #
-        # ⚠️⚠️ СТАВИМ КНОПКУ МЕНЮ ЧЕРЕЗ BOT API, а не /newapp у BotFather.
+        # ⚠️⚠️ ДЕЛАЕМ ДВА ДЕЙСТВИЯ, И ЭТО РАЗНЫЕ ВЕЩИ:
+        #   1) ГЛАВНЫЙ Mini App — Bot Settings → Configure Mini App у BotFather.
+        #      Он даёт короткие ссылки `t.me/бот?startapp=…`, на которых держится
+        #      вся платформа (события, воронки, реф-ссылки). Спрашивают там
+        #      ТОЛЬКО адрес: ни картинки, ни названия в этом меню нет — так и
+        #      написано в нашей инструкции клиентам (/dashboard/help/connect-bot).
+        #   2) КНОПКА МЕНЮ (`setChatMenuButton` через Bot API) — та самая кнопка
+        #      в боте, которой человек открывает кабинет.
         #
-        # Раньше шли к BotFather, и шаг ПРОВАЛИВАЛСЯ ВСЕГДА: он обязательно
-        # требует картинку 640×360, а мы отправляли ссылку на
-        # `pluson.ru/miniapp-cover.png`, которого не существует (404, файла нет
-        # в проекте вовсе). Диалог обрывался, и клиент читал «Приложение
-        # подключим отдельно» при каждой настройке.
-        #
-        # `setChatMenuButton` делает ровно то, что нужно человеку: в боте
-        # появляется кнопка, открывающая его кабинет. Тем же способом Mini App
-        # подключается в мастере «Каналов» (api/channels.py), то есть механика
-        # общая, а не своя. Картинка и short-name при этом не нужны вовсе.
+        # ⚠️ НЕ `/newapp`. Раньше шли им, и шаг ПРОВАЛИВАЛСЯ ВСЕГДА: он заводит
+        # ОТДЕЛЬНОЕ приложение с коротким именем и обязательно требует картинку
+        # 640×360, а отправлялась ссылка на `pluson.ru/miniapp-cover.png`,
+        # которого не существует (404, файла нет в проекте). Клиент читал
+        # «Приложение подключим отдельно» при каждой настройке.
         if not order["miniapp_linked_at"]:
             base = (settings.frontend_url or "https://pluson.ru").rstrip("/")
             url = f"{base}/c/{client_id}/tg/"
@@ -201,6 +203,11 @@ async def _run_setup(db, order) -> None:
             bot_token = await db.fetchval(
                 "SELECT bot_token FROM service_orders WHERE id=$1", order_id
             )
+
+            # 1) Главный Mini App через BotFather.
+            main_ok = await tgs.configure_main_mini_app(client, order["bot_username"], url)
+
+            # 2) Кнопка меню через Bot API — независимо от первого шага.
             ok = False
             try:
                 import httpx
@@ -216,6 +223,12 @@ async def _run_setup(db, order) -> None:
                     ok = bool(r.json().get("ok"))
             except Exception as e:  # noqa: BLE001 — шаг не должен ронять настройку
                 log.warning("tg_setup: не удалось поставить кнопку Mini App: %s", e)
+
+            # ⚠️ Шаг считается выполненным, если сработало ХОТЯ БЫ ОДНО: кнопка
+            # меню и главный Mini App полезны по отдельности. Требовать оба —
+            # значит из-за сбоя в переписке с BotFather объявить несделанным то,
+            # что на деле работает.
+            ok = ok or main_ok
             if ok:
                 await db.execute(
                     "UPDATE service_orders SET miniapp_linked_at=NOW(), updated_at=NOW() "
