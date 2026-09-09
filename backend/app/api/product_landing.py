@@ -212,8 +212,11 @@ async def get_or_create_product_page(db, *, client_id: int, product_id: int,
         preset = DEFAULT_PRODUCT_BLOCKS if kind == "main" else DEFAULT_PRODUCT_POST_PAY
         for i, b in enumerate(preset):
             await db.execute(
-                "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active) "
-                "VALUES ($1,$2,$3,$4)",
+                # ⚠️ Заголовки НОВЫХ лендингов — по центру (как у события).
+                # В колонке умолчание 'left' — менять его нельзя, сдвинуло бы
+                # уже собранные страницы задним числом.
+                "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align) "
+                "VALUES ($1,$2,$3,$4,'center')",
                 page["id"], b["kind"], i, b["is_active"],
             )
     return page
@@ -283,8 +286,13 @@ async def add_block(
         page_id,
     )
     row = await db.fetchrow(
-        "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active) "
-        "VALUES ($1,$2,$3,TRUE) RETURNING *",
+        # ⚠️ Как соседние секции этой страницы — иначе добавленная села бы
+        # влево на лендинге с центрированными заголовками.
+        "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align) "
+        "VALUES ($1,$2,$3,TRUE,"
+        "  COALESCE((SELECT title_align FROM event_landing_blocks WHERE page_id=$1"
+        "             GROUP BY title_align ORDER BY count(*) DESC LIMIT 1), 'center')"
+        ") RETURNING *",
         page_id, data.kind, nxt,
     )
     return _ser_product_block(row)

@@ -13,7 +13,7 @@
  * Сохранение — по факту правки, с задержкой (не дёргаем сервер на каждую букву).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Eye, Plus, Loader2, ExternalLink, Palette, Copy } from 'lucide-react'
+import { Eye, Plus, Loader2, ExternalLink, Palette, Copy, Check } from 'lucide-react'
 import PreviewLinkButton from '@/components/PreviewLinkButton'
 import LandingPdfButton from '@/components/LandingPdfButton'
 import { api } from '@/lib/api'
@@ -112,17 +112,34 @@ export default function LandingTab({ eventId, event }: Props) {
   // уронил бы всю вкладку (Application error).
   const navItems: any[] = Array.isArray(page?.nav_items) ? page!.nav_items : []
 
-  // Что предлагать в «Добавить секцию»: повторяемые блоки — всегда, стандартные
-  // — только те, которых на странице сейчас нет (их можно по одной штуке).
-  const addableKinds = useMemo(() => {
+  // Что предлагать в «Добавить секцию» — ДВУМЯ группами.
+  //
+  // ⚠️ Автозаполняемые секции (спикеры, программа, тарифы, подарки…) тянут
+  // содержимое из события и бывают на странице по ОДНОЙ. Раньше они лежали
+  // вперемешку с обычными, а уже добавленные просто исчезали из списка — и
+  // было не понять, секции нет вовсе или она уже стоит выше. Теперь они идут
+  // отдельной группой ВНИЗУ и показываются всегда: добавленная — неактивной,
+  // удалённая — снова доступной.
+  const { extraKinds, autoKinds } = useMemo(() => {
     const present = new Set<string>((page?.blocks || []).map((b: any) => b.kind))
-    const all = [...REPEATABLE, ...STANDARD.filter(k => !present.has(k))]
     // ⚠️ У СОВМЕСТНОГО события блока «Анкета / Заявка» нет: лендинг общий, а
     // базы контактов у организаторов разные — заявка ушла бы в базу того, кто
     // поставил форму, и человек, пришедший по ссылке партнёра, стал бы чужим
     // контактом. Бэкенд отвечает на такое создание 400; здесь просто не
     // предлагаем, чтобы клиент не упирался в отказ.
-    return event?.is_collab ? all.filter(k => k !== 'survey') : all
+    const drop = (k: string) => event?.is_collab && k === 'survey'
+    // Автозаполняемая = помечена `live` в мете (тот же признак, по которому
+    // на карточке блока стоит бейдж «авто»). Своего списка не заводим —
+    // разъехался бы с бейджами.
+    const auto = STANDARD.filter(k => !drop(k) && metaFor(k).live)
+    const extra = [
+      ...REPEATABLE.filter(k => !drop(k)),
+      ...STANDARD.filter(k => !drop(k) && !metaFor(k).live && !present.has(k)),
+    ]
+    return {
+      extraKinds: extra,
+      autoKinds: auto.map(k => ({ kind: k, used: present.has(k) })),
+    }
   }, [page, event?.is_collab])
 
   /* ── правка настроек страницы ─────────────────────────────────────────── */
@@ -865,9 +882,9 @@ export default function LandingTab({ eventId, event }: Props) {
         </div>
 
         <div className="mt-5 border-t border-gray-200 pt-4">
-          <p className="mb-2 text-sm font-medium text-gray-700">Добавить секцию</p>
+          <p className="mb-2 text-sm font-medium text-gray-700">Дополнительные секции</p>
           <div className="flex flex-wrap gap-2">
-            {addableKinds.map(k => (
+            {extraKinds.map(k => (
               <button
                 key={k}
                 onClick={() => addBlock(k)}
@@ -878,8 +895,37 @@ export default function LandingTab({ eventId, event }: Props) {
             ))}
           </div>
           <p className="mt-2 text-xs text-gray-500">
-            Блоки «Текст», «Галерея» и элементы можно добавлять сколько угодно раз.
-            Остальные секции — по одной: те, что уже стоят на странице, в списке не показаны.
+            Свои тексты, картинки и кнопки. «Текст», «Галерея» и элементы можно
+            добавлять сколько угодно раз.
+          </p>
+
+          {/* ⚠️ Автозаполняемые — отдельной группой и ВСЕГДА видны, включая уже
+              добавленные (неактивными). Раньше они пропадали из списка, и было
+              непонятно: секции не существует или она уже стоит выше. */}
+          <p className="mb-2 mt-5 text-sm font-medium text-gray-700">Автозаполняемые секции</p>
+          <div className="flex flex-wrap gap-2">
+            {autoKinds.map(({ kind: k, used }) => (
+              <button
+                key={k}
+                onClick={() => !used && addBlock(k)}
+                disabled={used}
+                title={used
+                  ? 'Уже на странице — такая секция может быть только одна. Удалите её выше, чтобы добавить заново.'
+                  : metaFor(k).hint}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${
+                  used
+                    ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {used ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                {metaFor(k).label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Содержимое берётся из события само. Каждая — по одной на страницу:
+            добавленные показаны серым, удалите секцию выше — снова станет доступной.
           </p>
         </div>
       </div>

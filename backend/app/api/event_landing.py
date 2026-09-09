@@ -512,8 +512,12 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
         if not has_blocks:
             for i, b in enumerate(preset):
                 await db.execute(
-                    "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active) "
-                    "VALUES ($1, $2, $3, $4)",
+                    # ⚠️ Заголовки НОВЫХ лендингов — ПО ЦЕНТРУ. В колонке
+                    # умолчание 'left' (так собраны уже существующие страницы,
+                    # и менять его нельзя — сдвинуло бы их задним числом),
+                    # поэтому центр проставляем здесь, при создании блоков.
+                    "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align) "
+                    "VALUES ($1, $2, $3, $4, 'center')",
                     page["id"], b["kind"], i * 10, b["is_active"],
                 )
     return page
@@ -724,14 +728,23 @@ async def create_block(
         "SELECT COALESCE(MAX(sort_order), 0) FROM event_landing_blocks WHERE page_id = $1",
         page_id,
     )
+    # ⚠️ Новая секция встаёт так же, как СОСЕДНИЕ на этой странице: иначе на
+    # лендинге с центрированными заголовками добавленная села бы влево и
+    # выбивалась из ряда. Берём самое частое значение среди уже стоящих;
+    # страница пустая — центр (умолчание новых лендингов).
+    align = await db.fetchval(
+        "SELECT title_align FROM event_landing_blocks WHERE page_id = $1 "
+        " GROUP BY title_align ORDER BY count(*) DESC LIMIT 1",
+        page_id,
+    ) or "center"
     row = await db.fetchrow(
         """INSERT INTO event_landing_blocks
              (page_id, kind, admin_name, title, subtitle, body, button_label, button_url,
-              items, sort_order, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING *""",
+              items, sort_order, is_active, title_align)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12) RETURNING *""",
         page_id, data.kind, data.admin_name, data.title, data.subtitle, data.body,
         data.button_label, data.button_url, json.dumps(data.items or []),
-        last + 10, data.is_active,
+        last + 10, data.is_active, align,
     )
     return _ser_block(row)
 

@@ -1080,25 +1080,31 @@ export default function BlockCard({
                     </div>
                   </Field>
                 )}
-                <Field label={`Размер ${block.kind === 'hero' ? 'описания' : 'подзаголовка'}: ${block.subtitle_size ? `${block.subtitle_size} px` : 'обычный'}`}>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range" min={10} max={64} step={1}
-                      value={block.subtitle_size ?? 18}
-                      onChange={e => onPatch({ subtitle_size: Number(e.target.value) })}
-                      className="w-full"
-                    />
-                    {block.subtitle_size != null && (
-                      <button
-                        onClick={() => onPatch({ subtitle_size: null })}
-                        className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
-                      >
-                        сбросить
-                      </button>
-                    )}
-                  </div>
-                </Field>
-                <Field label={`Размер текста секции: ${block.text_size ? `${block.text_size} px` : 'как на странице'}`}>
+                {/* ⚠️ Регулятор показываем ТОЛЬКО там, где подзаголовок вообще
+                    есть (поле `subtitle` в meta.fields). У секции «Описание»
+                    его нет — настройка размера несуществующей строки сбивает
+                    с толку. */}
+                {has('subtitle') && (
+                  <Field label={`Размер подзаголовка: ${block.subtitle_size ? `${block.subtitle_size} px` : 'обычный'}`}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range" min={10} max={64} step={1}
+                        value={block.subtitle_size ?? 18}
+                        onChange={e => onPatch({ subtitle_size: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                      {block.subtitle_size != null && (
+                        <button
+                          onClick={() => onPatch({ subtitle_size: null })}
+                          className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+                        >
+                          сбросить
+                        </button>
+                      )}
+                    </div>
+                  </Field>
+                )}
+                <Field label={`Размер ${block.kind === 'description' ? 'текста описания' : 'текста секции'}: ${block.text_size ? `${block.text_size} px` : 'как на странице'}`}>
                   <div className="flex items-center gap-3">
                     <input
                       type="range" min={10} max={48} step={1}
@@ -1115,8 +1121,13 @@ export default function BlockCard({
                       </button>
                     )}
                   </div>
+                  {/* ⚠️ Подпись — по тому, что в секции РЕАЛЬНО есть. Общий
+                      текст про карточки и тарифы у секции с одним абзацем
+                      выглядел бессмыслицей: там нет ни списков, ни тарифов. */}
                   <p className="mt-1 text-xs text-gray-500">
-                    Пункты списков, карточки, подарки, тарифы — всё содержимое секции.
+                    {block.kind === 'description'
+                      ? 'Размер самого текста описания.'
+                      : 'Пункты списков, карточки, подарки, тарифы — всё содержимое секции.'}
                   </p>
                 </Field>
               </div>
