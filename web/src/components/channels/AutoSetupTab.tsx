@@ -103,13 +103,15 @@ export default function AutoSetupTab() {
    * (см. saveNick) — иначе останется незаполненным то, ради чего услуга
    * и делается.
    */
-  const [nick, setNick] = useState('')
+  // ⚠️ `null` = поле не трогали, показываем ник из настроек. Пустая строка —
+  // это «стёрли руками», и её нельзя путать с «не редактировали».
+  const [nick, setNick] = useState<string | null>(null)
   const [savingNick, setSavingNick] = useState(false)
   const [nickSaved, setNickSaved] = useState(false)
   const [nickError, setNickError] = useState<string | null>(null)
 
   const saveNick = async () => {
-    const value = nick.trim().replace(/^@/, '')
+    const value = (nick ?? '').trim().replace(/^@/, '')
     if (!value) return
     setSavingNick(true); setNickError(null); setNickSaved(false)
     try {
@@ -373,7 +375,21 @@ export default function AutoSetupTab() {
                 <div className="flex-1 flex items-center rounded-lg border border-gray-300 bg-white px-3 focus-within:border-gray-400">
                   <span className="text-gray-400 select-none">@</span>
                   <input
-                    value={nick || (state.telegram_username || '').replace(/^@/, '')}
+                    /**
+                     * ⚠️ Ник ВСЕГДА берётся из настроек (`clients.telegram_username`),
+                     * своей копии у вкладки нет.
+                     *
+                     * Здесь было `nick || state.telegram_username`, и это ломалось:
+                     * стоит один раз тронуть поле — `nick` перестаёт быть пустым и
+                     * НАВСЕГДА перекрывает значение из настроек. Человек менял ник
+                     * в Настройках, возвращался сюда и видел старый — казалось,
+                     * что мы храним ник у себя и не обновляем.
+                     *
+                     * Теперь `nick` — только «черновик правки»: null, пока не
+                     * начали печатать. Не трогали поле → показываем настройки,
+                     * и любое обновление данных сразу видно.
+                     */
+                    value={nick ?? (state.telegram_username || '').replace(/^@/, '')}
                     onChange={e => {
                       setNick(e.target.value.trim().replace(/^@/, ''))
                       setNickSaved(false); setNickError(null)
@@ -383,7 +399,7 @@ export default function AutoSetupTab() {
                     className="flex-1 py-2.5 px-1 outline-none text-sm bg-transparent"
                   />
                 </div>
-                <button onClick={saveNick} disabled={savingNick || !nick.trim()}
+                <button onClick={saveNick} disabled={savingNick || !(nick ?? '').trim()}
                         className="btn-primary px-4 whitespace-nowrap disabled:opacity-50">
                   {savingNick ? <Loader2 size={15} className="animate-spin" /> : 'Сохранить'}
                 </button>
@@ -399,7 +415,7 @@ export default function AutoSetupTab() {
                   <AlertTriangle size={15} /> {nickError}
                 </p>
               )}
-              {state.telegram_username && !nick && !nickSaved && (
+              {state.telegram_username && nick === null && !nickSaved && (
                 <p className="mt-2 text-xs text-gray-400">
                   Всё верно — можно запускать настройку ниже.
                 </p>
