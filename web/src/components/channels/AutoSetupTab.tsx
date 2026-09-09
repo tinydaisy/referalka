@@ -55,6 +55,17 @@ export default function AutoSetupTab() {
   const [checking, setChecking] = useState(false)
   const [nameCheck, setNameCheck] = useState<{ free: boolean; message: string } | null>(null)
   const [starting, setStarting] = useState(false)
+  /**
+   * Услуга ещё не открыта этому кабинету (ручка ответила 403).
+   *
+   * ⚠️ Это НЕ ошибка: пока идёт обкатка, услуга раздаётся по коду доступа,
+   * и у большинства кабинетов её нет. Раньше такой ответ глотался молча, и
+   * вкладка рисовала пустоту — человек видел белый экран без объяснений.
+   */
+  const [noAccess, setNoAccess] = useState(false)
+  const [code, setCode] = useState('')
+  const [activating, setActivating] = useState(false)
+  const [codeError, setCodeError] = useState<string | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async (silent = false) => {
@@ -62,13 +73,31 @@ export default function AutoSetupTab() {
       if (!silent) setLoading(true)
       const data = await api.tgAutosetup.get()
       setState(data)
+      setNoAccess(false)
       if (!username && data?.suggestions?.length) setUsername(data.suggestions[0])
-    } catch {
-      /* молча — экран перезапросит себя через интервал */
+    } catch (e: any) {
+      // 403 — доступа нет: показываем экран с вводом кода, а не пустоту.
+      // Сверяем по КОДУ ответа, а не по тексту: текст правится в бэкенде
+      // без оглядки на фронт, и проверка по нему тихо перестанет срабатывать.
+      if (e?.status === 403) setNoAccess(true)
     } finally {
       setLoading(false)
     }
   }, [username])
+
+  /** Открыть услугу по коду доступа. */
+  const activate = async () => {
+    setActivating(true); setCodeError(null)
+    try {
+      await api.tgAutosetup.activateCode(code.trim())
+      setCode('')
+      await load()
+    } catch (e: any) {
+      setCodeError(e?.message || 'Не удалось применить код')
+    } finally {
+      setActivating(false)
+    }
+  }
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -113,6 +142,61 @@ export default function AutoSetupTab() {
       </div>
     )
   }
+
+  /**
+   * Услуга ещё не открыта — предлагаем ввести код доступа.
+   *
+   * ⚠️ Про цену здесь не пишем и кнопки оплаты не показываем: пока идёт
+   * обкатка, услуга не продаётся, а выдаётся по коду. Показать «790 ₽» рядом
+   * с полем кода значило бы обещать покупку, которой нет.
+   */
+  if (noAccess) {
+    return (
+      <div className="max-w-xl">
+        <div className="rounded-2xl p-6 mb-5 text-white"
+             style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+          <div className="flex items-start gap-3">
+            <Sparkles size={22} style={{ color: '#FFCFA4' }} className="mt-1 shrink-0" />
+            <div>
+              <h2 className="text-xl font-bold">Автонастройка ПЛЮСОНа</h2>
+              <p className="text-white/80 text-sm mt-1">
+                Настроим Telegram за вас — вам останется два нажатия.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <h3 className="font-semibold text-gray-900 mb-1">Приобрести по коду</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Услуга в обкатке и подключается по коду доступа. Получить его можно
+            в поддержке.
+          </p>
+
+          <div className="flex gap-2">
+            <input
+              value={code}
+              onChange={e => { setCode(e.target.value); setCodeError(null) }}
+              onKeyDown={e => { if (e.key === 'Enter' && code.trim()) activate() }}
+              placeholder="Код доступа"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400"
+            />
+            <button onClick={activate} disabled={activating || !code.trim()}
+                    className="btn-gold px-5 whitespace-nowrap disabled:opacity-50">
+              {activating ? <Loader2 size={15} className="animate-spin" /> : 'Подключить'}
+            </button>
+          </div>
+
+          {codeError && (
+            <p className="mt-3 text-sm text-red-600 flex items-center gap-1.5">
+              <AlertTriangle size={15} /> {codeError}
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   if (!state) return null
 
   const order = state.order
@@ -139,52 +223,66 @@ export default function AutoSetupTab() {
 
   return (
     <div className="max-w-3xl">
-      {/* ─── Шапка услуги ─── */}
-      <div className="rounded-2xl p-6 mb-6 text-white"
-           style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-        <div className="flex items-start gap-3">
-          <Sparkles size={22} style={{ color: '#FFCFA4' }} className="mt-1 shrink-0" />
-          <div className="flex-1">
-            <h2 className="text-xl font-bold">{state.service.name}</h2>
-            {state.service.tagline && (
-              <p className="text-white/80 text-sm mt-1">{state.service.tagline}</p>
-            )}
-            {state.service.description && (
-              <p className="text-white/70 text-sm mt-3 leading-relaxed">
-                {state.service.description}
-              </p>
-            )}
-            {!!state.service.bullet_points?.length && (
-              <ul className="mt-4 space-y-1.5">
-                {state.service.bullet_points.map((b, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-white/85">
-                    <Check size={15} style={{ color: '#FFCFA4' }} className="mt-0.5 shrink-0" />
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-4 flex items-center gap-3">
-              <div className="text-2xl font-bold" style={{ color: '#FFCFA4' }}>
-                {state.service.price} ₽
+      {/*
+        ─── Шапка услуги: ТОЛЬКО ПОКА УСЛУГА НЕ ВЫДАНА ───
+
+        ⚠️ Это витрина — что входит в услугу и сколько стоит. Тому, у кого
+        услуга уже есть, продавать нечего: тёмный экран на пол-страницы просто
+        отодвигает вниз то, ради чего человек зашёл (форму и статус настройки).
+      */}
+      {!paid && (
+        <div className="rounded-2xl p-6 mb-6 text-white"
+             style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+          <div className="flex items-start gap-3">
+            <Sparkles size={22} style={{ color: '#FFCFA4' }} className="mt-1 shrink-0" />
+            <div className="flex-1">
+              <h2 className="text-xl font-bold">{state.service.name}</h2>
+              {state.service.tagline && (
+                <p className="text-white/80 text-sm mt-1">{state.service.tagline}</p>
+              )}
+              {state.service.description && (
+                <p className="text-white/70 text-sm mt-3 leading-relaxed">
+                  {state.service.description}
+                </p>
+              )}
+              {!!state.service.bullet_points?.length && (
+                <ul className="mt-4 space-y-1.5">
+                  {state.service.bullet_points.map((b, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-white/85">
+                      <Check size={15} style={{ color: '#FFCFA4' }} className="mt-0.5 shrink-0" />
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-4 flex items-center gap-3">
+                {/* Ноль показываем словом: «0 ₽» читается как сбой. */}
+                <div className="text-2xl font-bold" style={{ color: '#FFCFA4' }}>
+                  {state.service.price > 0 ? `${state.service.price} ₽` : 'Бесплатно'}
+                </div>
+                {state.service.price > 0 && <div className="text-white/60 text-sm">разово</div>}
+                {sellingClosed && (
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-semibold"
+                        style={{ background: '#FFCFA4', color: '#25455D' }}>
+                    СКОРО
+                  </span>
+                )}
               </div>
-              <div className="text-white/60 text-sm">разово</div>
-              {/* Оплатившему «СКОРО» не показываем — у него услуга уже есть. */}
-              {sellingClosed && (
-                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold"
-                      style={{ background: '#FFCFA4', color: '#25455D' }}>
-                  СКОРО
-                </span>
-              )}
-              {paid && (
-                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-green-500 text-white">
-                  ОПЛАЧЕНО
-                </span>
-              )}
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Услуга выдана — вместо витрины короткая строка-заголовок. */}
+      {paid && (
+        <div className="flex items-center gap-2.5 mb-5">
+          <Sparkles size={18} className="text-[#25455D] shrink-0" />
+          <h2 className="font-semibold text-gray-900">{state.service.name}</h2>
+          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-green-100 text-green-700">
+            ВЫДАНА
+          </span>
+        </div>
+      )}
 
       {/* ─── Скоро: без кнопки оплаты ─── */}
       {sellingClosed && !order && (

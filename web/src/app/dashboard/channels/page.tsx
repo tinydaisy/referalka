@@ -101,7 +101,40 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 export default function ChannelsPage() {
-  const [tab, setTab] = useState<'bots' | 'chats' | 'autosetup'>('bots')
+  /**
+   * Вкладка открывается и по адресу: `/dashboard/channels?tab=autosetup`.
+   * На неё ведёт кнопка «Перейти к настройке» со страницы подписки — без
+   * этого человек попадал на «Боты» и сам искал нужную вкладку.
+   *
+   * ⚠️ Читаем адрес НАПРЯМУЮ, а не хуком `useUrlTab`: внутри него
+   * `useSearchParams`, а страница без динамического сегмента с ним обязана
+   * быть завёрнута в <Suspense> — иначе падает сборка ВСЕГО проекта
+   * («useSearchParams() should be wrapped in a suspense boundary»).
+   * Здесь нужен разовый выбор вкладки при открытии, ради него городить
+   * обёртку не стоит.
+   */
+  const [tab, setTabState] = useState<'bots' | 'chats' | 'autosetup'>(() => {
+    if (typeof window === 'undefined') return 'bots'
+    const v = new URLSearchParams(window.location.search).get('tab')
+    return v === 'autosetup' || v === 'chats' ? v : 'bots'
+  })
+
+  /**
+   * Переключение вкладки пишется в адрес — чтобы обновление страницы (F5)
+   * оставляло человека на той же вкладке, а не сбрасывало на «Боты».
+   *
+   * ⚠️ `replaceState`, а не push: переключение вкладок не должно засорять
+   * историю — иначе «Назад» будет ходить по вкладкам вместо возврата на
+   * предыдущую страницу. Тот же приём, что в `useUrlTab`.
+   */
+  const setTab = (v: 'bots' | 'chats' | 'autosetup') => {
+    setTabState(v)
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (v === 'bots') url.searchParams.delete('tab')
+    else url.searchParams.set('tab', v)
+    window.history.replaceState(window.history.state, '', url.toString())
+  }
   const [me, setMe] = useState<Me | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
@@ -182,9 +215,6 @@ export default function ChannelsPage() {
   }
 
   const isVip = (me?.features || []).includes('channels')
-  // Автонастройка «под ключ» — пока только у владельца платформы (фича admin).
-  const hasAutoSetup = (me?.features || []).includes('tg_autosetup')
-  // Автонастройка «под ключ» — пока только у владельца платформы (фича admin).
   // Системный сервисный аккаунт ПЛЮСОНа (client 3): для него системный @pluson_bot
   // (и системные VK/MAX) — это фактически ЕГО собственные боты. Поэтому апсейл
   // «подключите свой бот» и красный баннер ему не показываем.
@@ -246,13 +276,12 @@ export default function ChannelsPage() {
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
         <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Чаты для рассылок</TabBtn>
-        {/* ⚠️ СКРЫТА без фичи, а не показана с замком: услуга клиентам пока
-            не продаётся, дразнить незачем (как «Автообзвоны» в сайдбаре). */}
-        {hasAutoSetup && (
-          <TabBtn active={tab === 'autosetup'} onClick={() => setTab('autosetup')}>
-            Автонастройка
-          </TabBtn>
-        )}
+        {/* ⚠️ Вкладка видна ВСЕМ, а не только с фичей. Услуга открывается по
+            коду доступа, и вводить его человеку негде, если вкладки нет вовсе.
+            Внутри без доступа показывается описание услуги и поле для кода. */}
+        <TabBtn active={tab === 'autosetup'} onClick={() => setTab('autosetup')}>
+          Автонастройка
+        </TabBtn>
       </div>
 
 

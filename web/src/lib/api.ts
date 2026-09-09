@@ -808,6 +808,12 @@ export const api = {
       request('/api/v1/clients/me/tg-autosetup/start', {
         method: 'POST', body: JSON.stringify({ bot_username, bot_title }),
       }),
+    // Открыть услугу по коду доступа — пока идёт обкатка, она раздаётся
+    // точечно, а не продаётся всем.
+    activateCode: (code: string) =>
+      request('/api/v1/clients/me/tg-autosetup/activate-code', {
+        method: 'POST', body: JSON.stringify({ code }),
+      }),
   },
 
   // Админская панель автонастройки — сервисные аккаунты и заказы.

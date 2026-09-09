@@ -35,9 +35,76 @@ SERVICE_SLUG = "tg_autosetup"
 FEATURE_SLUG = "tg_autosetup"
 
 
+# ⚠️⚠️ КОД ДОСТУПА К УСЛУГЕ — временный способ раздачи, пока идёт обкатка.
+#
+# Услуга бесплатна (0 ₽), но открывать её всем подряд рано: очередь упирается
+# в единственный сервисный аккаунт, и десяток заказов подряд его исчерпает.
+# Поэтому доступ выдаётся ТОЛЬКО тому, кто знает слово, — владелец даёт его
+# точечно и может спокойно проверять услугу на живых кабинетах.
+#
+# ⚠️ Это НЕ промокод-скидка (миграция 382, `promo_codes`): там сущность про
+# ДЕНЬГИ — процент или рубли на заказ, с лимитами применений и сроком. Здесь
+# денег нет вовсе, слово открывает ДОСТУП. Тащить сюда механизм скидок значило
+# бы завести код со скидкой 100% на услугу ценой 0 ₽ — конструкция, которая ни
+# о чём не говорит и требует заказа там, где заказа быть не должно.
+#
+# ⚠️ Слово захардкожено намеренно: оно живёт неделями обкатки и меняется
+# релизом, а не через админку. Заводить экран управления кодами ради одного
+# временного слова — работа, которую придётся выбросить, когда услуга откроется
+# всем. Открыть продажу = снять `coming_soon` в админке, код тогда не нужен.
+ACCESS_CODE = "auto_pluson"
+
+
 async def _assert_feature(db, client_id: int):
     if not await client_has_feature(db, client_id, FEATURE_SLUG):
         raise HTTPException(403, "Услуга пока недоступна")
+
+
+class ActivateCodeRequest(BaseModel):
+    code: str
+
+
+@router.post("/activate-code", summary="Открыть услугу по коду доступа")
+async def activate_by_code(data: ActivateCodeRequest,
+                           user=Depends(get_current_client), db=Depends(get_db)):
+    """Открывает услугу тому, кто ввёл верное слово.
+
+    ⚠️ Гейта `_assert_feature` здесь НЕТ и быть не может: ручку зовёт как раз
+    тот, у кого доступа ещё нет. Иначе код невозможно было бы ввести — человек
+    упирался бы в 403 ровно там, где пытается получить доступ.
+
+    ⚠️ Выдаём тем же способом, что и покупку модуля — строкой в `client_addons`
+    (`source='promo'`, значение уже предусмотрено ограничением таблицы).
+    Своего хранилища «кому открыт доступ» не заводим: тогда `client_has_feature`
+    о нём не знала бы, и раздел остался бы закрытым, сколько ни выдавай.
+    """
+    client_id = int(user["sub"])
+
+    # Регистр и пробелы не значимы: слово диктуют голосом и вставляют из чата.
+    if (data.code or "").strip().lower() != ACCESS_CODE:
+        raise HTTPException(400, "Неверный код")
+
+    if await client_has_feature(db, client_id, FEATURE_SLUG):
+        return {"ok": True, "already": True, "message": "Услуга уже подключена"}
+
+    feature_id = await db.fetchval(
+        "SELECT id FROM features WHERE slug=$1", FEATURE_SLUG
+    )
+    if not feature_id:
+        raise HTTPException(500, "Услуга не настроена")
+
+    # ⚠️ Срок — «навсегда» (2099), как у выданного админом: у РАЗОВОЙ услуги
+    # срока действия нет по смыслу. Дата истечения здесь только потому, что
+    # колонка NOT NULL — таблица рассчитана на модули с подпиской.
+    await db.execute(
+        """INSERT INTO client_addons (client_id, feature_id, expires_at,
+                                      status, source, price, months)
+                VALUES ($1, $2, TIMESTAMPTZ '2099-12-31', 'active', 'promo', 0, 1)
+           ON CONFLICT DO NOTHING""",
+        client_id, feature_id,
+    )
+    logger.info("tg_autosetup: доступ по коду выдан клиенту %s", client_id)
+    return {"ok": True, "already": False, "message": "Услуга подключена"}
 
 
 async def _service(db):
