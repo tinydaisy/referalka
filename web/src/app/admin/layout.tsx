@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone, Wrench } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const adminNav = [
@@ -11,6 +11,7 @@ const adminNav = [
   { href: '/admin/clients', label: 'Клиенты', icon: Users },
   { href: '/admin/system-channels', label: 'Системные каналы', icon: Radio },
   { href: '/admin/tg-setup', label: 'Автонастройка', icon: Sparkles },
+  { href: '/admin/tech', label: 'Тех-специалисты', icon: Wrench },
   { href: '/admin/partners', label: 'Партнёры', icon: Handshake },
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
   { href: '/admin/promotions', label: 'Акции', icon: Tag },

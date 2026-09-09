@@ -1386,6 +1386,52 @@ export const api = {
       request(`/api/v1/materials/${id}/blocks/${blockId}`, { method: 'DELETE' }),
   },
 
+  // Кабинет тех-специалиста (внедренца, миграция 391) — ТРЕТИЙ тип входа.
+  // ⚠️ Фильтр «только свои клиенты» делает бэкенд: здесь его дублировать
+  // нельзя, запрос повторяется мимо интерфейса.
+  tech: {
+    me: () => request('/api/v1/tech/me'),
+    clients: (p?: { search?: string; status?: string }) => {
+      const q = new URLSearchParams()
+      if (p?.search) q.set('search', p.search)
+      if (p?.status) q.set('status', p.status)
+      const qs = q.toString()
+      return request(`/api/v1/tech/clients${qs ? `?${qs}` : ''}`)
+    },
+    client: (id: number) => request(`/api/v1/tech/clients/${id}`),
+    accruals: (period?: string) =>
+      request(`/api/v1/tech/accruals${period ? `?period=${period}` : ''}`),
+  },
+
+  // Управление тех-специалистами — только для админа.
+  adminTech: {
+    specialists: () => request('/api/v1/admin/tech/specialists'),
+    createSpec: (data: any) =>
+      request('/api/v1/admin/tech/specialists', { method: 'POST', body: JSON.stringify(data) }),
+    updateSpec: (id: number, data: any) =>
+      request(`/api/v1/admin/tech/specialists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    resetPassword: (id: number) =>
+      request(`/api/v1/admin/tech/specialists/${id}/reset-password`, { method: 'POST' }),
+    assign: (data: { client_id: number; spec_id: number | null; reason?: string }) =>
+      request('/api/v1/admin/tech/assign', { method: 'POST', body: JSON.stringify(data) }),
+    unassigned: () => request('/api/v1/admin/tech/unassigned'),
+    rates: () => request('/api/v1/admin/tech/rates'),
+    setRate: (kind: string, data: any) =>
+      request(`/api/v1/admin/tech/rates/${kind}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    accruals: (p?: { spec_id?: number; period?: string; unpaid?: boolean }) => {
+      const q = new URLSearchParams()
+      if (p?.spec_id) q.set('spec_id', String(p.spec_id))
+      if (p?.period) q.set('period', p.period)
+      if (p?.unpaid) q.set('unpaid', 'true')
+      const qs = q.toString()
+      return request(`/api/v1/admin/tech/accruals${qs ? `?${qs}` : ''}`)
+    },
+    markPaid: (ids: number[]) =>
+      request('/api/v1/admin/tech/accruals/mark-paid', { method: 'POST', body: JSON.stringify({ ids }) }),
+    manualAccrual: (data: any) =>
+      request('/api/v1/admin/tech/accruals/manual', { method: 'POST', body: JSON.stringify(data) }),
+  },
+
   // Шаблоны обложек (миграция 387): «как выглядит обложка по умолчанию».
   // ⚠️ Цвета и шрифты сюда НЕ входят — они приходят в поле `theme` из «Стилей
   // лендингов»: два места настройки фирменного стиля разошлись бы.
