@@ -1109,11 +1109,24 @@ async def export_speaker_materials(
 # ⚠️ Считается ВЖИВУЮ, при заходе на вкладку, без кнопки «построить» (решение
 # владельца 09.09.2026): отчёт нужен как экран наблюдения, а не как документ.
 
-# Оплата участника — сумма его тарифов со статусом `paid`. То же выражение, что
-# в списке участников (`events.py`), чтобы цифры сходились между экранами.
+# Оплата участника — сумма его тарифов со статусом `paid`.
+#
+# ⚠️⚠️ ПУСТОЙ `amount` — ЭТО НЕ НОЛЬ, а «сумму не вписали»: при отметке оплаты
+# вручную (`source='manual'`) поле часто остаётся NULL, хотя цена тарифа
+# известна. На проде у события 24 из 31 оплаты сумма заполнена у 6 — считая
+# только по `amount`, отчёт показывал 32 700 ₽ вместо реальных сотен тысяч, а у
+# рефовода выходило «оплатили 2, сумма 0 ₽» (жалоба владельца 09.09.2026).
+# Поэтому берём цену тарифа как запасное значение.
+#
+# ⚠️ `event_tariffs.price` — INTEGER, а `pt.amount` — numeric(12,2):
+# приводим явно, иначе COALESCE ругается на несовпадение типов.
+# ⚠️ Настоящий ноль (`amount = 0`, бесплатный тариф) при этом сохраняется —
+# COALESCE подменяет только NULL.
 _PAID_SUM_SQL = (
-    "(SELECT COALESCE(SUM(pt.amount), 0) FROM event_participant_tariffs pt "
-    "WHERE pt.participant_id = ep.id AND pt.status = 'paid')"
+    "(SELECT COALESCE(SUM(COALESCE(pt.amount, t_price.price::numeric, 0)), 0) "
+    "   FROM event_participant_tariffs pt "
+    "   LEFT JOIN event_tariffs t_price ON t_price.id = pt.tariff_id "
+    "  WHERE pt.participant_id = ep.id AND pt.status = 'paid')"
 )
 _PAID_EXISTS_SQL = (
     "EXISTS (SELECT 1 FROM event_participant_tariffs pt "
@@ -1147,9 +1160,27 @@ async def referral_report(
                (SELECT pe.platform_user_id FROM platform_users pe
                  WHERE pe.contact_id = rc.id AND pe.platform_slug = 'email'
                  ORDER BY pe.id LIMIT 1)    AS email,
+               -- Площадки рефовода: показываем иконкой + ником, по одной на
+               -- строку — как в карточке. Нужны и id, и ник: без ника ссылку
+               -- не построить, без id не видно, что человек на площадке есть.
                (SELECT pu.username FROM platform_users pu
                  WHERE pu.contact_id = rc.id AND pu.platform_slug = 'telegram'
                  LIMIT 1)                   AS tg_username,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = rc.id AND pu.platform_slug = 'telegram'
+                 LIMIT 1)                   AS tg_id,
+               (SELECT pu.username FROM platform_users pu
+                 WHERE pu.contact_id = rc.id AND pu.platform_slug = 'vk'
+                 LIMIT 1)                   AS vk_username,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = rc.id AND pu.platform_slug = 'vk'
+                 LIMIT 1)                   AS vk_id,
+               (SELECT pu.username FROM platform_users pu
+                 WHERE pu.contact_id = rc.id AND pu.platform_slug = 'max'
+                 LIMIT 1)                   AS max_username,
+               (SELECT pu.platform_user_id FROM platform_users pu
+                 WHERE pu.contact_id = rc.id AND pu.platform_slug = 'max'
+                 LIMIT 1)                   AS max_id,
                -- Зарегистрирован ли САМ рефовод на это событие. Отдельный
                -- вопрос от «сколько он привёл»: человек может звать друзей,
                -- сам при этом не дойдя до регистрации, — это видно сразу.

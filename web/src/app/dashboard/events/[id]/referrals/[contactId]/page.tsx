@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, ExternalLink, Users, CheckCircle2, Wallet } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+import PlatformList from '@/components/PlatformList'
 
 /**
  * Карточка рефовода в контексте события: кого он привёл и с каким результатом.
@@ -40,51 +41,6 @@ interface Person {
 
 function money(v: number): string {
   return `${Number(v || 0).toLocaleString('ru-RU')} ₽`
-}
-
-/** Иконка площадки — только у тех, что реально есть у человека. */
-function PlatformBadges({ p }: { p: Person }) {
-  const items: { key: string; label: string; color: string; href?: string }[] = []
-  if (p.tg_id || p.tg_username) {
-    const nick = p.tg_username ? String(p.tg_username).replace(/^@+/, '') : ''
-    items.push({
-      key: 'tg', label: 'TG', color: '#229ED9',
-      href: nick ? `https://t.me/${nick}` : undefined,
-    })
-  }
-  if (p.vk_id || p.vk_username) {
-    const nick = p.vk_username ? String(p.vk_username).replace(/^@+/, '') : ''
-    items.push({
-      key: 'vk', label: 'VK', color: '#0077FF',
-      href: nick ? `https://vk.com/${nick}` : (p.vk_id ? `https://vk.com/id${p.vk_id}` : undefined),
-    })
-  }
-  if (p.max_id || p.max_username) {
-    const nick = p.max_username ? String(p.max_username).replace(/^@+/, '') : ''
-    items.push({
-      key: 'max', label: 'MAX', color: '#C79A5B',
-      href: nick ? `https://max.ru/${nick}` : (p.max_id ? `https://max.ru/u/${p.max_id}` : undefined),
-    })
-  }
-  if (items.length === 0) return <span className="text-gray-300">—</span>
-  return (
-    <span className="inline-flex gap-1">
-      {items.map(i => i.href ? (
-        <a key={i.key} href={i.href} target="_blank" rel="noopener noreferrer"
-           title={i.href}
-           className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[9px] font-bold text-white hover:opacity-80"
-           style={{ background: i.color }}>
-          {i.label}
-        </a>
-      ) : (
-        <span key={i.key}
-              className="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[9px] font-bold text-white opacity-60"
-              style={{ background: i.color }}>
-          {i.label}
-        </span>
-      ))}
-    </span>
-  )
 }
 
 function StatCard({ icon: Icon, label, value, accent }: {
@@ -272,7 +228,7 @@ export default function EventReferrerPage() {
                     </td>
                     <td className="px-3 py-2.5 text-gray-600">{p.email || <span className="text-gray-300">—</span>}</td>
                     <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{p.phone || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-2.5"><PlatformBadges p={p} /></td>
+                    <td className="px-3 py-2.5"><PlatformList p={p} /></td>
                     <td className="px-3 py-2.5">
                       {p.is_registered ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">

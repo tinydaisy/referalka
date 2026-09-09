@@ -1461,7 +1461,16 @@ async def event_participants(
                      FROM clients cl WHERE cl.id = c.client_id) AS organizer_name,
                   c.ref_code, ep.referrer_ref_code,
                   -- Сколько человек заплатил за это событие и за что именно.
-                  (SELECT COALESCE(SUM(pt.amount), 0) FROM event_participant_tariffs pt
+                  -- ⚠️⚠️ ПУСТОЙ `amount` — НЕ ноль, а «сумму не вписали»: при
+                  -- отметке оплаты вручную поле часто остаётся NULL, хотя цена
+                  -- тарифа известна. На проде у события 24 сумма заполнена у 6
+                  -- оплат из 31 — считая только по `amount`, список показывал
+                  -- 32 700 ₽ вместо 357 400 ₽. Берём цену тарифа запасным
+                  -- значением; настоящий `amount = 0` (бесплатный тариф) при
+                  -- этом сохраняется — COALESCE подменяет только NULL.
+                  (SELECT COALESCE(SUM(COALESCE(pt.amount, t_price.price::numeric, 0)), 0)
+                     FROM event_participant_tariffs pt
+                     LEFT JOIN event_tariffs t_price ON t_price.id = pt.tariff_id
                     WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_amount,
                   (SELECT STRING_AGG(t.title, ', ' ORDER BY t.sort_order)
                      FROM event_participant_tariffs pt

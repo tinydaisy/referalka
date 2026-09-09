@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { Users, CheckCircle2, Wallet, ChevronRight, Search } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+// Общий показ площадок — тот же компонент, что в карточке рефовода.
+import PlatformList from '@/components/PlatformList'
 
 /**
  * Отчёт по рефералам события: кто сколько привёл.
@@ -27,6 +29,11 @@ interface Row {
   email: string | null
   phone: string | null
   tg_username: string | null
+  tg_id: string | null
+  vk_username: string | null
+  vk_id: string | null
+  max_username: string | null
+  max_id: string | null
   self_registered: boolean
   self_participant: boolean
   brought: number
@@ -172,6 +179,7 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
             <thead className="text-[11px] text-gray-400 uppercase tracking-wide bg-gray-50">
               <tr>
                 <th className="text-left px-5 py-2.5 font-medium">Реферал</th>
+                <th className="text-left px-3 py-2.5 font-medium">Площадки</th>
                 <th className="text-left px-3 py-2.5 font-medium">Сам зареган</th>
                 <th className="text-right px-3 py-2.5 font-medium">Привёл</th>
                 <th className="text-right px-3 py-2.5 font-medium">Зарегались</th>
@@ -190,11 +198,13 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
                       {r.name || 'Без имени'}
                     </Link>
                     <div className="text-xs text-gray-400 flex items-center gap-2 flex-wrap mt-0.5">
-                      {r.tg_username && <span>@{String(r.tg_username).replace(/^@+/, '')}</span>}
                       {r.email && <span>{r.email}</span>}
+                      {r.phone && <span>{r.phone}</span>}
                       <span className="font-mono">{r.ref_code}</span>
                     </div>
                   </td>
+                  {/* Площадки — иконка + ник, по одной на строку. */}
+                  <td className="px-3 py-3"><PlatformList p={r} /></td>
                   <td className="px-3 py-3">
                     {r.self_registered ? (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
@@ -227,6 +237,9 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
                 <td className="px-5 py-3">
                   Итого{needle ? ' (по всем, не только найденным)' : ''}
                 </td>
+                {/* Пустые ячейки под «Площадки» и «Сам зареган» — итог по ним
+                    не считается, но столбцы должны совпасть с шапкой. */}
+                <td className="px-3 py-3" />
                 <td className="px-3 py-3" />
                 <td className="px-3 py-3 text-right">{totals.brought ?? 0}</td>
                 <td className="px-3 py-3 text-right">{totals.registered ?? 0}</td>
