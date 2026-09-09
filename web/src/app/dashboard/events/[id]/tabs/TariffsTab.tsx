@@ -1524,7 +1524,14 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
                     </select>
                   </td>
                   <td className="px-2 py-2">
+                    {/* ⚠️ Править сумму можно ТОЛЬКО у отмеченных ВРУЧНУЮ
+                        (решение владельца 09.09.2026). Оплата, пришедшая с
+                        сайта или из платёжной системы, — это факт: сумму там
+                        прислал продавец, и переписать её нельзя, иначе учёт
+                        разойдётся с реальными деньгами. */}
                     <OrderAmount amount={o.amount} tariffPrice={o.tariff_price}
+                      readOnly={!!o.source && o.source !== 'manual'}
+                      sourceLabel={o.source}
                       onSave={(a) => patch(o, { amount: a, amount_set: true })} />
                   </td>
                   <td className="px-2 py-2">
@@ -1580,13 +1587,36 @@ function OrderNote({ note, onSave }: { note: string | null; onSave: (n: string) 
 
 // Фактическая сумма — редактируемое поле. Если не задана — серым показывает цену
 // тарифа (плейсхолдером), при вводе сохраняет фактически внесённое (для скидок).
-function OrderAmount({ amount, tariffPrice, onSave }: { amount: number | null; tariffPrice: number | null; onSave: (a: number | null) => void }) {
+function OrderAmount({ amount, tariffPrice, onSave, readOnly = false, sourceLabel }: {
+  amount: number | null
+  tariffPrice: number | null
+  onSave: (a: number | null) => void
+  /** Оплата пришла не из ручной отметки — сумму менять нельзя. */
+  readOnly?: boolean
+  sourceLabel?: string | null
+}) {
   const [val, setVal] = useState(amount != null ? String(amount) : '')
   useEffect(() => { setVal(amount != null ? String(amount) : '') }, [amount])
   const cur = val.trim() === '' ? null : parseInt(val.trim(), 10)
   const dirty = cur !== amount
-  function commit() { if (dirty) onSave(cur) }
+  function commit() { if (!readOnly && dirty) onSave(cur) }
   const discounted = amount != null && tariffPrice != null && amount < tariffPrice
+
+  // ⚠️ Оплату, пришедшую с сайта или из платёжной системы, НЕ РЕДАКТИРУЕМ
+  // (решение владельца 09.09.2026): сумму там прислал продавец, это факт
+  // сделки. Правится только то, что отметили вручную.
+  if (readOnly) {
+    return (
+      <div className="flex items-center gap-1"
+           title={`Оплата через ${sourceLabel} — сумму менять нельзя. Править можно только отмеченные вручную.`}>
+        <span className="px-1.5 py-1 text-xs w-16 text-right text-gray-700 font-medium">
+          {amount != null ? amount.toLocaleString('ru-RU') : '—'}
+        </span>
+        <span className="text-xs text-gray-400">₽</span>
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center gap-1">
       <input
