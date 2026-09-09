@@ -11,6 +11,7 @@
  * клиент смотрит в застывший экран и решает, что услуга не работает.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { api } from '@/lib/api'
 import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
 import {
@@ -69,9 +70,6 @@ export default function AutoSetupTab() {
    * вкладка рисовала пустоту — человек видел белый экран без объяснений.
    */
   const [noAccess, setNoAccess] = useState(false)
-  const [code, setCode] = useState('')
-  const [activating, setActivating] = useState(false)
-  const [codeError, setCodeError] = useState<string | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async (silent = false) => {
@@ -135,19 +133,8 @@ export default function AutoSetupTab() {
     }
   }
 
-  /** Открыть услугу по коду доступа. */
-  const activate = async () => {
-    setActivating(true); setCodeError(null)
-    try {
-      await api.tgAutosetup.activateCode(code.trim())
-      setCode('')
-      await load()
-    } catch (e: any) {
-      setCodeError(e?.message || 'Не удалось применить код')
-    } finally {
-      setActivating(false)
-    }
-  }
+  // ⚠️ Ввода кода здесь НЕТ: он живёт в ОДНОМ месте — в карточке услуги на
+  // странице «Подписка». Держать вторую форму значило бы чинить обе.
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -194,54 +181,90 @@ export default function AutoSetupTab() {
   }
 
   /**
-   * Услуга ещё не открыта — предлагаем ввести код доступа.
+   * Услуга ещё не открыта — показываем, ЧТО она делает, и куда идти за ней.
    *
-   * ⚠️ Про цену здесь не пишем и кнопки оплаты не показываем: пока идёт
-   * обкатка, услуга не продаётся, а выдаётся по коду. Показать «790 ₽» рядом
-   * с полем кода значило бы обещать покупку, которой нет.
+   * ⚠️⚠️ ФОРМЫ КОДА ЗДЕСЬ НЕТ НАМЕРЕННО. Код вводится в ОДНОМ месте — в
+   * карточке услуги на странице «Подписка», рядом с остальными покупками.
+   * Два места ввода означали бы, что человек ищет, где именно «правильно»
+   * подключить, и оба надо чинить при каждой правке.
    */
   if (noAccess) {
     return (
-      <div className="max-w-xl">
-        <div className="rounded-2xl p-6 mb-5 text-white"
+      <div className="max-w-3xl">
+        <div className="rounded-2xl p-6 text-white"
              style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
           <div className="flex items-start gap-3">
             <Sparkles size={22} style={{ color: '#FFCFA4' }} className="mt-1 shrink-0" />
-            <div>
-              <h2 className="text-xl font-bold">Автонастройка ПЛЮСОНа</h2>
+            <div className="flex-1">
+              <h2 className="text-xl font-bold">Автонастройка ПЛЮСОНа и экспресс-подключение</h2>
               <p className="text-white/80 text-sm mt-1">
                 Настроим Telegram за вас — вам останется два нажатия.
               </p>
+
+              <p className="text-white/60 text-xs uppercase tracking-wide mt-5 mb-2">
+                Что сделаем за вас
+              </p>
+              <ul className="space-y-1.5">
+                {AUTOSETUP_STEPS.map((b, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-white/85">
+                    <Check size={15} style={{ color: '#FFCFA4' }} className="mt-0.5 shrink-0" />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <p className="text-white/60 text-xs uppercase tracking-wide mt-5 mb-2">
+                От вас — два действия
+              </p>
+              <ul className="space-y-1.5">
+                {AUTOSETUP_FROM_CLIENT.map((b, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-white/85">
+                    <span className="shrink-0 mt-0.5 w-[15px] text-center text-xs font-bold"
+                          style={{ color: '#FFCFA4' }}>{i + 1}</span>
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <ul className="mt-5 space-y-1.5">
+                {AUTOSETUP_NOT_INCLUDED.map((b, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-white/55">
+                    <span className="shrink-0 mt-0.5">—</span>
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {/* ⚠️ «Бесплатно · Скоро будет» — честное состояние: цена 0, но
+                  услуга ещё в обкатке и всем не открыта. */}
+              <div className="mt-5 flex items-center gap-3 flex-wrap">
+                <div className="text-2xl font-bold" style={{ color: '#FFCFA4' }}>
+                  Бесплатно
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold"
+                      style={{ background: '#FFCFA4', color: '#25455D' }}>
+                  СКОРО БУДЕТ
+                </span>
+              </div>
+
+              <p className="mt-4 text-sm text-white/70 leading-relaxed">
+                Пока подключаем по промокоду — за ним{' '}
+                <Link href={SUPPORT_URL} className="underline hover:text-white"
+                      style={{ color: '#FFCFA4' }}>
+                  обратитесь в тех.поддержку
+                </Link>
+                .
+              </p>
+
+              {/* ⚠️ Ведём ТОЧНО К КАРТОЧКЕ услуги (#service-tg_autosetup), а не
+                  на верх страницы подписки: там тарифы, модули и история, и
+                  услугу пришлось бы искать прокруткой. Якорь у карточки есть. */}
+              <Link href="/dashboard/subscription#service-tg_autosetup"
+                    className="btn-gold inline-block mt-4 px-5 py-2.5 text-sm font-semibold">
+                Подключить по промокоду
+              </Link>
             </div>
           </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h3 className="font-semibold text-gray-900 mb-1">Приобрести по коду</h3>
-          <p className="text-sm text-gray-500 mb-4">
-            Услуга в обкатке и подключается по коду доступа. Получить его можно
-            в поддержке.
-          </p>
-
-          <div className="flex gap-2">
-            <input
-              value={code}
-              onChange={e => { setCode(e.target.value); setCodeError(null) }}
-              onKeyDown={e => { if (e.key === 'Enter' && code.trim()) activate() }}
-              placeholder="Код доступа"
-              className="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400"
-            />
-            <button onClick={activate} disabled={activating || !code.trim()}
-                    className="btn-gold px-5 whitespace-nowrap disabled:opacity-50">
-              {activating ? <Loader2 size={15} className="animate-spin" /> : 'Подключить'}
-            </button>
-          </div>
-
-          {codeError && (
-            <p className="mt-3 text-sm text-red-600 flex items-center gap-1.5">
-              <AlertTriangle size={15} /> {codeError}
-            </p>
-          )}
         </div>
       </div>
     )

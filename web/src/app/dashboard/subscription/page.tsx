@@ -864,11 +864,17 @@ function ServicesBlock() {
                       : s.coming_soon ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
             <div className="flex items-start justify-between gap-2">
               <h4 className="font-semibold text-gray-900">{s.name}</h4>
-              {/* ⚠️ «ВЫДАНА», а не «ОПЛАЧЕНО»: услуга раздаётся по коду
-                  бесплатно, и слово про оплату вводило бы в заблуждение. */}
-              {paid && (
+              {/* ⚠️ «АКТИВИРОВАНА», а не «ОПЛАЧЕНО»: услуга раздаётся по
+                  промокоду бесплатно, слово про оплату вводило бы в
+                  заблуждение. Пока доступа нет — честное «СКОРО БУДЕТ». */}
+              {paid ? (
                 <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white">
-                  ВЫДАНА
+                  АКТИВИРОВАНА
+                </span>
+              ) : (
+                <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded"
+                      style={{ background: '#FFCFA4', color: '#25455D' }}>
+                  СКОРО БУДЕТ
                 </span>
               )}
             </div>
@@ -955,11 +961,15 @@ function ServicesBlock() {
               оплаты (она живёт на самой вкладке автонастройки).
             */}
             {paid ? (
+              // ⚠️ Ведём на ВКЛАДКУ автонастройки (?tab=autosetup), а не в
+              // «Каналы»: там три вкладки, и человек попадал на «Боты».
               <Link href="/dashboard/channels?tab=autosetup"
                     className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
                 {/* ⚠️ setup_state лежит ВНУТРИ заказа, а заказа может не быть
-                    вовсе (услуга выдана по коду, настройку ещё не запускали). */}
-                {paid.order?.setup_state === 'done' ? 'Настройка завершена' : 'Перейти к настройке'}
+                    вовсе (услуга активирована, настройку ещё не запускали). */}
+                {paid.order?.setup_state === 'done'
+                  ? 'Настройка завершена'
+                  : 'Перейти к автонастройке'}
               </Link>
             ) : codeFor === s.slug ? (
               // Поле раскрывается ЗДЕСЬ ЖЕ — уводить на другую страницу за
@@ -989,10 +999,22 @@ function ServicesBlock() {
                 </button>
               </div>
             ) : (
-              <button onClick={() => { setCodeFor(s.slug); setCode(''); setCodeError(null) }}
-                      className="mt-4 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
-                Приобрести по коду
-              </button>
+              <>
+                {/* ⚠️ Честно: услуга в обкатке и всем не открыта. Без этой
+                    строки «Приобрести по коду» читается как «код должен быть
+                    у всех», и человек идёт искать его в кабинете. */}
+                <p className="mt-4 text-xs text-gray-500">
+                  Пока подключаем по промокоду — за ним{' '}
+                  <Link href={SUPPORT_URL} className="text-[#25455D] underline">
+                    обратитесь в тех.поддержку
+                  </Link>
+                  .
+                </p>
+                <button onClick={() => { setCodeFor(s.slug); setCode(''); setCodeError(null) }}
+                        className="mt-2 w-full px-3 py-2.5 rounded-lg text-xs font-semibold btn-gold text-center block">
+                  Подключить по промокоду
+                </button>
+              </>
             )}
           </div>
         )})}
