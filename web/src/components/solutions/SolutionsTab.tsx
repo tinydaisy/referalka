@@ -18,7 +18,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import {
-  ExternalLink, Lock, Check, ArrowRight, ChevronDown, ChevronRight,
+  ExternalLink, Lock, Check, ArrowRight,
   LayoutGrid, List as ListIcon,
 } from 'lucide-react'
 import { useMe } from '@/hooks/useMe'
@@ -112,10 +112,43 @@ export default function SolutionsTab() {
             <p className="mb-2 text-xs text-gray-500">{cat.hint}</p>
 
             {view === 'table' ? (
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                {list.map((s, i) => (
-                  <TableRow key={s.slug} sol={s} features={features} first={i === 0} />
-                ))}
+              /* ⚠️⚠️ ЭТО НАСТОЯЩАЯ ТАБЛИЦА, а не список со свёрнутыми строками.
+                 Колонки заданы владельцем поимённо, и все они обязаны быть
+                 ВИДНЫ СРАЗУ: смысл таблицы — сравнивать решения между собой по
+                 одним и тем же признакам. Спрятать половину под стрелку значит
+                 вернуть тот же список, ради ухода от которого таблица и
+                 делалась.
+                 ⚠️ Таблица широкая — прокрутка внутри своего контейнера, страница
+                 вбок не едет. */
+              <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+                <table className="w-full min-w-[1180px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50 text-left align-bottom">
+                      {[
+                        ['#', 'w-10'],
+                        ['Решение', 'w-[190px]'],
+                        ['Что это', 'w-[230px]'],
+                        ['Преимущества', 'w-[250px]'],
+                        ['Инструменты', 'w-[150px]'],
+                        ['Что настроить у себя', 'w-[220px]'],
+                        ['Тариф', 'w-[120px]'],
+                        ['', 'w-[200px]'],
+                      ].map(([t, w], i) => (
+                        <th key={i}
+                            className={`${w} px-3 py-2 text-xs font-semibold ${
+                              i === 0 ? 'text-center' : ''}`}
+                            style={{ color: DARK }}>
+                          {t}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map(s => (
+                      <SolutionRow key={s.slug} sol={s} features={features} />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <div className="space-y-3">
@@ -184,131 +217,130 @@ function Actions({ sol, available, missing }: {
   )
 }
 
-/** Строка таблицы: свёрнута, раскрывается по стрелке. */
-function TableRow({ sol, features, first }: {
-  sol: Solution; features: string[]; first: boolean
-}) {
-  const [open, setOpen] = useState(false)
-  const [adv, setAdv] = useState(false)
+/**
+ * Строка таблицы — все колонки, заданные владельцем, видны сразу.
+ *
+ * ⚠️ Ничего не сворачивается. Таблицу читают глазами по столбцам, сравнивая
+ * решения между собой; спрятанная под стрелку колонка из сравнения выпадает.
+ * Подробности, которые в ячейку не помещаются, живут на странице решения.
+ */
+function SolutionRow({ sol, features }: { sol: Solution; features: string[] }) {
   const missing = missingFeatures(sol, features)
   const available = !missing.length
+  const need = requiredTariff(missing)
 
   return (
-    <div
-      className={!first ? 'border-t border-gray-100' : ''}
-      // ⚠️ Раскрытая строка обводится фирменным синим — на белом фоне серая
-      // рамка не читается, и границы раскрытого блока не видно.
-      style={open ? { border: `2px solid ${DARK}`, borderRadius: 10, margin: -1 } : undefined}
-    >
-      <button onClick={() => setOpen(o => !o)}
-              className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50">
-        <span className="shrink-0 text-gray-400">
-          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        </span>
-        <span className="w-8 shrink-0 text-xs font-semibold text-gray-400">{sol.num}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold" style={{ color: DARK }}>
-            {sol.title}
-          </span>
-          <span className="block truncate text-xs text-gray-500">{sol.short}</span>
-        </span>
-        <span className="hidden shrink-0 sm:block"><TariffBadge missing={missing} compact /></span>
-      </button>
+    <tr className="border-b border-gray-100 align-top last:border-b-0 hover:bg-gray-50/60">
+      {/* № */}
+      <td className="px-3 py-3 text-center text-xs font-semibold text-gray-400">
+        {sol.num}
+      </td>
 
-      {open && (
-        <div className="border-t border-gray-100 px-3 py-3 sm:pl-12">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {/* ⚠️ ВОРОНКА — ПЕРВОЙ И СРАЗУ РАЗВЁРНУТОЙ. Человек, открывший
-                решение, выясняет одно: что произойдёт с его подписчиком по
-                шагам. Преимущества — это реклама уже принятого решения, и
-                стоя на первом месте они отодвигали единственное, ради чего
-                строку раскрывают. */}
-            <div>
-              <div className="mb-1.5 text-xs font-medium text-gray-500">Как это работает</div>
-              <ol className="space-y-1.5">
-                {sol.flow.map((st, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                          style={{ background: DARK }}>
-                      {i + 1}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm text-gray-800">{st.text}</span>
-                      {st.note && (
-                        <span className="mt-0.5 block text-xs text-gray-500">{st.note}</span>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-            <div>
-              {/* ⚠️ Персиковый — как на странице решения: это единственное, без
-                  чего решение не заработает. */}
-              <div className="rounded-lg border p-2.5"
-                   style={{ borderColor: '#F0C9A4', background: '#FFF6EE' }}>
-                <div className="mb-1 text-xs font-semibold" style={{ color: DARK }}>
-                  Что настроить у себя
-                </div>
-                <ul className="space-y-0.5">
-                  {sol.setup.map((x, i) => (
-                    <li key={i} className="text-xs text-gray-700">— {x}</li>
-                  ))}
-                </ul>
-              </div>
-              {/* ⚠️ Подпись обязательна: голые «Бот · Лид-магниты» читаются
-                  как случайный набор слов. */}
-              <div className="mt-2 text-xs text-gray-500">Разделы кабинета:</div>
-              <div className="mt-1 flex flex-wrap gap-1">
-                {sol.tools.map(t => (
-                  <span key={t} className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
+      {/* Название — ссылка на подробное описание (открывается страницей) */}
+      <td className="px-3 py-3">
+        <Link href={`/dashboard/solutions/${sol.slug}`}
+              className="text-sm font-semibold hover:underline" style={{ color: DARK }}>
+          {sol.title}
+        </Link>
+        {/* ⚠️ «Тот же результат по-другому» — прямо в таблице: владелец просил
+            ссылаться на соседние решения там, где человек выбирает. */}
+        {!!sol.seeAlso?.length && (
+          <div className="mt-1 text-[11px] text-gray-500">
+            Иначе:{' '}
+            {sol.seeAlso.map((n, i) => {
+              const other = byNum(n)
+              if (!other) return null
+              return (
+                <span key={n}>
+                  {i > 0 && ', '}
+                  <Link href={`/dashboard/solutions/${other.slug}`}
+                        className="underline hover:text-gray-700">
+                    №{other.num}
+                  </Link>
+                </span>
+              )
+            })}
           </div>
+        )}
+      </td>
 
-          {/* ⚠️ Преимущества — СВЁРНУТЫ. Это довод «почему стоит взять», а не
-              описание работы; развёрнутыми они отодвигали воронку. */}
-          <button onClick={() => setAdv(a => !a)}
-                  className="mt-3 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700">
-            {adv ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            Что это вам даёт
-          </button>
-          {adv && (
-            <ul className="mt-1.5 space-y-1">
-              {sol.advantages.map((a, i) => (
-                <li key={i} className="flex gap-1.5 text-sm text-gray-700">
-                  <Check size={13} className="mt-0.5 shrink-0" style={{ color: DARK }} />
-                  <span>{a}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+      {/* Краткое описание */}
+      <td className="px-3 py-3 text-[13px] leading-snug text-gray-700">
+        {sol.short}
+      </td>
 
-          {!!sol.seeAlso?.length && (
-            <p className="mt-2 text-xs text-gray-500">
-              Тот же результат по-другому:{' '}
-              {sol.seeAlso.map((n, i) => {
-                const other = byNum(n)
-                if (!other) return null
-                return (
-                  <span key={n}>
-                    {i > 0 && ', '}
-                    <Link href={`/dashboard/solutions/${other.slug}`} className="underline hover:text-gray-700">
-                      {other.title}
-                    </Link>
-                  </span>
-                )
-              })}
-            </p>
-          )}
+      {/* Преимущества */}
+      <td className="px-3 py-3">
+        <ul className="space-y-1">
+          {sol.advantages.map((a, i) => (
+            <li key={i} className="flex gap-1.5 text-[12px] leading-snug text-gray-700">
+              <Check size={12} className="mt-0.5 shrink-0" style={{ color: DARK }} />
+              <span>{a}</span>
+            </li>
+          ))}
+        </ul>
+      </td>
 
-          <div className="mt-3"><Actions sol={sol} available={available} missing={missing} /></div>
+      {/* Инструменты ПЛЮСОНа */}
+      <td className="px-3 py-3">
+        <div className="flex flex-wrap gap-1">
+          {sol.tools.map(t => (
+            <span key={t} className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+              {t}
+            </span>
+          ))}
         </div>
-      )}
-    </div>
+      </td>
+
+      {/* Что настроить у себя — отдельная колонка (не то же, что тариф) */}
+      <td className="px-3 py-3">
+        <ul className="space-y-1">
+          {sol.setup.map((x, i) => (
+            <li key={i} className="text-[12px] leading-snug text-gray-700">— {x}</li>
+          ))}
+        </ul>
+      </td>
+
+      {/* Тариф */}
+      <td className="px-3 py-3">
+        <TariffBadge missing={missing} compact />
+        {!available && !!missing.length && (
+          <div className="mt-1 text-[11px] text-gray-500">
+            не хватает: {missing.map(f => FEATURE_TITLE[f]).join(', ')}
+          </div>
+        )}
+      </td>
+
+      {/* Действия */}
+      <td className="px-3 py-3">
+        <div className="flex flex-col gap-1.5">
+          <Link href={`/dashboard/solutions/${sol.slug}`}
+                className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
+            Описание <ArrowRight size={12} />
+          </Link>
+          {/* ⚠️ Только когда пример реально собран: кнопка в никуда хуже, чем
+              её отсутствие. */}
+          {sol.demo && (
+            <a href={sol.demo} target="_blank" rel="noreferrer"
+               className="inline-flex items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium hover:bg-gray-50"
+               style={{ borderColor: DARK, color: DARK }}>
+              Пощупать пример <ExternalLink size={12} />
+            </a>
+          )}
+          {available ? (
+            <Link href={`/dashboard/solutions/${sol.slug}#install`}
+                  className="btn-gold inline-flex items-center justify-center px-2 py-1 text-xs">
+              Установить мне
+            </Link>
+          ) : (
+            <Link href="/dashboard/subscription"
+                  className="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100">
+              {need ? `Повысить до ${need.title}` : 'Тарифы'}
+            </Link>
+          )}
+        </div>
+      </td>
+    </tr>
   )
 }
 
