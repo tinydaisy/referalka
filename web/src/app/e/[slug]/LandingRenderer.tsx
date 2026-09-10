@@ -1580,26 +1580,43 @@ function BlockBody(props: any) {
     /* ── Спикеры ───────────────────────────────────────────────────────── */
     // Раскладка проверена на боевом лендинге (GetCourse): квадратное фото,
     // имя капсом, должность, тема с акцентной полосой слева, регалии списком.
-    case 'partners':
+    case 'partners': {
+      // ⚠️ Пусто — секции нет: см. `speakers`.
+      const _pt = content.partners || []
+      if (!_pt.length) return null
       return <PartnersBlock
-        list={content.partners || []} block={block} page={page}
+        list={_pt} block={block} page={page}
         cardStyle={cardStyle} iconColor={iconColor}
       />
+    }
 
-    case 'speakers':
+    case 'speakers': {
+      // ⚠️ Пусто — секции нет вовсе: иначе от неё остаётся обёртка с
+      // отступами (по 64px сверху и снизу) и на странице зияет дыра.
+      // Проверяем ЗДЕСЬ, а не внутри компонента: наружу должен вернуться
+      // null, иначе Section не поймёт, что показывать нечего.
+      const _sp = content.speakers || []
+      if (!_sp.length) return null
       return <SpeakersBlock
-        list={content.speakers || []} block={block} page={page}
+        list={_sp} block={block} page={page}
         cardStyle={cardStyle} iconColor={iconColor} btnStyle={btnStyle}
       />
+    }
 
     /* ── Программа ─────────────────────────────────────────────────────── */
     // Дни — кнопками-табами (как на боевом лендинге), слоты — карточками:
     // время слева с акцентной полосой, круглое фото спикера, тема, должность.
-    case 'program':
+    case 'program': {
+      // ⚠️ Программы нет — секции нет: пустая обёртка оставляет дыру со
+      // отступами. Пусто = нет ВЫСТУПЛЕНИЙ: дни без слотов сам ProgramBlock
+      // отфильтровывает, и от секции остался бы один переключатель дней.
+      const _pr = content.program
+      if (!_pr || !((_pr.sessions || []).length)) return null
       return <ProgramBlock
-        program={content.program} page={page} cardStyle={cardStyle}
+        program={_pr} page={page} cardStyle={cardStyle}
         iconColor={iconColor} radius={radius} btnStyle={btnStyle}
       />
+    }
 
     /* ── Что входит (состав продукта, миграция 293) ────────────────────── */
     case 'product_content': {
