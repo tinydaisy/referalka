@@ -2202,6 +2202,12 @@ export const api = {
   },
 
   // Подсказки адреса при вводе (DaData через наш бэкенд — ключ на сервере).
+  // Готовые решения: установка в кабинет одной кнопкой.
+  solutions: {
+    install: (slug: string) =>
+      request(`/api/v1/solutions/${slug}/install`, { method: 'POST' }),
+  },
+
   address: {
     suggest: (query: string) =>
       request('/api/v1/address/suggest', {
