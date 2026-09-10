@@ -159,7 +159,7 @@ function Actions({ sol, available }: { sol: Solution; available: boolean }) {
         <a href={sol.demo} target="_blank" rel="noreferrer"
            className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-gray-50"
            style={{ borderColor: DARK, color: DARK }}>
-          Посмотреть пример <ExternalLink size={12} />
+          Пощупать живой пример <ExternalLink size={12} />
         </a>
       )}
       {available ? (
@@ -182,6 +182,7 @@ function TableRow({ sol, features, first }: {
   sol: Solution; features: string[]; first: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [adv, setAdv] = useState(false)
   const missing = missingFeatures(sol, features)
   const available = !missing.length
 
@@ -210,25 +211,48 @@ function TableRow({ sol, features, first }: {
       {open && (
         <div className="border-t border-gray-100 px-3 py-3 sm:pl-12">
           <div className="grid gap-4 sm:grid-cols-2">
+            {/* ⚠️ ВОРОНКА — ПЕРВОЙ И СРАЗУ РАЗВЁРНУТОЙ. Человек, открывший
+                решение, выясняет одно: что произойдёт с его подписчиком по
+                шагам. Преимущества — это реклама уже принятого решения, и
+                стоя на первом месте они отодвигали единственное, ради чего
+                строку раскрывают. */}
             <div>
-              <div className="mb-1 text-xs font-medium text-gray-500">Преимущества</div>
-              <ul className="space-y-1">
-                {sol.advantages.map((a, i) => (
-                  <li key={i} className="flex gap-1.5 text-sm text-gray-700">
-                    <Check size={13} className="mt-0.5 shrink-0" style={{ color: DARK }} />
-                    <span>{a}</span>
+              <div className="mb-1.5 text-xs font-medium text-gray-500">Как это работает</div>
+              <ol className="space-y-1.5">
+                {sol.flow.map((st, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                          style={{ background: DARK }}>
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm text-gray-800">{st.text}</span>
+                      {st.note && (
+                        <span className="mt-0.5 block text-xs text-gray-500">{st.note}</span>
+                      )}
+                    </span>
                   </li>
                 ))}
-              </ul>
+              </ol>
             </div>
             <div>
-              <div className="mb-1 text-xs font-medium text-gray-500">Что настроить у себя</div>
-              <ul className="space-y-0.5">
-                {sol.setup.map((x, i) => (
-                  <li key={i} className="text-xs text-gray-600">— {x}</li>
-                ))}
-              </ul>
-              <div className="mt-2 flex flex-wrap gap-1">
+              {/* ⚠️ Персиковый — как на странице решения: это единственное, без
+                  чего решение не заработает. */}
+              <div className="rounded-lg border p-2.5"
+                   style={{ borderColor: '#F0C9A4', background: '#FFF6EE' }}>
+                <div className="mb-1 text-xs font-semibold" style={{ color: DARK }}>
+                  Что настроить у себя
+                </div>
+                <ul className="space-y-0.5">
+                  {sol.setup.map((x, i) => (
+                    <li key={i} className="text-xs text-gray-700">— {x}</li>
+                  ))}
+                </ul>
+              </div>
+              {/* ⚠️ Подпись обязательна: голые «Бот · Лид-магниты» читаются
+                  как случайный набор слов. */}
+              <div className="mt-2 text-xs text-gray-500">Разделы кабинета:</div>
+              <div className="mt-1 flex flex-wrap gap-1">
                 {sol.tools.map(t => (
                   <span key={t} className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
                     {t}
@@ -237,6 +261,24 @@ function TableRow({ sol, features, first }: {
               </div>
             </div>
           </div>
+
+          {/* ⚠️ Преимущества — СВЁРНУТЫ. Это довод «почему стоит взять», а не
+              описание работы; развёрнутыми они отодвигали воронку. */}
+          <button onClick={() => setAdv(a => !a)}
+                  className="mt-3 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700">
+            {adv ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            Что это вам даёт
+          </button>
+          {adv && (
+            <ul className="mt-1.5 space-y-1">
+              {sol.advantages.map((a, i) => (
+                <li key={i} className="flex gap-1.5 text-sm text-gray-700">
+                  <Check size={13} className="mt-0.5 shrink-0" style={{ color: DARK }} />
+                  <span>{a}</span>
+                </li>
+              ))}
+            </ul>
+          )}
 
           {!!sol.seeAlso?.length && (
             <p className="mt-2 text-xs text-gray-500">

@@ -15,6 +15,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
   ArrowLeft, Check, ExternalLink, Lock, Loader2, Wrench, AlertTriangle,
+  ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { useMe } from '@/hooks/useMe'
 import { api } from '@/lib/api'
@@ -32,6 +33,8 @@ export default function SolutionPage() {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
+  // ⚠️ Хук объявлен ВЫШЕ early-return ниже — иначе порядок хуков поедет.
+  const [adv, setAdv] = useState(false)
 
   if (!sol) {
     return (
@@ -89,7 +92,18 @@ export default function SolutionPage() {
         {category?.title} · решение {sol.num}
       </div>
       <h1 className="mb-2 text-2xl font-bold text-gray-900">{sol.title}</h1>
-      <p className="mb-5 text-gray-600">{sol.short}</p>
+      <p className="mb-4 text-gray-600">{sol.short}</p>
+
+      {/* ⚠️ «Пощупать живой пример» — ЗАМЕТНОЙ КНОПКОЙ И НАВЕРХУ. Описание
+          словами всё равно не заменяет собранное решение: понять, что именно
+          придёт человеку, можно только пройдя воронку самому. Раньше ссылка
+          пряталась внизу, в блоке установки, — до неё не доходили. */}
+      {sol.demo && (
+        <a href={sol.demo} target="_blank" rel="noreferrer"
+           className="btn-gold mb-5 inline-flex items-center gap-2">
+          Пощупать живой пример <ExternalLink size={15} />
+        </a>
+      )}
 
       {/* ── Тариф ─────────────────────────────────────────────────────── */}
       {available ? (
@@ -129,6 +143,9 @@ export default function SolutionPage() {
       )}
 
       {/* ── Как это выглядит для человека ─────────────────────────────── */}
+      {/* ⚠️ Пошаговый процесс — ГЛАВНОЕ на странице и потому первым блоком:
+          сюда приходят выяснить, что произойдёт с подписчиком по шагам.
+          Преимущества (ниже, свёрнуты) — довод к уже понятому решению. */}
       <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5">
         <h2 className="mb-3 text-base font-bold text-gray-900">Как это работает</h2>
         <ol className="space-y-3">
@@ -147,6 +164,22 @@ export default function SolutionPage() {
             </li>
           ))}
         </ol>
+
+        <button onClick={() => setAdv(a => !a)}
+                className="mt-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+          {adv ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          Что это вам даёт
+        </button>
+        {adv && (
+          <ul className="mt-2 space-y-1.5">
+            {sol.advantages.map((a, i) => (
+              <li key={i} className="flex gap-2 text-sm text-gray-700">
+                <Check size={14} className="mt-0.5 shrink-0" style={{ color: DARK }} />
+                <span>{a}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* ── Что можно поправить ───────────────────────────────────────── */}
@@ -172,16 +205,20 @@ export default function SolutionPage() {
       </section>
 
       {/* ── Что настроить ─────────────────────────────────────────────── */}
-      <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="mb-1 text-base font-bold text-gray-900">
+      {/* ⚠️ Блок ПЕРСИКОВЫЙ, а не белый как соседние: это единственное, без
+          чего решение не заработает, и прочитать его надо до установки.
+          Среди пяти одинаковых белых карточек он терялся. */}
+      <section className="mb-6 rounded-xl border p-5"
+               style={{ borderColor: '#F0C9A4', background: '#FFF6EE' }}>
+        <h2 className="mb-1 text-base font-bold" style={{ color: DARK }}>
           Что нужно настроить у себя
         </h2>
-        <p className="mb-3 text-sm text-gray-600">
+        <p className="mb-3 text-sm text-gray-700">
           Без этого решение не заработает — проверьте до установки.
         </p>
         <ul className="space-y-1.5">
           {sol.setup.map((x, i) => (
-            <li key={i} className="flex gap-2 text-sm text-gray-700">
+            <li key={i} className="flex gap-2 text-sm text-gray-800">
               <span className="mt-2 h-1 w-1 shrink-0 rounded-full" style={{ background: DARK }} />
               <span>{x}</span>
             </li>
@@ -190,8 +227,17 @@ export default function SolutionPage() {
       </section>
 
       {/* ── Инструменты ───────────────────────────────────────────────── */}
+      {/* ⚠️ Названия разделов сами по себе ничего не объясняют: «Бот ·
+          Лид-магниты» читается как случайный набор слов. Поэтому фраза перед
+          ними обязательна — она говорит, что это и зачем показано. */}
       <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="mb-2 text-base font-bold text-gray-900">Что задействовано</h2>
+        <h2 className="mb-1 text-base font-bold text-gray-900">
+          Какие разделы кабинета задействованы
+        </h2>
+        <p className="mb-3 text-sm text-gray-600">
+          Здесь всё это будет лежать после установки — там же вы правите тексты
+          и настройки. Отдельно подключать ничего не нужно.
+        </p>
         <div className="flex flex-wrap gap-1.5">
           {sol.tools.map(t => (
             <span key={t} className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-700">
@@ -205,13 +251,8 @@ export default function SolutionPage() {
       <section id="install" className="rounded-xl border border-gray-200 bg-white p-5">
         <h2 className="mb-2 text-base font-bold text-gray-900">Поставить себе</h2>
 
-        {sol.demo && (
-          <a href={sol.demo} target="_blank" rel="noreferrer"
-             className="mb-3 inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
-            Сначала посмотреть пример <ExternalLink size={13} />
-          </a>
-        )}
-
+        {/* ⚠️ Кнопки примера здесь НЕТ намеренно — она наверху страницы,
+            золотой. Второй такой же на одном экране только двоит выбор. */}
         {!available ? (
           <p className="text-sm text-gray-500">
             Установка станет доступна на тарифе Экстра.
