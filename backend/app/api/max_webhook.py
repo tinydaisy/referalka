@@ -382,7 +382,7 @@ async def _forward_max_user_message_to_organizer(
         from zoneinfo import ZoneInfo
     except ImportError:  # pragma: no cover
         from backports.zoneinfo import ZoneInfo  # type: ignore
-    from app.services.profile_links import nick_html, link_html
+    from app.services.profile_links import max_mention_html
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -408,18 +408,27 @@ async def _forward_max_user_message_to_organizer(
         return
 
     when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
-    user_nick = nick_html("max", user_id=user_id, username=username)
-    # Рабочая https-ссылка на профиль MAX есть ТОЛЬКО если у человека задан
-    # публичный username (max.ru/{username}). По числовому id MAX ссылку не даёт
-    # (закрыто ради приватности) — поэтому max://user/{id} в Telegram мёртв, не
-    # показываем его. Без username отвечаем человеку через карточку → Диалоги.
-    _max_url = f"https://max.ru/{username.lstrip('@')}" if username else None
     contact_id = row["contact_id"]
     card_url = (
         f"{settings.frontend_url}/dashboard/clients?contact={contact_id}"
         if contact_id else "—"
     )
     name = display_name or row["contact_name"] or "—"
+
+    # ⚠️⚠️ ССЫЛОК НА ЧЕЛОВЕКА В MAX НЕ СУЩЕСТВУЕТ — проверено 10.09.2026:
+    #   • ников у людей нет (справка max.ru/help/account: только фото, имя, телефон;
+    #     username в Bot API — про БОТОВ, у человека приходит null);
+    #   • по номеру телефона аналога wa.me нет: max.ru/{номер}, max.ru/+{номер},
+    #     max.ru/u/{номер}, max.ru/p/{номер} — все 404;
+    #   • max.ru/u/{хеш} из QR-кода содержит ПРИВАТНЫЙ хеш, Bot API его не отдаёт.
+    # Единственное, что работает, — УПОМИНАНИЕ <a href="max://user/{id}">Имя</a>
+    # (dev.max.ru → «Форматирование текста»), и только ВНУТРИ MAX.
+    #
+    # Поэтому в уведомлении ссылок больше нет: в Telegram они были мёртвым
+    # текстом и путали («вам написали — а ответить нечем»). Вместо них — прямая
+    # ссылка на карточку клиента: там раздел «Диалоги», откуда ответ уходит
+    # человеку СВОИМ ботом. Это единственный надёжный канал ответа в MAX.
+    mention = max_mention_html(user_id, name if name != "—" else display_name)
     parts = [
         "#user_message 💬",
         "",
@@ -428,27 +437,21 @@ async def _forward_max_user_message_to_organizer(
         f"<b>Платформа:</b> MAX · {_html.escape(row['brand'] or '—')}",
         "",
         "<b>Кто написал</b>",
-        f"<b>Никнейм:</b> {user_nick}",
-        f"<b>Имя:</b> {_html.escape(name)}",
+        # В MAX-канале имя станет кликабельным упоминанием (откроется профиль),
+        # в Telegram и VK — обычный текст: там схема max:// не работает.
+        f"<b>Имя:</b> {mention or _html.escape(name)}",
         f"<b>MAX ID:</b> <code>{_html.escape(str(user_id))}</code>",
-    ]
-    # Ссылка на человека в MAX. Официально (dev.max.ru) единственный формат —
-    # max://user/{id} (аналог tg://user?id=). https-ссылки по id у MAX НЕТ.
-    # max:// кликается только там, где приложение перехватывает схему: внутри
-    # MAX, в мобильном браузере с установленным MAX. В Telegram max:// мёртв
-    # (TG линкует лишь http(s)/tg) — поэтому в TG-канале это просто текст для
-    # копирования, а в MAX-канале уведомлений (notifications_max_chat_id) — клик.
-    _uid = _html.escape(str(user_id))
-    if _max_url:
-        parts.append(f'<b>Ссылка:</b> <a href="{_max_url}">{_max_url}</a>')
-    else:
-        parts.append(f'<b>Ссылка:</b> <a href="max://user/{_uid}">написать в MAX</a>')
-        if contact_id:
-            parts.append(f'<b>Или:</b> <a href="{card_url}">в карточке → Диалоги</a>')
-    parts += [
         f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
         f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
-        f"<b>Карточка:</b> {card_url}",
+    ]
+    if contact_id:
+        parts.append(
+            f'<b>Ответить:</b> <a href="{card_url}">карточка клиента → Диалоги</a> '
+            f"— ответ уйдёт человеку в MAX от вашего бота"
+        )
+    else:
+        parts.append(f"<b>Карточка:</b> {card_url}")
+    parts += [
         "",
         "<b>Сообщение:</b>",
         _html.escape(text or ""),

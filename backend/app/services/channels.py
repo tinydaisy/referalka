@@ -575,12 +575,25 @@ async def notify_organizer_all_channels(
         )
 
     # ── MAX ──
+    # ⚠️ Шлём HTML, а НЕ голый текст. Раньше здесь стоял `plain` (_strip_html), и
+    # вместе с тегами вырезалось УПОМИНАНИЕ человека — единственный способ попасть
+    # из уведомления в личный диалог в MAX (ссылок на профиль по id или телефону
+    # у MAX нет вовсе, см. profile_links.max_mention_html). Без `format="html"`
+    # MAX разметку не разбирает, поэтому parse_mode обязателен.
+    # Блочные теги MAX не понимает — их приводит html_to_telegram (та же чистка,
+    # что в рассылках): <br> → перенос, <b>/<i>/<a> остаются как есть.
     if row["notifications_max_chat_id"]:
         try:
             max_token = await get_client_max_token(client_id, db)
             if max_token:
                 from app.services.max_api import send_message as max_send
-                await max_send(row["notifications_max_chat_id"], plain, token=max_token)
+                from app.services.message_builder import html_to_telegram
+                await max_send(
+                    row["notifications_max_chat_id"],
+                    html_to_telegram(text_html),
+                    token=max_token,
+                    parse_mode="html",
+                )
                 result["max"] = True
         except Exception:  # noqa: BLE001 — не роняем остальные каналы
             pass

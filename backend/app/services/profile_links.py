@@ -56,10 +56,19 @@ def profile_url(platform: str, *, user_id: Optional[str | int] = None,
         return None
 
     if platform == "max":
-        # Публичный ник → рабочая https-ссылка max.ru/{username}.
-        # Только числовой id → max://user/{id} (deep-link, открывает профиль в
-        # приложении MAX). https://max.ru/u/{id} НЕ строим — по числовому id
-        # такая ссылка битая (нужен приватный хеш, его Bot API не отдаёт).
+        # ⚠️ У ЛЮДЕЙ В MAX НЕТ НИКНЕЙМОВ (проверено по справке max.ru/help/account:
+        # в профиле настраиваются только фото, имя и телефон). Поле username в
+        # Bot API описано как «никнейм БОТА или уникальное публичное имя» и у
+        # обычного человека приходит null — ветка max.ru/{ник} почти всегда мимо.
+        #
+        # ⚠️ Ссылки на человека по НОМЕРУ ТЕЛЕФОНА у MAX нет (аналога wa.me).
+        # Проверено живыми запросами: max.ru/{номер}, max.ru/+{номер},
+        # max.ru/u/{номер}, max.ru/p/{номер} — все отдают 404.
+        #
+        # Единственный рабочий способ попасть в диалог — УПОМИНАНИЕ вида
+        # <a href="max://user/{id}">Имя Фамилия</a>, и работает оно ТОЛЬКО
+        # внутри самого MAX (см. max_mention_html ниже). В Telegram схема
+        # max:// не линкуется — там ссылку не отдаём вовсе.
         if uname:
             return f"https://max.ru/{uname}"
         if uid:
@@ -67,6 +76,29 @@ def profile_url(platform: str, *, user_id: Optional[str | int] = None,
         return None
 
     return None
+
+
+def max_mention_html(user_id: Optional[str | int], display_name: Optional[str]) -> Optional[str]:
+    """Кликабельное УПОМИНАНИЕ человека для сообщения, отправляемого В САМ MAX.
+
+    Формат из официальной документации (dev.max.ru → «Форматирование текста»):
+        {"text": "<a href=\\"max://user/{id}\\">Имя Фамилия</a>", "format": "html"}
+
+    ⚠️ Работает ТОЛЬКО внутри MAX. В Telegram схема max:// не кликается — туда
+    такую ссылку класть бессмысленно (была мёртвым текстом в уведомлениях).
+
+    ⚠️ В тексте ссылки должно стоять ПОЛНОЕ ИМЯ ИЗ ПРОФИЛЯ MAX (имя + фамилия,
+    если она есть) — так требует документация. Подставлять «написать в MAX»
+    или ник нельзя: упоминание не сработает.
+
+    ⚠️ В КОММЕНТАРИЯХ упоминания и гиперссылки MAX не поддерживает — только в
+    обычных сообщениях.
+    """
+    uid = str(user_id).strip() if user_id not in (None, "") else None
+    name = (display_name or "").strip()
+    if not uid or not uid.isdigit() or not name:
+        return None
+    return f'<a href="max://user/{uid}">{_esc(name)}</a>'
 
 
 def _is_tg_clickable(url: str) -> bool:
