@@ -150,7 +150,7 @@ export default function AutoSetupTab() {
 
       // Канал живёт не в профиле, а в «Каналах основателя» — своя ручка.
       if (chanNick !== null) {
-        await api.channels.autoSetup.saveChannel(effChannel)
+        await api.tgAutosetup.saveChannel(effChannel)
       }
 
       setNickSaved(true)
