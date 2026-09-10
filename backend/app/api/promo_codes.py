@@ -135,18 +135,21 @@ async def list_promo_codes(
     сплошной список превращается в свалку, где не видно живых кодов.
     Исчерпанные и просроченные приходят по `archived=true`.
     """
-    where = ["client_id = $1"]
+    # ⚠️ КАЖДОЙ колонке — префикс таблицы `p.`: ниже идут JOIN на products и
+    # contacts, а `client_id` есть и у них. Без префикса Postgres отвечает
+    # «column reference "client_id" is ambiguous», и страница падает целиком.
+    where = ["p.client_id = $1"]
     args: list = [int(client["sub"])]
 
     if event_id:
         args.append(event_id)
-        where.append(f"scope_event_id = ${len(args)}")
+        where.append(f"p.scope_event_id = ${len(args)}")
     if product_id:
         args.append(product_id)
-        where.append(f"scope_product_id = ${len(args)}")
+        where.append(f"p.scope_product_id = ${len(args)}")
 
-    alive = ("is_active AND (ends_at IS NULL OR ends_at > NOW()) "
-             "AND (max_uses IS NULL OR used_count < max_uses)")
+    alive = ("p.is_active AND (p.ends_at IS NULL OR p.ends_at > NOW()) "
+             "AND (p.max_uses IS NULL OR p.used_count < p.max_uses)")
     where.append(alive if not archived else f"NOT ({alive})")
 
     rows = await db.fetch(
