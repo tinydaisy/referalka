@@ -115,24 +115,27 @@ export default function SolutionsTab() {
               /* ⚠️⚠️ ЭТО НАСТОЯЩАЯ ТАБЛИЦА, а не список со свёрнутыми строками.
                  Колонки заданы владельцем поимённо, и все они обязаны быть
                  ВИДНЫ СРАЗУ: смысл таблицы — сравнивать решения между собой по
-                 одним и тем же признакам. Спрятать половину под стрелку значит
-                 вернуть тот же список, ради ухода от которого таблица и
-                 делалась.
-                 ⚠️ Таблица широкая — прокрутка внутри своего контейнера, страница
-                 вбок не едет. */
+                 одним и тем же признакам.
+
+                 ⚠️ Колонки «Что настроить у себя» здесь НЕТ намеренно. Она
+                 перечисляла общие требования («подключите бота», «укажите
+                 канал») — человеку это ничего не говорит и гонит искать места
+                 в интерфейсе. Что именно донастроить, скажет мастер при
+                 установке и спросит недостающие поля прямо там.
+
+                 ⚠️ Тариф и кнопки — ОДНА колонка: врозь они съедали ширину, и
+                 кнопки уезжали за край экрана. */
               <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-                <table className="w-full min-w-[1180px] border-collapse text-sm">
+                <table className="w-full min-w-[900px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50 text-left align-bottom">
                       {[
                         ['#', 'w-10'],
-                        ['Решение', 'w-[190px]'],
-                        ['Что это', 'w-[230px]'],
-                        ['Преимущества', 'w-[250px]'],
-                        ['Инструменты', 'w-[150px]'],
-                        ['Что настроить у себя', 'w-[220px]'],
-                        ['Тариф', 'w-[120px]'],
-                        ['', 'w-[200px]'],
+                        ['Решение', 'w-[200px]'],
+                        ['Что это', 'w-[240px]'],
+                        ['Преимущества', 'w-[260px]'],
+                        ['Из чего собрано', 'w-[150px]'],
+                        ['Доступ и установка', 'w-[190px]'],
                       ].map(([t, w], i) => (
                         <th key={i}
                             className={`${w} px-3 py-2 text-xs font-semibold ${
@@ -246,7 +249,7 @@ function SolutionRow({ sol, features }: { sol: Solution; features: string[] }) {
             ссылаться на соседние решения там, где человек выбирает. */}
         {!!sol.seeAlso?.length && (
           <div className="mt-1 text-[11px] text-gray-500">
-            Иначе:{' '}
+            Иные реализации:{' '}
             {sol.seeAlso.map((n, i) => {
               const other = byNum(n)
               if (!other) return null
@@ -281,7 +284,7 @@ function SolutionRow({ sol, features }: { sol: Solution; features: string[] }) {
         </ul>
       </td>
 
-      {/* Инструменты ПЛЮСОНа */}
+      {/* Из чего собрано — разделы кабинета, задействованные решением */}
       <td className="px-3 py-3">
         <div className="flex flex-wrap gap-1">
           {sol.tools.map(t => (
@@ -292,16 +295,10 @@ function SolutionRow({ sol, features }: { sol: Solution; features: string[] }) {
         </div>
       </td>
 
-      {/* Что настроить у себя — отдельная колонка (не то же, что тариф) */}
-      <td className="px-3 py-3">
-        <ul className="space-y-1">
-          {sol.setup.map((x, i) => (
-            <li key={i} className="text-[12px] leading-snug text-gray-700">— {x}</li>
-          ))}
-        </ul>
-      </td>
-
-      {/* Тариф */}
+      {/* Доступ и установка — тариф и кнопки ОДНОЙ колонкой.
+          ⚠️ Врозь они занимали лишнюю ширину, и кнопки уезжали за край экрана:
+          человек их просто не видел. По смыслу это одно — «можете ли взять и
+          как взять». */}
       <td className="px-3 py-3">
         <TariffBadge missing={missing} compact />
         {!available && !!missing.length && (
@@ -309,11 +306,7 @@ function SolutionRow({ sol, features }: { sol: Solution; features: string[] }) {
             не хватает: {missing.map(f => FEATURE_TITLE[f]).join(', ')}
           </div>
         )}
-      </td>
-
-      {/* Действия */}
-      <td className="px-3 py-3">
-        <div className="flex flex-col gap-1.5">
+        <div className="mt-2 flex flex-col gap-1.5">
           <Link href={`/dashboard/solutions/${sol.slug}`}
                 className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
             Описание <ArrowRight size={12} />
@@ -344,6 +337,7 @@ function SolutionRow({ sol, features }: { sol: Solution; features: string[] }) {
   )
 }
 
+
 /** Карточка — прежний развёрнутый вид, для тех, кому так удобнее. */
 function Card({ sol, features }: { sol: Solution; features: string[] }) {
   const missing = missingFeatures(sol, features)
@@ -372,15 +366,10 @@ function Card({ sol, features }: { sol: Solution; features: string[] }) {
         ))}
       </ul>
 
-      <div className="mb-2 rounded-lg bg-gray-50 p-2">
-        <div className="mb-1 text-[11px] font-medium text-gray-500">Что настроить у себя</div>
-        <ul className="space-y-0.5">
-          {sol.setup.map((x, i) => (
-            <li key={i} className="text-xs text-gray-600">— {x}</li>
-          ))}
-        </ul>
-      </div>
-
+      {/* ⚠️ «Что настроить у себя» здесь НЕТ — как и в таблице: общий список
+          требований человеку ничего не говорит, а недостающее спросит мастер
+          при установке. Два вида обязаны показывать одно и то же. */}
+      <div className="mb-1 text-[11px] font-medium text-gray-500">Из чего собрано</div>
       <div className="mb-2 flex flex-wrap gap-1">
         {sol.tools.map(t => (
           <span key={t} className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">{t}</span>
