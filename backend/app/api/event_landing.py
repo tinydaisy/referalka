@@ -407,6 +407,12 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
         event_id, kind,
     )
     if page:
+        # ⚠️⚠️ ЛЕНДИНГ СОБРАН ДО ПОЯВЛЕНИЯ СЕКЦИИ — ДОПИСЫВАЕМ ЕЁ.
+        # «Место проведения» (карта) добавили позже, чем были созданы
+        # существующие страницы: блока нет в базе ВОВСЕ, и для клиента секции
+        # просто не существует — ни включить, ни найти в списке добавления.
+        if kind == "main":
+            await _add_missing_blocks(db, event_id, page["id"])
         return page
 
     # Оформление берём из ТЕМЫ КЛИЕНТА (миграция 241) — фирменный стиль
@@ -545,45 +551,51 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                     100 if b["kind"] == "hero" else 50,
                     b.get("title"),
                 )
-        else:
-            # ⚠️⚠️ ЛЕНДИНГ СОБРАН ДО ПОЯВЛЕНИЯ СЕКЦИИ — ДОПИСЫВАЕМ ЕЁ.
-            # «Место проведения» добавили позже, чем существующие страницы были
-            # созданы: у них этого блока нет вовсе, и клиент его не находит —
-            # для него секции просто не существует. Дописываем недостающие
-            # секции из набора по умолчанию при открытии конструктора.
-            #
-            # ⚠️ Только ВЫКЛЮЧЕННЫЕ по умолчанию (`venue`): дописать включённую
-            # значило бы задним числом изменить УЖЕ СОБРАННУЮ клиентом
-            # страницу — на ней появился бы блок, которого он туда не ставил.
-            # Исключение — офлайн-событие: там секция включается сразу, потому
-            # что клиент уже сказал формат галочкой в настройках.
-            #
-            # ⚠️ Удалённую секцию НЕ воскрешаем: дописываем только то, чего в
-            # базе нет ни в каком виде. Иначе удалённый блок возвращался бы при
-            # каждом открытии вкладки, и убрать его было бы нельзя.
-            if kind == "main":
-                existing = {r["kind"] for r in await db.fetch(
-                    "SELECT DISTINCT kind FROM event_landing_blocks WHERE page_id = $1",
-                    page["id"])}
-                missing = [b for b in preset
-                           if b["kind"] == "venue" and b["kind"] not in existing]
-                if missing:
-                    is_offline = bool(await db.fetchval(
-                        "SELECT is_offline FROM events WHERE id = $1", event_id))
-                    # В конец страницы: куда её поставить, решает клиент —
-                    # угадывать место в уже собранной вёрстке нельзя.
-                    tail = await db.fetchval(
-                        "SELECT COALESCE(MAX(sort_order), 0) FROM event_landing_blocks WHERE page_id = $1",
-                        page["id"]) or 0
-                    for i, b in enumerate(missing):
-                        await db.execute(
-                            "INSERT INTO event_landing_blocks "
-                            "(page_id, kind, sort_order, is_active, title_align, split_ratio, title) "
-                            "VALUES ($1, $2, $3, $4, 'center', 50, $5)",
-                            page["id"], b["kind"], tail + (i + 1) * 10,
-                            is_offline, b.get("title"),
-                        )
     return page
+
+
+# Секции, добавленные ПОЗЖЕ, чем были созданы существующие страницы. Их надо
+# дописать на старые лендинги — иначе для клиента секции не существует вовсе:
+# он не может её ни включить, ни найти в списке «Добавить секцию».
+_LATE_BLOCKS = ("venue",)
+
+
+async def _add_missing_blocks(db, event_id: int, page_id: int) -> None:
+    """Дописывает на уже собранную страницу секции из `_LATE_BLOCKS`.
+
+    ⚠️ Только ВЫКЛЮЧЕННЫЕ по умолчанию: дописать включённую значило бы задним
+    числом изменить собранную клиентом страницу — на ней появился бы блок,
+    которого он туда не ставил. Исключение — офлайн-событие: там «Место
+    проведения» включается сразу, потому что формат уже задан галочкой в
+    настройках события.
+
+    ⚠️ Удалённую секцию НЕ воскрешаем: дописываем лишь то, чего в базе нет ни в
+    каком виде. Иначе удалённый блок возвращался бы при каждом открытии вкладки
+    и убрать его было бы нельзя.
+    """
+    existing = {r["kind"] for r in await db.fetch(
+        "SELECT DISTINCT kind FROM event_landing_blocks WHERE page_id = $1", page_id)}
+    missing = [b for b in DEFAULT_MAIN_BLOCKS
+               if b["kind"] in _LATE_BLOCKS and b["kind"] not in existing]
+    if not missing:
+        return
+
+    is_offline = bool(await db.fetchval(
+        "SELECT is_offline FROM events WHERE id = $1", event_id))
+    # В КОНЕЦ страницы: куда поставить секцию, решает клиент — угадывать место
+    # в уже собранной вёрстке нельзя.
+    tail = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), 0) FROM event_landing_blocks WHERE page_id = $1",
+        page_id) or 0
+    for i, b in enumerate(missing):
+        await db.execute(
+            "INSERT INTO event_landing_blocks "
+            "(page_id, kind, sort_order, is_active, title_align, split_ratio, title) "
+            "VALUES ($1, $2, $3, $4, 'center', 50, $5)",
+            page_id, b["kind"], tail + (i + 1) * 10,
+            is_offline if b["kind"] == "venue" else False,
+            b.get("title"),
+        )
 
 
 async def _page_for_write(db, event_id: int, page_id: int) -> asyncpg.Record:
