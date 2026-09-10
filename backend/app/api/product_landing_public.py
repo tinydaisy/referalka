@@ -166,7 +166,8 @@ async def get_product_landing(
             # Отдельным выражением: `name` тут ещё и фолбэк для НАЗВАНИЯ БРЕНДА,
             # а бренду фамилия не нужна.
             """SELECT id, name, """ + DISPLAY_NAME_SQL("clients") + """ AS owner_full_name,
-                      brand_name, brand_logo_url, profile_photo_url,
+                      brand_name, brand_logo_url, brand_logo_light_url,
+                      profile_photo_url,
                       owner_photo_url, owner_positioning, positioning, bio,
                       work_tg_username, work_vk, work_max, phone,
                       legal_name, legal_inn, legal_inn_label, privacy_policy_version
@@ -253,6 +254,8 @@ async def get_product_landing(
         data.setdefault("brand", {
             "name": client["brand_name"] or client["name"],
             "logo_url": client["brand_logo_url"],
+            # ⚠️ Тёмная версия знака — для фавикона: вкладка светлая.
+            "logo_light_url": client["brand_logo_light_url"],
         })
 
     return {

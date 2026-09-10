@@ -201,22 +201,22 @@ def _assert_scope(
 
     if for_plusson:
         if row["scope_plan_slug"] and row["scope_plan_slug"] != plan_slug:
-            raise PromoError("Промокод действует на другой тариф")
+            raise PromoError("Этот промокод не действует на выбранный тариф")
         return
 
     if row["scope_tariff_id"] is not None:
         if row["scope_tariff_id"] != tariff_id or row["scope_tariff_kind"] != tariff_kind:
-            raise PromoError("Промокод действует на другой тариф")
+            raise PromoError("Этот промокод не действует на выбранный тариф")
         return
 
     if row["scope_event_id"] is not None:
         if row["scope_event_id"] != event_id:
-            raise PromoError("Промокод действует на другое событие")
+            raise PromoError("Этот промокод не действует на это событие")
         return
 
     if row["scope_product_id"] is not None:
         if row["scope_product_id"] != product_id:
-            raise PromoError("Промокод действует на другой продукт")
+            raise PromoError("Этот промокод не действует на этот продукт")
         return
 
     # Ничего не задано — код «на всё».

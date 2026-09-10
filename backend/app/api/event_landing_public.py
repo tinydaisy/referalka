@@ -161,7 +161,8 @@ async def get_public_landing(
         # Отдельным выражением, потому что `cl.name` тут используется ещё и как
         # фолбэк для НАЗВАНИЯ БРЕНДА, а бренду фамилия не нужна.
         """SELECT cl.id, cl.name, """ + DISPLAY_NAME_SQL("cl") + """ AS owner_full_name,
-                  cl.brand_name, cl.brand_logo_url, cl.profile_photo_url,
+                  cl.brand_name, cl.brand_logo_url, cl.brand_logo_light_url,
+                  cl.profile_photo_url,
                   cl.positioning, cl.achievements, cl.owner_photo_url, cl.owner_positioning,
                   cl.owner_achievements, cl.bio, cl.social_links,
                   cl.work_tg_username, cl.work_vk, cl.work_max,
@@ -319,6 +320,9 @@ async def get_public_landing(
             return {
                 "brand_name": row["brand_name"] or client_name,
                 "brand_logo_url": row["brand_logo_url"],
+                # ⚠️ Тёмная версия знака — для СВЕТЛЫХ мест: вкладка браузера
+                # (фавикон) белая, и белый логотип на ней не виден вовсе.
+                "brand_logo_light_url": row["brand_logo_light_url"],
                 "brand_photo_url": row["profile_photo_url"],
                 "brand_positioning": row["positioning"],
                 "brand_achievements": _jsonb(row["achievements"]),
@@ -617,6 +621,9 @@ async def get_public_landing(
         data.setdefault("brand", {
             "name": owner["brand_name"] or owner["name"],
             "logo_url": owner["brand_logo_url"],
+            # ⚠️ Тёмная версия знака — для фавикона: вкладка браузера светлая,
+            # и белый логотип на ней сливается в пустой квадрат.
+            "logo_light_url": owner["brand_logo_light_url"],
         })
 
     # ⚠️ У КОЛЛАБЫ организаторов НЕСКОЛЬКО, и логотип в шапке должен быть у

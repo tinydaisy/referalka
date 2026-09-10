@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.services import client_payments
 from app.services import promo_codes as promo_svc
+from app.services.consents import save_consents, client_ip
 from app.services.client_domains import (
     client_public_url, public_url_for, platform_base_url,
 )
@@ -170,6 +171,7 @@ async def grant_product_access(db, *, product_id: int, contact_id: int,
 @router.post("/create", summary="Оформить заказ продукта")
 async def create_order(
     data: OrderIn,
+    request: Request,
     response: Response,
     db: asyncpg.Connection = Depends(get_db),
 ):
@@ -274,6 +276,16 @@ async def create_order(
                 )
         except Exception as e:
             logger.warning("Реф-код %s не разобран: %s", data.ref_code, e)
+
+    # ⚠️ Согласия ЗАПИСЫВАЕМ (10.09.2026). Раньше форма их принимала и
+    # выбрасывала — галочка человека нигде не сохранялась. Одна галочка
+    # «рассылки и звонки» ставит ОБА согласия (см. services/consents.py).
+    await save_consents(
+        db, contact_id=contact_id,
+        consent_pd=data.consent_pd,
+        consent_marketing=data.consent_marketing,
+        ip=client_ip(request),
+    )
 
     # Партнёрка: закрепление + получатель вознаграждения (миграции 346–348).
     #

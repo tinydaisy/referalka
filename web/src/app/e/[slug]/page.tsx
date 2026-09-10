@@ -49,13 +49,20 @@ export async function generateMetadata(
   // картинку со страницы — и у клиента показывался логотип ПЛЮСОНа
   // (прод, 2026-08-18).
   const brandLogo = data.data?.brand?.logo_url || data.data?.organizer?.brand_logo_url
+  // ⚠️ ФАВИКОН — ТЁМНАЯ ВЕРСИЯ ЗНАКА («логотип для светлых фонов»). Вкладка
+  // браузера белая, и основной логотип — обычно белый — сливается с ней в
+  // пустой квадрат. Не загружена тёмная версия — берём основной: пустая
+  // вкладка хуже плохо различимой.
+  const favicon = data.data?.brand?.logo_light_url
+    || data.data?.organizer?.brand_logo_light_url
+    || brandLogo
   const ogImage = brandLogo || event.poster_url
   return {
     title: event.title,
     description: event.description?.slice(0, 200) || undefined,
     // Фавикон вкладки — тоже логотип клиента: страница открыта на ЕГО домене
     // и под его брендом, наш значок там выглядит чужим.
-    icons: brandLogo ? { icon: brandLogo } : undefined,
+    icons: favicon ? { icon: favicon } : undefined,
     openGraph: {
       title: event.title,
       description: event.description?.slice(0, 200) || undefined,

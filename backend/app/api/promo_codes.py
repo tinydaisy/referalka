@@ -62,6 +62,15 @@ class PromoUpdate(BaseModel):
     ends_at: Optional[datetime] = None
     is_active: Optional[bool] = None
     comment: Optional[str] = None
+    # ⚠️ ОБЛАСТЬ ДЕЙСТВИЯ ТОЖЕ ПРАВИТСЯ (решение владельца 10.09.2026):
+    # клиент хочет добавить событие в уже раздан­ный код или убрать его,
+    # не заводя новый — раздавать людям второй код взамен первого нельзя.
+    # Значения обнуляемые, поэтому пишем их по `model_fields_set`, а не по
+    # `is not None`: иначе «на все события» (event_id = null) не поставить.
+    scope_event_id: Optional[int] = None
+    scope_product_id: Optional[int] = None
+    scope_tariff_id: Optional[int] = None
+    scope_tariff_kind: Optional[str] = None
 
 
 async def _assert_owner(db, client_id: int, promo_id: int) -> asyncpg.Record:
@@ -290,6 +299,18 @@ async def update_promo_code(
     if not fields:
         return {"ok": True}
 
+    # ⚠️ Новая область — ТОЛЬКО своя. Номера приходят из браузера: без проверки
+    # промокод можно перевесить на ЧУЖОЕ событие и раздавать скидку за чужой счёт.
+    if {"scope_event_id", "scope_product_id", "scope_tariff_id"} & fields.keys():
+        await _assert_scope_owned(db, int(client["sub"]), PromoCreate(
+            discount_kind=data.discount_kind or "percent",
+            discount_value=data.discount_value or 1,
+            scope_event_id=fields.get("scope_event_id"),
+            scope_product_id=fields.get("scope_product_id"),
+            scope_tariff_id=fields.get("scope_tariff_id"),
+            scope_tariff_kind=fields.get("scope_tariff_kind"),
+        ))
+
     sets, args = [], []
     for k, v in fields.items():
         args.append(v)
@@ -338,14 +359,52 @@ async def promo_uses(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """⚠️ Главный вопрос по именным кодам: воспользовался ли человек.
-    Без этого списка именной код теряет смысл."""
+    """Кто применил код: человек, на что потратил и куда провалиться.
+
+    ⚠️ Главный вопрос по именным кодам — воспользовался ли человек. Без этого
+    списка именной код теряет смысл.
+
+    ⚠️ Фамилия живёт в КАРТОЧКЕ КОЛЛАБОРАТОРА (`collaborators.last_name`), у
+    `contacts` такой колонки нет вовсе — только `name` одной строкой. Поэтому
+    имя собираем общим person_name (он же используется везде), а фамилию
+    подтягиваем, если человек заведён карточкой.
+
+    ⚠️ Событие/продукт берём ИЗ ЗАКАЗА, а не из области действия промокода:
+    у кода «на всё» области нет, а знать, на что потратили скидку, надо.
+    """
     await _assert_owner(db, int(client["sub"]), promo_id)
     rows = await db.fetch(
-        """SELECT u.*, c.name AS contact_name
+        """SELECT u.*,
+                  c.name AS contact_name,
+                  col.last_name AS contact_last_name,
+                  c.phone,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
+                  -- На что потратили скидку
+                  ev.id     AS event_id,
+                  ev.title  AS event_title,
+                  pr.id     AS product_id,
+                  pr.title  AS product_title,
+                  ept.participant_id
              FROM promo_code_uses u
-             LEFT JOIN contacts c ON c.id = u.contact_id
+             LEFT JOIN contacts c   ON c.id = u.contact_id
+             LEFT JOIN collaborators col ON col.contact_id = c.id
+             LEFT JOIN event_participant_tariffs ept ON ept.id = u.event_order_id
+             LEFT JOIN events ev    ON ev.id = ept.event_id
+             LEFT JOIN product_orders po ON po.id = u.product_order_id
+             LEFT JOIN products pr  ON pr.id = po.product_id
             WHERE u.promo_code_id = $1 AND u.status <> 'released'
             ORDER BY u.id DESC""",
         promo_id)
-    return {"uses": [dict(r) for r in rows]}
+
+    # ⚠️ Имя склеиваем ОБЩИМ person_name, а не руками: порядок «Имя Фамилия»
+    # держится там одной точкой, иначе разъедется с остальными экранами.
+    from app.services.person_name import display_name
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["contact_name"] = display_name(d.get("contact_name"),
+                                         d.get("contact_last_name"))
+        out.append(d)
+    return {"uses": out}

@@ -24,6 +24,7 @@ import asyncpg
 from app.database import get_db
 from app.services import client_payments
 from app.services import promo_codes as promo_svc
+from app.services.consents import save_consents, client_ip
 from app.services.contact_merge import find_or_create_contact, resolve_ref_code
 from app.services.event_participant import upsert_event_participant
 from app.services.share_links import TG_DOMAIN
@@ -247,6 +248,17 @@ async def create_order(
                 phone=phone,
                 lookup_telegram_username=tg,
             )
+
+    # ⚠️ Согласия ЗАПИСЫВАЕМ (10.09.2026). Раньше форма их принимала и
+    # выбрасывала: человек ставил галочку, а в базе не оставалось ничего —
+    # и рассылать ему было юридически не на чем. Одна галочка «рассылки и
+    # звонки» проставляет ОБА согласия (см. services/consents.py).
+    await save_consents(
+        db, contact_id=contact_id,
+        consent_pd=data.consent_pd,
+        consent_marketing=data.consent_marketing,
+        ip=client_ip(request),
+    )
 
     # Кто привёл. Код может быть старым (merged_ref_codes) — резолвер это
     # учитывает. Свой собственный код игнорируем: сам себя не приводил.

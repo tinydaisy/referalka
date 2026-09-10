@@ -60,10 +60,16 @@ export async function generateMetadata(
   // Telegram подставлял первую попавшуюся картинку со страницы, и в переписке
   // у клиента показывался логотип ПЛЮСОНа (прод, 2026-08-18).
   const brandLogo = (data as any).data?.organizer?.brand_logo_url
+  // ⚠️ ФАВИКОН — ТЁМНАЯ ВЕРСИЯ ЗНАКА («логотип для светлых фонов»): вкладка
+  // браузера белая, и основной (обычно белый) логотип сливается с ней в
+  // пустой квадрат. Нет тёмной версии — берём основной.
+  const favicon = (data as any).data?.brand?.logo_light_url
+    || (data as any).data?.organizer?.brand_logo_light_url
+    || brandLogo
   return {
     title: p.title,
     description: p.subtitle || p.description?.slice(0, 200) || undefined,
-    icons: brandLogo ? { icon: brandLogo } : undefined,
+    icons: favicon ? { icon: favicon } : undefined,
     openGraph: {
       title: p.title,
       description: p.subtitle || p.description?.slice(0, 200) || undefined,

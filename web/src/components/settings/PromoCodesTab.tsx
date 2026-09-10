@@ -35,6 +35,7 @@ export default function PromoCodesTab({ payProvider }: Props) {
   const [openBatch, setOpenBatch] = useState<string | null>(null)
   const [uses, setUses] = useState<Record<number, any[]>>({})
   const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<any | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -99,12 +100,20 @@ export default function PromoCodesTab({ payProvider }: Props) {
           сумму со скидкой мы не можем. Промокоды у LeadPay свои — заводите их
           в его личном кабинете, раздел «Промокоды».
           <br />
+          {/* ⚠️ Про Продамус пишем ЧЕСТНО «не проверяли»: на живой оплате его
+              не тестировали, и обещать работу нельзя (правило проекта —
+              «не нашёл» не равно «работает»). Т-Банк проверен оплатой. */}
           <span className="mt-1 inline-block opacity-80">
-            Наши промокоды работают с Продамусом и Т-Банком.
+            Наши промокоды проверены на Т-Банке. С Продамусом должны работать,
+            но живой оплатой мы это ещё не проверяли.
           </span>
         </div>
       )}
 
+      {/* ⚠️ При неподдерживаемой платёжной системе содержимое ЗАСЕРЕНО и
+          не нажимается: заводить коды, которые не сработают у покупателя, —
+          прямой путь к жалобам «код не принимается». */}
+      <div className={unsupported ? 'pointer-events-none select-none opacity-40' : ''}>
       <div className="flex flex-wrap items-center gap-3">
         <button className="btn-gold" onClick={() => setShowForm(true)}>
           Создать промокод
@@ -198,6 +207,10 @@ export default function PromoCodesTab({ payProvider }: Props) {
               </div>
             </div>
             <button className="text-sm underline text-[#25455D]"
+                    onClick={() => setEditing(p)}>
+              Изменить
+            </button>
+            <button className="text-sm underline text-[#25455D]"
                     onClick={() => loadUses(p.id)}>
               Кто применил
             </button>
@@ -207,13 +220,50 @@ export default function PromoCodesTab({ payProvider }: Props) {
             </button>
           </div>
           {uses[p.id]?.length > 0 && (
-            <div className="mt-3 border-t border-gray-100 pt-3 text-sm">
+            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3 text-sm">
               {uses[p.id].map((u: any) => (
-                <div key={u.id} className="flex justify-between py-1 text-gray-600">
-                  <span>{u.contact_name || 'Без имени'}</span>
-                  <span>
-                    {u.price_before} → {u.price_after} ₽
+                <div key={u.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <div className="min-w-0">
+                    {/* ⚠️ Имя — ССЫЛКОЙ на карточку человека в базе: из списка
+                        применений первым делом идут к нему, а не разглядывают
+                        строку. Ссылку строим на «Контакты» — она есть у любого
+                        человека, в отличие от карточки участника события. */}
+                    {u.contact_id ? (
+                      <a href={`/dashboard/clients?contact_id=${u.contact_id}`}
+                         target="_blank" rel="noreferrer"
+                         className="font-medium text-[#25455D] underline">
+                        {u.contact_name || 'Без имени'}
+                      </a>
+                    ) : (
+                      <span className="text-gray-600">{u.contact_name || 'Без имени'}</span>
+                    )}
+                    {(u.email || u.phone) && (
+                      <span className="ml-2 text-xs text-gray-500">
+                        {u.email || u.phone}
+                      </span>
+                    )}
+                    {/* На что потратил скидку — иначе у кода «на всё» непонятно,
+                        что именно человек купил. */}
+                    {(u.event_title || u.product_title) && (
+                      <div className="text-xs text-gray-500">
+                        {u.event_id ? (
+                          <a href={`/dashboard/events/${u.event_id}`}
+                             target="_blank" rel="noreferrer" className="underline">
+                            {u.event_title}
+                          </a>
+                        ) : u.product_id ? (
+                          <a href={`/dashboard/products/${u.product_id}`}
+                             target="_blank" rel="noreferrer" className="underline">
+                            {u.product_title}
+                          </a>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-gray-600">
+                    {Number(u.price_before).toLocaleString('ru-RU')} → {Number(u.price_after).toLocaleString('ru-RU')} ₽
                     {u.applied_at && ` · ${new Date(u.applied_at).toLocaleDateString('ru-RU')}`}
+                    {u.status === 'reserved' && ' · ждёт оплаты'}
                   </span>
                 </div>
               ))}
@@ -227,8 +277,14 @@ export default function PromoCodesTab({ payProvider }: Props) {
         </div>
       ))}
 
+      </div>
+
       {showForm && (
         <PromoForm onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load() }} />
+      )}
+      {editing && (
+        <PromoForm edit={editing} onClose={() => setEditing(null)}
+                   onSaved={() => { setEditing(null); load() }} />
       )}
     </div>
   )
@@ -258,16 +314,26 @@ function downloadCsv(b: any) {
 
 /* ───────────────────────── Форма создания ───────────────────────── */
 
-function PromoForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+/** ⚠️ ОДНА форма на создание и правку (решение владельца 10.09.2026):
+ *  клиенту нужно добавить событие в уже разданный код или убрать — заводить
+ *  ради этого новый код нельзя, старый уже у людей на руках.
+ *  Вторая копия формы разъехалась бы с первой, поэтому режим — параметром. */
+function PromoForm({ edit, onClose, onSaved }:
+                   { edit?: any; onClose: () => void; onSaved: () => void }) {
   const [kind, setKind] = useState<'single' | 'batch'>('single')
-  const [code, setCode] = useState('')
-  const [discountKind, setDiscountKind] = useState<'percent' | 'amount'>('percent')
-  const [discountValue, setDiscountValue] = useState('20')
-  const [scope, setScope] = useState<'all' | 'event' | 'product'>('event')
-  const [eventId, setEventId] = useState<number | ''>('')
-  const [productId, setProductId] = useState<number | ''>('')
-  const [maxUses, setMaxUses] = useState('')
-  const [endsAt, setEndsAt] = useState('')
+  const [code, setCode] = useState(edit?.code || '')
+  const [discountKind, setDiscountKind] =
+    useState<'percent' | 'amount'>(edit?.discount_kind || 'percent')
+  const [discountValue, setDiscountValue] = useState(String(edit?.discount_value ?? '20'))
+  const [scope, setScope] = useState<'all' | 'event' | 'product'>(
+    edit?.scope_product_id ? 'product' : edit?.scope_event_id ? 'event'
+      : edit ? 'all' : 'event')
+  const [eventId, setEventId] = useState<number | ''>(edit?.scope_event_id || '')
+  const [productId, setProductId] = useState<number | ''>(edit?.scope_product_id || '')
+  const [maxUses, setMaxUses] = useState(edit?.max_uses ? String(edit.max_uses) : '')
+  // ⚠️ `<input type="date">` понимает только «ГГГГ-ММ-ДД» — отрезаем время,
+  // иначе поле приходит пустым и срок молча слетает при сохранении.
+  const [endsAt, setEndsAt] = useState(edit?.ends_at ? String(edit.ends_at).slice(0, 10) : '')
   const [batchCount, setBatchCount] = useState('50')
   const [batchPrefix, setBatchPrefix] = useState('')
   const [batchTitle, setBatchTitle] = useState('')
@@ -285,23 +351,36 @@ function PromoForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
     setError('')
     if (kind === 'single' && !code.trim()) { setError('Укажите промокод'); return }
     if (!discountValue || Number(discountValue) <= 0) { setError('Укажите размер скидки'); return }
-    if (scope === 'event' && !eventId) { setError('Выберите событие'); return }
-    if (scope === 'product' && !productId) { setError('Выберите продукт'); return }
-    // ⚠️ Срок ИЛИ лимит обязателен: код без ограничений никто никогда не
-    // выключит, и через год их накопится сотня — это и есть «помойка».
-    if (!maxUses && !endsAt) {
-      setError('Укажите срок действия или количество применений — иначе промокод будет жить вечно')
-      return
-    }
+    // ⚠️ Пустой выбор в режиме «событие»/«продукт» означает «на ВСЕ»:
+    // владельцу нужна скидка на все события разом, не перечисляя каждое.
+    // ⚠️ Бессрочный код РАЗРЕШЁН (решение владельца 10.09.2026). Раньше здесь
+    // стояло требование срока или лимита — «чтобы не копилась помойка». Но это
+    // мешало настоящему случаю: постоянная скидка для своих, которую не надо
+    // переоформлять каждый месяц. От свалки в списке спасает архив и
+    // группировка, а не запрет.
 
     setSaving(true)
     try {
+      if (edit) {
+        // ⚠️ Сам КОД не меняем — он уже у людей на руках. Правятся скидка,
+        // область, лимит и срок.
+        await api.promoCodes.update(edit.id, {
+          discount_kind: discountKind,
+          discount_value: Number(discountValue),
+          scope_event_id: scope === 'event' && eventId ? Number(eventId) : null,
+          scope_product_id: scope === 'product' && productId ? Number(productId) : null,
+          max_uses: maxUses ? Number(maxUses) : null,
+          ends_at: endsAt || null,
+        })
+        onSaved()
+        return
+      }
       await api.promoCodes.create({
         code: kind === 'single' ? code.trim() : null,
         discount_kind: discountKind,
         discount_value: Number(discountValue),
-        scope_event_id: scope === 'event' ? Number(eventId) : null,
-        scope_product_id: scope === 'product' ? Number(productId) : null,
+        scope_event_id: scope === 'event' && eventId ? Number(eventId) : null,
+        scope_product_id: scope === 'product' && productId ? Number(productId) : null,
         max_uses: maxUses ? Number(maxUses) : null,
         ends_at: endsAt || null,
         batch_count: kind === 'batch' ? Number(batchCount) : null,
@@ -321,7 +400,9 @@ function PromoForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
     // иначе теряется набранное. Только «Отмена» и крестик.
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/50 p-4">
       <div className="w-full max-w-lg rounded-2xl bg-white p-6" onClick={e => e.stopPropagation()}>
-        <h3 className="mb-4 text-lg font-bold text-[#25455D]">Новый промокод</h3>
+        <h3 className="mb-4 text-lg font-bold text-[#25455D]">
+          {edit ? `Промокод ${edit.code}` : 'Новый промокод'}
+        </h3>
 
         <div className="space-y-4">
           <div className="flex gap-2">
@@ -332,7 +413,7 @@ function PromoForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
           {kind === 'single' ? (
             <Row label="Промокод">
               <input value={code} onChange={e => setCode(e.target.value)}
-                     placeholder="PLUSON20"
+                     placeholder=""
                      className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono uppercase" />
             </Row>
           ) : (
@@ -386,7 +467,7 @@ function PromoForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
             <Row label="Событие">
               <select value={eventId} onChange={e => setEventId(Number(e.target.value))}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2">
-                <option value="">— выберите —</option>
+                <option value="">Все события</option>
                 {events.map((e: any) => (
                   <option key={e.id} value={e.id}>{e.title}</option>
                 ))}
@@ -398,7 +479,7 @@ function PromoForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
             <Row label="Продукт">
               <select value={productId} onChange={e => setProductId(Number(e.target.value))}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2">
-                <option value="">— выберите —</option>
+                <option value="">Все продукты</option>
                 {products.map((p: any) => (
                   <option key={p.id} value={p.id}>{p.title}</option>
                 ))}
@@ -425,7 +506,7 @@ function PromoForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
         <div className="mt-6 flex justify-end gap-3">
           <button className="text-sm text-gray-500 underline" onClick={onClose}>Отмена</button>
           <button className="btn-gold" onClick={save} disabled={saving}>
-            {saving ? 'Создаём…' : 'Создать'}
+            {saving ? 'Сохраняем…' : (edit ? 'Сохранить' : 'Создать')}
           </button>
         </div>
       </div>

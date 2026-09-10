@@ -475,7 +475,7 @@ export default function TariffPicker({
               <input className="input-dark" value={promo}
                      onChange={e => setPromo(e.target.value)}
                      autoCapitalize="characters" spellCheck={false}
-                     placeholder="Например, PLUSON20" />
+                     placeholder="Введите код" />
             </div>
           ) : (
             <button type="button" onClick={() => setPromoOpen(true)}

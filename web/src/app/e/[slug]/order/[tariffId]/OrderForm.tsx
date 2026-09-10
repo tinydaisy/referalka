@@ -416,7 +416,7 @@ export default function OrderForm({
             promoOpen ? (
               <Field label="Промокод">
                 <input value={promo} onChange={e => setPromo(e.target.value)}
-                       placeholder="Например, PLUSON20"
+                       placeholder="Введите код"
                        autoCapitalize="characters" spellCheck={false}
                        style={inputStyle(page)} />
               </Field>
