@@ -2173,4 +2173,13 @@ export const api = {
       return request(`/api/v1/events/${eventId}/webinar/${day}/segment?${qs.toString()}`, { method: 'POST' })
     },
   },
+
+  // Подсказки адреса при вводе (DaData через наш бэкенд — ключ на сервере).
+  address: {
+    suggest: (query: string) =>
+      request('/api/v1/address/suggest', {
+        method: 'POST',
+        body: JSON.stringify({ query }),
+      }),
+  },
 }

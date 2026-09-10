@@ -9,6 +9,7 @@ import PublicLinks from '@/components/PublicLinks'
 import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 import MainButtonsBlock, { AccentButton, normalizeAccent } from '@/components/MainButtonsBlock'
+import AddressField from '@/components/AddressField'
 
 function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; onSave: () => void }) {
   const { t } = useLang()
@@ -357,11 +358,11 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Адрес места проведения
                 </label>
-                <input value={form.address}
-                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  className="input" placeholder="Москва, ул. Тверская, 1" />
+                <AddressField value={form.address}
+                  onChange={v => setForm(f => ({ ...f, address: v }))} />
                 <p className="text-xs text-gray-400 mt-1">
-                  По адресу покажем карту с меткой — ключи и настройка не нужны.
+                  Начните вводить — подскажем. Номер квартиры указывать не нужно:
+                  карте он ничего не даёт, а участники его увидят.
                 </p>
               </div>
               <div>

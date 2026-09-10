@@ -7,6 +7,7 @@ import PublicLinks from '@/components/PublicLinks'
 import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 import MainButtonsBlock, { AccentButton, normalizeAccent } from '@/components/MainButtonsBlock'
+import AddressField from '@/components/AddressField'
 
 export default function OverviewTab({
   event, eventId, onReload,
@@ -242,9 +243,8 @@ export default function OverviewTab({
           {isOffline && (
             <>
               <Field label="Адрес места проведения"
-                     hint="Город, улица, дом. По нему на лендинге и в Mini App покажется карта с меткой — ключи и настройка не нужны.">
-                <input value={address} onChange={e => setAddress(e.target.value)}
-                       className="input" placeholder="Москва, ул. Тверская, 1" />
+                     hint="Начните вводить — подскажем. Номер квартиры указывать не нужно: карте он ничего не даёт, а участники его увидят.">
+                <AddressField value={address} onChange={setAddress} />
               </Field>
               <Field label="Название кнопки адреса"
                      hint="Как назвать кнопку в меню бота и в Mini App. Пусто — «Адрес мероприятия».">
