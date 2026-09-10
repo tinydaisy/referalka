@@ -382,7 +382,7 @@ async def _forward_max_user_message_to_organizer(
         from zoneinfo import ZoneInfo
     except ImportError:  # pragma: no cover
         from backports.zoneinfo import ZoneInfo  # type: ignore
-    from app.services.profile_links import max_mention_html
+    from app.services.profile_links import nick_html, max_mention_html
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -408,27 +408,13 @@ async def _forward_max_user_message_to_organizer(
         return
 
     when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+    user_nick = nick_html("max", user_id=user_id, username=username)
     contact_id = row["contact_id"]
     card_url = (
         f"{settings.frontend_url}/dashboard/clients?contact={contact_id}"
         if contact_id else "—"
     )
     name = display_name or row["contact_name"] or "—"
-
-    # ⚠️⚠️ ССЫЛОК НА ЧЕЛОВЕКА В MAX НЕ СУЩЕСТВУЕТ — проверено 10.09.2026:
-    #   • ников у людей нет (справка max.ru/help/account: только фото, имя, телефон;
-    #     username в Bot API — про БОТОВ, у человека приходит null);
-    #   • по номеру телефона аналога wa.me нет: max.ru/{номер}, max.ru/+{номер},
-    #     max.ru/u/{номер}, max.ru/p/{номер} — все 404;
-    #   • max.ru/u/{хеш} из QR-кода содержит ПРИВАТНЫЙ хеш, Bot API его не отдаёт.
-    # Единственное, что работает, — УПОМИНАНИЕ <a href="max://user/{id}">Имя</a>
-    # (dev.max.ru → «Форматирование текста»), и только ВНУТРИ MAX.
-    #
-    # Поэтому в уведомлении ссылок больше нет: в Telegram они были мёртвым
-    # текстом и путали («вам написали — а ответить нечем»). Вместо них — прямая
-    # ссылка на карточку клиента: там раздел «Диалоги», откуда ответ уходит
-    # человеку СВОИМ ботом. Это единственный надёжный канал ответа в MAX.
-    mention = max_mention_html(user_id, name if name != "—" else display_name)
     parts = [
         "#user_message 💬",
         "",
@@ -437,21 +423,28 @@ async def _forward_max_user_message_to_organizer(
         f"<b>Платформа:</b> MAX · {_html.escape(row['brand'] or '—')}",
         "",
         "<b>Кто написал</b>",
-        # В MAX-канале имя станет кликабельным упоминанием (откроется профиль),
-        # в Telegram и VK — обычный текст: там схема max:// не работает.
-        f"<b>Имя:</b> {mention or _html.escape(name)}",
+        f"<b>Никнейм:</b> {user_nick}",
+        f"<b>Имя:</b> {_html.escape(name)}",
         f"<b>MAX ID:</b> <code>{_html.escape(str(user_id))}</code>",
+    ]
+    # ⚠️⚠️ ССЫЛОК НА ЧЕЛОВЕКА В MAX НЕ СУЩЕСТВУЕТ — проверено 10.09.2026:
+    #   • ников у людей нет (справка max.ru/help/account: в профиле только фото,
+    #     имя, телефон; username в Bot API — про БОТОВ, у человека приходит null);
+    #   • по номеру телефона аналога wa.me нет: max.ru/{номер}, max.ru/+{номер},
+    #     max.ru/u/{номер}, max.ru/p/{номер} — все отдают 404;
+    #   • max.ru/u/{хеш} из QR-кода содержит ПРИВАТНЫЙ хеш, Bot API его не отдаёт.
+    #
+    # Работает ровно одно — УПОМИНАНИЕ <a href="max://user/{id}">Имя Фамилия</a>
+    # (dev.max.ru → «Форматирование текста»), и ТОЛЬКО внутри MAX: так делает
+    # TapBox («Профиль 👉 Имя»). В Telegram схема max:// не кликается вовсе,
+    # поэтому туда её не кладём — раньше там висел мёртвый текст «написать в MAX».
+    _mention = max_mention_html(user_id, name if name != "—" else None)
+    if _mention:
+        parts.append(f"<b>Профиль в MAX:</b> {_mention}")
+    parts += [
         f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
         f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
-    ]
-    if contact_id:
-        parts.append(
-            f'<b>Ответить:</b> <a href="{card_url}">карточка клиента → Диалоги</a> '
-            f"— ответ уйдёт человеку в MAX от вашего бота"
-        )
-    else:
-        parts.append(f"<b>Карточка:</b> {card_url}")
-    parts += [
+        f"<b>Карточка:</b> {card_url}",
         "",
         "<b>Сообщение:</b>",
         _html.escape(text or ""),
