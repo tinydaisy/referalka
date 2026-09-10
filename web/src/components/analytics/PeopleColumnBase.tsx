@@ -139,7 +139,11 @@ export default function PeopleColumnBase({
       </div>
 
       {open && (
-        <div className="max-h-[420px] overflow-y-auto scroll-visible p-2">
+        {/* ⚠️ Высота считается ОТ ЭКРАНА (`vh`), а не жёсткими пикселями:
+            при 420px на большом мониторе оставалось пустое место снизу, а
+            список всё равно прокручивался внутри коробки. Вычитаем шапку
+            страницы и заголовок колонки. */}
+        <div className="max-h-[calc(100vh-320px)] min-h-[220px] overflow-y-auto scroll-visible p-2">
           {loading ? (
             <div className="flex items-center gap-2 p-3 text-sm text-gray-400">
               <Loader2 size={14} className="animate-spin" /> Загружаем…
@@ -147,7 +151,12 @@ export default function PeopleColumnBase({
           ) : !people.length ? (
             <p className="p-3 text-sm text-gray-400">Пусто</p>
           ) : (
-            people.map(p => <PersonRow key={p.id} person={p} hrefFor={hrefFor} />)
+            // ⚠️ Номер — ПОРЯДКОВЫЙ в списке, а не id контакта: человек считает
+            // глазами «сколько уже просмотрел», и внутренний номер записи ему
+            // ничего не говорит.
+            people.map((p, i) => (
+              <PersonRow key={p.id} person={p} hrefFor={hrefFor} num={i + 1} />
+            ))
           )}
           {footer}
         </div>
@@ -157,9 +166,10 @@ export default function PeopleColumnBase({
 }
 
 /** Строка человека: имя ведёт в карточку контакта, под ним — ники площадок. */
-function PersonRow({ person, hrefFor }: {
+function PersonRow({ person, hrefFor, num }: {
   person: ColumnPerson
   hrefFor?: (p: ColumnPerson) => string
+  num?: number
 }) {
   const nicks = [
     person.telegram && `TG ${at(person.telegram)}`,
@@ -169,13 +179,22 @@ function PersonRow({ person, hrefFor }: {
 
   return (
     <Link href={hrefFor ? hrefFor(person) : `/dashboard/clients?contact=${person.id}`}
-          className="block rounded-lg px-2 py-1.5 hover:bg-gray-50">
-      <div className="truncate text-sm font-medium" style={{ color: DARK }}>
-        {person.name || 'Без имени'}
-      </div>
-      {nicks.length > 0 && (
-        <div className="truncate text-[11px] text-gray-500">{nicks.join(' · ')}</div>
+          className="flex gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50">
+      {/* ⚠️ Номер выровнен по правому краю и моноширинный (`tabular-nums`):
+          иначе на двузначных именах колонка «прыгает». */}
+      {num !== undefined && (
+        <span className="w-6 shrink-0 pt-0.5 text-right text-[11px] tabular-nums text-gray-400">
+          {num}
+        </span>
       )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium" style={{ color: DARK }}>
+          {person.name || 'Без имени'}
+        </span>
+        {nicks.length > 0 && (
+          <span className="block truncate text-[11px] text-gray-500">{nicks.join(' · ')}</span>
+        )}
+      </span>
     </Link>
   )
 }

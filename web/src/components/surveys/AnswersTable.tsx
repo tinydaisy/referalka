@@ -255,6 +255,11 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-600">
+                {/* ⚠️ Номер — ПОРЯДКОВЫЙ в текущей выборке, а не id заявки:
+                    он нужен, чтобы считать глазами и говорить «третья сверху».
+                    При смене сортировки или фильтра нумерация пересчитывается
+                    — это правильно, номер описывает список, а не запись. */}
+                <th className="w-10 px-3 py-2 text-right font-medium">№</th>
                 {shownCols.map(c => (
                   <Th key={c.key} title={c.title} active={sort === c.key} dir={dir}
                       staff={c.kind === 'question' && c.q.filled_by === 'staff'}
@@ -264,13 +269,16 @@ export default function AnswersTable({ surveyId }: { surveyId: number }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
+              {rows.map((r, i) => (
                 <tr key={r.id}
                     className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
                     /* ⚠️ Обработанные подсвечены полупрозрачным фирменным
                        синим. Прозрачность 8% (`14`) читалась как обычный
                        серый — подняли до 22% (`38`), чтобы цвет был виден. */
                     style={r.processed ? { background: `${DARK}38` } : undefined}>
+                  <td className="px-3 py-2 text-right text-xs tabular-nums text-gray-400">
+                    {i + 1}
+                  </td>
                   {shownCols.map((c: any) => {
                     if (c.kind === 'person') {
                       return (

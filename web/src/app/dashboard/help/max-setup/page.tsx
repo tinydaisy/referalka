@@ -68,6 +68,37 @@ export default function ConnectMaxChannelInstructionPage() {
         </div>
       </Section>
 
+      {/* ⚠️ Официальные ссылки — В НАЧАЛЕ статьи, а не в конце: человек ищет их
+          первым делом, а найдя в подвале, успевает решить, что их нет вовсе. */}
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
+        <div className="text-sm font-semibold text-gray-800 mb-2">
+          Официальные ресурсы MAX
+        </div>
+        <ul className="text-sm text-gray-700 space-y-1.5">
+          <li>
+            <a href="https://business.max.ru" target="_blank" rel="noreferrer"
+               className="text-blue-600 hover:underline inline-flex items-center gap-1">
+              business.max.ru <ExternalLink size={12}/>
+            </a>{' '}— платформа «Партнёры МАХ»: регистрация, верификация и создание канала
+          </li>
+          <li>
+            <a href="https://help.max.ru" target="_blank" rel="noreferrer"
+               className="text-blue-600 hover:underline inline-flex items-center gap-1">
+              help.max.ru <ExternalLink size={12}/>
+            </a>{' '}— справка MAX для пользователей
+          </li>
+          <li>
+            <a href="https://dev.max.ru/docs" target="_blank" rel="noreferrer"
+               className="text-blue-600 hover:underline inline-flex items-center gap-1">
+              dev.max.ru/docs <ExternalLink size={12}/>
+            </a>{' '}— документация для разработчиков: боты, мини-приложения, API
+          </li>
+        </ul>
+        <p className="mt-2 text-xs text-gray-500">
+          Ниже — тот же путь по шагам, с нашими пояснениями и подводными камнями.
+        </p>
+      </div>
+
       <Section step="1" title="Регистрация на платформе «Партнёры МАХ»">
         <p className="text-sm text-gray-700 mb-3">
           Всё начинается с платформы «Партнёры МАХ». Откройте{' '}
