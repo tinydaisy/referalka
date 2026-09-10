@@ -294,6 +294,25 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
         for m in materials:
             m["url"] = _apply_link_params(m["url"], params)
 
+    # ⚠️⚠️ `{plsn_bot}` — ГОТОВАЯ ССЫЛКА НА БОТ ПЛЮСОНА, а не голый код.
+    # Отличие от `{plsn_ref}`: тот даёт только код, и клиенту приходится самому
+    # собирать вокруг него адрес — а адрес РАЗНЫЙ у каждой площадки (у VK код
+    # уходит параметром `ref`, а не `start`). Здесь площадка человека уже
+    # известна (`run.platform_slug`), поэтому подставляем ссылку на бот ТОЙ
+    # площадки, где он сидит: переход в свой мессенджер, а не в чужой.
+    #
+    # ⚠️ Реф-код берётся у ВЛАДЕЛЬЦА лид-магнита — того клиента, в чьей воронке
+    # лежит подарок: приведённый человек и кэшбэк достаются ему.
+    if any("{plsn_bot}" in (m["url"] or "") for m in materials):
+        from app.services.plusson_ref_links import plusson_ref_link
+        owner_code = await db.fetchval(
+            "SELECT referral_code FROM clients WHERE id = $1", run["client_id"])
+        link = await plusson_ref_link(
+            db, owner_code or "", (run.get("platform_slug") or "telegram"))
+        for m in materials:
+            if "{plsn_bot}" in (m["url"] or ""):
+                m["url"] = m["url"].replace("{plsn_bot}", link)
+
     # ⚠️ Материал внутри пакета может требовать свою анкету. Тогда ссылка ведёт
     # не на файл, а на воронку этого подарка в боте — там человека встретит
     # анкета. Делается ЗДЕСЬ, в единой точке сборки материалов: иначе пришлось
