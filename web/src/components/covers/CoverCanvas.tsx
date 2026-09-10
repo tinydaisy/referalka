@@ -36,6 +36,15 @@ export type CoverTemplate = {
   text_y?: number
   text_w?: number
   text_align?: 'left' | 'center' | 'right'
+  /** Подложка под текстом. Пусто — текста лежит прямо на фоне. */
+  text_bg_color?: string | null
+  text_bg_color_2?: string | null
+  text_bg_angle?: number
+  text_bg_opacity?: number
+  text_bg_radius?: number
+  text_bg_pad?: number
+  text_border_color?: string | null
+  text_border_width?: number
   title_size?: number
   title_color?: string | null
   text_color?: string | null
@@ -92,7 +101,13 @@ function logoUrl(t: CoverTemplate, th: CoverTheme): string | null {
 
 export default function CoverCanvas({
   template: t, theme: th, title, subtitle, overline, photoUrl, logos, scale = 1,
+  showGuides = false,
 }: {
+  /** ⚠️ СЛУЖЕБНАЯ разметка области текста (красный пунктир) — ТОЛЬКО экран
+   *  редактора. В снимок она не попадает: страница отрисовки её не включает,
+   *  и в шаблоне этот признак не хранится. Иначе однажды клиент получил бы
+   *  готовый файл с пунктиром поверх обложки. */
+  showGuides?: boolean
   template: CoverTemplate
   theme: CoverTheme
   /** Главная строка: название материала или Имя Фамилия. */
@@ -223,7 +238,11 @@ export default function CoverCanvas({
         />
       )}
 
-      {/* Текстовый блок. */}
+      {/* Текстовый блок.
+          ⚠️ Подложка и рамка рисуются НА ЭТОМ ЖЕ элементе, а не отдельным
+          слоем под ним: отдельный слой пришлось бы держать одного размера с
+          текстом вручную, и он разъезжался бы на длинных названиях, которые
+          переносятся на лишнюю строку. */}
       <div style={{
         position: 'absolute',
         left: `${tx}%`,
@@ -232,7 +251,51 @@ export default function CoverCanvas({
         transform: 'translateY(-50%)',
         textAlign: align,
         fontFamily: bodyFont,
+        // Подложка: один цвет или градиент двумя. Пусто — ничего не рисуем.
+        ...(t.text_bg_color ? {
+          background: t.text_bg_color_2
+            ? `linear-gradient(${t.text_bg_angle ?? 135}deg, ${t.text_bg_color}, ${t.text_bg_color_2})`
+            : t.text_bg_color,
+          // ⚠️ Прозрачность — у ПОДЛОЖКИ, а не у всего блока: `opacity` на
+          // элементе погасил бы и текст вместе с ней.
+          opacity: undefined,
+        } : {}),
+        ...(t.text_bg_color && (t.text_bg_opacity ?? 100) < 100
+          ? { backgroundColor: undefined } : {}),
+        ...(t.text_border_width ? {
+          border: `${t.text_border_width}px solid ${t.text_border_color || '#FFFFFF'}`,
+        } : {}),
+        ...(t.text_bg_color || t.text_border_width ? {
+          borderRadius: `${(t.text_bg_radius ?? 0) * 1280 / 100}px`,
+          padding: `${(t.text_bg_pad ?? 0) * 1280 / 100}px`,
+          // ⚠️ Отступ добавляет ширины: без коробочной модели border-box
+          // блок вылез бы за отведённую область и наехал на фото.
+          boxSizing: 'border-box' as const,
+        } : {}),
       }}>
+        {/* ⚠️ Прозрачную подложку рисуем ОТДЕЛЬНЫМ слоем позади текста:
+            свойство `opacity` на самом блоке погасило бы и надписи. */}
+        {t.text_bg_color && (t.text_bg_opacity ?? 100) < 100 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            borderRadius: `${(t.text_bg_radius ?? 0) * 1280 / 100}px`,
+            background: t.text_bg_color_2
+              ? `linear-gradient(${t.text_bg_angle ?? 135}deg, ${t.text_bg_color}, ${t.text_bg_color_2})`
+              : t.text_bg_color,
+            opacity: (t.text_bg_opacity ?? 100) / 100,
+            pointerEvents: 'none',
+          }} />
+        )}
+        {/* Служебная разметка области — только в редакторе. */}
+        {showGuides && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            border: '2px dashed #EF4444',
+            borderRadius: `${(t.text_bg_radius ?? 0) * 1280 / 100}px`,
+            pointerEvents: 'none',
+          }} />
+        )}
+        <div style={{ position: 'relative' }}>
         {t.brand_position === 'above' && brandBlock}
 
         {!!overline && (
@@ -269,6 +332,7 @@ export default function CoverCanvas({
         )}
 
         {t.brand_position !== 'above' && brandBlock}
+        </div>
       </div>
     </div>
   )

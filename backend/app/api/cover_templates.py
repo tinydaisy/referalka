@@ -32,6 +32,9 @@ _FIELDS = (
     "bg_url", "bg_dim", "logo_variant", "logo_size", "logo_x", "logo_y",
     "photo_side", "photo_scale", "photo_x", "photo_y",
     "text_x", "text_y", "text_w", "text_align", "title_size",
+    # Оформление области текста (миграция 395): подложка и рамка.
+    "text_bg_color", "text_bg_color_2", "text_bg_angle", "text_bg_opacity",
+    "text_bg_radius", "text_bg_pad", "text_border_color", "text_border_width",
     "title_color", "text_color", "show_brand",
     "show_owner_name", "show_brand_name", "brand_position",
 )
@@ -75,6 +78,15 @@ class TemplateIn(BaseModel):
     text_y: Optional[int] = None
     text_w: Optional[int] = None
     text_align: Optional[str] = None
+    # Оформление области текста. Пусто → подложки/рамки нет.
+    text_bg_color: Optional[str] = None
+    text_bg_color_2: Optional[str] = None
+    text_bg_angle: Optional[int] = None
+    text_bg_opacity: Optional[int] = None
+    text_bg_radius: Optional[int] = None
+    text_bg_pad: Optional[int] = None
+    text_border_color: Optional[str] = None
+    text_border_width: Optional[int] = None
     title_size: Optional[int] = None
     title_color: Optional[str] = None
     text_color: Optional[str] = None
@@ -106,6 +118,17 @@ def _norm(data: dict, kind: str) -> dict:
             d[f] = _clamp(d[f], 0, 100, dflt)
     if "photo_scale" in d:
         d["photo_scale"] = _clamp(d["photo_scale"], 30, 200, 100)
+    # ⚠️ Границы те же, что в CHECK миграции 395: значение из браузера может
+    # прийти любым, а падать на ограничении БД посреди сохранения нельзя.
+    for key, lo, hi, default in (
+        ("text_bg_angle", 0, 360, 135),
+        ("text_bg_opacity", 0, 100, 100),
+        ("text_bg_radius", 0, 50, 0),
+        ("text_bg_pad", 0, 20, 0),
+        ("text_border_width", 0, 20, 0),
+    ):
+        if key in d and d[key] is not None:
+            d[key] = _clamp(d[key], lo, hi, default)
     for f in ("photo_x", "photo_y"):
         if f in d:
             d[f] = _clamp(d[f], -100, 100, 0)

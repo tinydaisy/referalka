@@ -33,6 +33,7 @@ export default function CoverTemplatesTab() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [guides, setGuides] = useState(false)
 
   // ⚠️ Файл фирменных шрифтов подключён только на публичных страницах — в
   // кабинете его надо добавить самим, иначе превью рисуется запасным шрифтом
@@ -135,8 +136,21 @@ export default function CoverTemplatesTab() {
           template={tpl} theme={theme} scale={scale}
           title={s.title} subtitle={s.subtitle} overline={s.overline}
           photoUrl={theme.sample_photo_url}
+          showGuides={guides}
         />
       </div>
+
+      {/* ⚠️ Разметка — состояние ЭКРАНА, а не свойство обложки: в шаблон она не
+          сохраняется и в скачанный PNG не попадает. Иначе однажды клиент отдал
+          бы спикеру картинку с красным пунктиром поверх. */}
+      <label className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+        <input type="checkbox" checked={guides}
+               onChange={e => setGuides(e.target.checked)} />
+        Показать область текста
+        <span className="text-xs text-gray-400">
+          — красный пунктир, виден только здесь
+        </span>
+      </label>
 
       <div className="grid gap-5 md:grid-cols-2">
         {/* ── Фон ── */}
@@ -217,6 +231,94 @@ export default function CoverTemplatesTab() {
               onChange={v => patch({ text_align: v as any })}
               options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]}
             />
+          </div>
+        </Card>
+
+        {/* ── Оформление области текста ── */}
+        <Card title="Подложка под текстом">
+          <p className="mb-2 text-xs text-gray-500">
+            На пёстром фоне текст теряется. Подложка гасит фон только под
+            надписью — фото спикера остаётся ярким.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="color"
+                value={tpl.text_bg_color || '#25455D'}
+                onChange={e => patch({ text_bg_color: e.target.value })}
+                className="h-8 w-12 cursor-pointer rounded border border-gray-200"
+              />
+              Цвет
+            </label>
+            {tpl.text_bg_color && (
+              <>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="color"
+                    value={tpl.text_bg_color_2 || '#0a1520'}
+                    onChange={e => patch({ text_bg_color_2: e.target.value })}
+                    className="h-8 w-12 cursor-pointer rounded border border-gray-200"
+                  />
+                  Второй цвет
+                </label>
+                {/* ⚠️ Снять подложку и убрать второй цвет — РАЗНЫЕ действия:
+                    без отдельной кнопки выключить заливку было бы нечем,
+                    поле выбора цвета пустого значения не отдаёт. */}
+                <button
+                  onClick={() => patch({ text_bg_color: null, text_bg_color_2: null })}
+                  className="text-xs text-gray-500 underline hover:text-gray-700">
+                  убрать подложку
+                </button>
+                {tpl.text_bg_color_2 && (
+                  <button
+                    onClick={() => patch({ text_bg_color_2: null })}
+                    className="text-xs text-gray-500 underline hover:text-gray-700">
+                    один цвет
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          {tpl.text_bg_color && (<>
+            {tpl.text_bg_color_2 && (
+              <Range label="Угол градиента" value={tpl.text_bg_angle ?? 135}
+                     min={0} max={360}
+                     onChange={v => patch({ text_bg_angle: v })} />
+            )}
+            <Range label="Плотность" value={tpl.text_bg_opacity ?? 100} min={0} max={100}
+                   hint="100 — сплошная заливка, ниже — фон просвечивает"
+                   onChange={v => patch({ text_bg_opacity: v })} />
+            <Range label="Скругление углов" value={tpl.text_bg_radius ?? 0} min={0} max={50}
+                   onChange={v => patch({ text_bg_radius: v })} />
+            <Range label="Отступ от края" value={tpl.text_bg_pad ?? 0} min={0} max={20}
+                   hint="воздух между рамкой и надписью"
+                   onChange={v => patch({ text_bg_pad: v })} />
+          </>)}
+
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <div className="mb-2 text-xs font-medium text-gray-600">Рамка</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="color"
+                  value={tpl.text_border_color || '#FFCFA4'}
+                  onChange={e => patch({ text_border_color: e.target.value })}
+                  className="h-8 w-12 cursor-pointer rounded border border-gray-200"
+                />
+                Цвет
+              </label>
+              {!!tpl.text_border_width && (
+                <button
+                  onClick={() => patch({ text_border_width: 0 })}
+                  className="text-xs text-gray-500 underline hover:text-gray-700">
+                  убрать рамку
+                </button>
+              )}
+            </div>
+            <Range label="Толщина" value={tpl.text_border_width ?? 0} min={0} max={20}
+                   hint="0 — рамки нет"
+                   onChange={v => patch({ text_border_width: v })} />
           </div>
         </Card>
 
