@@ -136,7 +136,7 @@ async def list_promo_codes(
     Исчерпанные и просроченные приходят по `archived=true`.
     """
     where = ["client_id = $1"]
-    args: list = [client["id"]]
+    args: list = [int(client["sub"])]
 
     if event_id:
         args.append(event_id)
@@ -201,7 +201,7 @@ async def create_promo_codes(
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Промокоды доступны только владельцу кабинета")
 
-    await _assert_scope_owned(db, client["id"], data)
+    await _assert_scope_owned(db, int(client["sub"]), data)
 
     # ⚠️ Именной код бессмыслен пачкой без списка получателей: у всех кодов
     # оказался бы один владелец, и 199 из 200 не сработали бы ни у кого.
@@ -249,7 +249,7 @@ async def create_promo_codes(
                                 comment, batch_id, batch_title)
                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                            RETURNING *""",
-                        client["id"], code, svc.normalize_code(code),
+                        int(client["sub"]), code, svc.normalize_code(code),
                         data.discount_kind, data.discount_value,
                         data.scope_event_id, data.scope_product_id,
                         data.scope_tariff_id, data.scope_tariff_kind,
@@ -279,7 +279,7 @@ async def update_promo_code(
 ):
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Промокоды доступны только владельцу кабинета")
-    await _assert_owner(db, client["id"], promo_id)
+    await _assert_owner(db, int(client["sub"]), promo_id)
 
     # ⚠️ Сам КОД не меняем: его уже раздали людям, и переименование сделало бы
     # выданные коды нерабочими молча. Нужен другой код — создаётся новый.
@@ -310,7 +310,7 @@ async def delete_promo_code(
     объяснения, откуда она взялась."""
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Промокоды доступны только владельцу кабинета")
-    await _assert_owner(db, client["id"], promo_id)
+    await _assert_owner(db, int(client["sub"]), promo_id)
     await db.execute("DELETE FROM promo_codes WHERE id = $1", promo_id)
     return {"ok": True}
 
@@ -325,7 +325,7 @@ async def delete_batch(
         raise HTTPException(403, "Промокоды доступны только владельцу кабинета")
     rows = await db.fetch(
         "DELETE FROM promo_codes WHERE batch_id = $1 AND client_id = $2 RETURNING id",
-        batch_id, client["id"])
+        batch_id, int(client["sub"]))
     return {"ok": True, "deleted": len(rows)}
 
 
@@ -337,7 +337,7 @@ async def promo_uses(
 ):
     """⚠️ Главный вопрос по именным кодам: воспользовался ли человек.
     Без этого списка именной код теряет смысл."""
-    await _assert_owner(db, client["id"], promo_id)
+    await _assert_owner(db, int(client["sub"]), promo_id)
     rows = await db.fetch(
         """SELECT u.*, c.name AS contact_name
              FROM promo_code_uses u
