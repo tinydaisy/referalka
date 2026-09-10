@@ -673,6 +673,27 @@ async def transfer_bot(client, bot_username: str, to_username: str,
         return True
     if "invalid password" in low or "wrong password" in low:
         raise BotFatherError("Неверный пароль сервисного аккаунта", raw=r)
+
+    # ⚠️⚠️ ПРОВЕРЯЕМ ПО ФАКТУ, А НЕ ПО СЛОВАМ В ОТВЕТЕ (10.09.2026).
+    # Ловили ложную неудачу: бот РЕАЛЬНО передавался, но BotFather отвечал не
+    # теми словами, что перечислены выше, — и клиент получал «не удалось» с
+    # работающим ботом на руках, а услуга звала поддержку чинить то, что уже
+    # сработало. Ровно это и произошло на живом заказе 5: сутки искали причину
+    # у передачи, которая прошла.
+    #
+    # Признак успеха однозначный: бота больше НЕТ в списке нашего аккаунта.
+    # `/mybots` показывает только своих — передал, значит его там не будет.
+    try:
+        await _ask(client, BOTFATHER, "/cancel", wait=2)
+        check = (await _ask(client, BOTFATHER, "/mybots", wait=5) or "").lower()
+        if "no bots" in check or f"@{u.lower()}" not in check:
+            log.info("transfer_bot: BotFather ответил «%s», но бот @%s "
+                     "исчез из /mybots — передача прошла", (r or "")[:80], u)
+            return True
+    except Exception as e:
+        # Проверка не удалась — не выдаём успех наугад, идём в исходную ошибку.
+        log.warning("transfer_bot: не удалось перепроверить /mybots: %s", e)
+
     raise BotFatherError("Передача не подтвердилась", retryable=True, raw=r)
 
 
