@@ -23,8 +23,8 @@ import {
 } from 'lucide-react'
 import { useMe } from '@/hooks/useMe'
 import {
-  SOLUTIONS, CATEGORIES, FEATURE_TITLE, missingFeatures, byNum,
-  type Solution,
+  SOLUTIONS, CATEGORIES, FEATURE_TITLE, missingFeatures, byNum, requiredTariff,
+  type Solution, type SolutionFeature,
 } from './catalog'
 
 const DARK = '#25455D'
@@ -129,8 +129,11 @@ export default function SolutionsTab() {
   )
 }
 
-/** Метка тарифа — общая для обоих видов. */
-function TariffBadge({ missing, compact }: { missing: string[]; compact?: boolean }) {
+/** Метка тарифа — общая для обоих видов.
+ *
+ * ⚠️ Тариф НАЗЫВАЕТСЯ по факту нехватки, а не «Экстра» всем подряд: решению
+ * с продуктами Экстра не поможет, там нужен Бизнес. */
+function TariffBadge({ missing, compact }: { missing: SolutionFeature[]; compact?: boolean }) {
   if (!missing.length) {
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -138,15 +141,19 @@ function TariffBadge({ missing, compact }: { missing: string[]; compact?: boolea
       </span>
     )
   }
+  const t = requiredTariff(missing)
   return (
     <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-      <Lock size={12} /> Нужна Экстра
+      <Lock size={12} /> {t ? `Нужен ${t.title}` : 'Недоступно'}
     </span>
   )
 }
 
 /** Кнопки действий — общие для обоих видов. */
-function Actions({ sol, available }: { sol: Solution; available: boolean }) {
+function Actions({ sol, available, missing }: {
+  sol: Solution; available: boolean; missing: SolutionFeature[]
+}) {
+  const need = requiredTariff(missing)
   return (
     <div className="flex flex-wrap gap-1.5">
       <Link href={`/dashboard/solutions/${sol.slug}`}
@@ -170,7 +177,7 @@ function Actions({ sol, available }: { sol: Solution; available: boolean }) {
       ) : (
         <Link href="/dashboard/subscription"
               className="inline-flex items-center rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100">
-          Подключить Экстру
+          {need ? `Повысить до ${need.title}` : 'Посмотреть тарифы'}
         </Link>
       )}
     </div>
@@ -298,7 +305,7 @@ function TableRow({ sol, features, first }: {
             </p>
           )}
 
-          <div className="mt-3"><Actions sol={sol} available={available} /></div>
+          <div className="mt-3"><Actions sol={sol} available={available} missing={missing} /></div>
         </div>
       )}
     </div>
@@ -348,7 +355,7 @@ function Card({ sol, features }: { sol: Solution; features: string[] }) {
         ))}
       </div>
 
-      <Actions sol={sol} available={available} />
+      <Actions sol={sol} available={available} missing={missing} />
     </div>
   )
 }

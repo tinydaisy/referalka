@@ -19,7 +19,9 @@ import {
 } from 'lucide-react'
 import { useMe } from '@/hooks/useMe'
 import { api } from '@/lib/api'
-import { bySlug, byNum, missingFeatures, FEATURE_TITLE, CATEGORIES } from '@/components/solutions/catalog'
+import {
+  bySlug, byNum, missingFeatures, FEATURE_TITLE, CATEGORIES, requiredTariff,
+} from '@/components/solutions/catalog'
 
 const DARK = '#25455D'
 
@@ -67,6 +69,7 @@ export default function SolutionPage() {
 
   const missing = missingFeatures(sol, features)
   const available = missing.length === 0
+  const need = requiredTariff(missing)
   const category = CATEGORIES.find(c => c.key === sol.category)
 
   const install = async () => {
@@ -112,8 +115,11 @@ export default function SolutionPage() {
         </div>
       ) : (
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          {/* ⚠️ Тариф называется ПО ФАКТУ нехватки, а не «Экстра» всегда:
+              решению с продуктами Экстра не поможет — они только в Бизнесе.
+              Позвать не туда = клиент заплатит и не получит обещанного. */}
           <div className="flex items-center gap-1.5 font-medium text-amber-900">
-            <Lock size={15} /> Нужен тариф Экстра
+            <Lock size={15} /> {need ? `Нужен тариф ${need.title}` : 'Недоступно на вашем тарифе'}
           </div>
           <p className="mt-1 text-sm text-amber-800">
             Не хватает: {missing.map(f => FEATURE_TITLE[f]).join(', ')}.
@@ -137,7 +143,7 @@ export default function SolutionPage() {
           )}
           <Link href="/dashboard/subscription"
                 className="mt-3 inline-block rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100">
-            Подключить Экстру
+            {need ? `Повысить до ${need.title}` : 'Посмотреть тарифы'}
           </Link>
         </div>
       )}
@@ -255,7 +261,9 @@ export default function SolutionPage() {
             золотой. Второй такой же на одном экране только двоит выбор. */}
         {!available ? (
           <p className="text-sm text-gray-500">
-            Установка станет доступна на тарифе Экстра.
+            {need
+              ? `Установка станет доступна на тарифе ${need.title}.`
+              : 'Установка на вашем тарифе недоступна.'}
           </p>
         ) : result ? (
           <div className="rounded-lg bg-emerald-50 p-4">
