@@ -20,11 +20,28 @@ interface Ev {
   participation_status?: ParticipationStatus
 }
 
+// ⚠️ Год печатаем ВСЕГДА. Без него дата обрывочна: «15 июня» не отвечает на
+// вопрос «какого года», а у события дата может быть и следующей, и позапрошлой.
 function formatDate(dt?: string) {
   if (!dt) return ''
   try {
-    return new Date(dt).toLocaleDateString('ru', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
+    return new Date(dt).toLocaleDateString('ru', {
+      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow',
+    })
   } catch { return '' }
+}
+
+// ⚠️⚠️ Однодневность события считается по ДАТЕ в МСК, а не сравнением строк
+// start_at/end_at. Те — полные метки времени (19:00 и 21:00 одного дня), они
+// НИКОГДА не равны, и выводилось «15 июня 2060 — 15 июня 2060»: одна и та же
+// дата дважды.
+function sameDay(a?: string, b?: string) {
+  if (!a || !b) return false
+  try {
+    const key = (s: string) =>
+      new Date(s).toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' })
+    return key(a) === key(b)
+  } catch { return false }
 }
 
 // Афиша карточки события: ничего не рендерим, если URL пустой или картинка не загрузилась
@@ -59,7 +76,7 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
               </div>
               <div className="title">{e.title}</div>
               {(e.start_at || e.end_at) && (
-                <div className="meta">{formatDate(e.start_at)}{e.end_at && e.start_at !== e.end_at ? ` — ${formatDate(e.end_at)}` : ''}</div>
+                <div className="meta">{formatDate(e.start_at)}{e.end_at && !sameDay(e.start_at, e.end_at) ? ` — ${formatDate(e.end_at)}` : ''}</div>
               )}
             </div>
           </div>

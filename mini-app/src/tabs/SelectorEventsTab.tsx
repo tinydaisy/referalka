@@ -36,11 +36,26 @@ interface Group {
   events: Ev[]
 }
 
+// ⚠️ Год печатаем ВСЕГДА — «15 июня» без года не отвечает на вопрос «когда».
 function formatDate(dt?: string) {
   if (!dt) return ''
   try {
-    return new Date(dt).toLocaleDateString('ru', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
+    return new Date(dt).toLocaleDateString('ru', {
+      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow',
+    })
   } catch { return '' }
+}
+
+// ⚠️⚠️ Однодневность — по ДАТЕ в МСК, не сравнением строк start_at/end_at: те
+// содержат время (19:00 и 21:00 одного дня) и никогда не равны, из-за чего
+// печаталось «15 июня 2060 — 15 июня 2060».
+function sameDay(a?: string, b?: string) {
+  if (!a || !b) return false
+  try {
+    const key = (s: string) =>
+      new Date(s).toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' })
+    return key(a) === key(b)
+  } catch { return false }
 }
 
 function EventPoster({ src, alt }: { src?: string; alt: string }) {
@@ -107,7 +122,7 @@ function EventCard({ e, onOpen }: { e: Ev; onOpen: (s: string) => void }) {
         {(e.start_at || e.end_at) && (
           <div className="meta">
             {formatDate(e.start_at)}
-            {e.end_at && e.start_at !== e.end_at ? ` — ${formatDate(e.end_at)}` : ''}
+            {e.end_at && !sameDay(e.start_at, e.end_at) ? ` — ${formatDate(e.end_at)}` : ''}
           </div>
         )}
       </div>
