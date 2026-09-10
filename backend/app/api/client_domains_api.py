@@ -275,6 +275,7 @@ async def add_domain(data: DomainIn,
             )
 
     cd.invalidate_cache(client_id=client_id, domain=domain)
+    await cd.note_landing_domain(db, domain)
     return _serialize(row)
 
 
@@ -340,6 +341,7 @@ async def check_dns(domain_id: int,
         domain_id, ok, json.dumps(details, default=str), new_status,
     )
     cd.invalidate_cache(client_id=client_id, domain=domain)
+    await cd.note_landing_domain(db, domain)
     return {"result": details, "domain": _serialize(updated)}
 
 
@@ -398,6 +400,7 @@ async def issue_cert(domain_id: int,
         domain_id, expires, certs.cert_name_for(domain),
     )
     cd.invalidate_cache(client_id=client_id, domain=domain)
+    await cd.note_landing_domain(db, domain)
     return _serialize(updated)
 
 
@@ -459,6 +462,7 @@ async def upload_cert(domain_id: int, data: UploadCertIn,
         """,
         domain_id, res["expires_at"], domain)
     cd.invalidate_cache(client_id=client_id, domain=domain)
+    await cd.note_landing_domain(db, domain)
     out = _serialize(updated)
     out["cert_issuer"] = res["issuer"]
     return out
@@ -519,6 +523,7 @@ async def update_domain(domain_id: int, data: MailSettingsIn,
         *args,
     )
     cd.invalidate_cache(client_id=client_id, domain=row["domain"])
+    await cd.note_landing_domain(db, row["domain"])
     return _serialize(updated)
 
 
@@ -566,6 +571,7 @@ async def set_domain_home(domain_id: int, data: HomePageIn,
         kind, event_id, domain_id,
     )
     cd.invalidate_cache(client_id=client_id, domain=row["domain"])
+    await cd.note_landing_domain(db, row["domain"])
     return _serialize(updated)
 
 
@@ -619,4 +625,5 @@ async def delete_domain(domain_id: int,
 
     await db.execute("DELETE FROM client_domains WHERE id = $1", domain_id)
     cd.invalidate_cache(client_id=client_id, domain=domain)
+    await cd.note_landing_domain(db, domain)
     return {"ok": True}

@@ -280,6 +280,11 @@ async def get_public_landing(
         rows = await db.fetch(
             f"""SELECT cse.id, cse.role, cse.partner_url,
                       btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.photo_url, c.achievements,
+                      -- ⚠️ Фамилия отдаётся ОТДЕЛЬНО (хотя уже склеена в name):
+                      -- по ней страница понимает, что партнёр — человек, и
+                      -- показывает фото как у спикера, а не вписывает его в
+                      -- белое поле под логотип компании.
+                      c.last_name,
                       c.tg_channel_url, c.vk_url, c.max_url, c.website_url
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id

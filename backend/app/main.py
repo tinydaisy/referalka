@@ -26,7 +26,17 @@ from app.api import broadcasts_general
 async def lifespan(app: FastAPI):
     # Startup
     if settings.database_url:
-        await get_pool()
+        pool = await get_pool()
+        # Домены клиентов, которым разрешён кросс-доменный запрос к API
+        # (см. CORS ниже). Читаем один раз на старте; дальше список
+        # обновляется сам при добавлении и удалении домена.
+        try:
+            from app.services import client_domains as _cd
+            async with pool.acquire() as _c:
+                n = await _cd.refresh_landing_domains(_c)
+            _logging.getLogger("app.cors").info("Доменов клиентов в CORS: %s", n)
+        except Exception:
+            _logging.getLogger("app.cors").exception("Не удалось загрузить домены клиентов")
     yield
     # Shutdown
     await close_pool()
@@ -72,8 +82,44 @@ async def unhandled_error(request: Request, exc: Exception):
                            f"повторится, напишите в поддержку и назовите код {code}."},
     )
 
+# ⚠️⚠️ ДОМЕНЫ КЛИЕНТОВ ТОЖЕ ХОДЯТ В ЭТОТ API. Публичные страницы на своём
+# домене (кабинет спикера, лендинг, витрина) запрашивают данные с pluson.ru —
+# то есть КРОСС-ДОМЕННО. Пока их не было в разрешённых, браузер отбрасывал
+# ответ, и человек видел «Load failed»: сервер отвечал 200, но до кода ответ
+# не доходил. Так был полностью нерабочим кабинет спикера у клиента со своим
+# доменом — при исправном сервере и правильном сертификате.
+#
+# Список берём ИЗ БАЗЫ (`client_domains`), а не перечисляем руками: домены
+# заводят сами клиенты в любой момент. Разрешение получает ровно подключённый
+# и активный домен — «звёздочка всем» открыла бы API постороннему сайту.
+class _AllowClientDomains(CORSMiddleware):
+    """CORS с проверкой домена клиента по базе.
+
+    Штатный CORSMiddleware умеет только список и регулярку — функции-проверки
+    у него нет, поэтому переопределяем единственный метод сверки.
+    """
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        if super().is_allowed_origin(origin):
+            return True
+        from urllib.parse import urlparse
+        from app.services.client_domains import known_landing_domain
+        try:
+            u = urlparse(origin)
+        except Exception:
+            return False
+        # Только https и только сам домен: порт и путь в Origin недопустимы.
+        if u.scheme != "https" or not u.hostname:
+            return False
+        host = u.hostname
+        # www.домен-клиента выдаётся вместе с основным — разрешаем оба.
+        return known_landing_domain(host) or (
+            host.startswith("www.") and known_landing_domain(host[4:])
+        )
+
+
 app.add_middleware(
-    CORSMiddleware,
+    _AllowClientDomains,
     allow_origins=[
         settings.frontend_url,
         settings.mini_app_url,

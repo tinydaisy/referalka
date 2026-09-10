@@ -317,6 +317,13 @@ class ConferenceUpdate(BaseModel):
     # вместо кнопки эфира. Явный выбор организатора, а не догадка по
     # заполненному адресу — туда кладут и ссылку на трансляцию.
     is_offline: Optional[bool] = None
+    # ⚠️ САМ АДРЕС забыли, а подпись кнопки к нему добавили — и адрес у
+    # конференции не сохранялся ВООБЩЕ: Pydantic выбрасывал поле, запрос
+    # отвечал 200, в базе оставалось пусто, на лендинге адреса не было.
+    # У мероприятия поле в модели есть, поэтому там всё работало, и разница
+    # выглядела необъяснимой. Это ровно тот случай, о котором предупреждает
+    # комментарий ниже.
+    address: Optional[str] = None
     address_button_label: Optional[str] = None
     geo_lat: Optional[float] = None
     geo_lon: Optional[float] = None
@@ -386,7 +393,7 @@ async def get_conference(
                e.offer_url   AS event_offer_url,
                e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
-               e.is_offline, e.address_button_label, e.geo_lat, e.geo_lon,
+               e.is_offline, e.address, e.address_button_label, e.geo_lat, e.geo_lon,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.disabled_platforms AS event_disabled_platforms,
@@ -496,7 +503,7 @@ async def update_conference(
         "primary_chat_platform",
         "vip_url", "vip_button_label", "offer_url", "offer_id",
         "chat_button_label", "accent_button", "hide_stream_button",
-        "is_offline", "address_button_label", "geo_lat", "geo_lon",
+        "is_offline", "address", "address_button_label", "geo_lat", "geo_lon",
         # Выключенные площадки события (миграция 263)
         "disabled_platforms",
         # Куда вести со страницы после оплаты (миграция 261)
@@ -615,7 +622,7 @@ async def update_conference(
                e.offer_url   AS event_offer_url,
                e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
-               e.is_offline, e.address_button_label, e.geo_lat, e.geo_lon,
+               e.is_offline, e.address, e.address_button_label, e.geo_lat, e.geo_lon,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.disabled_platforms AS event_disabled_platforms,

@@ -2667,11 +2667,26 @@ function PartnerCard({
   const visible = open ? lines : lines.slice(0, 2)
   const url = p.partner_url || p.website_url
 
+  // ⚠️ Партнёром бывает и КОМПАНИЯ, и ЧЕЛОВЕК — вид карточки разный.
+  // Белое поле с вписанным логотипом сделано под компанию; портретное фото
+  // человека в нём висит маленьким прямоугольником в пустоте (жалоба со
+  // скриншотом). Человека узнаём по тому, что он о себе рассказал: должность
+  // или фамилия есть только у людей, у организаций эти поля пустые.
+  const isPerson = Boolean(
+    (p.title && String(p.title).trim()) || (p.last_name && String(p.last_name).trim())
+  )
+
   const inner = (
     <>
+      {/* Человек — фото во всю ширину квадратом, как у спикеров. */}
+      {p.photo_url && isPerson && (
+        <img src={p.photo_url} alt={p.name} loading="lazy"
+             className="block w-full object-cover"
+             style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }} />
+      )}
       {/* ⚠️ Логотип на БЕЛОМ поле и целиком: у партнёров он может быть
           узким горизонтальным, тёмным или с прозрачным фоном. */}
-      {p.photo_url && (
+      {p.photo_url && !isPerson && (
         <div className="flex items-center justify-center bg-white p-5"
              style={{ minHeight: 120 }}>
           <img src={p.photo_url} alt={p.name} loading="lazy"

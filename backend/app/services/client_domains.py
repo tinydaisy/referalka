@@ -55,6 +55,60 @@ _by_client: dict[int, tuple[str, float]] = {}
 # domain → (client_id, expires_at); None = домен нам не принадлежит
 _by_domain: dict[str, tuple[Optional[int], float]] = {}
 
+# ⚠️ Отдельный список ВСЕХ активных доменов страниц — нужен ТОЛЬКО для CORS.
+# Проверка происхождения в CORSMiddleware синхронная, а резолв выше —
+# асинхронный: спросить БД оттуда нельзя. Поэтому список обновляется фоново
+# (`refresh_landing_domains`) и читается мгновенно.
+_landing_domains: set[str] = set()
+
+
+def known_landing_domain(domain: str | None) -> bool:
+    """Это подключённый домен страниц клиента? Синхронно, из памяти.
+
+    Пустой список = ещё не загрузили: отвечаем False, чтобы случайный
+    промежуток после старта не открыл доступ кому попало.
+    """
+    d = normalize_domain(domain)
+    return bool(d) and d in _landing_domains
+
+
+async def refresh_landing_domains(db) -> int:
+    """Перечитать активные домены страниц. Зовётся на старте и после правок."""
+    global _landing_domains
+    try:
+        rows = await db.fetch(
+            "SELECT domain FROM client_domains WHERE kind = 'landing' AND status = 'active'"
+        )
+    except Exception:
+        return len(_landing_domains)      # не смогли — оставляем прежний список
+    _landing_domains = {normalize_domain(r["domain"]) for r in rows if r["domain"]}
+    _landing_domains.discard("")
+    return len(_landing_domains)
+
+
+async def note_landing_domain(db, domain: str | None) -> None:
+    """Домен только что изменили — подтянуть его в список для CORS сразу.
+
+    ⚠️ Без этого новый домен заработал бы только после рестарта API: клиент
+    подключает домен, открывает на нём кабинет спикера и упирается в
+    «Load failed», не понимая, почему «ничего не работает».
+    """
+    d = normalize_domain(domain)
+    if not d:
+        return
+    try:
+        ok = await db.fetchval(
+            "SELECT 1 FROM client_domains "
+            " WHERE domain = $1 AND kind = 'landing' AND status = 'active' LIMIT 1",
+            d,
+        )
+    except Exception:
+        return
+    if ok:
+        _landing_domains.add(d)
+    else:
+        _landing_domains.discard(d)
+
 
 def invalidate_cache(*, client_id: int | None = None, domain: str | None = None) -> None:
     """Сбросить кеш после изменения домена (добавили / выпустили сертификат / удалили)."""
