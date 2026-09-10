@@ -724,13 +724,20 @@ function Section({
     : {}
 
   /* Содержимое блока — своё для каждого типа. */
-  const blockBody = <BlockBody ctaHref={ctaHref} orderHref={orderHref}
-    block={block} page={page} radius={radius} btnStyle={btnStyle}
-    cardStyle={cards} iconColor={iconColor} headingStyle={ownHeading}
-    glowCls={glowCls} glowVars={glowVars}
-    event={event} content={content} slug={slug} withTrack={withTrack}
-    forPdf={forPdf} pageUrl={pageUrl} pdfHref={pdfHref}
-  />
+  // ⚠️ Зовём КАК ФУНКЦИЮ, а не через <BlockBody/>: нам нужен РЕЗУЛЬТАТ, чтобы
+  // понять, вернула ли секция null (тогда обёртку не рисуем — см. ниже, про
+  // дыры между секциями). JSX-элемент этого не показывает: он не null никогда.
+  // ⚠️ Внутри BlockBody НЕТ хуков — иначе прямой вызов сломал бы их порядок.
+  // Хуки живут в отдельных компонентах (GalleryBlock и т.п.), которые
+  // возвращаются из неё как элементы.
+  const blockBody = BlockBody({
+    ctaHref, orderHref,
+    block, page, radius, btnStyle,
+    cardStyle: cards, iconColor, headingStyle: ownHeading,
+    glowCls, glowVars,
+    event, content, slug, withTrack,
+    forPdf, pageUrl, pdfHref,
+  })
 
   /* Картинка-контент секции (не фон): встаёт рядом с содержимым или над ним. */
   const pic = block.image_url ? (
@@ -848,6 +855,24 @@ function Section({
   const padXMobile = Math.min(16, padX)
   const padY = block.pad_y ?? page.section_gap ?? 64
   const maxW = page.content_width ?? 1120
+
+  // ⚠️⚠️ ПУСТАЯ СЕКЦИЯ НЕ ЗАНИМАЕТ МЕСТО ВОВСЕ. Сами блоки при пустых данных
+  // возвращают null, но ОБЁРТКА `<section>` рисовалась всегда — с отступами
+  // сверху и снизу (по умолчанию по 64px). На странице это давало провал в
+  // пустоту между секциями: клиент видел «дыры» и считал вёрстку сломанной,
+  // хотя показывать там было нечего.
+  //
+  // ⚠️ Решаем ПО ФАКТУ ОТРИСОВКИ (`renderBlockBody` возвращает null), а не по
+  // списку «какие секции бывают пустыми»: список пришлось бы дополнять при
+  // каждой новой секции, и о нём бы забыли — дыра вернулась бы молча.
+  //
+  // ⚠️ Заголовок БЕЗ содержимого — законный случай: клиент делает «шапку
+  // раздела» или ставит `el_heading`. Прячем только когда пусто ВСЁ: тело,
+  // заголовок, подзаголовок, картинка и кнопка.
+  const _emptyBody = blockBody === null || blockBody === undefined || blockBody === false
+  const _hasVisibleExtras = !!(title || '').trim() || !!(_subtitleText || '').trim()
+    || !!block.image_url || !!(block.button_label || '').trim()
+  if (_emptyBody && !_hasVisibleExtras) return null
 
   return (
     <section
