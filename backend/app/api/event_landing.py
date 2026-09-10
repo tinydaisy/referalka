@@ -596,7 +596,12 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                     page["id"], b["kind"], i * 10, b["is_active"],
                     100 if b["kind"] == "hero" else 50,
                     b.get("title"),
-                    json.dumps(b["items"], ensure_ascii=False) if b.get("items") else None,
+                    # ⚠️⚠️ ПУСТО — ЭТО '[]', А НЕ NULL. У колонки `items` стоит
+                    # NOT NULL с умолчанием '[]', но явно переданный NULL
+                    # умолчание ПЕРЕБИВАЕТ — вставка падала на первом же блоке
+                    # (`hero`), и лендинг не создавался ВООБЩЕ НИ У КОГО:
+                    # примеры содержимого есть лишь у половины блоков пресета.
+                    json.dumps(b["items"], ensure_ascii=False) if b.get("items") else "[]",
                 )
     return page
 
