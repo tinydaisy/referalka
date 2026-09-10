@@ -1713,7 +1713,7 @@ async def _process_start(
             else:
                 web_url = internal_web
             msg_text = (
-                "Добрейшего-богатейшего! 🤝\n\n"
+                "Здравствуйте! 🤝\n\n"
                 "Здесь вы можете зарегистрироваться на наше событие:\n"
                 f"{event_title}\n\n"
                 "Нажмите на кнопку ниже.\n\n"

@@ -75,7 +75,7 @@ def purchase_new(*, tariff_title: str, owner_name, brand_name,
         what.append(f"— «{feature_name}» на {_plural_days(days)}")
 
     body = _join(
-        "Добрейшего-богатейшего!",
+        "Здравствуйте!",
         f"Вы приобрели «{tariff_title}».",
         _giver(owner_name, brand_name),
         "В бонус вы получили доступ в iViSiON: ПЛЮСОН:",
@@ -111,7 +111,7 @@ def purchase_existing(*, tariff_title: str, owner_name, brand_name,
     what = "\n\n".join(parts) or f"Доступ в iViSiON: ПЛЮСОН на {_plural_days(days)}."
 
     body = _join(
-        "Добрейшего-богатейшего!",
+        "Здравствуйте!",
         f"Вы приобрели «{tariff_title}».",
         _giver(owner_name, brand_name),
         "В бонус вы получили:",
@@ -128,7 +128,7 @@ def purchase_existing(*, tariff_title: str, owner_name, brand_name,
 def gift_new(*, owner_name, brand_name, reason: str,
              trial_days: int, base_days: int, link: str) -> tuple[str, str]:
     body = _join(
-        "Добрейшего-богатейшего!",
+        "Здравствуйте!",
         reason,                      # напр. «Вы пригласили 3 друзей.»
         _giver(owner_name, brand_name),
         "Вы получаете доступ в iViSiON: ПЛЮСОН — платформу для организаторов "
@@ -147,7 +147,7 @@ def gift_new(*, owner_name, brand_name, reason: str,
 def gift_existing(*, owner_name, brand_name, reason: str,
                   trial_days: int, extra_days: int, link: str) -> tuple[str, str]:
     body = _join(
-        "Добрейшего-богатейшего!",
+        "Здравствуйте!",
         reason,
         _giver(owner_name, brand_name),
         "Мы видим, что кабинет в ПЛЮСОНе у вас уже есть — и ценим, что вы с нами.",
@@ -169,7 +169,7 @@ def reminder(*, subject_line: str, what: str, link: str, days_left: int) -> tupl
     tail = (f"Ссылка сгорит через {_plural_days(days_left)}."
             if days_left > 0 else "Это последний день, когда ссылка работает.")
     body = _join(
-        "Добрейшего-богатейшего!",
+        "Здравствуйте!",
         f"Напоминаем: вас ждёт {what} — доступ пока не активирован.",
         "Перейдите по ссылке, чтобы забрать:",
         link,
