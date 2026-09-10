@@ -64,6 +64,7 @@ const ARTICLES: Record<string, React.ComponentType> = {
   'conf-speaker-cabinet': dynamic(() => import('../../dashboard/help/conf-speaker-cabinet/page'), { loading: Loading }),
   'conf-speaker-invite': dynamic(() => import('../../dashboard/help/conf-speaker-invite/page'), { loading: Loading }),
   'conf-speakers': dynamic(() => import('../../dashboard/help/conf-speakers/page'), { loading: Loading }),
+  'speakers-order': dynamic(() => import('../../dashboard/help/speakers-order/page'), { loading: Loading }),
   'connect-bot': dynamic(() => import('../../dashboard/help/connect-bot/page'), { loading: Loading }),
   'contact': dynamic(() => import('../../dashboard/help/contact/page'), { loading: Loading }),
   'event-analytics': dynamic(() => import('../../dashboard/help/event-analytics/page'), { loading: Loading }),
