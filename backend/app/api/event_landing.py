@@ -40,6 +40,49 @@ router = APIRouter(prefix="/events/{event_id}/landing", tags=["Конструк�
 # ⚠️ ЗАГОЛОВКИ ЗДЕСЬ НЕ ЗАДАЮТСЯ. Никакого текста по умолчанию в коде: клиент
 # вписывает свои формулировки в конструкторе, и они лежат в базе. Иначе на
 # лендинге появлялся бы текст, которого нет в настройках, и править его негде.
+# ⚠️⚠️ ПРИМЕРЫ СОДЕРЖИМОГО — чтобы новая секция не была пустой.
+# Клиент открывает конструктор и видит ЗАГОТОВКУ нужной формы: три карточки с
+# понятными полями. Пустая секция не подсказывает ни сколько пунктов нужно, ни
+# что в них писать — человек её просто пропускает, и лендинг выходит куцым.
+#
+# ⚠️ Это ПРИМЕРЫ, а не готовый текст: их видно на странице как есть, поэтому
+# формулировки нарочно «служебные» («Сегмент 1») — их нельзя не заметить и
+# случайно опубликовать, приняв за настоящие. Настоящий текст клиент вписывает
+# поверх.
+#
+# ⚠️ Только у ВЫКЛЮЧЕННЫХ по умолчанию секций примеров нет смысла бояться: они
+# не показываются, пока клиент не включит секцию сам.
+_SAMPLE_CARDS_3 = [
+    {"title": "Сегмент 1", "text": "Опишите, кому подойдёт событие и почему."},
+    {"title": "Сегмент 2", "text": "Второй тип участников — своя выгода."},
+    {"title": "Сегмент 3", "text": "Третий тип участников — своя выгода."},
+]
+_SAMPLE_BENEFITS = [
+    {"title": "Результат 1", "text": "Что человек унесёт с собой после события."},
+    {"title": "Результат 2", "text": "Второй ощутимый результат участия."},
+    {"title": "Результат 3", "text": "Третий результат — коротко и по делу."},
+]
+_SAMPLE_NUMBERS = [
+    {"value": "300+", "label": "участников"},
+    {"value": "12",   "label": "спикеров"},
+    {"value": "5",    "label": "лет опыта"},
+]
+_SAMPLE_VALUES = [
+    {"title": "Ценность 1", "text": "Во что вы верите и что даёте людям."},
+    {"title": "Ценность 2", "text": "Вторая опора вашего подхода."},
+    {"title": "Ценность 3", "text": "Третья опора вашего подхода."},
+]
+_SAMPLE_DIFFERENCE = [
+    {"title": "Отличие 1", "text": "Чем вы не похожи на остальных."},
+    {"title": "Отличие 2", "text": "Второе отличие — коротко."},
+    {"title": "Отличие 3", "text": "Третье отличие — коротко."},
+]
+_SAMPLE_PROCESS = [
+    {"date": "Шаг 1", "title": "Приём заявок", "text": "Что происходит на первом этапе."},
+    {"date": "Шаг 2", "title": "Отбор", "text": "Что происходит дальше."},
+    {"date": "Шаг 3", "title": "Финал", "text": "Чем всё завершится."},
+]
+
 DEFAULT_MAIN_BLOCKS: list[dict] = [
     {"kind": "hero",       "is_active": True},
     # ⚠️ ОПИСАНИЕ СОБЫТИЯ — отдельной секцией СРАЗУ ПОСЛЕ ШАПКИ, а не в
@@ -47,20 +90,20 @@ DEFAULT_MAIN_BLOCKS: list[dict] = [
     # показывает Mini App), и в шапке он выглядел простынёй под названием.
     # Здесь у него есть заголовок, своё место в порядке секций и оформление.
     {"kind": "description", "is_active": True},
-    {"kind": "audience",   "is_active": True},
-    {"kind": "benefits",   "is_active": True},
+    {"kind": "audience",   "is_active": True,  "items": _SAMPLE_CARDS_3},
+    {"kind": "benefits",   "is_active": True,  "items": _SAMPLE_BENEFITS},
     {"kind": "seats",      "is_active": False},
     {"kind": "gifts",      "is_active": True},
-    {"kind": "numbers",    "is_active": False},
-    {"kind": "difference", "is_active": False},
+    {"kind": "numbers",    "is_active": False, "items": _SAMPLE_NUMBERS},
+    {"kind": "difference", "is_active": False, "items": _SAMPLE_DIFFERENCE},
     # Этапы по вертикальной линии: «приём заявок → эфиры → финал». Нужен
     # премиям и турнирам, где важна последовательность, а не набор карточек.
-    {"kind": "process",    "is_active": False},
+    {"kind": "process",    "is_active": False, "items": _SAMPLE_PROCESS},
     {"kind": "speakers",   "is_active": True},
     {"kind": "partners",   "is_active": False},
     {"kind": "program",    "is_active": True},
     {"kind": "gallery",    "is_active": False},
-    {"kind": "values",     "is_active": False},
+    {"kind": "values",     "is_active": False, "items": _SAMPLE_VALUES},
     {"kind": "mission",    "is_active": False},
     {"kind": "organizer",  "is_active": True},
     {"kind": "tariffs",    "is_active": True},
@@ -545,11 +588,15 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                     # очевиден из содержимого (например «Как нас найти» у карты).
                     # Клиент его правит как обычно; пустой заголовок у такой
                     # секции читался бы как недоделанная страница.
-                    "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align, split_ratio, title) "
-                    "VALUES ($1, $2, $3, $4, 'center', $5, $6)",
+                    # ⚠️ `items` — ПРИМЕРЫ содержимого (три карточки нужной
+                    # формы). Пустая секция не подсказывает ни сколько пунктов
+                    # нужно, ни что в них писать, и клиент её пропускает.
+                    "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align, split_ratio, title, items) "
+                    "VALUES ($1, $2, $3, $4, 'center', $5, $6, $7::jsonb)",
                     page["id"], b["kind"], i * 10, b["is_active"],
                     100 if b["kind"] == "hero" else 50,
                     b.get("title"),
+                    json.dumps(b["items"], ensure_ascii=False) if b.get("items") else None,
                 )
     return page
 
