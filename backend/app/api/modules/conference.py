@@ -318,6 +318,8 @@ class ConferenceUpdate(BaseModel):
     # заполненному адресу — туда кладут и ссылку на трансляцию.
     is_offline: Optional[bool] = None
     address_button_label: Optional[str] = None
+    geo_lat: Optional[float] = None
+    geo_lon: Optional[float] = None
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
     # ⚠️ Поля обязаны быть ЗДЕСЬ, а не только в списке EVENT_FIELDS: Pydantic
@@ -384,7 +386,7 @@ async def get_conference(
                e.offer_url   AS event_offer_url,
                e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
-               e.is_offline, e.address_button_label,
+               e.is_offline, e.address_button_label, e.geo_lat, e.geo_lon,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.disabled_platforms AS event_disabled_platforms,
@@ -494,7 +496,7 @@ async def update_conference(
         "primary_chat_platform",
         "vip_url", "vip_button_label", "offer_url", "offer_id",
         "chat_button_label", "accent_button", "hide_stream_button",
-        "is_offline", "address_button_label",
+        "is_offline", "address_button_label", "geo_lat", "geo_lon",
         # Выключенные площадки события (миграция 263)
         "disabled_platforms",
         # Куда вести со страницы после оплаты (миграция 261)
@@ -613,7 +615,7 @@ async def update_conference(
                e.offer_url   AS event_offer_url,
                e.offer_id    AS event_offer_id,
                e.chat_button_label AS event_chat_button_label,
-               e.is_offline, e.address_button_label,
+               e.is_offline, e.address_button_label, e.geo_lat, e.geo_lon,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.disabled_platforms AS event_disabled_platforms,

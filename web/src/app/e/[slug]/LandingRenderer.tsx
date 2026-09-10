@@ -1974,20 +1974,30 @@ function BlockBody(props: any) {
         return null
       }
       const q = encodeURIComponent(addr)
+      // ⚠️⚠️ МЕТКА СТАВИТСЯ ПО КООРДИНАТАМ, а не по тексту адреса. Виджет с
+      // `?text=` показывает нужный район, но указателя НЕ рисует — человек
+      // видит карту и не понимает, куда ехать (метка появлялась, только если
+      // он сам нажмёт на строку поиска). Координаты приходят из подсказки
+      // DaData при вводе адреса — отдельного запроса к геокодеру не нужно.
+      // ⚠️ Их нет (адрес вписан руками, без выбора из списка) → работаем
+      // по-старому, по тексту: лучше карта без метки, чем пустое место.
+      const lat = event?.geo_lat, lon = event?.geo_lon
+      const hasGeo = typeof lat === 'number' && typeof lon === 'number'
+      const mapSrc = hasGeo
+        ? `https://yandex.ru/map-widget/v1/?ll=${lon}%2C${lat}&z=17&pt=${lon}%2C${lat}%2Cpm2rdm`
+        : `https://yandex.ru/map-widget/v1/?text=${q}&z=16`
+      // ⚠️ Всё содержимое секции слушается выравнивания блока — не только
+      // заголовок: при «по центру» адрес и ссылка оставались слева, и секция
+      // выглядела съехавшей.
+      const vAlign = (block.title_align || 'left') as any
       return (
-        <div>
+        <div style={{ textAlign: vAlign }}>
           {/* ⚠️ Цвет — `page.color_body` темы лендинга, как у всего текста на
               странице. Было `var(--text)`: эта переменная задана в КАБИНЕТЕ,
               на лендинге её нет, и текст падал в чёрный по умолчанию — на
               тёмном фоне (у клиента 1 текст белый) адрес не читался вовсе. */}
-          {/* ⚠️ Адрес слушается выравнивания секции (`title_align`), как
-              заголовок и подзаголовок: при настройке «по центру» он оставался
-              прижатым влево, и секция выглядела съехавшей. */}
           <p className="mb-3 text-base"
-             style={{
-               color: page.color_body || '#FFFFFF',
-               textAlign: (block.title_align || 'left') as any,
-             }}>{addr}</p>
+             style={{ color: page.color_body || '#FFFFFF' }}>{addr}</p>
           {/* ⚠️ В PDF iframe не печатается — вместо карты даём ссылку, иначе в
               файле остаётся пустой прямоугольник (та же логика, что у галереи). */}
           {/* ⚠️ Цвет ссылки — `page.color_link` темы, НЕ `var(--accent)`:
@@ -2001,22 +2011,18 @@ function BlockBody(props: any) {
             <>
               <div className="overflow-hidden" style={{ borderRadius: radius }}>
                 <iframe
-                  src={`https://yandex.ru/map-widget/v1/?text=${q}&z=16`}
+                  src={mapSrc}
                   width="100%" height="320" frameBorder="0" allowFullScreen
                   style={{ border: 0, display: 'block' }}
                   title="Карта места проведения"
                 />
               </div>
-              {/* ⚠️ Ссылка тоже слушается выравнивания секции: `inline-block`
-                  сам по себе всегда прижат влево, поэтому центрируем обёрткой. */}
-              <div style={{ textAlign: (block.title_align || 'left') as any }}>
-                <a href={`https://yandex.ru/maps/?text=${q}`}
-                   target="_blank" rel="noreferrer"
-                   className="inline-block mt-3 text-sm underline"
-                   style={{ color: page.color_link || iconColor }}>
-                  Построить маршрут
-                </a>
-              </div>
+              <a href={`https://yandex.ru/maps/?text=${q}`}
+                 target="_blank" rel="noreferrer"
+                 className="inline-block mt-3 text-sm underline"
+                 style={{ color: page.color_link || iconColor }}>
+                Построить маршрут
+              </a>
             </>
           )}
         </div>

@@ -16,10 +16,15 @@ import { api } from '@/lib/api'
 type Item = { value: string; lat?: number | null; lon?: number | null }
 
 export default function AddressField({
-  value, onChange, placeholder = 'Москва, ул. Тверская, 1',
+  value, onChange, onGeo, placeholder = 'Москва, ул. Тверская, 1',
 }: {
   value: string
   onChange: (v: string) => void
+  /** Координаты выбранной подсказки — по ним карта ставит МЕТКУ. Поиск по
+   *  тексту метку не рисует: человек видит район, но не точку. Адрес вписали
+   *  руками (без выбора из списка) → приходит null, и карта работает
+   *  по-старому, по тексту. */
+  onGeo?: (lat: number | null, lon: number | null) => void
   placeholder?: string
 }) {
   const [items, setItems] = useState<Item[]>([])
@@ -69,6 +74,7 @@ export default function AddressField({
   function pick(it: Item) {
     justPicked.current = it.value
     onChange(it.value)
+    onGeo?.(it.lat ?? null, it.lon ?? null)
     setOpen(false)
     setItems([])
   }
@@ -77,7 +83,9 @@ export default function AddressField({
     <div className="relative" ref={boxRef}>
       <input
         value={value}
-        onChange={e => onChange(e.target.value)}
+        // ⚠️ Правка руками СБРАСЫВАЕТ координаты: иначе метка осталась бы от
+        // прежнего адреса и показывала бы не то место.
+        onChange={e => { onChange(e.target.value); onGeo?.(null, null) }}
         onFocus={() => { if (items.length) setOpen(true) }}
         className="input"
         placeholder={placeholder}

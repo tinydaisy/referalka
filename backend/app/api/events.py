@@ -157,6 +157,9 @@ class UpdateEventRequest(BaseModel):
     # догадка по заполненному адресу (адрес вписывают позже, а бывает и ссылка).
     is_offline: Optional[bool] = None
     address_button_label: Optional[str] = None
+    # Координаты места (мигр. 398) — из подсказки DaData, для метки на карте.
+    geo_lat: Optional[float] = None
+    geo_lon: Optional[float] = None
     # Какая из главных кнопок красная: 'vip' | 'chat' | 'none' (миграция 117).
     # NULL = 'vip' (обратная совместимость).
     accent_button: Optional[str] = None

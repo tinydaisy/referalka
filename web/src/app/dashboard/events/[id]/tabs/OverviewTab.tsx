@@ -27,6 +27,9 @@ export default function OverviewTab({
   const [isOffline, setIsOffline] = useState<boolean>(!!event.is_offline)
   const [address, setAddress] = useState<string>(event.address || '')
   const [addressBtn, setAddressBtn] = useState<string>(event.address_button_label || '')
+  // Координаты из подсказки адреса (мигр. 398) — по ним карта ставит МЕТКУ.
+  const [geoLat, setGeoLat] = useState<number | null>(event.geo_lat ?? null)
+  const [geoLon, setGeoLon] = useState<number | null>(event.geo_lon ?? null)
   // МедиаЛифт: сколько каналов из ветки обязательно подписать (1..7).
   const isMedialift = event.module_slug === 'medialift'
   const [mlRequiredSubs, setMlRequiredSubs] = useState<number>(event.medialift_required_subscriptions ?? 3)
@@ -111,6 +114,8 @@ export default function OverviewTab({
       if (isOffline !== !!event.is_offline)                     payload.is_offline = isOffline
       if (address !== (event.address || ''))                    payload.address = address
       if (addressBtn !== (event.address_button_label || ''))    payload.address_button_label = addressBtn
+      if (geoLat !== (event.geo_lat ?? null))                   payload.geo_lat = geoLat
+      if (geoLon !== (event.geo_lon ?? null))                   payload.geo_lon = geoLon
       if (isMedialift && mlRequiredSubs !== (event.medialift_required_subscriptions ?? 3))
         payload.medialift_required_subscriptions = mlRequiredSubs
       // Чаты события — ref на записи client_broadcast_chats + primary
@@ -244,7 +249,8 @@ export default function OverviewTab({
             <>
               <Field label="Адрес места проведения"
                      hint="Начните вводить — подскажем. Номер квартиры указывать не нужно: карте он ничего не даёт, а участники его увидят.">
-                <AddressField value={address} onChange={setAddress} />
+                <AddressField value={address} onChange={setAddress}
+                  onGeo={(la, lo) => { setGeoLat(la); setGeoLon(lo) }} />
               </Field>
               <Field label="Название кнопки адреса"
                      hint="Как назвать кнопку в меню бота и в Mini App. Пусто — «Адрес мероприятия».">

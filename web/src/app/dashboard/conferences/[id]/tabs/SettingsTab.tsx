@@ -51,6 +51,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     is_offline: !!conf?.is_offline,
     address: conf?.address || '',
     address_button_label: conf?.address_button_label || '',
+    // Координаты из подсказки адреса (мигр. 398) — для метки на карте.
+    geo_lat: conf?.geo_lat ?? null,
+    geo_lon: conf?.geo_lon ?? null,
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
     registration_mode: conf?.registration_mode || null,
     // landing_url — единое поле для всех событий (events.landing_url),
@@ -129,6 +132,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     is_offline: !!conf?.is_offline,
     address: conf?.address || '',
     address_button_label: conf?.address_button_label || '',
+    // Координаты из подсказки адреса (мигр. 398) — для метки на карте.
+    geo_lat: conf?.geo_lat ?? null,
+    geo_lon: conf?.geo_lon ?? null,
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
       // ⚠️ registration_mode здесь НЕ пересобираем: этот блок срабатывает при
       // каждом изменении conf (в том числе после сохранения) и возвращал
@@ -206,6 +212,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
       if (form.hide_stream_button !== !!conf?.hide_stream_button)      confPatch.hide_stream_button = form.hide_stream_button
       if (form.is_offline !== !!conf?.is_offline)                       confPatch.is_offline = form.is_offline
+      if (form.geo_lat !== (conf?.geo_lat ?? null))                     confPatch.geo_lat = form.geo_lat
+      if (form.geo_lon !== (conf?.geo_lon ?? null))                     confPatch.geo_lon = form.geo_lon
       if (form.address !== (conf?.address || ''))                      confPatch.address = form.address
       if (form.address_button_label !== (conf?.address_button_label || ''))
         confPatch.address_button_label = form.address_button_label
@@ -359,7 +367,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
                   Адрес места проведения
                 </label>
                 <AddressField value={form.address}
-                  onChange={v => setForm(f => ({ ...f, address: v }))} />
+                  onChange={v => setForm(f => ({ ...f, address: v }))}
+                  onGeo={(la, lo) => setForm(f => ({ ...f, geo_lat: la, geo_lon: lo }))} />
                 <p className="text-xs text-gray-400 mt-1">
                   Начните вводить — подскажем. Номер квартиры указывать не нужно:
                   карте он ничего не даёт, а участники его увидят.

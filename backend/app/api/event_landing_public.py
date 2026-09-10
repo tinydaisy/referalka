@@ -82,6 +82,9 @@ async def get_public_landing(
         # Mini App и ботом: адрес живёт в одном месте, а не копируется в блок.
         """SELECT e.id, e.slug, e.title, e.description, e.start_at, e.end_at,
                   e.status, e.module_slug, e.is_collab, e.address,
+                  -- Координаты (мигр. 398): по ним карта ставит МЕТКУ.
+                  -- Поиск по тексту показывает район, но точку не рисует.
+                  e.geo_lat, e.geo_lon,
                   e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
                   e.seats_count_mode, e.seats_base, e.skip_contact_form,
@@ -666,6 +669,8 @@ async def get_public_landing(
             # ссылку на эфир. Блок «Место проведения» сам решает, показывать
             # карту (адрес) или ничего (ссылка) — второго поля не заводим.
             "address": ev.get("address"),
+            "geo_lat": ev.get("geo_lat"),
+            "geo_lon": ev.get("geo_lon"),
             # Даты взяты из программы → на странице показываем только даты,
             # без времени: у дня программы своё расписание по слотам.
             "dates_from_program": bool(ev.get("dates_from_program")),
