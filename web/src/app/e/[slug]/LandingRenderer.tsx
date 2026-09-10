@@ -869,7 +869,10 @@ function Section({
   // ⚠️ Заголовок БЕЗ содержимого — законный случай: клиент делает «шапку
   // раздела» или ставит `el_heading`. Прячем только когда пусто ВСЁ: тело,
   // заголовок, подзаголовок, картинка и кнопка.
-  const _emptyBody = !blockBody
+  // ⚠️ Сравнивать через `!blockBody` нельзя: TypeScript выводит тип BlockBody
+  // как Element (не Element | null) и роняет сборку — «types 'Element' and
+  // 'boolean' have no overlap». Проверяем явно на null/undefined.
+  const _emptyBody = blockBody == null
   const _hasVisibleExtras = !!(title || '').trim() || !!(_subtitleText || '').trim()
     || !!block.image_url || !!(block.button_label || '').trim()
   if (_emptyBody && !_hasVisibleExtras) return null
