@@ -91,7 +91,20 @@ async def plusson_ref_link(db, ref_code: str, platform: str = "telegram") -> str
     """
     from app.services.share_links import pick_gift_funnel_link
 
-    links = await plusson_ref_links(db, ref_code)
-    if not links:
+    code = (ref_code or "").strip()
+    if not code:
         return ""
-    return pick_gift_funnel_link(links, (platform or "").lower())
+
+    links = await plusson_ref_links(db, code)
+    # ⚠️ Ботов нет ни на одной площадке (все отключены / без токена) → ведём на
+    # САЙТ платформы с тем же реф-кодом. Пустая строка означала бы подарок без
+    # ссылки, а сайт хотя бы доводит человека до регистрации — код лендинг
+    # пробрасывает в форму сам.
+    # ⚠️ Адрес через `platform_base_url()`, а НЕ литералом: это адрес САМОЙ
+    # платформы, и он живёт в одном месте (правило проекта — литералов
+    # `pluson.ru` в коде быть не должно).
+    from app.services.client_domains import platform_base_url
+    web = f"{platform_base_url().rstrip('/')}/?pid={code}"
+    if not links:
+        return web
+    return pick_gift_funnel_link(links, (platform or "").lower()) or web

@@ -310,14 +310,35 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
     # ⚠️ Рефовода нет (человек пришёл по общей ссылке, без чьей-либо метки) →
     # ссылки нет вовсе, плейсхолдер схлопывается в пустоту: безымянная ссылка
     # закрепила бы человека неизвестно за кем.
-    if any("{plsn_bot}" in (m["url"] or "") for m in materials):
+    _plsn = [m for m in materials
+             if "{plsn_bot}" in (m["url"] or "")
+             or (m.get("link_source") or "").startswith("plusson_")]
+    if _plsn:
         from app.services.plusson_ref_links import plusson_ref_link
+        platform = (run.get("platform_slug") or "telegram")
+
+        # Реф-код ВЛАДЕЛЬЦА бота — он же запасной для режима «ссылка рефовода».
+        owner_code = await db.fetchval(
+            "SELECT referral_code FROM clients WHERE id = $1", run["client_id"]) or ""
+
+        # ⚠️ Код рефовода спрашиваем ОДИН раз на весь забег, а не на каждый
+        # материал: у всех подарков одного забега рефовод общий.
         _rp = await _referrer_link_params(run, db)
-        link = await plusson_ref_link(
-            db, _rp.get("plsn_ref") or "", (run.get("platform_slug") or "telegram"))
-        for m in materials:
-            if "{plsn_bot}" in (m["url"] or ""):
+        referrer_code = _rp.get("plsn_ref") or ""
+
+        for m in _plsn:
+            src = (m.get("link_source") or "")
+            # ⚠️⚠️ «Ссылка рефовода» — с ЗАПАСНЫМ вариантом на владельца.
+            # Рефовода может не быть (человек пришёл по общей ссылке клиента)
+            # или он не клиент ПЛЮСОНа — тогда его код никуда не резолвится.
+            # Отдать пустоту нельзя: подарок без ссылки хуже, чем подарок,
+            # приведший человека владельцу бота.
+            code = (referrer_code or owner_code) if src == "plusson_referrer" else owner_code
+            link = await plusson_ref_link(db, code, platform)
+            if m.get("url"):
                 m["url"] = m["url"].replace("{plsn_bot}", link)
+            if src.startswith("plusson_") and not (m.get("url") or "").strip():
+                m["url"] = link
 
     # ⚠️⚠️ СРОК ДОСТУПА — ПЛЕЙСХОЛДЕРОМ, А НЕ ЧИСЛОМ В ТЕКСТЕ. Он задаётся в
     # админке (тариф `trial` + бонус за реф-ссылку) и меняется: сегодня 7+7,

@@ -68,8 +68,40 @@ def _norm_link_source(v):
     ⚠️ Мусор приводим к 'fixed' (прежнее поведение), а не роняем запрос: колонка
     под ограничением CHECK, и неизвестное значение иначе сорвало бы сохранение
     у старого фронта.
+
+    `plusson_self` / `plusson_referrer` (миграция 399) — ссылка на бот ПЛЮСОНа
+    с реф-кодом владельца бота либо рефовода забега. Гейт для второго стоит в
+    самом эндпоинте: значение приходит от браузера, и проверять его надо там,
+    где известен тариф клиента.
     """
-    return v if v in ('fixed', 'support') else 'fixed'
+    return v if v in ('fixed', 'support', 'plusson_self', 'plusson_referrer') else 'fixed'
+
+
+async def _guard_link_source(db, client_id: int, value: str) -> str:
+    """Гейт режима «ссылка рефовода» — только для `admin`.
+
+    ⚠️⚠️ ПРЯЧЕМ ОСОЗНАННО (решение владельца 10.09.2026). Проверено на боевых
+    данных: из 3704 забегов воронок рефовод не указан НИ В ОДНОМ — режим почти
+    никогда не срабатывает, и обычному клиенту он непонятен: он увидит выбор,
+    смысла которого не поймёт, и выберет наугад.
+
+    ⚠️ Проверка НА СЕРВЕРЕ, а не только скрытием пункта в интерфейсе: значение
+    приходит от браузера, и спрятанный пункт обходится обычным запросом мимо
+    формы (см. правило проекта про требования, нарисованные на экране).
+
+    Не подошло по тарифу → тихо понижаем до `plusson_self`, а не отказываем:
+    подарок продолжает работать и приводить людей владельцу бота.
+    """
+    if value != 'plusson_referrer':
+        return value
+    slug = await db.fetchval(
+        """SELECT t.slug FROM clients c
+             JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+             JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE c.id = $1""",
+        client_id,
+    )
+    return value if slug == 'admin' else 'plusson_self'
 
 
 def _norm_support_prefill(v):
@@ -165,7 +197,8 @@ async def create_lead_magnet(
         cid, data.name.strip(), data.description, data.url.strip(), slug,
         _norm_link_mode(data.link_mode), _norm_button_label(data.button_label),
         data.partner_enabled,
-        _norm_link_source(data.link_source), _norm_support_prefill(data.support_prefill),
+        await _guard_link_source(db, cid, _norm_link_source(data.link_source)),
+        _norm_support_prefill(data.support_prefill),
     )
     out = dict(row)
     out["platform_links"] = await build_funnel_landing_links(
@@ -278,7 +311,8 @@ async def update_lead_magnet(
         'link_mode' in data.model_fields_set, _norm_link_mode(data.link_mode),
         'button_label' in data.model_fields_set, _norm_button_label(data.button_label),
         'partner_enabled' in data.model_fields_set, data.partner_enabled,
-        'link_source' in data.model_fields_set, _norm_link_source(data.link_source),
+        'link_source' in data.model_fields_set,
+        await _guard_link_source(db, cid, _norm_link_source(data.link_source)),
         'support_prefill' in data.model_fields_set, _norm_support_prefill(data.support_prefill),
     )
     if not row:
