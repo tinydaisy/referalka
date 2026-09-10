@@ -319,6 +319,29 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
             if "{plsn_bot}" in (m["url"] or ""):
                 m["url"] = m["url"].replace("{plsn_bot}", link)
 
+    # ⚠️⚠️ СРОК ДОСТУПА — ПЛЕЙСХОЛДЕРОМ, А НЕ ЧИСЛОМ В ТЕКСТЕ. Он задаётся в
+    # админке (тариф `trial` + бонус за реф-ссылку) и меняется: сегодня 7+7,
+    # завтра другое. Число, вписанное в описание подарка, к тому дню начнёт
+    # врать людям — а исправлять его пришлось бы у каждого клиента.
+    #   {plsn_days}      — сколько дней даёт НАША ссылка (база + бонус)
+    #   {plsn_days_base} — сколько получил бы человек без ссылки
+    if any(("{plsn_days" in (m.get("description") or ""))
+           or ("{plsn_days" in (m.get("name") or "")) for m in materials):
+        from app.services.referral_rate import get_trial_bonus_days
+        base = await db.fetchval(
+            "SELECT default_duration_days FROM tariffs WHERE slug = 'trial'") or 0
+        bonus = await get_trial_bonus_days(db)
+        subs = {"{plsn_days}": str(int(base) + int(bonus)),
+                "{plsn_days_base}": str(int(base))}
+        for m in materials:
+            for field in ("name", "description"):
+                v = m.get(field)
+                if not v:
+                    continue
+                for ph, val in subs.items():
+                    v = v.replace(ph, val)
+                m[field] = v
+
     # ⚠️ Материал внутри пакета может требовать свою анкету. Тогда ссылка ведёт
     # не на файл, а на воронку этого подарка в боте — там человека встретит
     # анкета. Делается ЗДЕСЬ, в единой точке сборки материалов: иначе пришлось
