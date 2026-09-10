@@ -301,14 +301,20 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
     # известна (`run.platform_slug`), поэтому подставляем ссылку на бот ТОЙ
     # площадки, где он сидит: переход в свой мессенджер, а не в чужой.
     #
-    # ⚠️ Реф-код берётся у ВЛАДЕЛЬЦА лид-магнита — того клиента, в чьей воронке
-    # лежит подарок: приведённый человек и кэшбэк достаются ему.
+    # ⚠️⚠️ РЕФ-КОД БЕРЁТСЯ У РЕФОВОДА, А НЕ У ВЛАДЕЛЬЦА БОТА — точно так же,
+    # как у `{plsn_ref}` (см. `_referrer_link_params`). Разница существенная:
+    # Маша пришла в бот КАТИ по ссылке АЛЁНЫ — регистрация в ПЛЮСОНе должна
+    # закрепиться за Алёной, она привела человека. Взять здесь владельца бота
+    # значило бы отобрать приведённого у того, кто его привёл.
+    #
+    # ⚠️ Рефовода нет (человек пришёл по общей ссылке, без чьей-либо метки) →
+    # ссылки нет вовсе, плейсхолдер схлопывается в пустоту: безымянная ссылка
+    # закрепила бы человека неизвестно за кем.
     if any("{plsn_bot}" in (m["url"] or "") for m in materials):
         from app.services.plusson_ref_links import plusson_ref_link
-        owner_code = await db.fetchval(
-            "SELECT referral_code FROM clients WHERE id = $1", run["client_id"])
+        _rp = await _referrer_link_params(run, db)
         link = await plusson_ref_link(
-            db, owner_code or "", (run.get("platform_slug") or "telegram"))
+            db, _rp.get("plsn_ref") or "", (run.get("platform_slug") or "telegram"))
         for m in materials:
             if "{plsn_bot}" in (m["url"] or ""):
                 m["url"] = m["url"].replace("{plsn_bot}", link)
