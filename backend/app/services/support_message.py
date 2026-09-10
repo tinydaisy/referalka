@@ -96,20 +96,44 @@ async def support_block_for_event(conn, event_id) -> str:
     return build_support_inline_html(row["work_tg_username"], row["work_vk"], row["work_max"])
 
 
+def _first_support(work_tg=None, work_vk=None, work_max=None) -> str:
+    """Первый заполненный контакт поддержки — запасной вариант.
+
+    ⚠️ Порядок тот же, что в остальных местах проекта (telegram → max → vk):
+    единый порядок важен, чтобы человек видел одну и ту же площадку везде.
+    """
+    if work_tg:
+        u = tg_support_link(work_tg)
+        if u:
+            return u
+    for v in (work_max, work_vk):
+        u = _norm_url(v)
+        if u:
+            return u
+    return ""
+
+
 def support_url_for_platform(platform: str, work_tg=None, work_vk=None, work_max=None) -> str:
     """Ссылка на поддержку ТОЙ площадки, куда уходит сообщение.
 
     Рассылка собирается один раз на все платформы, но контакт поддержки должен
     быть «свой»: в Telegram — телеграм-поддержка, в VK — VK, в MAX — MAX.
     Подставляется на этапе отправки в каждой платформенной ветке (как {first_name}).
-    Нет контакта на этой площадке — пусто (плейсхолдер просто исчезает)."""
+
+    ⚠️ Нет контакта на СВОЕЙ площадке — отдаём первый заполненный, а не пустоту:
+    иначе человек, дошедший до конца воронки, упирается в никуда. Пусто только
+    когда не заполнено вообще ничего."""
     p = (platform or "").lower()
     if p == "telegram":
-        return tg_support_link(work_tg)
+        return tg_support_link(work_tg) or _first_support(work_tg, work_vk, work_max)
     if p == "vk":
-        return _norm_url(work_vk)
+        # ⚠️ Нет службы на СВОЕЙ площадке — отдаём любую заполненную, а не
+        # пустоту. Пустая ссылка означает, что человек, дошедший до конца
+        # воронки, упирается в никуда: написать нам ему нечем. Чужая площадка
+        # хуже своей, но несравнимо лучше отсутствия контакта.
+        return _norm_url(work_vk) or _first_support(work_tg, work_vk, work_max)
     if p == "max":
-        return _norm_url(work_max)
+        return _norm_url(work_max) or _first_support(work_tg, work_vk, work_max)
     if p == "email":
         # В письме кликабельны любые ссылки — отдаём первый заполненный канал.
         rows = _lines(work_tg, work_vk, work_max)
