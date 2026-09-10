@@ -1434,6 +1434,10 @@ function BlockBody(props: any) {
     // items: [{ date, title, text, image }]
     case 'process': {
       const list = Array.isArray(items) ? items.filter((s: any) => s && (s.title || s.text)) : []
+      // ⚠️ Пустая секция МЕСТА НЕ ЗАНИМАЕТ: включённая, но незаполненная,
+      // она выводила заголовок и пустоту под ним — на странице это выглядит
+      // недоделкой. Так же устроены «Подарки», «Для кого» и остальные.
+      if (!list.length) return null
       const line = hexToRgba(iconColor, .45)
       return (
         <div className="relative">
@@ -1489,6 +1493,8 @@ function BlockBody(props: any) {
     /* ── Цифры ─────────────────────────────────────────────────────────── */
     case 'numbers': {
       const list = Array.isArray(items) ? items.filter((n: any) => n && (n.value || n.label)) : []
+      // ⚠️ Пустая секция места не занимает — см. `process`.
+      if (!list.length) return null
       // Цифры — крупным металликом из цвета иконок; число колонок настраивается.
       // ⚠️ В PDF — сплошной цвет вместо металлика: градиент по буквам печатается
       // контурами (Type3) и разъезжается на телефоне (см. headingStyle).
@@ -1663,6 +1669,10 @@ function BlockBody(props: any) {
 
     case 'tariffs': {
       const t = content.tariffs || { items: [] }
+      // ⚠️ Тарифов нет — секции нет: заголовок «Тарифы» над пустотой читается
+      // как поломка. Событие могут продавать анкетой-заявкой или пускать
+      // бесплатно, и тогда тарифов не будет вовсе.
+      if (!Array.isArray(t.items) || !t.items.length) return null
       return (
         <>
           {/* ⚠️ У тарифов бегущая подсветка не нужна: выделен ОДИН тариф,
@@ -1966,7 +1976,11 @@ function BlockBody(props: any) {
       const q = encodeURIComponent(addr)
       return (
         <div>
-          <p className="mb-3 text-base" style={{ color: 'var(--text)' }}>{addr}</p>
+          {/* ⚠️ Цвет — `page.color_body` темы лендинга, как у всего текста на
+              странице. Было `var(--text)`: эта переменная задана в КАБИНЕТЕ,
+              на лендинге её нет, и текст падал в чёрный по умолчанию — на
+              тёмном фоне (у клиента 1 текст белый) адрес не читался вовсе. */}
+          <p className="mb-3 text-base" style={{ color: page.color_body || '#FFFFFF' }}>{addr}</p>
           {/* ⚠️ В PDF iframe не печатается — вместо карты даём ссылку, иначе в
               файле остаётся пустой прямоугольник (та же логика, что у галереи). */}
           {forPdf ? (
