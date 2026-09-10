@@ -225,6 +225,31 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         client_id,
     )
     tg_nick = nick_row["telegram_username"] if nick_row else None
+
+    # ⚠️ Отдаём САМИ значения, а не только признак «заполнено»: экран показывает
+    # человеку, что у него уже настроено, и даёт поправить. Раньше приходил
+    # лишь флаг `support_filled`, и служба заботы с каналом были не видны —
+    # человек не понимал, что за него уже что-то записано.
+    support_raw = (nick_row["work_tg_username"] if nick_row else "") or ""
+    # В базе поддержка хранится ссылкой (`https://telegram.me/ник`) — наружу
+    # отдаём НИКОМ: человек вводил ник, ссылку он не писал и узнать её не должен.
+    support_nick = support_raw.rstrip("/").split("/")[-1].lstrip("@") if support_raw else ""
+
+    # Канал основателя — первый из `social_links.telegram_channels` (там их может
+    # быть несколько). Тоже отдаём ником, а не ссылкой.
+    chan_nick = ""
+    try:
+        sl = await db.fetchval(
+            "SELECT social_links FROM clients WHERE id=$1", client_id)
+        if isinstance(sl, str):
+            import json as _json
+            sl = _json.loads(sl or "{}")
+        chans = (sl or {}).get("telegram_channels") or []
+        if chans:
+            u = (chans[0] or {}).get("url") or ""
+            chan_nick = u.rstrip("/").split("/")[-1].lstrip("@") if u else ""
+    except Exception:  # noqa: BLE001
+        chan_nick = ""
     brand = await db.fetchval(
         "SELECT COALESCE(NULLIF(brand_name,''), name) FROM clients WHERE id=$1",
         client_id,
@@ -258,7 +283,10 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         "telegram_username": tg_nick,
         # Заполнена ли «Служба заботы» — экран по ней решает, можно ли
         # подставить туда ник, не затирая уже настроенный аккаунт поддержки.
-        "support_filled": bool((nick_row and nick_row["work_tg_username"] or "").strip()),
+        "support_filled": bool(support_raw.strip()),
+        # Ники (без «@» и без ссылки) — экран показывает их в полях.
+        "support_username": support_nick,
+        "channel_username": chan_nick,
         "suggestions": tgs.suggest_bot_usernames(brand or ""),
         "claim_days": 3,
     }
@@ -420,6 +448,31 @@ async def confirm_joined_group(user=Depends(get_current_client), db=Depends(get_
     )
     logger.info("tg_setup: клиент %s подтвердил вступление в группу вручную", client_id)
     return {"ok": True, "already": False}
+
+
+class SaveChannelIn(BaseModel):
+    channel: str
+
+
+@router.post("/save-channel", summary="Сохранить ник Telegram-канала основателя")
+async def save_channel(data: SaveChannelIn, user=Depends(get_current_client),
+                       db=Depends(get_db)):
+    """Кладёт канал в «Каналы основателя» — ДО запуска настройки.
+
+    ⚠️ Раньше канал принимался только вместе с запуском (`/start`), и поправить
+    его отдельно было нечем: человек видел в форме поле, но сохранить не мог,
+    пока не запустит услугу.
+
+    ⚠️ ТОЛЬКО ПУБЛИЧНЫЙ КАНАЛ (по нику). У закрытого Telegram не отдаёт
+    идентификатор, и проверка подписки на нём работать не будет — поэтому
+    ссылку-приглашение здесь не принимаем.
+    """
+    client_id = int(user["sub"])
+    nick = (data.channel or "").strip().lstrip("@").rstrip("/").split("/")[-1]
+    if not nick:
+        raise HTTPException(400, "Укажите ник канала")
+    await _save_founder_channel(db, client_id, nick)
+    return {"ok": True, "channel": nick}
 
 
 @router.post("/confirm-channel", summary="Клиент подтверждает, что добавил бота в свой канал")

@@ -859,6 +859,11 @@ export const api = {
       request('/api/v1/clients/me/tg-autosetup/confirm-joined-group', { method: 'POST' }),
     confirmChannel: () =>
       request('/api/v1/clients/me/tg-autosetup/confirm-channel', { method: 'POST' }),
+    // Сохранить ник Telegram-канала основателя ДО запуска настройки.
+    saveChannel: (channel: string) =>
+      request('/api/v1/clients/me/tg-autosetup/save-channel', {
+        method: 'POST', body: JSON.stringify({ channel }),
+      }),
     // Передать права немедленно, не дожидаясь фоновой задачи (она раз в минуту).
     transferNow: () =>
       request('/api/v1/clients/me/tg-autosetup/transfer-now', { method: 'POST' }),

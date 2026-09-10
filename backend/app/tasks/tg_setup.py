@@ -317,8 +317,11 @@ async def _run_setup(db, order) -> None:
                     "UPDATE service_orders SET bot_channel_id=$2, updated_at=NOW() "
                     " WHERE id=$1", order_id, channel_id,
                 )
+                # ⚠️ В тексте называем МЕСТО, где это видно: человек читает
+                # лог и не понимает, куда смотреть, чтобы убедиться.
                 await _log_step(db, order_id, "channel",
-                                "Бот подключён к вашему кабинету")
+                                "Бот подключён к вашему кабинету — "
+                                "виден в разделе «Каналы» → «Боты»")
 
         # ── Mini App ──
         #
@@ -392,7 +395,9 @@ async def _run_setup(db, order) -> None:
                     "UPDATE service_orders SET miniapp_linked_at=NOW(), updated_at=NOW() "
                     " WHERE id=$1", order_id,
                 )
-                await _log_step(db, order_id, "miniapp", "Приложение внутри бота подключено")
+                await _log_step(db, order_id, "miniapp",
+                                "Приложение внутри бота подключено — "
+                                "настройки в разделе «Mini App»")
             else:
                 # ⚠️ Шаг необязательный: бот уже работает и полезен сам по себе.
                 # Не роняем настройку, просто отмечаем в логе.
@@ -427,7 +432,8 @@ async def _run_setup(db, order) -> None:
                 client_id, grp.chat_id, grp.invite_link,
             )
             await _log_step(db, order_id, "group",
-                            "Группа создана и прописана в настройках")
+                            "Группа создана и прописана в настройках — "
+                            "Настройки → «Техническое», поле «Канал уведомлений»")
 
             # Пробуем добавить клиента сразу — вдруг у него открыта приватность.
             tg_nick = await db.fetchval(
@@ -688,7 +694,8 @@ async def _finish_setup(db, order) -> None:
                     "       updated_at=NOW() WHERE id=$1", order_id,
                 )
                 await _log_step(db, order_id, "group",
-                                "Вы админ группы с полными правами")
+                                "Вы админ группы с полными правами — "
+                                "проверьте в самой группе: «Участники» → ваш аккаунт")
 
         # ── всё отдано — выходим из группы и закрываем заказ ──
         order = await db.fetchrow("SELECT * FROM service_orders WHERE id=$1", order_id)
@@ -700,7 +707,9 @@ async def _finish_setup(db, order) -> None:
                 "UPDATE service_orders SET setup_state='done', updated_at=NOW() "
                 " WHERE id=$1", order_id,
             )
-            await _log_step(db, order_id, "done", "Настройка завершена")
+            await _log_step(db, order_id, "done",
+                            "Настройка завершена — бот, группа и настройки "
+                            "кабинета готовы к работе")
 
     except Exception as e:  # noqa: BLE001
         logger.exception("tg_setup finish order %s failed", order_id)

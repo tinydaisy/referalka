@@ -48,6 +48,10 @@ type State = {
   telegram_username?: string | null
   /** Заполнена ли «Служба заботы» — по ней решаем, подставлять ли туда ник. */
   support_filled?: boolean
+  /** Ник службы заботы (без «@») — показываем в поле, чтобы человек видел настроенное. */
+  support_username?: string | null
+  /** Ник Telegram-канала основателя (без «@») — по нему идёт проверка подписки. */
+  channel_username?: string | null
   suggestions: string[]
   claim_days: number
 }
@@ -108,29 +112,49 @@ export default function AutoSetupTab() {
   // ⚠️ `null` = поле не трогали, показываем ник из настроек. Пустая строка —
   // это «стёрли руками», и её нельзя путать с «не редактировали».
   const [nick, setNick] = useState<string | null>(null)
+  // Черновики двух других обязательных полей. null — «не трогали»: тогда
+  // показываем значение из настроек, и любая правка в Настройках сразу видна.
+  const [supportNick, setSupportNick] = useState<string | null>(null)
+  const [chanNick, setChanNick] = useState<string | null>(null)
   const [savingNick, setSavingNick] = useState(false)
   const [nickSaved, setNickSaved] = useState(false)
   const [nickError, setNickError] = useState<string | null>(null)
 
+  /** Итоговое значение поля: черновик, если трогали, иначе — из настроек. */
+  const effNick    = (nick        ?? (state?.telegram_username || '')).trim().replace(/^@/, '')
+  const effSupport = (supportNick ?? (state?.support_username  || '')).trim().replace(/^@/, '')
+  const effChannel = (chanNick    ?? (state?.channel_username  || '')).trim().replace(/^@/, '')
+  /** Все три обязательных поля заполнены — от этого зависит вид блока и запуск. */
+  const allFilled = !!(effNick && effSupport && effChannel)
+
   const saveNick = async () => {
-    const value = (nick ?? '').trim().replace(/^@/, '')
-    if (!value) return
+    // ⚠️ ВСЕ ТРИ ПОЛЯ ОБЯЗАТЕЛЬНЫ: без ника некому передать бота, без службы
+    // заботы не заработает «Тех. поддержка» в боте и на лендинге, без канала —
+    // проверка подписки в воронках подарков. Услуга ради этого и делается.
+    if (!effNick || !effSupport || !effChannel) {
+      setNickError('Заполните все три поля — они нужны для настройки')
+      return
+    }
     setSavingNick(true); setNickError(null); setNickSaved(false)
     try {
-      // ⚠️ Пишем ник профиля (по нему передаются права на бота) и заодно
-      // «Службу заботы» — по ней работают /support в ботах, кнопка
-      // «Тех. поддержка» на лендинге и в рассылках, подпись в письмах.
-      // Ссылкой, а не ником: так это поле заполняется во всём проекте.
-      //
-      // ⚠️ Службу заботы трогаем ТОЛЬКО когда она пуста: у части клиентов
-      // поддержку ведёт отдельный аккаунт, и затирать его настройку нельзя.
-      await api.auth.updateMe({
-        telegram_username: value,
-        ...(state?.support_filled
-          ? {}
-          : { work_tg_username: `https://telegram.me/${value}` }),
-      })
+      // ⚠️⚠️ ПИШЕМ ТОЛЬКО ТО, ЧТО ЧЕЛОВЕК ТРОНУЛ (`?? null` = не трогали).
+      // Иначе форма перезаписала бы уже настроенное теми же значениями —
+      // безобидно на вид, но у службы заботы это затёрло бы отдельный аккаунт
+      // поддержки, а у канала — первый из нескольких «каналов основателя».
+      const patch: any = {}
+      if (nick !== null)        patch.telegram_username = effNick
+      // Служба заботы хранится ССЫЛКОЙ — так это поле заполняется во всём
+      // проекте; наружу мы показываем ник, внутрь пишем ссылку.
+      if (supportNick !== null) patch.work_tg_username = `https://telegram.me/${effSupport}`
+      if (Object.keys(patch).length) await api.auth.updateMe(patch)
+
+      // Канал живёт не в профиле, а в «Каналах основателя» — своя ручка.
+      if (chanNick !== null) {
+        await api.channels.autoSetup.saveChannel(effChannel)
+      }
+
       setNickSaved(true)
+      setNick(null); setSupportNick(null); setChanNick(null)
       await load(true)
     } catch (e: any) {
       setNickError(e?.message || 'Не удалось сохранить')
@@ -433,61 +457,71 @@ export default function AutoSetupTab() {
         всплывёт в самом конце, когда бот уже создан и передавать его будет
         некому. Поправленное сохраняется сразу, без ухода со страницы.
       */}
-      {!order && (
+      {/* ─── Три обязательных поля: ваш ник, служба заботы, канал ─── */}
+      {/*
+        ⚠️⚠️ ПОКАЗЫВАЕМ ВСЕГДА, а не только при пустом нике. Раньше блок стоял
+        под `!order`: у клиента с уже оплаченным заказом он исчезал целиком, и
+        поправить данные перед запуском было негде — человек видел форму имени
+        бота и не понимал, куда делись остальные поля.
+
+        ⚠️ Все три ОБЯЗАТЕЛЬНЫ: без ника некому передать бота, без службы заботы
+        не заработает «Тех. поддержка» в боте и на лендинге, без канала —
+        проверка подписки в воронках подарков. Услуга ради этого и делается.
+
+        ⚠️ Показываем НИКАМИ, а не ссылками: человек вводил ник, ссылку он не
+        писал и знать её не обязан. В базе служба заботы хранится ссылкой —
+        преобразуем на входе и выходе.
+      */}
+      {!finished && (
         <div className={`rounded-xl border px-5 py-4 mb-5 ${
-          state.telegram_username
-            ? 'border-gray-200 bg-white'
-            : 'border-amber-300 bg-amber-50'}`}>
+          allFilled ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
           <div className="flex gap-3">
-            {!state.telegram_username && (
+            {!allFilled && (
               <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
             )}
             <div className="flex-1 min-w-0">
               <p className={`text-sm font-medium ${
-                state.telegram_username ? 'text-gray-800' : 'text-amber-900'}`}>
-                {state.telegram_username
-                  ? 'Проверьте свой ник в Telegram'
-                  : 'Укажите свой ник в Telegram'}
+                allFilled ? 'text-gray-800' : 'text-amber-900'}`}>
+                Введите или скорректируйте данные
               </p>
               <p className={`text-xs mt-0.5 ${
-                state.telegram_username ? 'text-gray-500' : 'text-amber-800'}`}>
-                На этот аккаунт мы передадим права на бота и группу.
-                {!state.support_filled && ' Он же станет вашей «Службой заботы» — по нему люди напишут вам из бота и с лендинга.'}
+                allFilled ? 'text-gray-500' : 'text-amber-800'}`}>
+                Они будут выставлены в настройках вашего кабинета. Все три поля
+                обязательны — без них услуга не сможет закончить настройку.
               </p>
 
-              <div className="flex gap-2 mt-3">
-                <div className="flex-1 flex items-center rounded-lg border border-gray-300 bg-white px-3 focus-within:border-gray-400">
-                  <span className="text-gray-400 select-none">@</span>
-                  <input
-                    /**
-                     * ⚠️ Ник ВСЕГДА берётся из настроек (`clients.telegram_username`),
-                     * своей копии у вкладки нет.
-                     *
-                     * Здесь было `nick || state.telegram_username`, и это ломалось:
-                     * стоит один раз тронуть поле — `nick` перестаёт быть пустым и
-                     * НАВСЕГДА перекрывает значение из настроек. Человек менял ник
-                     * в Настройках, возвращался сюда и видел старый — казалось,
-                     * что мы храним ник у себя и не обновляем.
-                     *
-                     * Теперь `nick` — только «черновик правки»: null, пока не
-                     * начали печатать. Не трогали поле → показываем настройки,
-                     * и любое обновление данных сразу видно.
-                     */
-                    value={nick ?? (state.telegram_username || '').replace(/^@/, '')}
-                    onChange={e => {
-                      setNick(e.target.value.trim().replace(/^@/, ''))
-                      setNickSaved(false); setNickError(null)
-                    }}
-                    onKeyDown={e => { if (e.key === 'Enter') saveNick() }}
-                    placeholder="ваш_ник"
-                    className="flex-1 py-2.5 px-1 outline-none text-sm bg-transparent"
-                  />
-                </div>
-                <button onClick={saveNick} disabled={savingNick || !(nick ?? '').trim()}
-                        className="btn-primary px-4 whitespace-nowrap disabled:opacity-50">
-                  {savingNick ? <Loader2 size={15} className="animate-spin" /> : 'Сохранить'}
-                </button>
+              <div className="mt-3 space-y-3">
+                <NickField
+                  label="Ваш Telegram"
+                  hint="На этот аккаунт передадим права на бота и группу"
+                  value={effNick}
+                  filled={!!state.telegram_username}
+                  onChange={v => { setNick(v); setNickSaved(false); setNickError(null) }}
+                  onEnter={saveNick}
+                />
+                <NickField
+                  label="Telegram службы заботы"
+                  hint="По нему люди напишут вам из бота и с лендинга — можно тот же аккаунт"
+                  value={effSupport}
+                  filled={!!state.support_username}
+                  onChange={v => { setSupportNick(v); setNickSaved(false); setNickError(null) }}
+                  onEnter={saveNick}
+                />
+                <NickField
+                  label="Никнейм вашего Telegram-канала"
+                  hint="Нужен ПУБЛИЧНЫЙ канал: по нему заработает проверка подписки в воронках подарков"
+                  value={effChannel}
+                  filled={!!state.channel_username}
+                  onChange={v => { setChanNick(v); setNickSaved(false); setNickError(null) }}
+                  onEnter={saveNick}
+                />
               </div>
+
+              <button onClick={saveNick}
+                      disabled={savingNick || !effNick || !effSupport || !effChannel}
+                      className="btn-primary px-4 mt-3 whitespace-nowrap disabled:opacity-50">
+                {savingNick ? <Loader2 size={15} className="animate-spin" /> : 'Сохранить'}
+              </button>
 
               {nickSaved && (
                 <p className="mt-2 text-sm text-green-700 flex items-center gap-1.5">
@@ -497,11 +531,6 @@ export default function AutoSetupTab() {
               {nickError && (
                 <p className="mt-2 text-sm text-red-600 flex items-center gap-1.5">
                   <AlertTriangle size={15} /> {nickError}
-                </p>
-              )}
-              {state.telegram_username && nick === null && !nickSaved && (
-                <p className="mt-2 text-xs text-gray-400">
-                  Всё верно — можно запускать настройку ниже.
                 </p>
               )}
             </div>
@@ -633,7 +662,10 @@ export default function AutoSetupTab() {
 
           <button
             onClick={start}
-            disabled={starting || !nameCheck?.free || !state.telegram_username}
+            // ⚠️ Запуск требует ВСЕ ТРИ поля, а не только ник: без службы
+            // заботы и канала настройка дойдёт до конца и оставит их пустыми —
+            // то есть не сделает половину того, ради чего услуга покупалась.
+            disabled={starting || !nameCheck?.free || !allFilled}
             className="btn-gold w-full mt-4 py-3 disabled:opacity-50"
           >
             {/* ⚠️ Про деньги здесь не пишем. До этого экрана доходит только
@@ -1052,7 +1084,8 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }:
     // кабинету — отдельное действие, и оно может не пройти само по себе.
     { done: !!s.bot_channel_linked, text: 'Подключили бота к кабинету', key: 'channel',
       proof: '/dashboard/channels?tab=bots', proofLabel: 'Проверить' },
-    { done: !!s.miniapp_linked, text: 'Привязали приложение (Mini App)', key: 'miniapp' },
+    { done: !!s.miniapp_linked, text: 'Привязали приложение (Mini App)', key: 'miniapp',
+      proof: '/dashboard/mini-app', proofLabel: 'Проверить' },
     { done: !!s.group_created, text: 'Создали закрытую группу для уведомлений',
       key: 'group', proof: groupLink || undefined, proofLabel: 'Открыть группу' },
     { done: !!s.group_in_settings, text: 'Прописали группу в настройках кабинета',
@@ -1077,9 +1110,18 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }:
     // назначены админом», ещё до захода в бота). Из-за этого нижние пункты
     // зеленели раньше верхних, и отчёт выглядел дырявым — будто часть шагов
     // пропущена. Список обязан читаться сверху вниз без «прыжков».
-    { done: !!s.client_joined, text: 'Вы вступили в группу' },
-    { done: !!s.group_transferred, text: 'Сделали вас админом группы' },
-    { done: !!s.client_started_bot, text: 'Вы зашли в бота' },
+    { done: !!s.client_joined, text: 'Вы вступили в группу',
+      proof: groupLink || undefined, proofLabel: groupLink ? 'Открыть группу' : undefined },
+    { done: !!s.group_transferred, text: 'Сделали вас админом группы',
+      proof: groupLink || undefined, proofLabel: groupLink ? 'Открыть группу' : undefined },
+    { done: !!s.client_started_bot, text: 'Вы зашли в бота',
+      proof: botUsername ? `https://telegram.me/${botUsername}` : undefined,
+      proofLabel: botUsername ? `@${botUsername}` : undefined },
+    // ⚠️ Отдельным пунктом: тестовые ID — то, ради чего мы ловим заход в бота.
+    // По ним работает кнопка «Отправить тест» в рассылках; человек об этом не
+    // знает и не понимает, откуда они взялись, — показываем, где смотреть.
+    { done: !!s.client_started_bot, text: 'Записали ваш Telegram для тестов рассылок',
+      proof: '/dashboard/settings?tab=tech', proofLabel: 'Проверить' },
     // ⚠️⚠️ ДЕЙСТВИЯ ЧЕЛОВЕКА ИДУТ ДО ПЕРЕДАЧИ ПРАВ, А НЕ ПОСЛЕ.
     // «Вы добавили бота в админы канала» стояло ПОСЛЕДНИМ, после «Передали вам
     // права» — то есть после финала настройки. Человек добавляет бота в канал
@@ -1088,7 +1130,8 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }:
     { done: !!s.channel_linked, text: 'Вы добавили бота в админы канала',
       proof: '/dashboard/channels?tab=chats', proofLabel: 'Проверить' },
     // Передача прав — ПОСЛЕДНИЙ шаг: им настройка и заканчивается.
-    { done: !!s.bot_transferred, text: 'Передали вам права на бота', key: 'transfer' },
+    { done: !!s.bot_transferred, text: 'Передали вам права на бота', key: 'transfer',
+      proof: 'https://telegram.me/BotFather', proofLabel: 'BotFather' },
   ]
   const doneCount = rows.filter(r => r.done).length
 
@@ -1262,3 +1305,45 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
 //   • русские формулировки ошибок → `_human_error` в backend/app/tasks/tg_setup.py.
 //
 // Сами записи `setup_log` в базе остаются — они нужны поддержке и разбору.
+
+
+/**
+ * Поле ввода ника Telegram с приставкой «@».
+ *
+ * ⚠️ Один компонент на все три поля: они отличаются только подписью, и три
+ * копии одинаковой вёрстки разъехались бы при первой же правке.
+ *
+ * ⚠️ Значение показывается НИКОМ даже если в базе лежит ссылка: человек вводил
+ * ник, ссылку он не писал и знать её не обязан.
+ */
+function NickField({
+  label, hint, value, filled, onChange, onEnter,
+}: {
+  label: string
+  hint: string
+  value: string
+  /** Уже настроено в кабинете — подсказываем это, чтобы человек не гадал. */
+  filled: boolean
+  onChange: (v: string) => void
+  onEnter: () => void
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-700 mb-1">
+        {label}
+        {filled && <span className="ml-2 font-normal text-green-700">уже указано</span>}
+      </label>
+      <div className="flex items-center rounded-lg border border-gray-300 bg-white px-3 focus-within:border-gray-400">
+        <span className="text-gray-400 select-none">@</span>
+        <input
+          value={value}
+          onChange={e => onChange(e.target.value.trim().replace(/^@/, ''))}
+          onKeyDown={e => { if (e.key === 'Enter') onEnter() }}
+          placeholder="ник_без_собаки"
+          className="flex-1 py-2.5 px-1 outline-none text-sm bg-transparent"
+        />
+      </div>
+      <p className="mt-1 text-xs text-gray-500">{hint}</p>
+    </div>
+  )
+}

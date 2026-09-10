@@ -67,6 +67,18 @@ async def on_client_started_bot(db, bot_token_id: Optional[int],
         await _remember_client_tg_id(db, order["client_id"], int(tg_user_id))
         await _link_client_identity(db, order["client_id"], int(tg_user_id),
                                     tg_username or "")
+        # ⚠️ ПИШЕМ В ЛОГ ЗАКАЗА, а не только в системный: человек читает лог
+        # услуги и должен видеть, что его заход засчитан и что при этом
+        # записалось. Раньше шаг отмечался молча — в логе была дыра между
+        # созданием бота и передачей прав.
+        try:
+            from app.tasks.tg_setup import _log_step
+            await _log_step(db, order["id"], "bot",
+                            "Вы зашли в бота — записали ваш Telegram для тестов "
+                            "рассылок (Настройки → «Техническое»)")
+        except Exception as e:  # noqa: BLE001
+            log.warning("tg_setup: не записал шаг захода в бота: %s", e)
+
         log.info("tg_setup: клиент %s зашёл в своего бота @%s (tg_id=%s)",
                  order["client_id"], bot_username, tg_user_id)
         return True
