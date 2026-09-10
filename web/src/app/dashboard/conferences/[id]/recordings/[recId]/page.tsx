@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Scissors, ListOrdered, Save, Download, X } from 'lucide-react'
+import { ArrowLeft, Scissors, ListOrdered, Save, Download, X, Image as ImageIcon } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
@@ -39,6 +39,8 @@ type Cut = {
   session_id?: number | null
   status?: string
   url?: string | null
+  /** Готовая обложка выступления. Пусто — ещё не собирали. */
+  cover_url?: string | null
   duration_sec?: number | null
   size_bytes?: number | null
   error?: string | null
@@ -456,11 +458,31 @@ export default function RecordingCutPage() {
     } finally { setBusy('') }
   }
 
+  const buildCovers = async () => {
+    if (dirty) { alert('Сначала сохраните метки.'); return }
+    setBusy('Собираю обложки…')
+    try {
+      const r: any = await api.webinar.buildCovers(eventId, day, recordingId)
+      await load()
+      if (r?.failed) {
+        alert(`Готово: ${r.done}. Не собрались: ${r.failed}.\n\n` +
+              'Обычно это значит, что у выступления не выбран спикер или у него ' +
+              'нет карточки — обложке нечего написать.')
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось собрать обложки')
+    } finally { setBusy('') }
+  }
+
   const runCut = async () => {
     if (dirty) { alert('Сначала сохраните метки.'); return }
     const n = cuts.filter(c => c.status !== 'ready').length
     if (!confirm(
       `Нарезать запись на ${n} ${plural(n, 'нарезку', 'нарезки', 'нарезок')}?\n\n` +
+      // ⚠️ Про обложки предупреждаем ЗАРАНЕЕ: они вклеиваются кадром в начало
+      // ролика, и переделать это потом — снова качать гигабайты исходника.
+      'Обложки вклеятся в начало каждого ролика — проверьте их заранее ' +
+      'кнопкой «Проверить обложки».\n\n' +
       'Нарезка идёт на сервере несколько минут. Страницу можно закрыть — работа не прервётся, ' +
       'а результат появится здесь же.\n\nИсходная запись останется на месте.')) return
     setBusy('Запускаю нарезку…')
@@ -693,6 +715,14 @@ export default function RecordingCutPage() {
             статусу в базе (`anyProcessing`), а не по памяти браузера: обновил
             страницу — кнопка снова была активна, и второе нажатие отвечало
             «нечего резать», как будто что-то сломалось. */}
+        {/* ⚠️ Обложки собираются ОТДЕЛЬНОЙ кнопкой до нарезки: они вклеятся в
+            ролики, и увидеть их человек должен заранее — переделывать потом
+            значит качать исходник заново. */}
+        <button onClick={buildCovers} disabled={!!busy || dirty || !cuts.length}
+                title="Собрать обложки по шаблону «Спикер» и посмотреть их"
+                className="px-4 py-1.5 rounded-lg border text-sm flex items-center gap-1.5 disabled:opacity-40">
+          <ImageIcon size={15} /> Проверить обложки
+        </button>
         <button onClick={runCut}
                 disabled={!!busy || dirty || anyProcessing || !cuts.some(c => c.status === 'draft' || c.status === 'failed')}
                 title={anyProcessing ? 'Нарезка уже идёт' : undefined}
@@ -900,6 +930,18 @@ export default function RecordingCutPage() {
                   сохранения: у файла нет заголовка «это загрузка», а атрибут
                   `download` на чужом домене не действует. Теперь ссылку на
                   сохранение выдаёт сервер. */}
+              {/* ⚠️ Обложку показываем МАЛЕНЬКИМ превью прямо в строке: её
+                  вклеят в ролик, и проверять её человек должен глазами, а не
+                  по факту «файл есть». Клик — открыть в полном размере. */}
+              {c.cover_url && (
+                <a href={c.cover_url} target="_blank" rel="noreferrer"
+                   title="Обложка выступления — откроется в полном размере"
+                   className="shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={c.cover_url} alt="обложка"
+                       className="h-8 w-14 rounded border border-gray-200 object-cover" />
+                </a>
+              )}
               {c.status === 'ready' && c.url && (
                 <>
                   <button onClick={() => seekLive(c.start_sec)}

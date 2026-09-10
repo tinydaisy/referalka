@@ -127,6 +127,97 @@ async def _run(recording_id: int):
             pass
 
 
+# ── Заставка из обложки ──────────────────────────────────────────────────
+# ⚠️⚠️ ВЫСТУПЛЕНИЕ НЕ ПЕРЕЖИМАЕТСЯ. Кодируется ТОЛЬКО заставка (полсекунды), а
+# дальше идёт конкатенация с `-c copy`. Проверено на боевой записи: заставка
+# кодируется ~2 с, склейка ~0,2 с, кодек и размер ролика не меняются. Полное
+# пережатие часового куска шло бы 30-60 минут и заняло бы процессор, на котором
+# живут сайт, боты и рассылки.
+#
+# ⚠️ Параметры заставки обязаны СОВПАДАТЬ с записью (кодек, размер, частота
+# кадров, звук), иначе конкатенация не склеит потоки и ffmpeg упадёт. Берём их
+# из самого файла, а не константами: настройки записи могут смениться.
+_INTRO_SEC = 0.5
+
+
+def _stream_params(path: str) -> dict:
+    """Кодек, размер, fps и звук ролика — под них кодируется заставка."""
+    def probe(args: list[str]) -> str:
+        try:
+            r = subprocess.run(
+                ["ffprobe", "-v", "error", *args, "-of", "default=nw=1:nk=1", path],
+                capture_output=True, timeout=60)
+            return (r.stdout or b"").decode().strip()
+        except Exception:                                       # noqa: BLE001
+            return ""
+
+    v = probe(["-select_streams", "v:0", "-show_entries",
+               "stream=width,height,r_frame_rate"]).splitlines()
+    a = probe(["-select_streams", "a:0", "-show_entries",
+               "stream=sample_rate,channels"]).splitlines()
+    return {
+        "w": v[0] if len(v) > 0 else "1280",
+        "h": v[1] if len(v) > 1 else "720",
+        "fps": v[2] if len(v) > 2 else "30/1",
+        "ar": a[0] if len(a) > 0 else "44100",
+        "ac": a[1] if len(a) > 1 else "1",
+    }
+
+
+def _prepend_cover(video_path: str, cover_path: str) -> bool:
+    """Вклеивает обложку кадром в начало ролика. `False` — не получилось.
+
+    ⚠️ Возвращает False вместо исключения: заставка — украшение, и её сбой не
+    должен превращать нарезку в ошибку. Видео важнее картинки.
+    """
+    p = _stream_params(video_path)
+    intro = tempfile.mktemp(suffix="_intro.mp4")
+    joined = tempfile.mktemp(suffix="_joined.mp4")
+    lst = tempfile.mktemp(suffix="_list.txt")
+    try:
+        # Заставка: картинка + тишина, в параметрах ролика.
+        r = subprocess.run([
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-loop", "1", "-i", cover_path,
+            "-f", "lavfi", "-i", f"anullsrc=r={p['ar']}:cl={'mono' if p['ac']=='1' else 'stereo'}",
+            "-t", str(_INTRO_SEC),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-r", p["fps"], "-s", f"{p['w']}x{p['h']}",
+            "-profile:v", "high", "-preset", "veryfast",
+            "-c:a", "aac", "-ar", p["ar"], "-ac", p["ac"],
+            "-shortest", "-movflags", "+faststart", intro,
+        ], capture_output=True, timeout=300)
+        if r.returncode != 0 or not os.path.exists(intro):
+            _log.warning("заставка не собралась: %s", (r.stderr or b"")[:200])
+            return False
+
+        with open(lst, "w") as f:
+            f.write(f"file '{intro}'\nfile '{video_path}'\n")
+
+        # ⚠️ Именно здесь `-c copy`: выступление копируется как есть.
+        r = subprocess.run([
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "concat", "-safe", "0", "-i", lst,
+            "-c", "copy", "-movflags", "+faststart", joined,
+        ], capture_output=True, timeout=900)
+        if r.returncode != 0 or not os.path.exists(joined) or os.path.getsize(joined) == 0:
+            _log.warning("склейка не удалась: %s", (r.stderr or b"")[:200])
+            return False
+
+        shutil.move(joined, video_path)
+        return True
+    except Exception as e:                                      # noqa: BLE001
+        _log.warning("вклейка обложки не удалась: %s", e)
+        return False
+    finally:
+        for f in (intro, joined, lst):
+            try:
+                if os.path.exists(f):
+                    os.unlink(f)
+            except Exception:                                   # noqa: BLE001
+                pass
+
+
 async def _cut_one(conn, rec, cut, src_path, offset, client, bucket, public_base):
     """Вырезает один кусок и заливает его в то же хранилище, что и исходник."""
     # ⚠️ Метки в базе — секунды ОТ НАЧАЛА ЭФИРА (так их видит клиент на
@@ -168,6 +259,39 @@ async def _cut_one(conn, rec, cut, src_path, offset, client, bucket, public_base
         if r.returncode != 0 or not os.path.exists(tmp_out) or os.path.getsize(tmp_out) == 0:
             await _fail_all(conn, [cut["id"]], "ffmpeg не смог вырезать кусок")
             return
+
+        # ── Обложка кадром в начало ─────────────────────────────────────
+        # ⚠️ Собирается ЗАНОВО в момент нарезки, а не берётся готовой: клиент
+        # мог поправить шаблон после того, как нажал «Проверить обложки».
+        # Сбой обложки нарезку не роняет — видео важнее картинки.
+        tmp_cover = None
+        try:
+            from app.services.cut_cover import render_cut_cover
+            png = await render_cut_cover(conn, client_id=rec["client_id"], cut_id=cut["id"])
+            if png:
+                tmp_cover = tempfile.mktemp(suffix="_cover.png")
+                with open(tmp_cover, "wb") as f:
+                    f.write(png)
+                if _prepend_cover(tmp_out, tmp_cover):
+                    _log.info("обложка вклеена в кусок %s", cut["id"])
+                # Саму картинку сохраняем: её отдают спикеру отдельным файлом —
+                # площадки (VK, YouTube) обложку принимают только так, вшитый
+                # кадр они игнорируют.
+                from app.services.store_file import store_bytes
+                saved = await store_bytes(
+                    conn, client_id=rec["client_id"], data=png,
+                    kind="material_media", ext="png", content_type="image/png")
+                await conn.execute(
+                    "UPDATE webinar_recording_cuts SET cover_url=$2 WHERE id=$1",
+                    cut["id"], saved["url"])
+        except Exception as e:                                  # noqa: BLE001
+            _log.warning("обложка куска %s: %s", cut["id"], e)
+        finally:
+            if tmp_cover and os.path.exists(tmp_cover):
+                try:
+                    os.unlink(tmp_cover)
+                except Exception:                               # noqa: BLE001
+                    pass
 
         size = os.path.getsize(tmp_out)
         key = f"clients/{rec['client_id']}/webinar/{rec['room_id']}/cut_{cut['id']}.mp4"

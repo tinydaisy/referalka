@@ -2168,6 +2168,10 @@ export const api = {
     saveCuts: (eventId: number, day: number, recId: number, cuts: any[]) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cuts`,
               { method: 'PUT', body: JSON.stringify({ cuts }) }),
+    // Собрать обложки выступлений — до нарезки, чтобы клиент их проверил.
+    buildCovers: (eventId: number, day: number, recId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/covers`,
+              { method: 'POST' }),
     runCut: (eventId: number, day: number, recId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cut`, { method: 'POST' }),
     // ⚠️ Скачивание идёт по ПОДПИСАННОЙ ссылке с сервера: прямая ссылка на

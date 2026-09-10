@@ -639,7 +639,7 @@ async def _cuts_payload(db, rec: dict, recording_id: int) -> dict:
     # разъехалась бы с программой и врала бы при сверке.
     rows = await db.fetch(
         "SELECT c.id, c.start_sec, c.end_sec, c.title, c.speaker_ec_id, c.session_id, "
-        "       c.sort_order, c.status, c.url, c.duration_sec, c.size_bytes, c.error, "
+        "       c.sort_order, c.status, c.url, c.cover_url, c.duration_sec, c.size_bytes, c.error, "
         "       " + SEARCH_NAME_SQL("cl") + " AS speaker_name, LEFT(cs.start_time, 5) AS program_time "
         "  FROM webinar_recording_cuts c "
         "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
@@ -875,6 +875,50 @@ async def run_cut(event_id: int, day_number: int, recording_id: int,
     return {"ok": True, "queued": pending}
 
 
+@router.post("/{day_number}/recordings/{recording_id}/covers",
+             summary="Собрать обложки выступлений")
+async def build_covers(event_id: int, day_number: int, recording_id: int,
+                       client=Depends(get_current_client), db=Depends(get_db)):
+    """Собирает обложку каждому куску — ДО нарезки, чтобы клиент их проверил.
+
+    ⚠️ Отдельным действием, а не молча внутри нарезки: обложка вклеивается в
+    ролик, и увидеть её человек должен ЗАРАНЕЕ. Иначе кривая обложка
+    обнаружится уже в готовых файлах, а нарезать заново — это снова качать
+    гигабайты исходника.
+
+    ⚠️ Собирается по ОДНОЙ: Chromium снимает страницу, и на двух ядрах пачка
+    параллельных запусков положила бы сервер, где живут сайт, боты и рассылки.
+    """
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    await _recording_or_404(db, event_id, day_number, recording_id)
+
+    from app.services.cut_cover import render_cut_cover
+    from app.services.store_file import store_bytes
+
+    cuts = await db.fetch(
+        "SELECT id, title FROM webinar_recording_cuts "
+        " WHERE recording_id=$1 ORDER BY start_sec", recording_id)
+
+    done, failed = 0, 0
+    for c in cuts:
+        png = await render_cut_cover(db, client_id=cid, cut_id=c["id"])
+        if not png:
+            failed += 1
+            continue
+        saved = await store_bytes(
+            db, client_id=cid, data=png,
+            kind="material_media", ext="png", content_type="image/png",
+        )
+        await db.execute(
+            "UPDATE webinar_recording_cuts SET cover_url=$2, updated_at=now() "
+            " WHERE id=$1", c["id"], saved["url"])
+        done += 1
+
+    return {"ok": True, "done": done, "failed": failed}
+
+
 @router.delete("/{day_number}/recordings/{recording_id}/cuts/{cut_id}", summary="Удалить кусок")
 async def delete_cut(event_id: int, day_number: int, recording_id: int, cut_id: int,
                      client=Depends(get_current_client), db=Depends(get_db)):
@@ -950,7 +994,7 @@ async def download_all_cuts(event_id: int, day_number: int, recording_id: int,
     await ws.assert_event_owner(db, event_id, _cid(client))
     await _recording_or_404(db, event_id, day_number, recording_id)
     rows = await db.fetch(
-        "SELECT c.r2_key, c.title, cl.name AS speaker_name, cl.last_name "
+        "SELECT c.r2_key, c.title, c.cover_url, cl.name AS speaker_name, cl.last_name "
         "  FROM webinar_recording_cuts c "
         "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
         "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
@@ -967,6 +1011,11 @@ async def download_all_cuts(event_id: int, day_number: int, recording_id: int,
         name = _safe_filename(f"{who} — {r['title']}" if who else r["title"], "Нарезка")
         files.append({"name": name,
                       "url": r2_storage.download_url(r["r2_key"], name, client=cl, bucket=bucket)})
+        # ⚠️ Обложка идёт ОТДЕЛЬНЫМ файлом рядом с видео: площадки (VK, YouTube,
+        # Rutube) принимают её только так — вклеенный в ролик кадр они
+        # игнорируют и ставят свою автопревьюшку.
+        if r["cover_url"]:
+            files.append({"name": f"{name} — обложка.png", "url": r["cover_url"]})
     return {"files": files}
 
 
@@ -977,7 +1026,7 @@ async def download_cut(event_id: int, day_number: int, recording_id: int, cut_id
     await ws.assert_event_owner(db, event_id, _cid(client))
     await _recording_or_404(db, event_id, day_number, recording_id)
     row = await db.fetchrow(
-        "SELECT c.r2_key, c.title, cl.name AS speaker_name, cl.last_name "
+        "SELECT c.r2_key, c.title, c.cover_url, cl.name AS speaker_name, cl.last_name "
         "  FROM webinar_recording_cuts c "
         "  LEFT JOIN event_collaborators ec ON ec.id = c.speaker_ec_id "
         "  LEFT JOIN collaborators cl ON cl.id = ec.speaker_id "
@@ -990,7 +1039,12 @@ async def download_cut(event_id: int, day_number: int, recording_id: int, cut_id
     from app.services.client_storage import storage_for
     from app.services import r2_storage
     cl, bucket, _ = await storage_for(db, await _client_of_event(db, event_id))
-    return {"url": r2_storage.download_url(row["r2_key"], name, client=cl, bucket=bucket)}
+    return {
+        "url": r2_storage.download_url(row["r2_key"], name, client=cl, bucket=bucket),
+        # Обложка отдельным файлом — для загрузки на VK/YouTube.
+        "cover_url": row["cover_url"],
+        "name": name,
+    }
 
 
 # ─────────────────────────── автовебинар ───────────────────────────
