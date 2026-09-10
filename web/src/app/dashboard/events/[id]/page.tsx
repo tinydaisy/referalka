@@ -41,6 +41,9 @@ export default function EventPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useUrlTab<TabKey>('tab', 'overview')
   const { me } = useMe()
+  // ⚠️ Программа у обычного мероприятия — фича Экстры (миграция 401). Механизм
+  // тот же, что у конференции: своей реализации заводить нельзя.
+  const hasEventProgram = (me?.features || []).includes('event_program')
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
   const hasLanding = (me?.features || []).includes('event_landing')
@@ -89,7 +92,16 @@ export default function EventPage() {
         // Программа — у КОЛЛАБ-события: организаторы выступают по очереди,
         // им нужно расписание, как у конференции. У обычного мероприятия
         // программы нет (там одно выступление), поэтому вкладка только в коллабе.
-        ...(event.is_collab ? [{ key: 'program' as TabKey, label: 'Программа' }] : []),
+        // ⚠️⚠️ ПРОГРАММА ЕСТЬ У ЛЮБОГО СОБЫТИЯ — механизм один (conf_days +
+        // conf_sessions), и доступ к нему проверяет ВЛАДЕНИЕ событием, а не
+        // тип (`check_conference_access`). У коллабы она работала всегда;
+        // мероприятию её просто не показывали, и трёхдневник приходилось
+        // заводить конференцией.
+        // ⚠️ У мероприятия — по фиче `event_program` (Экстра): у однодневного
+        // события программа из одного слота не нужна и только путает, поэтому
+        // включается осознанно, а не появляется у всех.
+        ...(event.is_collab || hasEventProgram
+            ? [{ key: 'program' as TabKey, label: 'Программа' }] : []),
         { key: 'posters',  label: 'Афиши' },
         // ⚠️ Вебинар вынесен ОТДЕЛЬНЫМ разделом первого уровня (как в
         // конференции) — внутри «Настроек» его не найти.
@@ -251,7 +263,7 @@ export default function EventPage() {
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
       {activeTab === 'landing' && hasLanding && <LandingTab eventId={eventId} event={event} />}
       {activeTab === 'webinar' && hasWebinar && <WebinarTab eventId={eventId} event={event} />}
-      {activeTab === 'program' && event.is_collab && <ProgramTab eventId={eventId} />}
+      {activeTab === 'program' && (event.is_collab || hasEventProgram) && <ProgramTab eventId={eventId} />}
       {activeTab === 'report'  && event.is_collab && <CollabReportTab eventId={eventId} />}
       {/* Дашборд события: движок общий с «Аналитикой», но считает только по
           участникам этого события — условие подставляет бэк. */}
