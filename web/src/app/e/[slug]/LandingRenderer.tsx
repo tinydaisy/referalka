@@ -869,7 +869,7 @@ function Section({
   // ⚠️ Заголовок БЕЗ содержимого — законный случай: клиент делает «шапку
   // раздела» или ставит `el_heading`. Прячем только когда пусто ВСЁ: тело,
   // заголовок, подзаголовок, картинка и кнопка.
-  const _emptyBody = blockBody === null || blockBody === undefined || blockBody === false
+  const _emptyBody = !blockBody
   const _hasVisibleExtras = !!(title || '').trim() || !!(_subtitleText || '').trim()
     || !!block.image_url || !!(block.button_label || '').trim()
   if (_emptyBody && !_hasVisibleExtras) return null
