@@ -70,7 +70,7 @@ DEFAULT_MAIN_BLOCKS: list[dict] = [
     # ⚠️ Место проведения с картой — только у офлайн-событий, поэтому ВЫКЛЮЧЕН
     # по умолчанию: у вебинара адреса нет, и пустая секция на странице выглядит
     # поломкой. Клиент включает галочкой, когда событие живое.
-    {"kind": "venue",      "is_active": False},
+    {"kind": "venue",      "is_active": False, "title": "Как нас найти"},
     {"kind": "support",    "is_active": True},
     {"kind": "footer",     "is_active": True},
 ]
@@ -519,7 +519,15 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
             "SELECT 1 FROM event_landing_blocks WHERE page_id = $1 LIMIT 1", page["id"]
         )
         if not has_blocks:
+            # ⚠️ Место проведения включается САМО у офлайн-события: клиент уже
+            # сказал формат галочкой в настройках, спрашивать второй раз в
+            # конструкторе незачем — он про эту секцию просто не вспомнит и
+            # решит, что карты на лендинге нет вовсе.
+            is_offline = bool(await db.fetchval(
+                "SELECT is_offline FROM events WHERE id = $1", event_id))
             for i, b in enumerate(preset):
+                if b["kind"] == "venue":
+                    b = {**b, "is_active": is_offline}
                 await db.execute(
                     # ⚠️ Заголовки НОВЫХ лендингов — ПО ЦЕНТРУ. В колонке
                     # умолчание 'left' (так собраны уже существующие страницы,
@@ -527,11 +535,54 @@ async def _get_or_create_page(db, event_id: int, kind: str) -> asyncpg.Record:
                     # поэтому центр проставляем здесь, при создании блоков.
                     # ⚠️ Ширина колонки: у ШАПКИ 100% (во всю полосу), у секции
                     # 50% (пропорция двух колонок). Поле одно, смысл разный.
-                    "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align, split_ratio) "
-                    "VALUES ($1, $2, $3, $4, 'center', $5)",
+                    # ⚠️ `title` — заголовок ПО УМОЛЧАНИЮ у секций, где он не
+                    # очевиден из содержимого (например «Как нас найти» у карты).
+                    # Клиент его правит как обычно; пустой заголовок у такой
+                    # секции читался бы как недоделанная страница.
+                    "INSERT INTO event_landing_blocks (page_id, kind, sort_order, is_active, title_align, split_ratio, title) "
+                    "VALUES ($1, $2, $3, $4, 'center', $5, $6)",
                     page["id"], b["kind"], i * 10, b["is_active"],
                     100 if b["kind"] == "hero" else 50,
+                    b.get("title"),
                 )
+        else:
+            # ⚠️⚠️ ЛЕНДИНГ СОБРАН ДО ПОЯВЛЕНИЯ СЕКЦИИ — ДОПИСЫВАЕМ ЕЁ.
+            # «Место проведения» добавили позже, чем существующие страницы были
+            # созданы: у них этого блока нет вовсе, и клиент его не находит —
+            # для него секции просто не существует. Дописываем недостающие
+            # секции из набора по умолчанию при открытии конструктора.
+            #
+            # ⚠️ Только ВЫКЛЮЧЕННЫЕ по умолчанию (`venue`): дописать включённую
+            # значило бы задним числом изменить УЖЕ СОБРАННУЮ клиентом
+            # страницу — на ней появился бы блок, которого он туда не ставил.
+            # Исключение — офлайн-событие: там секция включается сразу, потому
+            # что клиент уже сказал формат галочкой в настройках.
+            #
+            # ⚠️ Удалённую секцию НЕ воскрешаем: дописываем только то, чего в
+            # базе нет ни в каком виде. Иначе удалённый блок возвращался бы при
+            # каждом открытии вкладки, и убрать его было бы нельзя.
+            if kind == "main":
+                existing = {r["kind"] for r in await db.fetch(
+                    "SELECT DISTINCT kind FROM event_landing_blocks WHERE page_id = $1",
+                    page["id"])}
+                missing = [b for b in preset
+                           if b["kind"] == "venue" and b["kind"] not in existing]
+                if missing:
+                    is_offline = bool(await db.fetchval(
+                        "SELECT is_offline FROM events WHERE id = $1", event_id))
+                    # В конец страницы: куда её поставить, решает клиент —
+                    # угадывать место в уже собранной вёрстке нельзя.
+                    tail = await db.fetchval(
+                        "SELECT COALESCE(MAX(sort_order), 0) FROM event_landing_blocks WHERE page_id = $1",
+                        page["id"]) or 0
+                    for i, b in enumerate(missing):
+                        await db.execute(
+                            "INSERT INTO event_landing_blocks "
+                            "(page_id, kind, sort_order, is_active, title_align, split_ratio, title) "
+                            "VALUES ($1, $2, $3, $4, 'center', 50, $5)",
+                            page["id"], b["kind"], tail + (i + 1) * 10,
+                            is_offline, b.get("title"),
+                        )
     return page
 
 

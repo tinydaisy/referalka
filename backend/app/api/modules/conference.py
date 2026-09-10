@@ -579,6 +579,18 @@ async def update_conference(
         )
         # (chat_url теперь вычисляется из ref при чтении — shadow-пересчёт не нужен)
 
+        # ⚠️⚠️ Галочка «офлайн» сама включает секцию «Место проведения» на
+        # лендинге — то же правило, что у мероприятия (см. events.py). Клиент
+        # уже сказал формат в настройках; заставлять его вспоминать про секцию
+        # в конструкторе нельзя — он решит, что карты на лендинге нет вовсе.
+        if "is_offline" in event_updates:
+            await db.execute(
+                """UPDATE event_landing_blocks b SET is_active = $2
+                     FROM event_landing_pages p
+                    WHERE b.page_id = p.id AND p.event_id = $1 AND b.kind = 'venue'""",
+                event_id, bool(event_updates["is_offline"]),
+            )
+
     await regenerate_landing_data(event_id, db)
     # Возвращаем тот же обогащённый объект что и в GET /conference/ —
     # с подменой chat_url/stream_url/vip_url/event_landing_url из events.

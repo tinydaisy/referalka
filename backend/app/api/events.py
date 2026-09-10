@@ -745,6 +745,20 @@ async def update_event(
             "UPDATE event_owners SET allow_collab_broadcasts = FALSE WHERE event_id = $1",
             event_id)
 
+    # ⚠️⚠️ ГАЛОЧКА «ОФЛАЙН» САМА ВКЛЮЧАЕТ СЕКЦИЮ «МЕСТО ПРОВЕДЕНИЯ» на лендинге
+    # (и выключает при снятии). Клиент уже сказал формат события в настройках —
+    # заставлять его отдельно вспоминать про секцию в конструкторе нельзя: он
+    # про неё не вспомнит и решит, что карты на лендинге нет вовсе.
+    # ⚠️ Секция ОСТАЁТСЯ в списке «Добавить секцию» — её можно удалить и
+    # вернуть руками; здесь только умолчание по формату события.
+    if "is_offline" in updates:
+        await db.execute(
+            """UPDATE event_landing_blocks b SET is_active = $2
+                 FROM event_landing_pages p
+                WHERE b.page_id = p.id AND p.event_id = $1 AND b.kind = 'venue'""",
+            event_id, bool(updates["is_offline"]),
+        )
+
     updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1", event_id)
     return {"event": dict(updated)}
 
