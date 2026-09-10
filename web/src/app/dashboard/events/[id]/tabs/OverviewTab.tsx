@@ -27,6 +27,9 @@ export default function OverviewTab({
   const [isOffline, setIsOffline] = useState<boolean>(!!event.is_offline)
   const [address, setAddress] = useState<string>(event.address || '')
   const [addressBtn, setAddressBtn] = useState<string>(event.address_button_label || '')
+  // ⚠️ Бессрочное событие: даты нет вовсе (консультация, доступ к материалам).
+  // Не путать с «дату ещё не выбрали» — там дата появится.
+  const [evergreen, setEvergreen] = useState<boolean>(!!event.is_evergreen)
   // Координаты из подсказки адреса (мигр. 398) — по ним карта ставит МЕТКУ.
   const [geoLat, setGeoLat] = useState<number | null>(event.geo_lat ?? null)
   const [geoLon, setGeoLon] = useState<number | null>(event.geo_lon ?? null)
@@ -114,6 +117,7 @@ export default function OverviewTab({
       if (isOffline !== !!event.is_offline)                     payload.is_offline = isOffline
       if (address !== (event.address || ''))                    payload.address = address
       if (addressBtn !== (event.address_button_label || ''))    payload.address_button_label = addressBtn
+      if (evergreen !== !!event.is_evergreen)                   payload.is_evergreen = evergreen
       if (geoLat !== (event.geo_lat ?? null))                   payload.geo_lat = geoLat
       if (geoLon !== (event.geo_lon ?? null))                   payload.geo_lon = geoLon
       if (isMedialift && mlRequiredSubs !== (event.medialift_required_subscriptions ?? 3))
@@ -232,6 +236,26 @@ export default function OverviewTab({
               видел бы кнопку эфира, которого нет. А в это же поле исторически
               кладут ссылку на трансляцию: такое событие сочли бы офлайновым и
               увели людей на карту по обрывку URL. */}
+          {/* ⚠️⚠️ БЕССРОЧНОЕ СОБЫТИЕ — вместо выдуманной даты. Раньше под запись
+              на консультацию или доступ к материалам ставили 2050 год: такое
+              событие садится в конец календаря, попадает в «Скоро» после всех
+              настоящих, а за сутки до него уходят напоминания «завтра
+              начинается». Здесь даты просто нет. */}
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={evergreen}
+              onChange={e => setEvergreen(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <span className="text-sm text-gray-700">
+              Идёт постоянно, даты нет
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Для записи на консультацию, доступа к материалам и приёма заявок
+                без срока. Событие публикуется без даты, показывается в календаре
+                отдельно и не «заканчивается». Напоминания по нему не приходят —
+                напоминать не о чем.
+              </span>
+            </span>
+          </label>
+
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="checkbox" checked={isOffline}
               onChange={e => setIsOffline(e.target.checked)}

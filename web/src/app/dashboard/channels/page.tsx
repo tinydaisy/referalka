@@ -11,6 +11,7 @@ import {
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
 import AutoSetupTab from '@/components/channels/AutoSetupTab'
+import SolutionsTab from '@/components/solutions/SolutionsTab'
 import QrLinkButton from '@/components/QrLinkButton'
 import LockedOverlay from '@/components/LockedOverlay'
 
@@ -116,10 +117,10 @@ export default function ChannelsPage() {
    * обёртку не стоит.
    */
   const pathname = usePathname()
-  const [tab, setTabState] = useState<'bots' | 'chats' | 'autosetup'>(() => {
+  const [tab, setTabState] = useState<'bots' | 'chats' | 'autosetup' | 'solutions'>(() => {
     if (typeof window === 'undefined') return 'bots'
     const v = new URLSearchParams(window.location.search).get('tab')
-    return v === 'autosetup' || v === 'chats' ? v : 'bots'
+    return v === 'autosetup' || v === 'chats' || v === 'solutions' ? v : 'bots'
   })
 
   /**
@@ -136,7 +137,7 @@ export default function ChannelsPage() {
   useEffect(() => {
     const sync = () => {
       const v = new URLSearchParams(window.location.search).get('tab')
-      const next = (v === 'autosetup' || v === 'chats') ? v : 'bots'
+      const next = (v === 'autosetup' || v === 'chats' || v === 'solutions') ? v : 'bots'
       setTabState(prev => (prev === next ? prev : next))
     }
     sync()
@@ -157,7 +158,7 @@ export default function ChannelsPage() {
    * историю — иначе «Назад» будет ходить по вкладкам вместо возврата на
    * предыдущую страницу. Тот же приём, что в `useUrlTab`.
    */
-  const setTab = (v: 'bots' | 'chats' | 'autosetup') => {
+  const setTab = (v: 'bots' | 'chats' | 'autosetup' | 'solutions') => {
     setTabState(v)
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
@@ -309,6 +310,12 @@ export default function ChannelsPage() {
         {/* ⚠️ Вкладка видна ВСЕМ, а не только с фичей. Услуга открывается по
             коду доступа, и вводить его человеку негде, если вкладки нет вовсе.
             Внутри без доступа показывается описание услуги и поле для кода. */}
+        {/* ⚠️ «Готовые решения» видны ВСЕМ и без фичи: это витрина, по которой
+            человек как раз и понимает, чего ему не хватает. Прятать её за
+            тарифом значит прятать причину покупать тариф. */}
+        <TabBtn active={tab === 'solutions'} onClick={() => setTab('solutions')}>
+          Готовые решения
+        </TabBtn>
         <TabBtn active={tab === 'autosetup'} onClick={() => setTab('autosetup')}>
           Автонастройка
         </TabBtn>
@@ -343,6 +350,7 @@ export default function ChannelsPage() {
 
       {tab === 'chats' && <BroadcastChatsTab />}
 
+      {tab === 'solutions' && <SolutionsTab />}
       {tab === 'autosetup' && <AutoSetupTab />}
 
       {(creating || editing) && (

@@ -382,6 +382,7 @@ async def public_client_events(
                      e.end_at
                    ) AS end_at,
                    CASE
+                     WHEN e.is_evergreen THEN 'always'
                      WHEN COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at) IS NULL
                        OR COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at)   IS NULL
                           THEN 'upcoming'
@@ -432,6 +433,8 @@ async def public_client_events(
         items = [i for i in items if i["bucket"] == bucket]
         return {"items": items}
     return {
+        # ⚠️ Бессрочные — отдельной группой: они не «скоро» и не «прошли».
+        "always":   [i for i in items if i["bucket"] == "always"],
         "now":      [i for i in items if i["bucket"] == "now"],
         "upcoming": [i for i in items if i["bucket"] == "upcoming"],
         "past":     [i for i in items if i["bucket"] == "past"],

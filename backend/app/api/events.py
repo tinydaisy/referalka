@@ -106,6 +106,9 @@ class CreateEventRequest(BaseModel):
 
 
 class UpdateEventRequest(BaseModel):
+    # ⚠️ Бессрочное событие: даты нет вовсе (консультация, доступ к
+    # материалам, приём заявок). Не путать с «дату ещё не выбрали».
+    is_evergreen: Optional[bool] = None
     title: Optional[str] = None
     slug: Optional[str] = None          # пользовательский код ссылки (или короткий по умолчанию)
     description: Optional[str] = None
@@ -580,8 +583,12 @@ async def update_event(
     # на ровном месте и уйдёт. Вебинарную комнату не проверяем вовсе — её
     # заводят перед эфиром, когда регистрации уже идут.
     if data.model_fields_set and data.status == "published" and event["status"] != "published":
+        # ⚠️ Бессрочное событие публикуется БЕЗ даты: у записи на консультацию
+        # или доступа к материалам даты не существует, и выдуманная (обычно
+        # 2050 год) ломает календарь и шлёт напоминания «завтра начинается».
         has_dates = await db.fetchval(
-            """SELECT (e.start_at IS NOT NULL)
+            """SELECT e.is_evergreen
+                   OR (e.start_at IS NOT NULL)
                    OR EXISTS(SELECT 1 FROM conf_days cd WHERE cd.event_id = e.id AND cd.day_date IS NOT NULL)
                  FROM events e WHERE e.id = $1""",
             event_id,
