@@ -45,6 +45,23 @@ export default function SolutionPage() {
     )
   }
 
+  // ⚠️ Гейт нужен и на САМОЙ странице: скрытая вкладка не мешает открыть
+  // раздел по прямой ссылке (та же ошибка была у конференций — см. правило
+  // «Замка в сайдбаре недостаточно»).
+  if (me && !features.includes('ready_solutions')) {
+    return (
+      <div className="p-4 md:p-8">
+        <p className="text-sm text-gray-500">
+          Раздел готовых решений пока недоступен в вашем кабинете.
+        </p>
+        <Link href="/dashboard/channels" className="mt-3 inline-block text-sm underline"
+              style={{ color: DARK }}>
+          ← К каналам
+        </Link>
+      </div>
+    )
+  }
+
   const missing = missingFeatures(sol, features)
   const available = missing.length === 0
   const category = CATEGORIES.find(c => c.key === sol.category)

@@ -246,6 +246,8 @@ export default function ChannelsPage() {
   }
 
   const isVip = (me?.features || []).includes('channels')
+  // ⚠️ Раздел «Готовые решения» пока обкатывается — только у админа (мигр. 400).
+  const hasSolutions = (me?.features || []).includes('ready_solutions')
   // Системный сервисный аккаунт ПЛЮСОНа (client 3): для него системный @pluson_bot
   // (и системные VK/MAX) — это фактически ЕГО собственные боты. Поэтому апсейл
   // «подключите свой бот» и красный баннер ему не показываем.
@@ -310,12 +312,14 @@ export default function ChannelsPage() {
         {/* ⚠️ Вкладка видна ВСЕМ, а не только с фичей. Услуга открывается по
             коду доступа, и вводить его человеку негде, если вкладки нет вовсе.
             Внутри без доступа показывается описание услуги и поле для кода. */}
-        {/* ⚠️ «Готовые решения» видны ВСЕМ и без фичи: это витрина, по которой
-            человек как раз и понимает, чего ему не хватает. Прятать её за
-            тарифом значит прятать причину покупать тариф. */}
-        <TabBtn active={tab === 'solutions'} onClick={() => setTab('solutions')}>
-          Готовые решения
-        </TabBtn>
+        {/* ⚠️ Пока раздел обкатывается — вкладка СКРЫТА без фичи, а не показана
+            с замком (как «Автообзвоны» и «Продукты»): клиентам он ещё не
+            продаётся, дразнить незачем. Открыть = строка в `tariff_features`. */}
+        {hasSolutions && (
+          <TabBtn active={tab === 'solutions'} onClick={() => setTab('solutions')}>
+            Готовые решения
+          </TabBtn>
+        )}
         <TabBtn active={tab === 'autosetup'} onClick={() => setTab('autosetup')}>
           Автонастройка
         </TabBtn>
@@ -350,7 +354,7 @@ export default function ChannelsPage() {
 
       {tab === 'chats' && <BroadcastChatsTab />}
 
-      {tab === 'solutions' && <SolutionsTab />}
+      {tab === 'solutions' && hasSolutions && <SolutionsTab />}
       {tab === 'autosetup' && <AutoSetupTab />}
 
       {(creating || editing) && (
