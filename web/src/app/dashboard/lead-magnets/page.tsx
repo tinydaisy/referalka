@@ -498,6 +498,9 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   const [err, setErr] = useState<string | null>(null)
   // Как отдавать материал: ссылкой в тексте, кнопкой или и так, и так.
   const [linkMode, setLinkMode] = useState<string>((initial as any)?.link_mode || 'text')
+  // Откуда берётся ссылка (миграции 385 и 399): своя, служба заботы или бот
+  // ПЛЮСОНа с реф-кодом. У «ссылки рефовода» гейт по тарифу — см. ниже.
+  const [linkSource, setLinkSource] = useState<string>((initial as any)?.link_source || 'fixed')
   const [buttonLabel, setButtonLabel] = useState<string>((initial as any)?.button_label || '')
   // Анкета-шлагбаум перед выдачей. По умолчанию не требуется.
   const [surveyId, setSurveyId] = useState<number | ''>(
@@ -511,6 +514,10 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   // ⚠️ Без фичи галочку не показываем: настройка, которой некуда примениться,
   // только путает. Партнёр видит в кабинете ТОЛЬКО отмеченные материалы.
   const hasPartnerProgram = (meForSurveys?.features || []).includes('partner_program')
+  // ⚠️ «Ссылка рефовода» — только admin: у обычного клиента рефовода в
+  // воронке не бывает (на боевых данных — ни в одном из 3704 забегов),
+  // и выбор, смысла которого он не поймёт, только собьёт с толку.
+  const isAdminTariff = (meForSurveys as any)?.subscription?.tariff_slug === 'admin'
   const [partnerOn, setPartnerOn] = useState<boolean>(
     !!(initial as any)?.partner_enabled)
   useEffect(() => {
@@ -521,13 +528,20 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErr(null)
-    if (!name.trim() || !url.trim()) { setErr('Название и ссылка обязательны'); return }
+    // ⚠️ При «ссылке на ПЛЮСОН» поле «Ссылка» НЕ обязательно: адрес
+    // подставляет сервер под площадку человека, вписывать его руками нечем и
+    // незачем. Требовать его здесь значило бы не дать сохранить форму.
+    const linkNeeded = !linkSource.startsWith('plusson_')
+    if (!name.trim() || (linkNeeded && !url.trim())) {
+      setErr(linkNeeded ? 'Название и ссылка обязательны' : 'Название обязательно'); return
+    }
     setSaving(true)
     try {
       const payload = {
         name: name.trim(), description: description.trim() || null, url: url.trim(),
         require_survey_id: surveyId ? Number(surveyId) : null,
         link_mode: linkMode,
+        link_source: linkSource,
         button_label: buttonLabel.trim() || null,
         // ⚠️ Шлём только при подключённой фиче: иначе сохранение формы у
         // клиента без партнёрки молча сбрасывало бы уже отмеченное.
@@ -557,6 +571,25 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
                  rows={2}
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                  placeholder="Короткое описание — покажется в воронке под названием подарка (плейсхолдер {materials_list_description})" />
+        </Field>
+        <Field label="Откуда берётся ссылка">
+          <select value={linkSource} onChange={e => setLinkSource(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="fixed">Ссылка выше — как вписана</option>
+            <option value="support">Служба заботы — по площадке человека</option>
+            <option value="plusson_self">Выдавать вашу ссылку на ПЛЮСОН (по 3 площадкам)</option>
+            {isAdminTariff && (
+              <option value="plusson_referrer">Выдавать ссылку вашего рефовода (по 3 площадкам)</option>
+            )}
+          </select>
+          {linkSource.startsWith('plusson_') && (
+            <p className="mt-1 text-xs text-gray-500">
+              Ссылка подставится сама под мессенджер человека: из Телеграма — телеграмная,
+              из МАКСа — максовская, из ВК — вэкашная. Пришёл с сайта — покажем все три на выбор.
+              {linkSource === 'plusson_referrer' && ' Рефовода нет или он не в ПЛЮСОНе — отдадим вашу ссылку.'}
+              {' '}Поле «Ссылка» при этом можно оставить пустым.
+            </p>
+          )}
         </Field>
         <Field label="Как выдавать материал">
           <select value={linkMode} onChange={e => setLinkMode(e.target.value)}

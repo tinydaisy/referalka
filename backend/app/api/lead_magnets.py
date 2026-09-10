@@ -62,6 +62,21 @@ def _norm_link_mode(v):
     return v if v in ('text', 'button', 'both') else 'text'
 
 
+def _url_for_source(url: str, link_source: str) -> str:
+    """Ссылка материала с учётом источника.
+
+    ⚠️ У режимов `plusson_*` адрес подставляет СЕРВЕР при выдаче (под площадку
+    человека), поэтому в поле его вписывать нечем — форма разрешает оставить
+    пусто. Но колонка `url` NOT NULL, и пустая строка в базе выглядела бы как
+    недозаполненный материал. Кладём плейсхолдер `{plsn_bot}` — он и есть
+    «подставь ссылку сюда», и раскрывается в воронке.
+    """
+    u = (url or "").strip()
+    if link_source.startswith("plusson_") and not u:
+        return "{plsn_bot}"
+    return u
+
+
 def _norm_link_source(v):
     """Источник ссылки → безопасное значение (миграция 385).
 
@@ -185,6 +200,7 @@ async def create_lead_magnet(
     db: asyncpg.Connection = Depends(get_db)
 ):
     cid = int(client["sub"])
+    _src = await _guard_link_source(db, cid, _norm_link_source(data.link_source))
     slug = await _make_unique_lead_magnet_slug(db)
     row = await db.fetchrow(
         """INSERT INTO lead_magnets (client_id, name, description, url, slug,
@@ -194,10 +210,11 @@ async def create_lead_magnet(
                    COALESCE($9,'fixed'), $10)
            RETURNING id, name, description, url, slug, require_survey_id,
                       link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at""",
-        cid, data.name.strip(), data.description, data.url.strip(), slug,
+        cid, data.name.strip(), data.description,
+        _url_for_source(data.url, _src), slug,
         _norm_link_mode(data.link_mode), _norm_button_label(data.button_label),
         data.partner_enabled,
-        await _guard_link_source(db, cid, _norm_link_source(data.link_source)),
+        _src,
         _norm_support_prefill(data.support_prefill),
     )
     out = dict(row)
@@ -282,6 +299,7 @@ async def update_lead_magnet(
     db: asyncpg.Connection = Depends(get_db)
 ):
     cid = int(client["sub"])
+    _src = await _guard_link_source(db, cid, _norm_link_source(data.link_source))
     row = await db.fetchrow(
         # ⚠️ `require_survey_id` меняем только если фронт его прислал
         # (`model_fields_set`) — иначе сохранение формы без этого поля молча
@@ -305,14 +323,15 @@ async def update_lead_magnet(
             WHERE id = $4 AND client_id = $5
             RETURNING id, name, description, url, slug, require_survey_id,
                       link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at""",
-        data.name.strip(), data.description, data.url.strip(),
+        data.name.strip(), data.description,
+        _url_for_source(data.url, _src),
         lead_magnet_id, cid,
         'require_survey_id' in data.model_fields_set, data.require_survey_id,
         'link_mode' in data.model_fields_set, _norm_link_mode(data.link_mode),
         'button_label' in data.model_fields_set, _norm_button_label(data.button_label),
         'partner_enabled' in data.model_fields_set, data.partner_enabled,
         'link_source' in data.model_fields_set,
-        await _guard_link_source(db, cid, _norm_link_source(data.link_source)),
+        _src,
         'support_prefill' in data.model_fields_set, _norm_support_prefill(data.support_prefill),
     )
     if not row:
