@@ -111,6 +111,7 @@ export const SOLUTIONS: Solution[] = [
       'Картинка или видео к сообщениям — там же, в шаблоне воронки',
       'Канал для проверки подписки — «Mini App» → «Основатель»',
     ],
+    demo: 'https://telegram.me/pluson_bot?start=m_3thsp',
   },
   {
     slug: 'instagram-reels',
@@ -179,6 +180,7 @@ export const SOLUTIONS: Solution[] = [
       'Контакты службы заботы — «Настройки» → «Профиль»',
       'Канал, на который проверяется подписка — «Mini App» → «Основатель»',
     ],
+    demo: 'https://telegram.me/pluson_bot?start=m_8h9tw',
   },
   {
     slug: 'consult-survey-link',
@@ -213,6 +215,7 @@ export const SOLUTIONS: Solution[] = [
       'Кому приходит письмо о новой заявке — настройки анкеты',
       'Контакты службы заботы — «Настройки» → «Профиль»',
     ],
+    demo: 'https://telegram.me/pluson_bot?start=m_gsnr9',
   },
   {
     slug: 'consult-survey-only',
@@ -242,6 +245,7 @@ export const SOLUTIONS: Solution[] = [
       'Вопросы анкеты и текст после отправки — «Анкеты»',
       'Тексты воронки — «Лид-магниты» → «Шаблон воронки»',
     ],
+    demo: 'https://telegram.me/pluson_bot?start=m_qynsd',
   },
   {
     slug: 'consult-event-miniapp',
@@ -337,6 +341,7 @@ export const SOLUTIONS: Solution[] = [
       'Картинка розыгрыша — карточка лид-магнита',
       'Канал для подписки — «Mini App» → «Основатель»',
     ],
+    demo: 'https://telegram.me/pluson_bot?start=m_eanz5',
   },
   {
     slug: 'raffle-survey',
@@ -369,6 +374,7 @@ export const SOLUTIONS: Solution[] = [
       'Картинка «РОЗЫГРЫШ» — в первом блоке анкеты',
       'Тексты воронки — «Лид-магниты» → «Шаблон воронки»',
     ],
+    demo: 'https://telegram.me/pluson_bot?start=m_ykzsx',
   },
   {
     slug: 'raffle-event-miniapp',
