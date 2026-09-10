@@ -926,6 +926,29 @@ export const api = {
     log: (id: number) => request(`/api/v1/call-campaigns/${id}/log`),
   },
 
+  // Промокоды клиента (миграция 397). Один список на кабинет, фильтруется
+  // по событию/продукту — заводить их отдельно в каждом событии нельзя:
+  // не посчитать общий лимит применений и не увидеть, что вообще живо.
+  promoCodes: {
+    list: (params?: { event_id?: number; product_id?: number; archived?: boolean }) => {
+      const q = new URLSearchParams()
+      if (params?.event_id) q.set('event_id', String(params.event_id))
+      if (params?.product_id) q.set('product_id', String(params.product_id))
+      if (params?.archived) q.set('archived', 'true')
+      const s = q.toString()
+      return request(`/api/v1/promo-codes${s ? `?${s}` : ''}`)
+    },
+    create: (data: any) =>
+      request('/api/v1/promo-codes', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/promo-codes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: number) =>
+      request(`/api/v1/promo-codes/${id}`, { method: 'DELETE' }),
+    removeBatch: (batchId: string) =>
+      request(`/api/v1/promo-codes/batch/${batchId}`, { method: 'DELETE' }),
+    uses: (id: number) => request(`/api/v1/promo-codes/${id}/uses`),
+  },
+
   eventTariffs: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs`),
     allOrders: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs-orders`),

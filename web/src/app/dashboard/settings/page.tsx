@@ -12,7 +12,7 @@ import CoverTemplatesTab from '@/components/settings/CoverTemplatesTab'
 import AssistantTab from '@/components/settings/AssistantTab'
 import ChatGatesTab from '@/components/settings/ChatGatesTab'
 import StorageTab from '@/components/settings/StorageTab'
-import PaymentSettingsTab from '@/components/settings/PaymentSettingsTab'
+import PaymentsSection from '@/components/settings/PaymentsSection'
 import DomainsTab from '@/components/settings/DomainsTab'
 import CallSettingsBlock from '@/components/settings/CallSettingsBlock'
 import NewsEmailBlock from '@/components/settings/NewsEmailBlock'
@@ -303,7 +303,8 @@ export default function SettingsPage() {
       {/* Гейт по подписке в TG-чатах — миграция 115 */}
       {effectiveTab === 'storage' && <StorageTab />}
       {effectiveTab === 'chat-gates' && <ChatGatesTab />}
-      {effectiveTab === 'payments' && <PaymentSettingsTab />}
+      {/* Два подраздела: ключи платёжной системы и промокоды (миграция 397). */}
+      {effectiveTab === 'payments' && <PaymentsSection />}
 
       {/* Свой домен: публичные страницы + адрес отправителя писем — миграция 270 */}
       {/* ⚠️ Без `hasCustomDomain`: вкладка открыта всем, а замок с тарифом

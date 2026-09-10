@@ -460,11 +460,31 @@ async def get_public_landing(
         featured = next(
             (b["featured_tariff_id"] for b in blocks if b["kind"] == "tariffs"), None
         )
+        # Промокоды (миграция 397) работают не со всеми платёжными системами:
+        # ⚠️ у LeadPay цена лежит в его карточке товара, произвольную сумму мы
+        # передать не можем — значит поле промокода там показывать нельзя,
+        # оно ничего не сделает.
+        # ⚠️ Здесь «первый владелец» ДОПУСТИМ (в отличие от resolve_event_client):
+        # решается только показ поля, а не то, в чью базу попадёт человек.
+        # У коллабы платёжки организаторов могут различаться — тогда поле
+        # покажется по владельцу, а настоящую проверку сделает сервер при
+        # заказе и вернёт понятный отказ.
+        from app.services.promo_codes import supported_by_provider
+        _pay_provider = await db.fetchval(
+            """SELECT cl.pay_provider FROM event_owners eo
+                 JOIN clients cl ON cl.id = eo.client_id
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""",
+            event["id"],
+        )
+        promo_allowed = supported_by_provider(_pay_provider)
+
         items = []
         for r in rows:
             # with_discount дописывает old_price / discount_percent —
             # зачёркнутую цену считаем в одном месте, а не в каждом рендерере.
             d = with_discount(r)
+            d["promo_allowed"] = promo_allowed
             if featured:
                 d["is_featured"] = d["id"] == featured
             # ⚠️ Строка «Бонус:» собирается ЗДЕСЬ, а не пишется клиентом в

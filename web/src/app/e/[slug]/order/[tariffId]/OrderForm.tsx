@@ -70,8 +70,16 @@ export default function OrderForm({
   // в базе — они уникальны, второй контакт с ними не создастся.
   const [canCreateNew, setCanCreateNew] = useState(false)
 
+  // Промокод (миграция 397). ⚠️ Скидку считает СЕРВЕР — здесь только поле
+  // ввода и показ результата: расчёт в браузере обходится запросом мимо формы.
+  const [promo, setPromo] = useState('')
+  const [promoOpen, setPromoOpen] = useState(false)
+
   const price = Number(tariff.price || 0)
   const isFree = price <= 0
+  // ⚠️ Поле промокода НЕ показываем, если платёжная система его не
+  // поддерживает: пустое поле, которое ничего не делает, хуже отсутствующего.
+  const promoAllowed = !isFree && tariff.promo_allowed !== false
 
   // ⚠️ Бесплатный тариф + галочка «Регистрировать без ввода контактных
   // данных» + человек пришёл из бота → регистрируем сразу, форму не
@@ -192,6 +200,7 @@ export default function OrderForm({
           // прямо на лендинг, минуя бота, и всё равно считать рефералов.
           ref_code: pid || null,
           utm_source: utmSource || null,
+          promo_code: promoAllowed && promo.trim() ? promo.trim() : null,
           consent_pd: true,
           consent_marketing: mkt,
         }),
@@ -398,6 +407,27 @@ export default function OrderForm({
             <input value={tg} onChange={e => setTg(e.target.value)}
                    placeholder="@nickname" style={inputStyle(page)} />
           </Field>
+
+          {/* ⚠️ Промокод СВЁРНУТ по умолчанию: у большинства покупателей его
+              нет, а открытое пустое поле читается как «тут должно быть что-то,
+              чего мне не дали» — и человек уходит искать код вместо покупки.
+              Скидку считает сервер, здесь только ввод. */}
+          {promoAllowed && (
+            promoOpen ? (
+              <Field label="Промокод">
+                <input value={promo} onChange={e => setPromo(e.target.value)}
+                       placeholder="Например, PLUSON20"
+                       autoCapitalize="characters" spellCheck={false}
+                       style={inputStyle(page)} />
+              </Field>
+            ) : (
+              <button type="button" onClick={() => setPromoOpen(true)}
+                      className="text-[.85em] underline opacity-80 hover:opacity-100"
+                      style={{ color: page.color_link || '#FFCFA4' }}>
+                У меня есть промокод
+              </button>
+            )
+          )}
 
           {/* Три ОТДЕЛЬНЫЕ галочки: персональные данные, оферта и рассылки.
               Смешивать их в одну нельзя — это разные согласия по смыслу и

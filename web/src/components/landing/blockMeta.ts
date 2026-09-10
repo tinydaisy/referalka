@@ -290,6 +290,11 @@ export const REPEATABLE: BlockKind[] = [
 export const STANDARD: BlockKind[] = [
   'hero', 'description', 'seats', 'gifts', 'audience', 'benefits', 'values', 'mission',
   'numbers', 'difference', 'speakers', 'organizer', 'program', 'tariffs',
+  // ⚠️ `venue` (карта с адресом) и `process` (этапы по линии) выключены в
+  // пресете по умолчанию — но их всё равно надо уметь ДОБАВИТЬ. Без строки
+  // здесь секции не было в списке «Добавить секцию» вовсе: удалил — вернуть
+  // нечем, а у нового лендинга её будто и не существует.
+  'venue', 'process',
   'partners', 'support', 'footer',
 ]
 

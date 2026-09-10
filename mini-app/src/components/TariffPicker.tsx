@@ -93,6 +93,9 @@ export default function TariffPicker({
   const [pd, setPd] = useState(false)
   const [offer, setOffer] = useState(false)
   const [mkt, setMkt] = useState(false)
+  // Промокод (миграция 397). Скидку считает СЕРВЕР — здесь только ввод.
+  const [promo, setPromo] = useState('')
+  const [promoOpen, setPromoOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // ⚠️ Замок повторной отправки — обычной переменной, а не состоянием:
@@ -103,6 +106,10 @@ export default function TariffPicker({
   const offerUrl: string | null = event?.offer_url || null
   const privacyUrl: string | null = event?.privacy_url || null
   const isFree = !!picked && (picked.price || 0) <= 0
+  // ⚠️ Поле промокода НЕ показываем там, где платёжная система его не
+  // поддерживает (у LeadPay цена лежит в его карточке товара): пустое поле,
+  // которое ничего не делает, хуже отсутствующего.
+  const promoAllowed = !isFree && (picked as any)?.promo_allowed !== false
 
   async function submit() {
     if (sending.current) return
@@ -144,6 +151,7 @@ export default function TariffPicker({
           contact_id: contactId ?? null,
           ref_code: partnerId || null,
           utm_source: utmSource || null,
+          promo_code: promoAllowed && promo.trim() ? promo.trim() : null,
           consent_pd: true,
           consent_marketing: mkt,
         }),
@@ -457,6 +465,28 @@ export default function TariffPicker({
             <input className="input-dark" value={tg}
                    onChange={e => setTg(e.target.value)} placeholder="@nickname" />
           </div>
+
+          {/* ⚠️ Промокод СВЁРНУТ по умолчанию: у большинства покупателей его
+              нет, а открытое пустое поле читается как «мне чего-то не дали» —
+              и человек уходит искать код вместо покупки. */}
+          {promoAllowed && (promoOpen ? (
+            <div className="field">
+              <label>Промокод</label>
+              <input className="input-dark" value={promo}
+                     onChange={e => setPromo(e.target.value)}
+                     autoCapitalize="characters" spellCheck={false}
+                     placeholder="Например, PLUSON20" />
+            </div>
+          ) : (
+            <button type="button" onClick={() => setPromoOpen(true)}
+                    style={{
+                      background: 'none', border: 'none', padding: 0,
+                      color: 'var(--accent)', fontSize: 13,
+                      textDecoration: 'underline', cursor: 'pointer',
+                    }}>
+              У меня есть промокод
+            </button>
+          ))}
 
           {/* Три ОТДЕЛЬНЫЕ галочки — как на веб-форме заказа. Смешивать их
               нельзя: это разные согласия по смыслу и по закону. */}

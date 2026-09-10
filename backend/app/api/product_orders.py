@@ -27,6 +27,7 @@ from pydantic import BaseModel
 
 from app.database import get_db
 from app.services import client_payments
+from app.services import promo_codes as promo_svc
 from app.services.client_domains import (
     client_public_url, public_url_for, platform_base_url,
 )
@@ -70,6 +71,8 @@ class OrderIn(BaseModel):
     # (правило проекта — любая форма сбора данных с галочками согласий).
     consent_pd: bool = False
     consent_marketing: bool = False
+    # Промокод ПЛЮСОНа (миграция 397). ⚠️ Проверяется ТОЛЬКО на сервере.
+    promo_code: Optional[str] = None
 
 
 async def load_product_tariff(db, tariff_id: int):
@@ -297,16 +300,57 @@ async def create_order(
 
     price = t["price"] or 0
 
-    # ── Бесплатный тариф: заказа нет, доступ сразу ──
+    # ── Промокод (миграция 397) ──
+    # ⚠️ product_tariffs.price — integer, а product_orders.amount — numeric.
+    # Считаем в целых рублях, как и у события: у скидки нет копеек.
+    promo = None
+    if data.promo_code and price > 0:
+        try:
+            promo = await promo_svc.resolve(
+                db, code=data.promo_code, client_id=client_id, price=int(price),
+                product_id=product_id, tariff_id=t["id"], tariff_kind="product",
+                contact_id=contact_id, email=data.email,
+            )
+            price = promo["price_after"]
+        except promo_svc.PromoError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # ── Цена нулевая: платёжка не нужна, доступ сразу ──
+    # ⚠️ Ноль ПО ПРОМОКОДУ создаёт заказ на 0 ₽ со статусом paid (клиент
+    # должен видеть, скольким раздал), а изначально бесплатный тариф — нет
+    # (решение миграции 290). Поэтому ветки разведены.
     if price <= 0:
+        free_order_id = None
+        if promo:
+            free_order_id = await db.fetchval(
+                """INSERT INTO product_orders
+                       (product_id, tariff_id, contact_id, status, source, amount,
+                        referrer_ref_code, paid_at, promo_code_id, promo_code)
+                   VALUES ($1, $2, $3, 'paid', 'landing', 0, $4, NOW(), $5, $6)
+                   ON CONFLICT (contact_id, tariff_id)
+                   DO UPDATE SET ordered_at = NOW(), amount = 0, status = 'paid',
+                                 paid_at = COALESCE(product_orders.paid_at, NOW()),
+                                 promo_code_id = EXCLUDED.promo_code_id,
+                                 promo_code = EXCLUDED.promo_code
+                   RETURNING id""",
+                product_id, t["id"], contact_id, partner_ref_code,
+                promo["promo_id"], promo["code"],
+            )
+            await promo_svc.reserve(
+                db, promo_id=promo["promo_id"],
+                price_before=promo["price_before"], price_after=0,
+                contact_id=contact_id, product_order_id=free_order_id,
+                apply_now=True,
+            )
         await grant_product_access(
             db, product_id=product_id, contact_id=contact_id,
-            tariff_id=t["id"], order_id=None, source="order",
+            tariff_id=t["id"], order_id=free_order_id, source="order",
         )
         base = await client_public_url(db, client_id)
         await _notify_access_granted(db, client_id, contact_id, product_id, t["id"])
         return {
             "ok": True, "free": True, "contact_id": contact_id,
+            "promo_code": promo["code"] if promo else None,
             "redirect": public_url_for(base, f"/my/{t['product_slug']}"),
         }
 
@@ -327,6 +371,20 @@ async def create_order(
            RETURNING id""",
         product_id, t["id"], contact_id, price, partner_ref_code,
     )
+
+    # Промокод в заказ + резерв применения (списывается при оплате).
+    if promo:
+        await db.execute(
+            "UPDATE product_orders SET promo_code_id = $2, promo_code = $3 WHERE id = $1",
+            order_id, promo["promo_id"], promo["code"])
+        try:
+            await promo_svc.reserve(
+                db, promo_id=promo["promo_id"],
+                price_before=promo["price_before"], price_after=int(price),
+                contact_id=contact_id, product_order_id=order_id,
+            )
+        except promo_svc.PromoError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     client = dict(t)
     base = await client_public_url(db, client_id)
@@ -450,6 +508,14 @@ async def mark_product_order_paid(db, order_id: int, provider: str,
             WHERE id = $1""",
         order_id, provider, payment_id or None,
     )
+
+    # Промокод: резерв становится применением (миграция 397).
+    # ⚠️ Сбой не роняет вебхук — деньги приняты, а платёжка иначе сочтёт
+    # оповещение недоставленным и начнёт слать повторы.
+    try:
+        await promo_svc.mark_applied(db, product_order_id=order_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Промокод по заказу продукта %s не отмечен: %s", order_id, e)
 
     if order["contact_id"]:
         await grant_product_access(

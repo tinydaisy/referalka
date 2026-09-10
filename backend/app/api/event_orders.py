@@ -23,6 +23,7 @@ import asyncpg
 
 from app.database import get_db
 from app.services import client_payments
+from app.services import promo_codes as promo_svc
 from app.services.contact_merge import find_or_create_contact, resolve_ref_code
 from app.services.event_participant import upsert_event_participant
 from app.services.share_links import TG_DOMAIN
@@ -62,6 +63,9 @@ class OrderIn(BaseModel):
     utm_source: Optional[str] = None
     consent_pd: bool = False
     consent_marketing: bool = False
+    # Промокод ПЛЮСОНа (миграция 397). ⚠️ Проверяется и применяется ТОЛЬКО на
+    # сервере: скидка, посчитанная в браузере, обходится запросом мимо формы.
+    promo_code: Optional[str] = None
 
 
 async def _load_tariff(db, tariff_id: int):
@@ -274,17 +278,62 @@ async def create_order(
 
     price = int(t["price"] or 0)
 
-    # ── Бесплатный тариф: заказа нет, сразу регистрируем ─────────────────
+    # ── Промокод (миграция 397) ──────────────────────────────────────────
+    # ⚠️ Применяется К ЦЕНЕ ТАРИФА, которая уже содержит скидку тарифа:
+    # `price` в базе — это цена к оплате (см. tariff_discount.py).
+    promo = None
+    if data.promo_code and price > 0:
+        try:
+            promo = await promo_svc.resolve(
+                db, code=data.promo_code, client_id=t["client_id"], price=price,
+                event_id=t["event_id"], tariff_id=t["id"], tariff_kind="event",
+                contact_id=contact_id, email=data.email,
+            )
+            price = promo["price_after"]
+        except promo_svc.PromoError as e:
+            # Текст писался для покупателя — показываем как есть.
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # ── Цена стала нулевой: платёжка не нужна ────────────────────────────
+    # ⚠️ Ноль по промокоду и изначально бесплатный тариф — РАЗНЫЕ случаи:
+    # у первого заказ создаётся (сумма 0, статус paid), чтобы клиент видел,
+    # скольким он раздал скидку; у второго заказа нет вовсе (решение
+    # миграции 290). Поэтому ветки разведены.
     if price <= 0:
         # Единая точка записи в участники (см. services/event_participant.py):
         # реф-код пишется только если пуст, письмо уходит один раз.
-        await upsert_event_participant(
+        participant_id, _is_new, _became = await upsert_event_participant(
             db, event_id=t["event_id"], contact_id=contact_id,
             is_registered=True, referrer_ref_code=resolved_ref,
         )
+        if promo:
+            # ⚠️ Статус сразу `paid`, а не `unpaid`: платить нечего, вебхук не
+            # придёт, и заказ висел бы в неоплаченных вечно.
+            free_order_id = await db.fetchval(
+                """INSERT INTO event_participant_tariffs
+                       (event_id, participant_id, tariff_id, contact_id, amount,
+                        status, source, ordered_at, paid_at, promo_code_id, promo_code)
+                   VALUES ($1, $2, $3, $4, 0, 'paid', 'landing', NOW(), NOW(), $5, $6)
+                   ON CONFLICT (participant_id, tariff_id)
+                   DO UPDATE SET amount = 0, status = 'paid', ordered_at = NOW(),
+                                 paid_at = COALESCE(event_participant_tariffs.paid_at, NOW()),
+                                 promo_code_id = EXCLUDED.promo_code_id,
+                                 promo_code = EXCLUDED.promo_code
+                   RETURNING id""",
+                t["event_id"], participant_id, t["id"], contact_id,
+                promo["promo_id"], promo["code"],
+            )
+            # apply_now: оплаты не будет, ждать нечего — списываем сразу.
+            await promo_svc.reserve(
+                db, promo_id=promo["promo_id"],
+                price_before=promo["price_before"], price_after=0,
+                contact_id=contact_id, event_order_id=free_order_id,
+                apply_now=True,
+            )
         return {
             "ok": True,
             "free": True,
+            "promo_code": promo["code"] if promo else None,
             "redirect": f"/event/{t['event_slug']}?c={contact_id}",
         }
 
@@ -298,13 +347,30 @@ async def create_order(
     order_id = await db.fetchval(
         """INSERT INTO event_participant_tariffs
                (event_id, participant_id, tariff_id, contact_id, amount,
-                status, source, ordered_at)
-           VALUES ($1, $2, $3, $4, $5, 'unpaid', 'landing', NOW())
+                status, source, ordered_at, promo_code_id, promo_code)
+           VALUES ($1, $2, $3, $4, $5, 'unpaid', 'landing', NOW(), $6, $7)
            ON CONFLICT (participant_id, tariff_id)
-           DO UPDATE SET amount = EXCLUDED.amount, ordered_at = NOW()
+           DO UPDATE SET amount = EXCLUDED.amount, ordered_at = NOW(),
+                         promo_code_id = EXCLUDED.promo_code_id,
+                         promo_code = EXCLUDED.promo_code
            RETURNING id""",
         t["event_id"], participant_id, t["id"], contact_id, price,
+        promo["promo_id"] if promo else None,
+        promo["code"] if promo else None,
     )
+
+    # ⚠️ Резервируем применение СРАЗУ, а не после оплаты: иначе одноразовый
+    # код, пока человек платит, успеет применить кто-то ещё. Списывается он
+    # при подтверждении оплаты (mark_applied в вебхуке).
+    if promo:
+        try:
+            await promo_svc.reserve(
+                db, promo_id=promo["promo_id"],
+                price_before=promo["price_before"], price_after=price,
+                contact_id=contact_id, event_order_id=order_id,
+            )
+        except promo_svc.PromoError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     client = {
         "id": t["client_id"],
@@ -743,6 +809,14 @@ async def _mark_order_paid(db, order, provider: str, payment_id: Optional[str]) 
         await upsert_event_participant(
             db, event_id=order["event_id"], contact_id=order["contact_id"],
             is_registered=True)
+
+    # Промокод: резерв становится применением (миграция 397).
+    # ⚠️ Сбой здесь не должен ронять вебхук — деньги уже приняты, а платёжка
+    # сочтёт оповещение недоставленным и начнёт слать повторы.
+    try:
+        await promo_svc.mark_applied(db, event_order_id=order_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Промокод по заказу %s не отмечен применённым: %s", order_id, e)
 
     try:
         from app.services.order_email import (

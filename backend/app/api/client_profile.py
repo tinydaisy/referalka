@@ -1235,7 +1235,18 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                 WHERE event_id = $1 AND is_active
                 ORDER BY sort_order, id""",
             row["id"])
-        d["tariffs"] = [with_discount(t) for t in _trs]
+        # Промокоды (миграция 397) работают не со всеми платёжными системами.
+        # ⚠️ У LeadPay цена лежит в его карточке товара — сумму со скидкой
+        # передать нельзя, и поле промокода там показывать не надо.
+        from app.services.promo_codes import supported_by_provider
+        _pp = await db.fetchval(
+            """SELECT cl.pay_provider FROM event_owners eo
+                 JOIN clients cl ON cl.id = eo.client_id
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""",
+            row["id"])
+        _promo_ok = supported_by_provider(_pp)
+        d["tariffs"] = [{**with_discount(t), "promo_allowed": _promo_ok} for t in _trs]
     except Exception:
         pass          # тарифы не должны ронять страницу события
 

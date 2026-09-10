@@ -2660,7 +2660,7 @@ Telegram не даёт одному аккаунту держать много �
 
 **На будущее (не сделано):** встроенный приём денег внутри ПЛЮСОНа = эквайринг/54-ФЗ, отдельный большой проект. Продамус/ЮKassa автоматизируются именно через вебхук `/integrations/payment/paid`.
 
-### Промокоды — свои, а не платёжных систем (миграция 382 от 2026-09-09)
+### Промокоды — свои, а не платёжных систем (миграция 397 от 2026-09-10)
 
 ⚠️ **Ещё не на проде** — миграция написана, не накачена, код не выкачен.
 
@@ -2760,7 +2760,7 @@ Telegram не даёт одному аккаунту держать много �
 
 ⚠️ **`promo_allowed` отдаётся ВМЕСТЕ с тарифом** из [event_landing_public.py](backend/app/api/event_landing_public.py) и [client_profile.py](backend/app/api/client_profile.py) — по нему фронт решает, показывать ли поле. Отдельный запрос «а можно ли промокод» дал бы мигание.
 
-**Файлы:** [382_promo_codes.sql](db/migrations/382_promo_codes.sql), [promo_codes.py (сервис)](backend/app/services/promo_codes.py), [promo_codes.py (API)](backend/app/api/promo_codes.py), правки в [event_orders.py](backend/app/api/event_orders.py) и [product_orders.py](backend/app/api/product_orders.py), api-группа `api.promoCodes.*`. Расчёт скидки тарифа (не путать) — [tariff_discount.py](backend/app/services/tariff_discount.py).
+**Файлы:** [397_promo_codes.sql](db/migrations/397_promo_codes.sql), [promo_codes.py (сервис)](backend/app/services/promo_codes.py), [promo_codes.py (API)](backend/app/api/promo_codes.py), правки в [event_orders.py](backend/app/api/event_orders.py) и [product_orders.py](backend/app/api/product_orders.py), api-группа `api.promoCodes.*`. Расчёт скидки тарифа (не путать) — [tariff_discount.py](backend/app/services/tariff_discount.py).
 
 ### Скидка тарифа + свой порядок тарифов (миграция 305 от 2026-08-15, ПРОД)
 
