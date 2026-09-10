@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.config import settings
-from app.api.auth import get_current_user
+from app.auth import get_current_client
 
 router = APIRouter(prefix="/address", tags=["address"])
 logger = logging.getLogger(__name__)
@@ -51,11 +51,11 @@ class Suggestion(BaseModel):
 @router.post("/suggest")
 async def suggest_address(
     data: SuggestRequest,
-    user: dict = Depends(get_current_user),
+    client=Depends(get_current_client),
 ) -> dict:
     """Подсказки по началу адреса. Возвращает `{"items": [...]}`.
 
-    ⚠️ Только для вошедших в кабинет (`get_current_user`) — иначе наш ключ
+    ⚠️ Только для вошедших в кабинет (`get_current_client`) — иначе наш ключ
     становится бесплатным геосервисом для кого угодно, и суточный лимит
     выберет посторонний, а не наши клиенты.
     """
