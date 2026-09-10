@@ -1980,12 +1980,21 @@ function BlockBody(props: any) {
               странице. Было `var(--text)`: эта переменная задана в КАБИНЕТЕ,
               на лендинге её нет, и текст падал в чёрный по умолчанию — на
               тёмном фоне (у клиента 1 текст белый) адрес не читался вовсе. */}
-          <p className="mb-3 text-base" style={{ color: page.color_body || '#FFFFFF' }}>{addr}</p>
+          {/* ⚠️ Адрес слушается выравнивания секции (`title_align`), как
+              заголовок и подзаголовок: при настройке «по центру» он оставался
+              прижатым влево, и секция выглядела съехавшей. */}
+          <p className="mb-3 text-base"
+             style={{
+               color: page.color_body || '#FFFFFF',
+               textAlign: (block.title_align || 'left') as any,
+             }}>{addr}</p>
           {/* ⚠️ В PDF iframe не печатается — вместо карты даём ссылку, иначе в
               файле остаётся пустой прямоугольник (та же логика, что у галереи). */}
+          {/* ⚠️ Цвет ссылки — `page.color_link` темы, НЕ `var(--accent)`:
+              переменная задана в кабинете, на лендинге её нет. */}
           {forPdf ? (
             <a href={`https://yandex.ru/maps/?text=${q}`}
-               style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
+               style={{ color: page.color_link || iconColor, textDecoration: 'underline' }}>
               Открыть на карте
             </a>
           ) : (
@@ -1998,12 +2007,16 @@ function BlockBody(props: any) {
                   title="Карта места проведения"
                 />
               </div>
-              <a href={`https://yandex.ru/maps/?text=${q}`}
-                 target="_blank" rel="noreferrer"
-                 className="inline-block mt-3 text-sm underline"
-                 style={{ color: 'var(--accent)' }}>
-                Построить маршрут
-              </a>
+              {/* ⚠️ Ссылка тоже слушается выравнивания секции: `inline-block`
+                  сам по себе всегда прижат влево, поэтому центрируем обёрткой. */}
+              <div style={{ textAlign: (block.title_align || 'left') as any }}>
+                <a href={`https://yandex.ru/maps/?text=${q}`}
+                   target="_blank" rel="noreferrer"
+                   className="inline-block mt-3 text-sm underline"
+                   style={{ color: page.color_link || iconColor }}>
+                  Построить маршрут
+                </a>
+              </div>
             </>
           )}
         </div>
