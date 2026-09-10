@@ -682,6 +682,48 @@ export default function LandingTab({ eventId, event }: Props) {
             {page.bg_image_url && (
               <BgFramingFields page={page} patchPage={patchPage} />
             )}
+
+            {/* ⚠️⚠️ ШИРИНА — ЗДЕСЬ, У КОНКРЕТНОЙ СТРАНИЦЫ. Раньше она была
+                только в Настройках → «Стили лендингов», а это ШАБЛОН для
+                НОВЫХ страниц: у собранного лендинга ширина скопирована в саму
+                страницу, и правка темы её уже не меняла. Клиент двигал ползунок
+                в настройках, возвращался на лендинг — и ничего не менялось. */}
+            <div className="pt-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Ширина содержимого:{' '}
+                {page.content_width ? `${page.content_width} px` : 'во всю ширину'}
+              </label>
+              <input type="range" min={0} max={2000} step={40}
+                value={page.content_width ?? 1120}
+                onChange={e => patchPage({ content_width: Number(e.target.value) })}
+                className="w-full" />
+              <p className="mt-1 text-xs text-gray-500">
+                Полоса, в которой живёт текст. 0 — растянуть на весь экран.
+                На узких экранах ширина не действует: там страница и так во всю ширину.
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Отступы по бокам: {page.pad_x ?? 24} px
+              </label>
+              <input type="range" min={0} max={160} step={4}
+                value={page.pad_x ?? 24}
+                onChange={e => patchPage({ pad_x: Number(e.target.value) })}
+                className="w-full" />
+              <p className="mt-1 text-xs text-gray-500">
+                Воздух между краем полосы и текстом. На телефоне не больше 16 px —
+                иначе содержимое становится нечитаемо узким.
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Расстояние между секциями: {page.section_gap ?? 64} px
+              </label>
+              <input type="range" min={0} max={160} step={4}
+                value={page.section_gap ?? 64}
+                onChange={e => patchPage({ section_gap: Number(e.target.value) })}
+                className="w-full" />
+            </div>
           </div>
         </div>
       </details>
