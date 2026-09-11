@@ -678,8 +678,12 @@ function MiniAppSettings() {
             hint="Имя, позиционирование, фото — это и попадёт в карточку-тизер на главной Экосистемы."
           >
             <div className="space-y-4 max-w-2xl">
+              {/* ⚠️ Имя и фамилия правятся В НАСТРОЙКАХ ПРОФИЛЯ (PATCH /auth/me),
+                  а не в Тех.поддержке — раньше здесь стояла именно такая подпись,
+                  и она отправляла клиента писать людям вместо двух полей рядом.
+                  Ссылка ведёт ровно в тот блок, где эти поля лежат. */}
               <Field label="Имя в Mini App"
-                     hint="Это имя из регистрации. Для смены — напишите в Тех.поддержку.">
+                     hint={<>Берётся из вашего профиля. Поменять — <a href="/dashboard/settings?tab=profile" className="text-brand underline hover:no-underline">Настройки → Профиль</a>, поля «Имя» и «Фамилия».</>}>
                 <input type="text" value={profile.name || ''} disabled
                        className="input opacity-60 cursor-not-allowed" />
               </Field>
@@ -1467,7 +1471,9 @@ function SpeakerPageLink({ clientId, slug }: { clientId: number; slug?: string |
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+// hint — ReactNode, а не строка: в подсказку нужны кликабельные ссылки
+// (например, на раздел, где поле реально правится).
+function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
       <label className="label">{label}</label>
