@@ -100,6 +100,9 @@ export default function Sidebar() {
   // дразнить им клиентов незачем. Станет продаваемым — вернуть как у Анкет.
   const hasProducts = features.includes('products')
   const hasOffers = features.includes('offers')
+  // Анкеты (миграция 280) — фича `surveys`, Экстра и выше. Триал зеркалит
+  // Профи, поэтому на триале анкет НЕТ: пункт показываем с замком.
+  const hasSurveys = features.includes('surveys')
   const hasEventOrganizers = features.includes('event_organizers')
   // Своя партнёрская программа клиента (миграции 346–348). Пока только admin.
   const hasPartnerProgram = features.includes('partner_program')
@@ -230,8 +233,10 @@ export default function Sidebar() {
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         // Анкеты + доп. поля контакта (миграция 280) — фича `surveys` (Экстра).
         // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».
-        // Без фичи страница покажет замок с объяснением и ссылкой на тариф.
-        { href: '/dashboard/surveys', label: 'Анкеты', icon: ClipboardList },
+        // ⚠️ И ВСЕГДА С ЗАМКОМ без фичи — как у соседних «Продуктов» и
+        // «Отзывов». Раньше замка в меню не было, и человек на триале узнавал
+        // о недоступности только открыв раздел: в меню пункт выглядел обычным.
+        { href: '/dashboard/surveys', label: 'Анкеты', icon: ClipboardList, locked: !hasSurveys },
         // Отзывы/кейсы и оферты — по своим фичам (миграция 249).
         { href: '/dashboard/testimonials', label: 'Отзывы и кейсы', icon: MessageSquareQuote, locked: !hasTestimonials },
         // ⚠️ Пункт виден ВСЕГДА: скрытый раздел читается как «такого нет».

@@ -718,20 +718,34 @@ async def list_tariffs(
 
 
 async def _mirror_pro_features_to_trial(db, changed_tariff_id: int) -> None:
-    """Правило проекта: тариф `trial` ВСЕГДА имеет те же фичи, что `pro`.
-    Если изменили фичи именно у pro — выравниваем trial под pro (добавляем
-    недостающие; лишние у trial не трогаем, он не должен быть беднее pro).
+    """Тариф `trial` ВСЕГДА имеет те же фичи, что `business_beta`.
+
+    ⚠️⚠️ РАНЬШЕ ЗЕРКАЛИЛИ ПОД `pro`, и это отменено (решение владельца
+    11.09.2026, миграция 404). Триал — витрина платформы: человек должен
+    увидеть всё, за что потом платит. На Профи половина разделов стояла под
+    замком, и попробовать их было нельзя — то есть триал не показывал того,
+    что продаёт. Живой случай: у клиента на триале решение «Розыгрыш через
+    анкету» просило Экстру, потому что `surveys` в триал не входили.
+
+    ⚠️ Имя функции оставлено прежним намеренно: его знают три точки вызова, а
+    переименование ради слова `pro` в названии ничего не даёт. Смысл описан
+    здесь.
+
+    ⚠️ Лишние фичи у trial НЕ снимаем: Коллабораторная (`collab_hub`) выдаётся
+    ему отдельной строкой, хотя это модуль-аддон и в Бизнес он не входит. На
+    триале её тоже надо пощупать, а гаснет она вместе с подпиской — то есть
+    ровно на срок триала.
     """
-    pro = await db.fetchval("SELECT id FROM tariffs WHERE slug = 'pro'")
+    base = await db.fetchval("SELECT id FROM tariffs WHERE slug = 'business_beta'")
     trial = await db.fetchval("SELECT id FROM tariffs WHERE slug = 'trial'")
-    if not pro or not trial or changed_tariff_id != pro:
+    if not base or not trial or changed_tariff_id != base:
         return
     await db.execute(
         """INSERT INTO tariff_features (tariff_id, feature_id)
            SELECT $1, tf.feature_id FROM tariff_features tf
             WHERE tf.tariff_id = $2
            ON CONFLICT DO NOTHING""",
-        trial, pro,
+        trial, base,
     )
 
 
