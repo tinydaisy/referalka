@@ -1916,8 +1916,12 @@ async def _send_max_event_menu(
 
     # 5. Кабинет → вкладка кабинета (#cabinet).
     #    ⚠️ «Подарки» — только при включённой реф-программе, как в TG и VK.
-    _cab_label = ("🎁 Кабинет и подарки" if ev["referral_enabled"]
-                  else "📋 Ваш кабинет")
+    _parts = ["Ваш кабинет"]
+    if ev["referral_enabled"]:
+        _parts.append("Подарки")
+    if ev["module_slug"] in ("conference", "turnir"):
+        _parts.append("Спикеры")
+    _cab_label = ("🎁 " if ev["referral_enabled"] else "📋 ") + "·".join(_parts)
     tg_rows.append([{"text": _cab_label,
                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
 

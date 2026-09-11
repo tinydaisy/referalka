@@ -333,8 +333,9 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
         <button onClick={() => setShowOwner(true)}
                 style={{
                   width: '100%', textAlign: 'left', cursor: 'pointer',
-                  background: '#FFF1E2', borderRadius: 14, padding: 12,
-                  border: '1px solid #FFE0C2', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
+                  background: 'rgba(var(--peach-rgb), 0.14)', borderRadius: 14, padding: 12,
+                  border: '1px solid rgba(var(--peach-rgb), 0.35)',
+                  boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
                   marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12,
                 }}>
           {profile.owner_photo_url && (

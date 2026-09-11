@@ -1434,8 +1434,12 @@ async def send_vk_event_funnel(
         # 3. Кабинет и подарки → веб-страница, вкладка кабинета.
         #    Публичная страница клиента → открываем на его домене.
         _pub_base = await client_public_url(conn, client_id)
-        _cab_label = ("🎁 Кабинет и подарки" if ev["referral_enabled"]
-                      else "📋 Ваш кабинет")
+        _parts = ["Ваш кабинет"]
+        if ev["referral_enabled"]:
+            _parts.append("Подарки")
+        if ev["module_slug"] in ("conference", "turnir"):
+            _parts.append("Спикеры")
+        _cab_label = ("🎁 " if ev["referral_enabled"] else "📋 ") + "·".join(_parts)
         rows.append([{"text": _cab_label,
                       "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
 
