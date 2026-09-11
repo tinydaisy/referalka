@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink, Palette, Copy, Check } from 'lucide-react'
 import PreviewLinkButton from '@/components/PreviewLinkButton'
 import LandingPdfButton from '@/components/LandingPdfButton'
+import CopyLinkButton from '@/components/CopyLinkButton'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BlockCard from '@/components/landing/BlockCard'
@@ -382,9 +383,19 @@ export default function LandingTab({ eventId, event }: Props) {
           </label>
           <p className="mt-1 text-sm text-gray-500">
             {page.is_published
-              ? <>Доступна по ссылке <span className="font-mono text-gray-700">https://{publicHost}{publicUrl}</span></>
-              : 'Пока черновик — посторонние страницу не увидят. Вы можете открыть её кнопкой «Посмотреть черновик».'}
+              ? 'Доступна по ссылке:'
+              : 'Пока черновик — посторонние страницу не увидят. Вы можете открыть её кнопкой «Посмотреть черновик». Адрес уже закреплён за страницей:'}
           </p>
+          {/* ⚠️ Адрес и кнопка копирования показываются И У ЧЕРНОВИКА: адрес
+              за страницей уже закреплён, его дают дизайнеру и вписывают в посты
+              заранее. Раньше у черновика ссылки не было вовсе, и её собирали
+              руками из адресной строки предпросмотра — вместе с токеном. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className="min-w-0 break-all font-mono text-sm text-gray-700">
+              https://{publicHost}{publicUrl}
+            </span>
+            <CopyLinkButton url={`https://${publicHost}${publicUrl}`} />
+          </div>
         </div>
         {/* ⚠️ items-start, а не items-center: у кнопки PDF во время сборки
             появляется подпись, и при центрировании она приподнимала бы весь

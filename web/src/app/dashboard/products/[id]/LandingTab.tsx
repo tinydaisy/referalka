@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, Plus, Loader2, ExternalLink } from 'lucide-react'
 import PreviewLinkButton from '@/components/PreviewLinkButton'
 import LandingPdfButton from '@/components/LandingPdfButton'
+import CopyLinkButton from '@/components/CopyLinkButton'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BlockCard from '@/components/landing/BlockCard'
@@ -237,9 +238,10 @@ export default function ProductLandingTab({ productId, product, readOnly = false
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-gray-600">Страница:</span>
           <a href={url} target="_blank" rel="noreferrer"
-             className="inline-flex items-center gap-1 text-sm text-[#25455D] underline">
-            {url} <ExternalLink size={13} />
+             className="inline-flex min-w-0 items-center gap-1 break-all text-sm text-[#25455D] underline">
+            {url} <ExternalLink size={13} className="shrink-0" />
           </a>
+          <CopyLinkButton url={url} />
           {saving && <Loader2 size={14} className="animate-spin text-gray-400" />}
         </div>
         {/* ⚠️ Пока лендинг не опубликован, по обычной ссылке открывается витрина,
