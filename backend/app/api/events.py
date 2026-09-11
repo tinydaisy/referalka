@@ -900,12 +900,17 @@ async def copy_event(
     new_title = f"Копия — {src['title']}"
     new_slug = await _make_unique_short_slug(db)
 
-    # Копия события — всегда черновик, start_at/end_at не наследуем
-    # (для конференций они вообще берутся из conf_days, для остальных
-    # клиент задаст заново — старые даты всё равно неактуальны).
+    # ⚠️⚠️ ДАТЫ КОПИРУЮТСЯ (решение владельца). Раньше `start_at`/`end_at`
+    # обнулялись «клиент задаст заново» — на деле копируют как раз чтобы
+    # повторить то же событие, и даты приходилось вбивать с нуля. Хуже:
+    # событие без даты НЕ публикуется вовсе (409 в update_event), то есть
+    # копия оказывалась заведомо нерабочей.
+    # Копия по-прежнему черновик — сдвинуть даты можно перед публикацией.
+    # ⚠️ У конференции и турнира даты живут в `conf_days`, а не здесь: там
+    # эти поля и так пусты, копирование их ничего не меняет.
     async with db.transaction():
-        # Копируем ВСЕ настройки события кроме start_at/end_at — даты
-        # всегда задаются заново у копии.
+        # Копируем ВСЕ настройки события, включая даты; свой только статус
+        # (`draft`) и адрес страницы.
         new_event = await db.fetchrow(
             """INSERT INTO events
                  (slug, title, description, description_post_register,
@@ -922,7 +927,7 @@ async def copy_event(
                   registration_closed, pre_reg_text, pre_reg_btn_label, pre_reg_btn_url,
                   pre_reg_poster_url, partner_enabled, gifts_open_to_guests)
                VALUES ($1,$2,$3,$4,$5,$6,
-                       NULL,NULL,
+                       $37,$38,
                        $7,$8,$9,$10,$11,
                        $12,'draft',
                        $13,$14,$15,$16,
@@ -975,6 +980,10 @@ async def copy_event(
             # уезжала на дефолт вместо настройки оригинала.
             src.get('partner_enabled') or False,
             src.get('gifts_open_to_guests') or False,
+            # ⚠️ Даты идут ПОСЛЕДНИМИ ($37/$38) — они вставлены в список
+            # колонок раньше, но значения проще дописать в конец, чем
+            # пересчитывать номера всех параметров между ними.
+            src.get('start_at'), src.get('end_at'),
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)

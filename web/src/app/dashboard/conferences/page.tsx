@@ -301,6 +301,8 @@ export default function ConferencesPage() {
       <CopyEventModal
         open={copyAskId !== null}
         busy={copyingId !== null}
+        // Конференции и турниры — единственные, где карточки людей реально копируются.
+        withPeople
         onCancel={() => setCopyAskId(null)}
         onConfirm={doCopy}
       />

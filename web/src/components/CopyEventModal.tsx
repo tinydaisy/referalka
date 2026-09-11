@@ -15,14 +15,23 @@ import { Copy, X } from 'lucide-react'
  *
  * ⚠️ Организаторы переносятся всегда — это владельцы события.
  *
+ * ⚠️⚠️ ГАЛОЧКИ ПОКАЗЫВАЕМ ТОЛЬКО КОНФЕРЕНЦИЯМ И ТУРНИРАМ (`withPeople`).
+ * Карточки людей копирует ветка `module_slug in ('conference','turnir')`
+ * в copy_event — у мероприятия и конкурса она не отрабатывает вовсе,
+ * то есть галочки там ничего не делали: спрашивали про спикеров и партнёров,
+ * а переносили в любом случае ноль. Вопрос без последствий читается как
+ * поломка, поэтому у таких событий окно остаётся без выбора.
+ *
  * Модалка-форма: закрывается только кнопкой, клик по фону не закрывает
  * (правило проекта — иначе теряется уже сделанный выбор).
  */
 export default function CopyEventModal({
-  open, busy, onCancel, onConfirm,
+  open, busy, withPeople, onCancel, onConfirm,
 }: {
   open: boolean
   busy?: boolean
+  /** Есть ли у этого типа события карточки людей (конференция/турнир). */
+  withPeople?: boolean
   onCancel: () => void
   onConfirm: (opts: { with_speakers: boolean; with_partners: boolean }) => void
 }) {
@@ -43,35 +52,41 @@ export default function CopyEventModal({
           </button>
         </div>
 
-        <div className="space-y-3">
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-3 hover:bg-gray-50">
-            <input type="checkbox" className="mt-0.5" checked={withSpeakers}
-                   onChange={e => setWithSpeakers(e.target.checked)} />
-            <span className="text-sm">
-              <span className="font-medium text-gray-900">Спикеры и жюри</span>
-              <span className="mt-0.5 block text-xs text-gray-500">
-                Карточки людей с темами и подарками. Слоты в программе они займут заново.
+        {withPeople && (
+          <div className="space-y-3">
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-3 hover:bg-gray-50">
+              <input type="checkbox" className="mt-0.5" checked={withSpeakers}
+                     onChange={e => setWithSpeakers(e.target.checked)} />
+              <span className="text-sm">
+                <span className="font-medium text-gray-900">Спикеры и жюри</span>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  Карточки людей с темами и подарками. Слоты в программе они займут заново.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-3 hover:bg-gray-50">
-            <input type="checkbox" className="mt-0.5" checked={withPartners}
-                   onChange={e => setWithPartners(e.target.checked)} />
-            <span className="text-sm">
-              <span className="font-medium text-gray-900">Партнёры</span>
-              <span className="mt-0.5 block text-xs text-gray-500">
-                Карточки партнёров и генеральных партнёров события.
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-3 hover:bg-gray-50">
+              <input type="checkbox" className="mt-0.5" checked={withPartners}
+                     onChange={e => setWithPartners(e.target.checked)} />
+              <span className="text-sm">
+                <span className="font-medium text-gray-900">Партнёры</span>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  Карточки партнёров и генеральных партнёров события.
+                </span>
               </span>
-            </span>
-          </label>
-        </div>
+            </label>
+          </div>
+        )}
 
-        <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-          Переносятся настройки, афиши, подарки, тарифы, лендинг и шаблоны рассылок.
-          <br />
-          <b>Программа не копируется</b> — она привязана к датам, а у копии они свои.
-          Даты и дни программы задаются заново.
+        <p className={`rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-900 ${withPeople ? 'mt-4' : ''}`}>
+          Переносятся настройки, даты, афиши, подарки, тарифы, лендинг и шаблоны рассылок.
+          {withPeople && (
+            <>
+              <br />
+              <b>Программа не копируется</b> — она привязана к датам, а у копии они свои.
+              Дни программы задаются заново.
+            </>
+          )}
         </p>
 
         <div className="mt-5 flex gap-3">
