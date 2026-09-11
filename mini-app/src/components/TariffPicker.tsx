@@ -598,20 +598,44 @@ export default function TariffPicker({
                 </div>
               </div>
 
-              {t.description ? (
-                <div style={{
-                  marginTop: 8, fontSize: 13, lineHeight: 1.5,
-                  color: 'var(--muted)', whiteSpace: 'pre-wrap',
-                }}>{t.description}</div>
-              ) : null}
-
-              {/* Что НЕ входит — приглушённо и зачёркнуто, как на лендинге. */}
-              {t.excluded_description ? (
-                <div style={{
-                  marginTop: 8, fontSize: 13, lineHeight: 1.5, opacity: .5,
-                  color: 'var(--muted)', textDecoration: 'line-through',
-                  whiteSpace: 'pre-wrap',
-                }}>{t.excluded_description}</div>
+              {/* ⚠️⚠️ ПУНКТЫ СОСТАВА — СПИСКОМ С МАРКЕРОМ, а не сплошным
+                  текстом (решение владельца). Описание тарифа — это СТРОКИ:
+                  платформа режет его по переводам строки, и на лендинге каждая
+                  строка давно рисуется отдельным пунктом. В Mini App тот же
+                  текст шёл одним абзацем с `pre-wrap` — состав читался как
+                  простыня, и два экрана выглядели по-разному.
+                  ⚠️ Маркер — точка, выровненная ПО ЦЕНТРУ строки
+                  (`alignSelf: center`), а не по первой букве: у пунктов в две
+                  строки точка у верхнего края смотрится съехавшей. */}
+              {(t.description || t.excluded_description) ? (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {[
+                    ...String(t.description || '').split('\n')
+                      .map(r => r.trim()).filter(Boolean)
+                      // ⚠️ Строка с дефиса = «не входит» — то же правило, что
+                      // на лендинге: у кого так заполнено, не должно сломаться.
+                      .map(row => ({ excluded: /^[-–—]\s*/.test(row),
+                                     text: row.replace(/^[-–—]\s*/, '') })),
+                    ...String(t.excluded_description || '').split('\n')
+                      .map(r => r.trim()).filter(Boolean)
+                      .map(row => ({ excluded: true,
+                                     text: row.replace(/^[-–—]\s*/, '') })),
+                  ].map(({ excluded, text }, k) => (
+                    <div key={k} style={{
+                      display: 'flex', gap: 8, alignItems: 'center',
+                      fontSize: 13, lineHeight: 1.45, color: 'var(--muted)',
+                      opacity: excluded ? .5 : 1,
+                      textDecoration: excluded ? 'line-through' : undefined,
+                    }}>
+                      <span style={{
+                        width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+                        alignSelf: 'center',
+                        background: excluded ? 'currentColor' : 'var(--peach)',
+                      }} />
+                      <span>{text}</span>
+                    </div>
+                  ))}
+                </div>
               ) : null}
 
               <button

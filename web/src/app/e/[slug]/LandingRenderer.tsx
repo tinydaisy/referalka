@@ -2132,10 +2132,17 @@ function BlockBody(props: any) {
             <a key={label} href={url} target="_blank" rel="noreferrer"
                className="min-w-0 truncate px-3 py-2 text-[.8em] font-bold uppercase transition-opacity hover:opacity-85 sm:px-5 sm:py-2.5 sm:text-[.85em]"
                style={{
-                 borderRadius: page.btn_radius ?? radius,
-                 background: iconColor,
-                 color: page.day_tab_text_color || page.bg_color || '#0a1520',
-                 fontFamily: page.font_body_css,
+                 // ⚠️⚠️ ЦВЕТ КНОПОК, А НЕ ИКОНОК. Раньше здесь стоял
+                 // `iconColor` — и у клиента с фирменным цветом кнопок
+                 // (например салатовым) способы связи оставались стандартными
+                 // персиковыми: настройка «цвет кнопок» на них не действовала
+                 // вовсе, хотя это кнопки. Берём тот же `btnStyle`, что у
+                 // остальных кнопок лендинга, — заливка, градиент, рамка и
+                 // цвет текста приходят из настроек бренда разом.
+                 ...btnStyle,
+                 // Перебиваем размер: способы связи мельче настоящей CTA —
+                 // они не призыв к действию, а контакты.
+                 letterSpacing: undefined,
                }}>
               {label}
             </a>
