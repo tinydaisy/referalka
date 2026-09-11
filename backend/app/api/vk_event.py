@@ -1303,6 +1303,8 @@ _EVENT_FUNNEL_FIELDS = """
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
+    COALESCE((SELECT ers.is_enabled FROM event_referral_settings ers
+                WHERE ers.event_id = e.id), FALSE) AS referral_enabled,
     (SELECT url FROM event_posters
        WHERE event_id = e.id AND day IS NULL
        ORDER BY CASE orientation
@@ -1432,7 +1434,9 @@ async def send_vk_event_funnel(
         # 3. Кабинет и подарки → веб-страница, вкладка кабинета.
         #    Публичная страница клиента → открываем на его домене.
         _pub_base = await client_public_url(conn, client_id)
-        rows.append([{"text": "🎁 Кабинет и подарки",
+        _cab_label = ("🎁 Кабинет и подарки" if ev["referral_enabled"]
+                      else "📋 Ваш кабинет")
+        rows.append([{"text": _cab_label,
                       "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
 
         # 4. Ссылка на эфир — callback.

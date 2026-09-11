@@ -1816,6 +1816,8 @@ async def _send_max_event_menu(
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
                   hide_stream_button, start_at,
                   is_offline, address, address_button_label,
+                  COALESCE((SELECT ers.is_enabled FROM event_referral_settings ers
+                              WHERE ers.event_id = events.id), FALSE) AS referral_enabled,
                   (SELECT url FROM event_posters
                      WHERE event_id = events.id AND day IS NULL
                      ORDER BY CASE orientation
@@ -1912,8 +1914,11 @@ async def _send_max_event_menu(
     tg_rows.append([{"text": prog_label,
                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#program")}])
 
-    # 5. Кабинет и подарки → вкладка кабинета (#cabinet).
-    tg_rows.append([{"text": "Кабинет и подарки",
+    # 5. Кабинет → вкладка кабинета (#cabinet).
+    #    ⚠️ «Подарки» — только при включённой реф-программе, как в TG и VK.
+    _cab_label = ("🎁 Кабинет и подарки" if ev["referral_enabled"]
+                  else "📋 Ваш кабинет")
+    tg_rows.append([{"text": _cab_label,
                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
 
     # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
