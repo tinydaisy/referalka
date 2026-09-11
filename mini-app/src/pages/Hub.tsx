@@ -41,8 +41,13 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
     }).catch(() => {})
     // считаем, есть ли активные (now/upcoming) и любые события — для видимости вкладки
     getClientEvents(clientId, undefined, tgId).then((r: any) => {
-      const now = r?.now || [], up = r?.upcoming || [], past = r?.past || []
-      setEventsState({ hasActive: now.length + up.length > 0, hasAny: now.length + up.length + past.length > 0 })
+      // ⚠️ Бессрочные (`always`, галочка «Идёт постоянно, даты нет») считаются
+      // АКТИВНЫМИ: на них записываются прямо сейчас. Без этого у клиента с
+      // настройкой «показывать вкладку только при активных событиях» календарь
+      // скрывался бы целиком, хотя запись на консультацию открыта.
+      const always = r?.always || [], now = r?.now || [], up = r?.upcoming || [], past = r?.past || []
+      const active = always.length + now.length + up.length
+      setEventsState({ hasActive: active > 0, hasAny: active + past.length > 0 })
     }).catch(() => setEventsState({ hasActive: true, hasAny: true }))  // ошибка — не прячем
   }, [clientId, tgId])
 

@@ -16,7 +16,12 @@ interface Ev {
   poster_url?: string
   start_at?: string
   end_at?: string
-  bucket: 'now' | 'upcoming' | 'past'
+  // ⚠️ `always` — событие с галочкой «Идёт постоянно, даты нет»
+  // (`events.is_evergreen`): запись на консультацию, доступ к материалам,
+  // бессрочный приём заявок. Бэкенд отдаёт такие ОТДЕЛЬНОЙ группой, и её
+  // обязательно надо рисовать: раньше календарь читал только now/upcoming/past,
+  // и бессрочное событие молча пропадало из списка — клиент видел пустоту.
+  bucket: 'now' | 'upcoming' | 'past' | 'always'
   participation_status?: ParticipationStatus
 }
 
@@ -69,8 +74,13 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
             <EventPoster src={e.poster_url} alt={e.title} />
             <div className="body">
               <div className="badge-row">
-                <span className={`badge badge-${e.bucket === 'now' ? 'green' : e.bucket === 'past' ? 'gray' : 'gold'}`}>
-                  {e.bucket === 'now' ? '● Идёт сейчас' : e.bucket === 'past' ? 'Завершено' : 'Скоро'}
+                {/* ⚠️ У бессрочного НЕ пишем «Скоро»: оно не начнётся — оно
+                    открыто всегда. Зелёный, как у идущего: записаться можно
+                    прямо сейчас. */}
+                <span className={`badge badge-${e.bucket === 'now' || e.bucket === 'always' ? 'green' : e.bucket === 'past' ? 'gray' : 'gold'}`}>
+                  {e.bucket === 'always' ? '● Открыто всегда'
+                    : e.bucket === 'now' ? '● Идёт сейчас'
+                    : e.bucket === 'past' ? 'Завершено' : 'Скоро'}
                 </span>
                 <StatusPill status={e.participation_status ?? null} />
               </div>
@@ -87,19 +97,27 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
 }
 
 export default function CalendarTab({ clientId, tgId, onOpenEvent }: Props) {
-  const [data, setData] = useState<{ now: Ev[]; upcoming: Ev[]; past: Ev[] }>({ now: [], upcoming: [], past: [] })
+  const [data, setData] = useState<{ always: Ev[]; now: Ev[]; upcoming: Ev[]; past: Ev[] }>(
+    { always: [], now: [], upcoming: [], past: [] })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     getClientEvents(clientId, undefined, tgId)
-      .then(setData)
+      // ⚠️ Группы подставляем с запасом: пока на прод не приехал бэкенд с
+      // `always`, ключа в ответе нет — и `data.always.length` уронил бы вкладку
+      // целиком, то есть календарь пропал бы вообще у всех.
+      .then((d: Partial<Record<'always' | 'now' | 'upcoming' | 'past', Ev[]>>) =>
+        setData({
+          always: d.always ?? [], now: d.now ?? [],
+          upcoming: d.upcoming ?? [], past: d.past ?? [],
+        }))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [clientId, tgId])
 
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Загружаем события…</div>
 
-  const empty = !data.now.length && !data.upcoming.length && !data.past.length
+  const empty = !data.always.length && !data.now.length && !data.upcoming.length && !data.past.length
   if (empty) {
     return (
       <div style={{ textAlign: 'center', paddingTop: 60, padding: 16 }}>
@@ -116,6 +134,9 @@ export default function CalendarTab({ clientId, tgId, onOpenEvent }: Props) {
     <div className="fade-in" style={{ paddingBottom: 16 }}>
       <Section title="🔴 Сейчас идёт"  items={data.now}      onOpen={onOpenEvent} />
       <Section title="📅 Скоро"        items={data.upcoming} onOpen={onOpenEvent} />
+      {/* ⚠️ Бессрочные — ПОСЛЕ датированных: у тех есть срок, и они важнее по
+          времени. Но выше архива — записаться на них можно прямо сейчас. */}
+      <Section title="♾️ Открыто всегда" items={data.always} onOpen={onOpenEvent} />
       <ArchiveSection items={data.past} onOpen={onOpenEvent} />
     </div>
   )
