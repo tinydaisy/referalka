@@ -243,6 +243,8 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
   const brandRole = profile.positioning || ''
   const brandAch = (profile.achievements || []).slice(0, 4)
   const items = tab === 'free' ? free : paid
+  // Нечего показывать — блок продуктов не рисуем совсем
+  const hasOfferings = free.length > 0 || paid.length > 0
 
   // Карточка-тизер основателя — показываем только если хоть что-то заполнено
   const ownerName = profile.name || ''
@@ -362,7 +364,8 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
         </button>
       )}
 
-      {/* Переключатель Бесплатно/Платно */}
+      {/* Переключатель Бесплатно/Платно — только если продукты есть */}
+      {hasOfferings && (<>
       <div style={{
         display: 'flex', padding: 4, margin: '0 0 12px',
         background: 'var(--gradient-135)',
@@ -390,6 +393,7 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
           {tab === 'free' ? 'Бесплатных продуктов пока нет' : 'Платных продуктов пока нет'}
         </div>
       ) : items.map(o => <OfferingCard key={o.id} o={o} />)}
+      </>)}
     </div>
   )
 }
