@@ -18,9 +18,14 @@ export default function EventDescription({ text, style, className, renderPlain }
   if (!raw) return null
 
   if (looksLikeHtml(raw)) {
+    // ⚠️⚠️ Класс `event-desc` вешается ЗДЕСЬ, а не в местах вызова: точек
+    // показа описания несколько (лендинг, «Программа», веб-витрина), и правило
+    // «не забыть добавить класс» одна из них рано или поздно нарушит. Без
+    // класса у `<li>` нет стилей вовсе, и списки растягиваются на экраны —
+    // см. комментарий в global.css.
     return (
       <div
-        className={className}
+        className={className ? `event-desc ${className}` : 'event-desc'}
         style={style}
         dangerouslySetInnerHTML={{ __html: sanitizeHtml(raw) }}
       />
