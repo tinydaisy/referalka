@@ -188,6 +188,25 @@ export default function SolutionPage() {
         )}
       </section>
 
+      {/* ── Результат ─────────────────────────────────────────────────── */}
+      {/* ⚠️⚠️ Блок ГОЛУБОЙ и стоит сразу после шагов: он отвечает на главный
+          вопрос — что в итоге получил человек и куда он попал. Без него
+          «заявка» и «регистрация» читаются как одно и то же, и клиент ждёт
+          участника события там, где человек всего лишь оставил заявку. Эта
+          путаница была прямо в описаниях решений 7 и 8. */}
+      {sol.result && (
+        <section className="mb-6 rounded-xl border p-5"
+                 style={{ borderColor: '#B9CEDD', background: '#F1F6FA' }}>
+          <h2 className="mb-1.5 flex items-center gap-1.5 text-base font-bold"
+              style={{ color: DARK }}>
+            <Check size={16} style={{ color: DARK }} /> Результат
+          </h2>
+          <p className="text-sm leading-relaxed" style={{ color: DARK }}>
+            {sol.result}
+          </p>
+        </section>
+      )}
+
       {/* ── Что можно поправить ───────────────────────────────────────── */}
       <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5">
         <h2 className="mb-1 flex items-center gap-1.5 text-base font-bold text-gray-900">

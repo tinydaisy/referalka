@@ -594,6 +594,60 @@ OFFLINE_EVENT_TEXT = (
 )
 
 
+# ──────────────── заявка на консультацию через событие ───────────────────
+async def _install_consult_event(db, cid: int, slug: str, *,
+                                 with_landing: bool) -> list[dict]:
+    """Консультация как событие, но с АНКЕТОЙ-ЗАЯВКОЙ, а не регистрацией.
+
+    ⚠️⚠️ ЗАЯВКА НЕ РЕГИСТРИРУЕТ ЧЕЛОВЕКА, и это главное отличие от обычного
+    события. Раньше решение ставило событие с формой регистрации: человек
+    заполнял контакты и попадал в участники — то есть «записывался» на
+    консультацию, которой ему ещё никто не дал. Для заявки это неверно:
+    решение о встрече принимает клиент, а не посетитель страницы.
+
+    Механика уже есть в платформе и здесь только собирается: форма заявки
+    (`request_forms`) показывается и в Mini App вместе с тарифами, и секцией на
+    лендинге, а ответ падает в анкету. Человек остаётся «интересовался», пока
+    клиент сам с ним не договорится.
+    """
+    sv = await _new_survey(db, cid,
+                           title=_named(slug, "Заявка на консультацию"),
+                           questions=CONSULT_QUESTIONS)
+
+    created = await _install_event(
+        db, cid, title=_named(slug, "Консультация"),
+        description=CONSULT_EVENT_TEXT, evergreen=True,
+        with_landing=with_landing)
+
+    # ⚠️ Анкета подставляется на страницу ИЗ ФОРМЫ ЗАЯВКИ, а не выбирается в
+    # блоке: два места, задающих одно и то же, разъезжаются (решение 363).
+    ev_id = int(created[0]["href"].rsplit("/", 1)[-1].split("?")[0])
+    await db.execute(
+        """INSERT INTO request_forms (owner_type, owner_id, client_id, survey_id,
+                                      title, subtitle, success_text)
+           VALUES ('event',$1,$2,$3,
+                   'Оставьте заявку на консультацию',
+                   'Ответьте на пару вопросов — и мы свяжемся с вами',
+                   'Спасибо! Мы свяжемся с вами и обсудим детали.')
+           ON CONFLICT (owner_type, owner_id) DO NOTHING""",
+        ev_id, cid, sv["id"])
+
+    created.append({
+        "title": f"Анкета-заявка «{sv['title']}»",
+        "href": "/dashboard/surveys",
+        "hint": "Раздел «Анкеты» — правьте вопросы, заявки на вкладке "
+                "«Ответы». ⚠️ Заявка НЕ регистрирует человека на событие: он "
+                "остаётся «интересовался», пока вы сами с ним не договоритесь.",
+    })
+    created.append({
+        "title": "Форма заявки события",
+        "href": f"/dashboard/events/{ev_id}?tab=payments",
+        "hint": "«Платежи/Заявки» → «Формы заявки». Здесь выбрано, какая анкета "
+                "собирает заявки, и написан текст после отправки.",
+    })
+    return created
+
+
 async def _install_offline_event(db, cid: int, slug: str) -> list[dict]:
     return await _install_event(
         db, cid,
@@ -615,12 +669,12 @@ INSTALLERS = {
     "quiz-gift-landing": _install_quiz_gift_landing,
     "survey-segments": _install_survey_segments,
     "offline-event": _install_offline_event,
-    "consult-event-miniapp": lambda db, cid, s: _install_event(
-        db, cid, title=_named(s, "Консультация — запись открыта"),
-        description=CONSULT_EVENT_TEXT, evergreen=True, with_landing=False),
-    "consult-event-landing": lambda db, cid, s: _install_event(
-        db, cid, title=_named(s, "Консультация — запись открыта"),
-        description=CONSULT_EVENT_TEXT, evergreen=True, with_landing=True),
+    # ⚠️ Консультация ставится с АНКЕТОЙ-ЗАЯВКОЙ, а не с формой регистрации:
+    # заявка не делает человека участником (см. `_install_consult_event`).
+    "consult-event-miniapp": lambda db, cid, s: _install_consult_event(
+        db, cid, s, with_landing=False),
+    "consult-event-landing": lambda db, cid, s: _install_consult_event(
+        db, cid, s, with_landing=True),
     "raffle-event-miniapp": lambda db, cid, s: _install_event(
         db, cid, title=_named(s, "Розыгрыш приза"),
         description="Опишите приз и условия. Замените афишу на свою.",
