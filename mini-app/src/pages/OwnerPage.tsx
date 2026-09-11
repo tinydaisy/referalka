@@ -173,7 +173,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
       {(socials.length > 0 || tgChannels.length > 0) && (
         <div style={{ marginBottom: 24 }}>
           <div style={{
-            fontSize: 10, color: PEACH, fontWeight: 700, letterSpacing: 1.5,
+            fontSize: 10, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1.5,
             textTransform: 'uppercase', marginBottom: 8, paddingLeft: 2,
           }}>
             Соцсети
