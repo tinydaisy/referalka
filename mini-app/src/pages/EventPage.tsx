@@ -54,7 +54,7 @@ const NAV_NOT_REG: NavItem[] = [
   // приложении. Замок объясняет, что нужно зарегистрироваться, — это честнее,
   // чем прятать раздел, который на витрине события заведомо есть.
   { id: 'speakers',  label: 'Спикеры',    icon: 'speakers',  locked: true },
-  { id: 'game',      label: 'Подарки',       icon: 'game',      locked: true },
+  { id: 'game',      label: 'Привилегии',    icon: 'game',      locked: true },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
   // ⚠️ «О проекте» — БЕЗ ЗАМКА, всегда. Это визитка организатора: кто он,
   // чем занимается, его каналы и продукты. Прятать её за регистрацией
@@ -67,13 +67,13 @@ const NAV_REGISTERED: NavItem[] = [
   { id: 'welcome',   label: 'Интро',      icon: 'welcome'   },
   { id: 'program',   label: 'Программа',  icon: 'program'   },
   { id: 'speakers',  label: 'Спикеры',    icon: 'speakers'  },
-  { id: 'game',      label: 'Подарки',       icon: 'game'      },
+  { id: 'game',      label: 'Привилегии',    icon: 'game'      },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle'    },
   { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
 ]
 const NAV_ENDED: NavItem[] = [
   { id: 'results',   label: 'Итоги',      icon: 'results'   },
-  { id: 'game',      label: 'Подарки',       icon: 'game'      },
+  { id: 'game',      label: 'Привилегии',    icon: 'game'      },
   { id: 'calendar',  label: 'Календарь',  icon: 'calendar'  },
   { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
 ]

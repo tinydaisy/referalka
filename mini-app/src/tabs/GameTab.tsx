@@ -293,12 +293,12 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         <div className="fade-in" style={{ padding: '24px 16px', textAlign: 'center' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
           <div style={{ fontWeight: 700, color: DARK, marginBottom: 6 }}>
-            Подарки — после регистрации
+            Привилегии — после регистрации
           </div>
           <div style={{ color: '#8a96a3', fontSize: 14, lineHeight: 1.5 }}>
-            Зарегистрируйтесь на событие, чтобы получать подарки за приглашённых
-            друзей. Приглашать можно уже сейчас — ссылка и материалы во вкладках
-            «Материалы» и «Поделиться».
+            Зарегистрируйтесь на событие, чтобы получать привилегии за
+            приглашённых друзей. Приглашать можно уже сейчас — ссылка и
+            материалы во вкладках «Материалы» и «Поделиться».
           </div>
         </div>
       )
@@ -732,6 +732,14 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
            читались как три несвязанные темы, между которыми ещё и зазор.
            Внутри блока — тонкие разделители вместо отступов и теней.
          ════════════════════════════════════════════════════════════════ */}
+      {/* ⚠️⚠️ ПОДАРКОВ НЕ НАСТРОЕНО — БЛОКА НЕТ ВОВСЕ (решение владельца).
+          Раньше он рисовался всегда и показывал «0 · Доступно подарков» и
+          «🎉 Все подарки открыты!» там, где подарков не существует: человек
+          читал это как поломку, а клиент — как обещание, которого он не давал.
+          ⚠️ Скрываем по ОТСУТСТВИЮ ПОРОГОВ (`sortedGifts`), а не по числу
+          полученных: у того, кто ещё никого не привёл, получено ноль — и по
+          нему блок пропал бы у всех, хотя подарки настроены и их видно. */}
+      {sortedGifts.length > 0 && (
       <div style={{
         background: 'white', borderRadius: 14, marginBottom: 12, overflow: 'hidden',
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
@@ -824,7 +832,8 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           </button>
         </div>
       )}
-      </div>{/* ← конец общей рамки блока подарков */}
+      </div>
+      )}{/* ← конец общей рамки блока подарков */}
 
       {/* ТОП — expander (скрыт, если клиент отключил рейтинг для события) */}
       {!participant?.hide_rating && (
@@ -909,10 +918,19 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
         }}
       />
 
-      {/* 3 кнопки: Подарки, Материалы, Поделиться */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+      {/* Кнопки: Подарки (если настроены), Материалы, Поделиться.
+          ⚠️ Кнопку «Мои подарки» прячем вместе с блоком: спрятать блок и
+          оставить вход в пустое окно — то же самое, что не прятать. Сетка
+          перестраивается на две колонки, иначе третья ячейка зияет дырой. */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: sortedGifts.length > 0 ? '1fr 1fr 1fr' : '1fr 1fr',
+        gap: 8, marginBottom: 14,
+      }}>
         {[
-          { ico: '🎁', label: 'Мои подарки',            onClick: () => setView('gifts') },
+          ...(sortedGifts.length > 0
+            ? [{ ico: '🎁', label: 'Мои подарки', onClick: () => setView('gifts') }]
+            : []),
           { ico: '🖼', label: 'Материалы для приглашения', onClick: () => setView('materials') },
           { ico: '📤', label: 'Поделиться',             onClick: share },
         ].map((b, i) => (
@@ -1139,6 +1157,13 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 500 }}>
           Ваша партнёрская ссылка на событие
         </div>
+        {/* ⚠️ Та же нейтральная формулировка, что и в блоке с несколькими
+            площадками: человек видит один из двух блоков, и разные обещания
+            в них читались бы как разные правила. */}
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.4 }}>
+          Отправьте её друзьям — и получайте дополнительные привилегии за
+          каждого пришедшего от вас.
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{
             flex: 1, background: '#f7f8fa', padding: 10, borderRadius: 10,
@@ -1163,8 +1188,14 @@ function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCo
       <div style={{ fontSize: 13, color: DARK, marginBottom: 4, fontWeight: 700 }}>
         🔗 Ваши партнёрские ссылки
       </div>
+      {/* ⚠️⚠️ ФОРМУЛИРОВКА НЕЙТРАЛЬНАЯ — «привилегии», а не «подарки»
+          (решение владельца). Реф-ссылку используют не только под подарки за
+          пороги: клиент может считать по ней доход, процент или закрытый
+          доступ. Обещать подарок там, где его нет, — прямой обман человека,
+          а у клиента без порогов это ещё и обещание, которого он не давал. */}
       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, lineHeight: 1.4 }}>
-        Отправьте другу ту ссылку, которая ведёт в его привычное приложение.
+        Отправьте другу ту ссылку, которая ведёт в его привычное приложение,
+        — и получайте дополнительные привилегии за каждого пришедшего от вас.
       </div>
       {order.map((p, idx) => {
         const url = links[p]!
