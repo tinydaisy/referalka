@@ -387,7 +387,7 @@ export default function TariffPicker({
                 Я согласен на обработку моих персональных данных.{' '}
                 {privacyUrl ? (
                   <>С <a href={privacyUrl} target="_blank" rel="noreferrer"
-                         style={{ color: 'var(--peach)' }}>Политикой обработки
+                         style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2 }}>Политикой обработки
                     персональных данных</a> ознакомлен.</>
                 ) : 'С Политикой обработки персональных данных ознакомлен.'}
               </span>
@@ -498,7 +498,7 @@ export default function TariffPicker({
                 Я согласен на обработку моих персональных данных.{' '}
                 {privacyUrl ? (
                   <>С <a href={privacyUrl} target="_blank" rel="noreferrer"
-                         style={{ color: 'var(--peach)' }}>Политикой обработки
+                         style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2 }}>Политикой обработки
                     персональных данных</a> ознакомлен.</>
                 ) : 'С Политикой обработки персональных данных ознакомлен.'}
               </span>
@@ -510,7 +510,7 @@ export default function TariffPicker({
                        style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
                 <span>Я принимаю условия{' '}
                   <a href={offerUrl} target="_blank" rel="noreferrer"
-                     style={{ color: 'var(--peach)' }}>оферты</a>.</span>
+                     style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2 }}>оферты</a>.</span>
               </label>
             )}
 

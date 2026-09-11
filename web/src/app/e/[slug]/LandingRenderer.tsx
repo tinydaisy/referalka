@@ -2991,12 +2991,23 @@ function GiftIcon({ color, id }: { color: string; id: string }) {
 function formatDate(iso: string, end?: string | null, fromProgram?: boolean): string {
   try {
     const d1 = new Date(iso)
-    const opts: Intl.DateTimeFormatOptions = fromProgram
+    // ⚠️⚠️ МНОГОДНЕВНОЕ СОБЫТИЕ — ДИАПАЗОН, А НЕ ОДИН СТАРТ. Раньше диапазон
+    // рисовался ТОЛЬКО при `fromProgram` (даты из программы конференции), и у
+    // обычного мероприятия `end_at` не выводился вовсе: круиз 7–11 октября
+    // показывался как «7 октября 09:00 МСК» — человек считал, что это один
+    // день. Смотрим на сами даты: разные календарные дни = диапазон.
+    const dayKey = (d: Date) =>
+      d.toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' })
+    const d2 = end ? new Date(end) : null
+    const multiDay = !!d2 && dayKey(d2) !== dayKey(d1)
+    // ⚠️ У многодневного время старта НЕ показываем: «7 октября 09:00 – 11
+    // октября» читается как одно длинное мероприятие с точным началом, хотя
+    // у каждого дня своя программа. Тот же приём, что у конференций.
+    const opts: Intl.DateTimeFormatOptions = (fromProgram || multiDay)
       ? { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' }
       : { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }
     const s1 = d1.toLocaleString('ru-RU', opts)
-    if (fromProgram && end) {
-      const d2 = new Date(end)
+    if ((fromProgram || multiDay) && d2) {
       if (d2.getTime() !== d1.getTime()) {
         const sameMonth = d1.getMonth() === d2.getMonth()
         const left = sameMonth
@@ -3006,7 +3017,9 @@ function formatDate(iso: string, end?: string | null, fromProgram?: boolean): st
         return `${left}–${right}`
       }
     }
-    return fromProgram ? s1 : `${s1} МСК`
+    // ⚠️ «МСК» дописываем только там, где показано ВРЕМЯ. У однодневной даты
+    // без времени приписка бессмысленна — часовой пояс уточняет час, а не день.
+    return (fromProgram || multiDay) ? s1 : `${s1} МСК`
   } catch { return '' }
 }
 

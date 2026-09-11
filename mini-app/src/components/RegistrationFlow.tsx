@@ -161,7 +161,8 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
                   Я согласен на обработку моих персональных данных. С{' '}
                   {organizer ? (
                     <a href={`${privacyBase}/c/${organizer.client_id}/privacy`} target="_blank" rel="noreferrer"
-                       style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
+                       style={{ color: 'inherit', textDecoration: 'underline',
+                                textUnderlineOffset: 2 }}>
                       Политикой обработки персональных данных
                     </a>
                   ) : 'Политикой обработки персональных данных'} ознакомлен.
