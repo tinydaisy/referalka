@@ -1564,14 +1564,20 @@ function BlockBody(props: any) {
       const list = Array.isArray(items) ? items.filter((n: any) => n && (n.value || n.label)) : []
       // ⚠️ Пустая секция места не занимает — см. `process`.
       if (!list.length) return null
-      // Цифры — крупным металликом из цвета иконок; число колонок настраивается.
+      // Цифры — крупным металликом; число колонок настраивается.
+      // ⚠️⚠️ ЦВЕТ ТЕКСТА, А НЕ ИКОНОК. Раньше цифры брали `iconColor`, и у
+      // клиента с фирменной палитрой (белый текст, салатовые заголовки), но
+      // нетронутым «цветом иконок» они выходили стандартными персиковыми —
+      // единственным чужим пятном на странице. Цифра — это ТЕКСТ, крупный
+      // акцентный, и по умолчанию должна краситься цветом текста бренда.
       // ⚠️ В PDF — сплошной цвет вместо металлика: градиент по буквам печатается
       // контурами (Type3) и разъезжается на телефоне (см. headingStyle).
+      const numColor = page.color_body || iconColor
       const metalNum: React.CSSProperties = forPdf
-        ? { fontFamily: page.font_heading_css, color: iconColor, lineHeight: 1 }
+        ? { fontFamily: page.font_heading_css, color: numColor, lineHeight: 1 }
         : {
             fontFamily: page.font_heading_css,
-            background: metallic(iconColor),
+            background: metallic(numColor),
             WebkitBackgroundClip: 'text',
             backgroundClip: 'text',
             color: 'transparent',
