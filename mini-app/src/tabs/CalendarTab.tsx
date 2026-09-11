@@ -74,14 +74,16 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
             <EventPoster src={e.poster_url} alt={e.title} />
             <div className="body">
               <div className="badge-row">
-                {/* ⚠️ У бессрочного НЕ пишем «Скоро»: оно не начнётся — оно
-                    открыто всегда. Зелёный, как у идущего: записаться можно
-                    прямо сейчас. */}
-                <span className={`badge badge-${e.bucket === 'now' || e.bucket === 'always' ? 'green' : e.bucket === 'past' ? 'gray' : 'gold'}`}>
-                  {e.bucket === 'always' ? '● Открыто всегда'
-                    : e.bucket === 'now' ? '● Идёт сейчас'
-                    : e.bucket === 'past' ? 'Завершено' : 'Скоро'}
-                </span>
+                {/* ⚠️ У бессрочного бейджа о времени НЕТ ВОВСЕ (решение
+                    владельца). «Скоро» врёт — оно не начнётся; «Открыто
+                    всегда» тоже лишнее: у события просто нет срока, и
+                    сообщать тут нечего. Остаётся только статус участия. */}
+                {e.bucket !== 'always' && (
+                  <span className={`badge badge-${e.bucket === 'now' ? 'green' : e.bucket === 'past' ? 'gray' : 'gold'}`}>
+                    {e.bucket === 'now' ? '● Идёт сейчас'
+                      : e.bucket === 'past' ? 'Завершено' : 'Скоро'}
+                  </span>
+                )}
                 <StatusPill status={e.participation_status ?? null} />
               </div>
               <div className="title">{e.title}</div>
@@ -135,8 +137,10 @@ export default function CalendarTab({ clientId, tgId, onOpenEvent }: Props) {
       <Section title="🔴 Сейчас идёт"  items={data.now}      onOpen={onOpenEvent} />
       <Section title="📅 Скоро"        items={data.upcoming} onOpen={onOpenEvent} />
       {/* ⚠️ Бессрочные — ПОСЛЕ датированных: у тех есть срок, и они важнее по
-          времени. Но выше архива — записаться на них можно прямо сейчас. */}
-      <Section title="♾️ Открыто всегда" items={data.always} onOpen={onOpenEvent} />
+          времени. Но выше архива — записаться на них можно прямо сейчас.
+          ⚠️ Заголовка у секции НЕТ (решение владельца): карточки просто идут
+          следом за датированными. `Section` при пустом title его не рисует. */}
+      <Section title="" items={data.always} onOpen={onOpenEvent} />
       <ArchiveSection items={data.past} onOpen={onOpenEvent} />
     </div>
   )
