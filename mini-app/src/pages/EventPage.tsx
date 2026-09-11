@@ -277,10 +277,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
           })
           const reg = r?.participant || r
           if (!cancelled) setParticipant({ ...reg, is_registered: true })
-          // Только что зарегистрировался → стартовая вкладка = «Интро»,
-          // для контестов/турниров «Интро» пропускаем — сразу в «Программу».
-          const skipWelcome = ['contest', 'turnir'].includes(landing?.module_slug)
-          if (!cancelled) setTabState(skipWelcome ? 'program' : 'welcome')
+          // ⚠️ Сразу «Программа» — приветственное «Интро» отключено
+          // (см. showWelcomeTab). Человек попадает к содержимому события.
+          if (!cancelled) setTabState('program')
         } catch (_) { /* fallback на обычный flow — лендинг */ }
       } else if (speakerEcId && ['conference', 'turnir'].includes(landing?.module_slug)) {
         // Прямая ссылка на карточку спикера/жюри — вкладка «Спикеры» доступна
@@ -294,12 +293,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         const allowed = ['welcome', 'program', 'speakers', 'game', 'raffle', 'ecosystem']
         if (initialTab && allowed.includes(initialTab)) {
           setTabState(initialTab)
-        } else if (part?.participant?.welcomed_at == null && !['contest', 'turnir'].includes(landing?.module_slug)) {
-          // Только что зарегистрировался (welcomed_at пуст) → «Интро» по умолчанию.
-          // После первого открытия welcomed_at проставится и дефолт станет «Программа».
-          // Для конкурсов и турниров «Интро» пропускаем — сразу в «Программу».
-          setTabState('welcome')
         } else {
+          // ⚠️ Всегда «Программа». Раньше только что зарегистрировавшийся
+          // (`welcomed_at IS NULL`) попадал на «Интро» — оно отключено.
           setTabState('program')
         }
       } else if (getPlatformName() === 'web') {
@@ -385,9 +381,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   // ⚠️ ИСКЛЮЧЕНИЕ: пока не пройден шлюз подписки, «Интро» показываем ВСЕГДА —
   // в том числе конкурсам и турнирам и тем, у кого welcomed_at уже стоит.
   // Иначе человеку негде подписаться: экран с каналами живёт именно здесь.
-  const hidesWelcome = ['contest', 'turnir'].includes(event?.module_slug)
+  // ⚠️⚠️ ПРИВЕТСТВЕННОЕ «ИНТРО» ОТКЛЮЧЕНО (решение владельца 11.09.2026).
+  // После регистрации человек попадает СРАЗУ в «Программу» — и в Mini App,
+  // и в веб-версии. Экран-поздравление с плитками «а ещё вас ждёт» только
+  // отодвигал от содержимого событие, ради которого человек пришёл.
+  //
+  // ⚠️ Вкладка НЕ удалена и остаётся при ЗАКРЫТОМ ШЛЮЗЕ ПОДПИСКИ: экран со
+  // списком каналов живёт именно здесь, и без него человеку негде было бы
+  // подписаться — он упёрся бы в замки без объяснения. Поэтому условие
+  // сведено к `gateLocked`, а не вычищено.
   const showWelcomeTab = gateLocked
-    || (registered && participant?.welcomed_at == null && !hidesWelcome)
 
   // Вкладка «Спикеры» — если у события ЕСТЬ ЛЮДИ (карточки спикеров,
   // организаторов, жюри, партнёров), как это давно делает веб-страница
