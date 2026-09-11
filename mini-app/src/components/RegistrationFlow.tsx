@@ -146,7 +146,12 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
               <label>Телефон</label>
               <input className="input-dark" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+7 999 123-45-67" />
               <button onClick={requestPhoneFromTG}
-                      style={{ marginTop: 6, background: 'none', border: 'none', color: 'var(--peach)', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                      /* ⚠️ НЕ брендовый цвет. Окно регистрации светлое, а
+                         акцент клиента бывает любым (у одного лаймовый, у
+                         другого жёлтый) — на белом фоне такая подпись
+                         нечитаема. Служебное действие: обычный текст с
+                         подчёркиванием, как у ссылки. */
+                      style={{ marginTop: 6, background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', padding: 0, textDecoration: 'underline', textUnderlineOffset: 2 }}>
                 Взять из Telegram
               </button>
             </div>
@@ -208,7 +213,9 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
         {step === 2 && (
           <div style={{ textAlign: 'center', padding: '24px 0 12px' }}>
             <div style={{ fontSize: 56, marginBottom: 12 }}>✓</div>
-            <h2 style={{ color: 'var(--peach)' }}>Вы зарегистрированы!</h2>
+            {/* ⚠️ НЕ брендовый цвет: экран светлый, акцент клиента бывает
+                любым и на белом теряется. Заголовок — обычным текстом. */}
+            <h2 style={{ color: 'var(--text)' }}>Вы зарегистрированы!</h2>
             <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 12, lineHeight: 1.5 }}>
               Открываем программу события...
             </p>
