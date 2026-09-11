@@ -266,27 +266,47 @@ export default function SolutionPage() {
               : 'Установка на вашем тарифе недоступна.'}
           </p>
         ) : result ? (
-          <div className="rounded-lg bg-emerald-50 p-4">
+          /* ⚠️ Это не «уведомление об успехе», а НАВИГАЦИЯ: человек нажал
+             кнопку, у него в кабинете появилось три-четыре записи в разных
+             разделах — и он не знает, где их искать. Поэтому у каждой строки
+             свой номер, своё пояснение «что это и в каком разделе лежит» и
+             своя ссылка. Плоский список названий эту задачу не решал. */
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
             <div className="flex items-center gap-1.5 font-medium text-emerald-800">
               <Check size={16} /> Готово — решение установлено
             </div>
+            <p className="mt-1 text-sm text-emerald-900">
+              Вот что появилось в вашем кабинете и где это лежит:
+            </p>
             {!!result.created?.length && (
-              <ul className="mt-2 space-y-1 text-sm text-emerald-900">
+              <ol className="mt-3 space-y-3">
                 {result.created.map((c: any, i: number) => (
-                  <li key={i}>
-                    {c.title}
-                    {c.href && (
-                      <>
-                        {' — '}
-                        <Link href={c.href} className="underline">открыть</Link>
-                      </>
-                    )}
+                  <li key={i} className="flex gap-2.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center
+                                     rounded-full bg-emerald-600 text-[11px] font-bold text-white">
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-emerald-900">{c.title}</div>
+                      {c.hint && (
+                        <div className="mt-0.5 text-xs leading-relaxed text-emerald-800">
+                          {c.hint}
+                        </div>
+                      )}
+                      {c.href && (
+                        <Link href={c.href}
+                              className="mt-1 inline-block text-xs font-medium text-emerald-700 underline">
+                          Открыть раздел →
+                        </Link>
+                      )}
+                    </div>
                   </li>
                 ))}
-              </ul>
+              </ol>
             )}
-            <p className="mt-2 text-xs text-emerald-800">
-              Теперь замените тексты и фото на свои — где именно, написано выше.
+            <p className="mt-3 border-t border-emerald-200 pt-2 text-xs text-emerald-800">
+              Названия записей начинаются с номера решения — так их видно среди
+              остальных. Замените тексты, ссылки и фото на свои.
             </p>
           </div>
         ) : (
