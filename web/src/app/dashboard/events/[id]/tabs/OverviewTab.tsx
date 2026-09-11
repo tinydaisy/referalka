@@ -136,10 +136,14 @@ export default function OverviewTab({
       if (cbl !== (event.chat_button_label || ''))              payload.chat_button_label = cbl || null
       const initAccent = normalizeAccent(event.accent_button)
       if (accentButton !== initAccent)                          payload.accent_button = accentButton
-      const startIso = startAt ? new Date(startAt).toISOString() : null
+      // ⚠️ У бессрочного события даты ОБНУЛЯЮТСЯ. Оставленная от прежней
+      // настройки дата попала бы в календарь и напоминания — ровно то, от
+      // чего уводит галочка. Поля ввода при ней заблокированы, но значение
+      // в них могло остаться с прошлого раза.
+      const startIso = (evergreen || !startAt) ? null : new Date(startAt).toISOString()
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
       if (startIso !== eventStartIso)                           payload.start_at = startIso
-      const endIso = endAt ? new Date(endAt).toISOString() : null
+      const endIso = (evergreen || !endAt) ? null : new Date(endAt).toISOString()
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
       if (requireSubscription !== !!event.require_subscription) payload.require_subscription = requireSubscription
@@ -213,16 +217,54 @@ export default function OverviewTab({
                       placeholder="Например: «Подключайтесь к стриму за 5 минут до начала. После эфира — заглядывайте в чат»" />
           </Field>
 
+          {/* ⚠️⚠️ ГАЛОЧКА «ИДЁТ ПОСТОЯННО» СТОИТ ИМЕННО ЗДЕСЬ, У ПОЛЕЙ ДАТЫ.
+              Раньше она жила в блоке «Настройка ссылок» — далеко отсюда, и
+              человек с событием без даты её просто не находил: смотрел на
+              пустые поля, публиковал и упирался в отказ «укажите дату».
+              Это ответ на вопрос «а если даты нет», и он должен быть на
+              расстоянии взгляда от самого вопроса. Не уносить обратно. */}
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Дата и время начала">
               <input type="datetime-local" value={startAt} onChange={e => setStartAt(e.target.value)}
-                     className="input" />
+                     disabled={evergreen}
+                     className="input disabled:bg-gray-50 disabled:text-gray-400" />
             </Field>
             <Field label="Дата и время окончания">
               <input type="datetime-local" value={endAt} onChange={e => setEndAt(e.target.value)}
-                     className="input" />
+                     disabled={evergreen}
+                     className="input disabled:bg-gray-50 disabled:text-gray-400" />
             </Field>
           </div>
+
+          {/* ⚠️⚠️ БЕССРОЧНОЕ СОБЫТИЕ — вместо выдуманной даты. Раньше под запись
+              на консультацию или доступ к материалам ставили 2050 год: такое
+              событие садится в конец календаря, попадает в «Скоро» после всех
+              настоящих, а за сутки до него уходят напоминания «завтра
+              начинается». Здесь даты просто нет. */}
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={evergreen}
+              onChange={e => setEvergreen(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <span className="text-sm text-gray-700">
+              Идёт постоянно, даты нет
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Для записи на консультацию, розыгрыша, доступа к материалам и
+                приёма заявок без срока. Событие публикуется без даты,
+                показывается в календаре отдельно и не «заканчивается».
+                Напоминания по нему не приходят — напоминать не о чем.
+              </span>
+            </span>
+          </label>
+
+          {/* ⚠️ Без даты и без галочки событие НЕ опубликуется (409 с бэкенда).
+              Говорим об этом прямо в форме, а не только в момент отказа. */}
+          {!evergreen && !startAt && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+              Даты нет — опубликовать событие не получится. Укажите дату
+              начала или поставьте галочку «Идёт постоянно» выше, а затем
+              нажмите «Сохранить».
+            </p>
+          )}
         </div>
       </div>
 
@@ -236,26 +278,8 @@ export default function OverviewTab({
               видел бы кнопку эфира, которого нет. А в это же поле исторически
               кладут ссылку на трансляцию: такое событие сочли бы офлайновым и
               увели людей на карту по обрывку URL. */}
-          {/* ⚠️⚠️ БЕССРОЧНОЕ СОБЫТИЕ — вместо выдуманной даты. Раньше под запись
-              на консультацию или доступ к материалам ставили 2050 год: такое
-              событие садится в конец календаря, попадает в «Скоро» после всех
-              настоящих, а за сутки до него уходят напоминания «завтра
-              начинается». Здесь даты просто нет. */}
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input type="checkbox" checked={evergreen}
-              onChange={e => setEvergreen(e.target.checked)}
-              className="mt-0.5 accent-[#25455D]" />
-            <span className="text-sm text-gray-700">
-              Идёт постоянно, даты нет
-              <span className="block text-xs text-gray-400 mt-0.5">
-                Для записи на консультацию, доступа к материалам и приёма заявок
-                без срока. Событие публикуется без даты, показывается в календаре
-                отдельно и не «заканчивается». Напоминания по нему не приходят —
-                напоминать не о чем.
-              </span>
-            </span>
-          </label>
-
+          {/* ⚠️ Галочка «Идёт постоянно» переехала ОТСЮДА к полям даты (выше,
+              блок «Основное») — здесь её не находили. Второй копии не заводить. */}
           <label className="flex items-start gap-2 cursor-pointer">
             <input type="checkbox" checked={isOffline}
               onChange={e => setIsOffline(e.target.checked)}
