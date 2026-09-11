@@ -1569,6 +1569,8 @@ async def send_event_menu(
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
+                  COALESCE((SELECT ers.is_enabled FROM event_referral_settings ers
+                              WHERE ers.event_id = e.id), FALSE) AS referral_enabled,
                   (SELECT url FROM event_posters
                      WHERE event_id = e.id AND day IS NULL
                      ORDER BY CASE orientation
@@ -1692,11 +1694,17 @@ async def send_event_menu(
     # Вступить в чат → Ссылка на эфир → Тех. поддержка.
 
     # 2. Кабинет → веб (#cabinet) или Mini App — по настройке клиента.
-    #    Название: для конференций/турниров «Кабинет·Подарки·Спикеры»,
-    #    для обычных событий «Кабинет·Подарки».
-    cabinet_label = ("🎁 Кабинет·Подарки·Спикеры"
-                     if ev["module_slug"] in ("conference", "turnir")
-                     else "🎁 Кабинет·Подарки")
+    #    ⚠️ Слово «Подарки» — ТОЛЬКО при включённой реф-программе события
+    #    (event_referral_settings.is_enabled). Раньше оно стояло всегда, и у
+    #    клиента без реф-программы кнопка обещала подарки, которых внутри нет.
+    #    «Спикеры» остаются признаком конференции/турнира и от подарков
+    #    не зависят.
+    _parts = ["Ваш кабинет"]
+    if ev["referral_enabled"]:
+        _parts.append("Подарки")
+    if ev["module_slug"] in ("conference", "turnir"):
+        _parts.append("Спикеры")
+    cabinet_label = ("🎁 " if ev["referral_enabled"] else "📋 ") + "·".join(_parts)
     rows.append([InlineKeyboardButton(text=cabinet_label, url=cabinet_url)])
 
     # 3. Вступить в Чат — только если есть хоть одна chat-ссылка.
