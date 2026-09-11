@@ -684,6 +684,8 @@ export default function AutoSetupTab() {
                           botUsername={order.bot_username}
                           groupLink={order.group_invite_link}
                           supportFilled={state.support_filled}
+                          nickFilled={!!state.telegram_username}
+                          channelFilled={!!state.channel_username}
                           log={order.setup_log} />
       )}
 
@@ -1018,11 +1020,15 @@ export default function AutoSetupTab() {
  * какому верить. Оставлен этот: у него есть ссылки «проверить», которых в логе
  * не было. Точность лога перенесена сюда — см. `failed` ниже.
  */
-function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }: {
+function ServiceChecklist({ steps, botUsername, groupLink, supportFilled,
+                           nickFilled, channelFilled, log }: {
   steps?: Record<string, boolean>
   botUsername?: string | null
   groupLink?: string | null
   supportFilled?: boolean
+  /** Поле уже заполнено в кабинете — для заказов, созданных до появления шага. */
+  nickFilled?: boolean
+  channelFilled?: boolean
   log?: Step[]
 }) {
   const s = steps || {}
@@ -1081,15 +1087,19 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }:
     //
     // ⚠️ Ссылка ведёт ровно туда, КУДА ЭТО ЛЕГЛО, а не в «Настройки» вообще:
     // человек должен проверить за нами, а не искать нужную вкладку.
-    { done: doneByStep.has('fields_own'), text: 'Записали ваш Telegram в профиль',
+    // ⚠️ Смотрим И на лог, И на факт в кабинете: у заказов, созданных ДО
+    // появления этих шагов, записи в логе нет — но поле давно заполнено, и
+    // серый кружок там читался бы как «не сделано».
+    { done: doneByStep.has('fields_own') || !!nickFilled,
+      text: 'Записали ваш Telegram в профиль',
       proof: '/dashboard/settings?tab=profile', proofLabel: 'Проверить' },
-    { done: doneByStep.has('fields_support'),
+    { done: doneByStep.has('fields_support') || !!supportFilled,
       // Подпись честная: поле могло быть уже заполнено, и мы его не трогали.
       text: (log || []).some(e => e.step === 'fields_support' && e.text.includes('уже была заполнена'))
         ? 'Служба заботы уже была заполнена — оставили вашу'
         : 'Записали Telegram службы заботы',
       proof: '/dashboard/settings?tab=profile', proofLabel: 'Проверить' },
-    { done: doneByStep.has('fields_channel'),
+    { done: doneByStep.has('fields_channel') || !!channelFilled,
       text: 'Записали ваш канал в «Каналы основателя»',
       // ⚠️ Каналы основателя живут во вкладке «Основатель» раздела Mini App,
       // а НЕ в «Каналах» — там «Каналы для рассылок», другое место.
@@ -1109,18 +1119,6 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled, log }:
       proof: '/dashboard/settings?tab=tech', proofLabel: 'Проверить' },
     // ⚠️ Отметка ИЗ ЛОГА ЗАКАЗА, а не по `support_filled`: то поле показывает
     // текущее состояние настроек и зеленело от прошлой попытки — пункт горел,
-    // когда бот ещё только создавался. `supportFilled` оставлен запасным
-    // вариантом для заказов, сделанных до этой правки (в их логе шага нет).
-    // ⚠️ Подпись зависит от того, ЗАПОЛНИЛИ мы поле или оно уже было заполнено.
-    // Писать «Заполнили Службу заботы» там, где мы ничего не трогали (у клиента
-    // поддержку ведёт отдельный аккаунт, и его настройку мы не перетираем) —
-    // враньё: человек решит, что мы подменили ему контакт.
-    { done: doneByStep.has('support') || !!supportFilled,
-      text: keptSupport
-        ? 'Служба заботы уже была заполнена — оставили вашу'
-        : 'Заполнили «Службу заботы»',
-      key: 'support',
-      proof: '/dashboard/settings', proofLabel: 'Проверить' },
     // ⚠️⚠️ ПОРЯДОК ПУНКТОВ — КАК РАБОТАЕТ МАШИНА, А НЕ КАК УДОБНО ЧИТАТЬ.
     // «Вы вступили в группу» стояло ПОСЛЕ передачи прав, хотя в группу человек
     // попадает сразу при её создании (в логе — «Вы добавлены в группу и
