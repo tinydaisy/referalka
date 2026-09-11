@@ -162,6 +162,44 @@ def _human_error(exc: BaseException) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 # Выбор аккаунта под заказ
 # ─────────────────────────────────────────────────────────────────────────
+async def _transfer_failed_unless_done(db, client, order_id: int, client_id: int,
+                                       bot_username: str, reason: str) -> None:
+    """Пишет ошибку передачи — но СНАЧАЛА проверяет, не передан ли бот уже.
+
+    ⚠️⚠️ ПОРЯДОК ВАЖЕН: сначала факт, потом ошибка. BotFather отвечает
+    по-разному («It worked!», «Success!», …), и незнакомый ответ раньше сразу
+    красил шаг красным: человек видел «Не удалось выполнить шаг, напишите в
+    тех.поддержку» на успешной передаче (заказ 5, 11.09.2026). Перепроверка
+    была, но срабатывала ПОСЛЕ показа ошибки — через 12 секунд.
+
+    Признак успеха однозначный: бота больше нет в `/mybots` нашего аккаунта.
+    """
+    try:
+        import app.services.tg_setup as tgs
+
+        u = (bot_username or "").lstrip("@")
+        await tgs._ask(client, tgs.BOTFATHER, "/cancel", wait=2)
+        mine = (await tgs._ask(client, tgs.BOTFATHER, "/mybots", wait=5) or "").lower()
+        if u and ("no bots" in mine or f"@{u.lower()}" not in mine):
+            await db.execute(
+                "UPDATE service_orders SET bot_transferred_at=NOW(), "
+                "       setup_error=NULL, updated_at=NOW() WHERE id=$1", order_id,
+            )
+            await _log_step(db, order_id, "transfer",
+                            "Бот теперь ваш — вы его владелец")
+            logger.info("tg_setup transfer order %s: ответ не распознан (%s), "
+                        "но бот @%s исчез из /mybots — передача прошла",
+                        order_id, reason, u)
+            return
+    except Exception as e:  # noqa: BLE001
+        # ⚠️ Перепроверка не удалась — успех наугад НЕ выдаём, идём в ошибку:
+        # лучше лишний раз позвать поддержку, чем сказать «готово» о
+        # непереданном боте.
+        logger.warning("tg_setup transfer order %s: перепроверка не удалась: %s",
+                       order_id, e)
+
+    await _fail_step(db, order_id, client_id, bot_username, reason, step="transfer")
+
 async def _fail_step(db, order_id: int, client_id: int,
                      bot_username: str, reason: str, step: str = "transfer") -> None:
     """Неудача НА ЛЮБОМ ШАГЕ: считаем попытки, после ВТОРОЙ — закрываем задачу.
@@ -669,8 +707,8 @@ async def _finish_setup(db, order) -> None:
                     await _log_step(db, order_id, "transfer",
                                     "Бот теперь ваш — вы его владелец")
                 else:
-                    await _fail_step(
-                        db, order_id, client_id, order["bot_username"],
+                    await _transfer_failed_unless_done(
+                        db, client, order_id, client_id, order["bot_username"],
                         "Передача не подтвердилась",
                     )
             except tgs.BotFatherError as e:
@@ -678,9 +716,9 @@ async def _finish_setup(db, order) -> None:
                 # — клиенту это не текст. Понятную причину подбирает _human_error,
                 # исходный ответ остаётся в логах сервера.
                 logger.warning("tg_setup transfer order %s: %s", order_id, e)
-                await _fail_step(
-                    db, order_id, client_id, order["bot_username"],
-                    _human_error(e), step="transfer",
+                await _transfer_failed_unless_done(
+                    db, client, order_id, client_id, order["bot_username"],
+                    _human_error(e),
                 )
 
         # ── права на группу: только после вступления клиента ──

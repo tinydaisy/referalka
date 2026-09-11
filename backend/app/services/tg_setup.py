@@ -669,7 +669,12 @@ async def transfer_bot(client, bot_username: str, to_username: str,
         r = await _ask(client, BOTFATHER, twofa_password, wait=10)
         low = (r or "").lower()
 
-    if "success" in low or "transferred" in low or "now owned" in low:
+    # ⚠️ «It worked!» — реальный ответ BotFather при удачной передаче
+    # (проверено на живом заказе 11.09.2026). Его в списке не было, и успешная
+    # передача уходила в ветку ошибки: человек видел красное «Не удалось
+    # выполнить шаг», хотя бот уже был передан.
+    if ("success" in low or "transferred" in low or "now owned" in low
+            or "it worked" in low or "new home" in low):
         return True
     if "invalid password" in low or "wrong password" in low:
         raise BotFatherError("Неверный пароль сервисного аккаунта", raw=r)
