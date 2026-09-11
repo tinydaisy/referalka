@@ -940,7 +940,9 @@ async def get_participant_in_event(
             event_slug
         )
         no_row_mode = (no_row_settings["gift_count_mode"] if no_row_settings else None) or "registered"
-        hide_rating = bool(no_row_settings["hide_rating"]) if no_row_settings else False
+        # ⚠️ Настроек нет → рейтинг СКРЫТ (мигр. 405): по умолчанию он не
+        # показывается, и до создания настроек поведение должно быть тем же.
+        hide_rating = bool(no_row_settings["hide_rating"]) if no_row_settings else True
         return {
             "participant": None,
             "referrals_count": 0,
@@ -987,7 +989,10 @@ async def get_participant_in_event(
         row["event_id"]
     )
     gift_mode = (settings_row["gift_count_mode"] if settings_row else None) or "registered"
-    hide_rating = bool(settings_row["hide_rating"]) if settings_row else False
+    # ⚠️ Настроек нет → рейтинг СКРЫТ (мигр. 405). Это ОСНОВНОЙ путь кабинета
+    # участника: оставленный здесь False показывал бы рейтинг у всех событий,
+    # где реф-программу ещё не открывали, — то есть у большинства.
+    hide_rating = bool(settings_row["hide_rating"]) if settings_row else True
     if gift_mode == "visited":
         gift_count_value = visited_count
     elif gift_mode == "clicked_link":

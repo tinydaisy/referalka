@@ -333,8 +333,12 @@ async def get_referral_settings(
     )
     if row:
         return dict(row)
+    # ⚠️ `hide_rating: True` — рейтинг по умолчанию СКРЫТ (мигр. 405). Значение
+    # отдаётся, когда строки настроек ещё нет: дефолт колонки в этом случае не
+    # участвует вовсе, и оставленный здесь False показывал бы рейтинг вопреки
+    # настройке по умолчанию.
     return {"gift_count_mode": "registered", "is_enabled": False,
-            "hide_rating": False, "gift_via_funnel": False}
+            "hide_rating": True, "gift_via_funnel": False}
 
 
 @router.put("/referral/settings", summary="Обновить настройки реф-программы (upsert)")

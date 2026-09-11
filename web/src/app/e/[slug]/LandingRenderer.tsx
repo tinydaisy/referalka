@@ -2827,8 +2827,16 @@ function ProgramBlock({
 }: any) {
   // Цвета переключателя дней — из настроек. По умолчанию заливка акцентная,
   // текст цветом фона страницы: тёмный на светлой плашке читается всегда.
-  const dayFill = page.day_tab_color || iconColor
-  const dayText = page.day_tab_text_color || page.bg_color || '#0a1520'
+  //
+  // ⚠️⚠️ ЗАПАСНОЙ ЦВЕТ — КНОПОК, А НЕ ИКОНОК. Раньше здесь стоял `iconColor`:
+  // у клиента, который настроил фирменный цвет кнопок, но не трогал «цвет
+  // иконок» (а его меняют редко), активная вкладка дня оставалась стандартной
+  // персиковой и выбивалась из всей страницы. Вкладка дня — это кнопка, и
+  // по умолчанию она должна краситься как кнопка; `day_tab_color` по-прежнему
+  // перебивает всё, если клиент задал цвет явно.
+  const dayFill = page.day_tab_color || page.btn_color || iconColor
+  const dayText = page.day_tab_text_color || page.btn_text_color
+    || page.bg_color || '#0a1520'
   const p = program || { days: [], sessions: [] }
   const days = useMemo(
     () => [...(p.days || [])]

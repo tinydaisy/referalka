@@ -346,10 +346,14 @@ async def _load_ref_cabinet(db, event, contact_id):
     )
     # Клиент мог отключить рейтинг для этого события (миграция 162) — тогда
     # ТОП не грузим вовсе, блок в кабинете не появится.
-    hide_rating = await db.fetchval(
+    # ⚠️ Настроек нет вовсе → рейтинг СКРЫТ (мигр. 405). Прежний `or False`
+    # трактовал отсутствие строки как «показывать»: у события, где
+    # реф-программу ещё не открывали, рейтинг появлялся сам собой.
+    _hr = await db.fetchval(
         "SELECT hide_rating FROM event_referral_settings WHERE event_id = $1",
         event["id"],
-    ) or False
+    )
+    hide_rating = True if _hr is None else bool(_hr)
     top_rows = [] if hide_rating else await db.fetch(
         f"""SELECT ct.name, ct.ref_code,
                    COUNT(*) AS cnt
