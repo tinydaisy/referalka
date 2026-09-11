@@ -23,6 +23,15 @@ export default function RegisterPage() {
   const [referrer, setReferrer] = useState<{ referrer_name: string; bonus_days: number; total_days: number; base_days: number } | null>(null)
   // МедиаЛифт: id платформы из воронки → авто-связка карточки коллаба с новым аккаунтом.
   const [mlIds, setMlIds] = useState<{ tg?: string; vk?: string; max?: string }>({})
+  // ⚠️⚠️ Тестовый кабинет техспеца (миграция 403). Галочка появляется ТОЛЬКО
+  // при заходе по ссылке с меткой `?test_tech` — обычный клиент её не видит
+  // вовсе и не может случайно отметить себя «не настоящим».
+  //
+  // ⚠️ По умолчанию СНЯТА, хотя человек и пришёл по такой ссылке: техспец
+  // заводит по ней и свои проверочные кабинеты, и настоящих клиентов. Решает
+  // он сам, а не адрес страницы.
+  const [isTechTest, setIsTechTest] = useState(false)
+  const [techTestOffered, setTechTestOffered] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -32,6 +41,10 @@ export default function RegisterPage() {
     const effective = fromUrl || localStorage.getItem('pluson_referrer_pid')
     setReferrerPid(effective)
     setMlIds({ tg: q.get('ml_tg_id') || undefined, vk: q.get('ml_vk_id') || undefined, max: q.get('ml_max_id') || undefined })
+    // ⚠️ Метка без значения: и `?test_tech`, и `?test_tech=1` считаются
+    // включением — техспец набирает адрес руками, и требовать «=1» значит
+    // ловить его на опечатке.
+    if (q.has('test_tech')) setTechTestOffered(true)
     // Мусорный/несуществующий код плашку не показывает (как на лендинге).
     if (effective) {
       api.auth.referrerInfo(effective)
@@ -76,6 +89,9 @@ export default function RegisterPage() {
         pid: referrerPid || undefined,  // реф-код пригласившего (миграция 125)
         ml_tg_id: mlIds.tg, ml_vk_id: mlIds.vk, ml_max_id: mlIds.max,  // МедиаЛифт autolink
         accept_offer: acceptOffer, consent_pd: consentPd,
+        // ⚠️ Шлём, только когда метка была в адресе: иначе поле уходило бы
+        // в каждой обычной регистрации без всякого смысла.
+        is_tech_test: techTestOffered ? isTechTest : undefined,
       })
       localStorage.setItem('plusson_token', res.access_token)
       localStorage.removeItem('pluson_referrer_pid')  // pid использован
@@ -235,6 +251,29 @@ export default function RegisterPage() {
                      className="text-[#25455D] underline">Политикой обработки персональных данных</a>
                 </span>
               </label>
+
+              {/* ⚠️ Галочка техспеца — только при заходе по ссылке с меткой
+                  `?test_tech`. Обычный клиент её не видит вовсе: незачем
+                  предлагать ему объявить свой кабинет ненастоящим. */}
+              {techTestOffered && (
+                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg
+                                  border border-[#25455D]/25 bg-[#F1F6FA] p-3">
+                  <input
+                    type="checkbox" checked={isTechTest}
+                    onChange={e => setIsTechTest(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 shrink-0 accent-[#25455D] cursor-pointer"
+                  />
+                  <span className="text-xs leading-snug text-[#25455D]">
+                    <b>Это тестовый кабинет тех-специалиста</b>
+                    <span className="mt-0.5 block text-gray-600">
+                      Добрейшего-богатейшего! Успехов в выполнении вашего
+                      тестового задания! Отметьте галочку, если заводите кабинет
+                      для себя — тогда он не попадёт в распределение к
+                      тех-специалистам как живой клиент.
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
 
             <button

@@ -36,7 +36,12 @@ class SpecIn(BaseModel):
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
     can_edit_materials: Optional[bool] = None
+    # ⚠️ Два РАЗНЫХ состояния (миграция 403), не путать:
+    #   `is_active`     — работает ли вообще. FALSE = уволился: кабинет закрыт.
+    #   `takes_clients` — берёт ли НОВЫХ клиентов. FALSE = отпуск или перегруз:
+    #                     кабинет и начисления остаются, распределение не идёт.
     is_active: Optional[bool] = None
+    takes_clients: Optional[bool] = None
 
 
 class AssignIn(BaseModel):
@@ -58,7 +63,8 @@ async def list_specs(
     """
     rows = await db.fetch(
         """SELECT ts.id, ts.email, ts.name, ts.phone, ts.telegram_username,
-                  ts.can_edit_materials, ts.is_active, ts.last_login_at, ts.created_at,
+                  ts.can_edit_materials, ts.is_active, ts.takes_clients,
+                  ts.last_login_at, ts.created_at,
                   (SELECT COUNT(*) FROM clients c
                     WHERE c.tech_specialist_id = ts.id) AS clients_count,
                   (SELECT COUNT(*) FROM clients c
@@ -70,7 +76,10 @@ async def list_specs(
                   (SELECT COALESCE(SUM(a.amount_kopecks),0) FROM tech_accruals a
                     WHERE a.spec_id = ts.id AND a.paid_at IS NULL) AS unpaid_kopecks
              FROM tech_specialists ts
-            ORDER BY ts.is_active DESC, ts.name, ts.id"""
+            -- ⚠️ Сверху те, кто реально берёт клиентов; ниже — работающие, но
+            -- в отпуске; в самом низу уволенные. Иначе человек в отпуске
+            -- стоит вперемешку с действующими, и его назначают.
+            ORDER BY ts.is_active DESC, ts.takes_clients DESC, ts.name, ts.id"""
     )
     return {"specialists": [dict(r) for r in rows]}
 
@@ -115,7 +124,8 @@ async def update_spec(
     # присланное должно остаться прежним, а не обнулиться.
     fs = data.model_fields_set
     sets, args = [], []
-    for col in ("name", "phone", "telegram_username", "can_edit_materials", "is_active"):
+    for col in ("name", "phone", "telegram_username", "can_edit_materials",
+                "is_active", "takes_clients"):
         if col in fs:
             args.append(getattr(data, col))
             sets.append(f"{col} = ${len(args)}")
@@ -158,9 +168,25 @@ async def assign(
     """Передача клиента. ⚠️ Начисления с этого момента идут НОВОМУ (решение
     владельца), уже начисленное прежнему остаётся — оно за сделанную работу."""
     if data.spec_id is not None:
-        if not await db.fetchval(
-                "SELECT 1 FROM tech_specialists WHERE id=$1 AND is_active", data.spec_id):
-            raise HTTPException(400, "Такого тех-специалиста нет или он отключён")
+        # ⚠️⚠️ Проверяем ОБА флага (миграция 403), и они про разное:
+        #   `is_active`     — работает ли человек вообще (уволился → FALSE);
+        #   `takes_clients` — берёт ли НОВЫХ (отпуск, перегруз → FALSE).
+        # Раньше состояние было одно, и «отправить в отпуск» означало закрыть
+        # человеку кабинет вместе с его начислениями.
+        #
+        # ⚠️ На НАЗНАЧЕНИЕ ДИАЛОГА это правило НЕ распространяется (ниже по
+        # файлу): переписку можно отдать и тому, кто новых клиентов не берёт —
+        # он продолжает вести своих.
+        row = await db.fetchrow(
+            "SELECT is_active, takes_clients FROM tech_specialists WHERE id=$1",
+            data.spec_id)
+        if not row or not row["is_active"]:
+            raise HTTPException(400, "Такого тех-специалиста нет или он уволен")
+        if not row["takes_clients"]:
+            raise HTTPException(
+                400, "Этот специалист сейчас не берёт новых клиентов "
+                     "(отпуск или загрузка). Снимите отметку в его карточке "
+                     "или выберите другого.")
     await assign_client(db, client_id=data.client_id,
                         spec_id=data.spec_id, reason=data.reason or "")
     return {"ok": True}
@@ -188,6 +214,10 @@ async def unassigned(
             WHERE c.tech_specialist_id IS NULL
               AND c.is_active
               AND NOT c.is_system_service
+              -- ⚠️ Тестовые кабинеты самих техспецов (миграция 403) в
+              -- распределение не идут: их брали в работу как живых лидов и
+              -- пытались оживить.
+              AND NOT c.is_tech_test
             ORDER BY c.created_at DESC LIMIT 500"""
     )
     return {"clients": [dict(r) for r in rows]}

@@ -57,6 +57,16 @@ class RegisterRequest(BaseModel):
     # данных — без правового основания.
     accept_offer: bool = False
     consent_pd: bool = False
+    # ⚠️⚠️ Тестовый кабинет техспеца (миграция 403). Техспецы заводят себе
+    # кабинеты, чтобы пощупать платформу руками, — и в списке «Клиенты без
+    # ответственного» такой кабинет неотличим от настоящего лида: его берут в
+    # работу и пытаются оживить. Галочку человек ставит сам на форме, она
+    # появляется там только при заходе по ссылке с меткой `?test_tech`.
+    #
+    # ⚠️ Значение приходит ИЗ БРАУЗЕРА, поэтому ничего защищаемого за ним быть
+    # не должно: пометка ничего не открывает и не даёт — только убирает кабинет
+    # из распределения и статистики. Соврать про себя «я тестовый» безвредно.
+    is_tech_test: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -260,9 +270,9 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
                                  referral_rate_percent, referral_accrual_until,
                                  offer_accepted_at, offer_accepted_version,
                                  privacy_consent_at, privacy_consent_version,
-                                 acceptance_ip, work_tg_username)
+                                 acceptance_ip, work_tg_username, is_tech_test)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                    NOW(), $13, NOW(), $14, $15, $16)
+                    NOW(), $13, NOW(), $14, $15, $16, $17)
             RETURNING id, name, last_name, email
             """,
             data.name, data.last_name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
@@ -270,6 +280,7 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
             ref_percent, ref_accrual_until,
             OFFER_VERSION, PRIVACY_POLICY_VERSION, _accept_ip,
             work_tg or None,
+            bool(data.is_tech_test),
         )
 
         # Создаём запись бонусного баланса (NULL не допустим, всегда нулевая запись)

@@ -146,6 +146,9 @@ async def fetch_clients(db) -> list[dict]:
          WHERE cs.status = 'active' AND cs.expires_at > NOW()
            AND c.email NOT LIKE '%@hub.local'
            AND c.name NOT ILIKE 'ТЕСТ %'
+           -- ⚠️ Тестовые кабинеты техспецов (миграция 403): та же причина,
+           -- что у «ТЕСТ …» — это не клиенты платформы, а проверки руками.
+           AND NOT c.is_tech_test
          ORDER BY c.name
         """,
         list(MODULE_FEATURES),
@@ -218,6 +221,9 @@ async def fetch_collabs(db) -> list[dict]:
           LEFT JOIN tariffs t ON t.id = cs.tariff_id
          WHERE c.email NOT LIKE '%@hub.local'
            AND c.name NOT ILIKE 'ТЕСТ %'
+           -- ⚠️ Тестовые кабинеты техспецов (миграция 403): та же причина,
+           -- что у «ТЕСТ …» — это не клиенты платформы, а проверки руками.
+           AND NOT c.is_tech_test
            AND (
                 c.is_published_in_hub
              OR EXISTS (SELECT 1 FROM client_addons a JOIN features f ON f.id = a.feature_id

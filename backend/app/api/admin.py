@@ -40,7 +40,10 @@ async def platform_stats(
     stats = await db.fetchrow(
         """
         SELECT
-          (SELECT COUNT(*) FROM clients WHERE is_active = TRUE) as clients_total,
+          -- ⚠️ Тестовые кабинеты техспецов (миграция 403) в счётчик не идут:
+          -- иначе «всего клиентов» раздувается их проверками платформы.
+          (SELECT COUNT(*) FROM clients
+            WHERE is_active = TRUE AND NOT is_tech_test) as clients_total,
           (SELECT COUNT(*) FROM events) as events_total,
           (SELECT COUNT(*) FROM events WHERE status = 'published') as events_active,
           (SELECT COUNT(*) FROM event_participants) as participants_total,
@@ -182,7 +185,10 @@ async def list_clients(
           -- партнёрское вознаграждение.
           c.offer_accepted_at, c.offer_accepted_version,
           c.privacy_consent_at,
-          c.partner_offer_accepted_at, c.partner_tax_status
+          c.partner_offer_accepted_at, c.partner_tax_status,
+          -- ⚠️ Тестовый кабинет техспеца (миграция 403) — бейджем в списке:
+          -- иначе он неотличим от живого клиента, и его берут в работу.
+          c.is_tech_test
         FROM clients c
         LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
         LEFT JOIN tariffs t ON t.id = cs.tariff_id

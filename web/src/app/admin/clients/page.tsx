@@ -37,6 +37,8 @@ interface Client {
   unsubscribed_count: number
   collaborators_count: number
   collab_hub_blocked?: boolean
+  /** Тестовый кабинет техспеца (миграция 403): не распределяется, не в статистике. */
+  is_tech_test?: boolean
   channels_breakdown?: { platform: string; name: string | null; subscribed: number; unsubscribed: number }[]
 }
 
@@ -228,6 +230,16 @@ export default function AdminClientsPage() {
                                 {emailQuality[c.id].status === 'red' ? '🔴' : '🟡'}
                               </span>
                             </button>
+                          )}
+                          {/* ⚠️ Тестовый кабинет техспеца (миграция 403).
+                              Бейдж заметный: такой кабинет не распределяется и
+                              не считается в статистике, и это надо видеть
+                              глазами — иначе его берут в работу как живого. */}
+                          {c.is_tech_test && (
+                            <span className="shrink-0 rounded bg-[#25455D] px-1.5 py-0.5
+                                             text-[10px] font-semibold text-white">
+                              ТЕХ ТЕСТ
+                            </span>
                           )}
                           {!c.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">не активен</span>}
                         </div>
