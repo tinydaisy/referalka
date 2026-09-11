@@ -355,6 +355,12 @@ class StartRequest(BaseModel):
     # работает проверка подписки в воронках лид-магнитов и гейт в чатах.
     # `client_broadcast_chats` (куда рассылать) — ДРУГОЕ место и другая задача.
     channel_url: Optional[str] = None
+    # ⚠️⚠️ ТРИ ОБЯЗАТЕЛЬНЫХ ПОЛЯ ПРИХОДЯТ ВМЕСТЕ С ЗАПУСКОМ, а не отдельной
+    # кнопкой «Сохранить». Раньше кнопок было две, и человек не понимал, куда
+    # именно сохраняет первая: она молча писала в три разных места кабинета.
+    # Теперь запуск — единственное действие, а что куда легло, видно в логе.
+    telegram_username: Optional[str] = None   # ник владельца (clients.telegram_username)
+    support_username: Optional[str] = None    # служба заботы (clients.work_tg_username)
 
 
 @router.post("/confirm-started-bot", summary="Клиент подтверждает, что зашёл в бота")
@@ -833,15 +839,53 @@ async def start_setup(data: StartRequest,
     if err:
         raise HTTPException(400, err)
 
-    tg_nick = await db.fetchval(
+    # ─────────────────────────────────────────────────────────────────────
+    # Три обязательных поля — записываем ПЕРВЫМ ДЕЛОМ, до создания заказа.
+    #
+    # ⚠️⚠️ ЭТО САМАЯ БЕЗОПАСНАЯ ЧАСТЬ УСЛУГИ, И ОНА ИДЁТ ПЕРВОЙ.
+    # Расстановка полей по кабинету ничего не создаёт во внешнем мире (бота,
+    # группу), ничего не расходует (лимит BotFather на `/newbot` суточный) и
+    # не может «наполовину получиться». Раньше служба заботы прописывалась в
+    # самом конце прогона — после бота и группы: если BotFather упирался в
+    # лимит, человек не получал ВООБЩЕ НИЧЕГО, хотя три поля можно было
+    # заполнить мгновенно.
+    #
+    # ⚠️ Пишем только в ПУСТОЕ поле службы заботы: у части клиентов поддержку
+    # ведёт отдельный аккаунт, и затирать его настройку нельзя (то же правило,
+    # что в `_run_setup`).
+    # ─────────────────────────────────────────────────────────────────────
+    own_nick = (data.telegram_username or "").strip().lstrip("@")
+    if own_nick:
+        await db.execute(
+            "UPDATE clients SET telegram_username = $2 WHERE id = $1",
+            client_id, own_nick,
+        )
+
+    tg_nick = own_nick or await db.fetchval(
         "SELECT telegram_username FROM clients WHERE id=$1", client_id
     )
     if not tg_nick:
         raise HTTPException(
             400,
-            "Сначала укажите свой ник в Telegram в настройках — "
-            "без него мы не сможем передать вам права",
+            "Укажите свой ник в Telegram — без него мы не сможем передать "
+            "вам права на бота и группу",
         )
+
+    # Служба заботы: наружу ник, в базе — ссылка (так это поле заполняется
+    # во всём проекте, см. `tg_support_link`).
+    support_nick = (data.support_username or "").strip().lstrip("@")
+    support_kept = False
+    if support_nick:
+        from app.services.support_message import tg_support_link
+        link = tg_support_link(support_nick)
+        if link:
+            filled = await db.fetchval(
+                """UPDATE clients SET work_tg_username = $2
+                    WHERE id = $1 AND COALESCE(work_tg_username, '') = ''
+                RETURNING id""",
+                client_id, link,
+            )
+            support_kept = not filled
 
     username = data.bot_username.strip().lstrip("@")
     title = (data.bot_title or "").strip() or username
@@ -862,6 +906,54 @@ async def start_setup(data: StartRequest,
             )
         await _save_founder_channel(db, client_id, channel_nick)
 
+    # Что записать в лог заказа первыми строками — чтобы человек видел, ЧТО
+    # уже сделано и КУДА это легло, ещё до создания бота.
+    prelog = [
+        ("fields_own",
+         f"Ваш Telegram записан в профиль: @{tg_nick} — на этот аккаунт "
+         "передадим права на бота и группу. "
+         "Проверить: Настройки → «Профиль»"),
+    ]
+    if support_nick:
+        prelog.append((
+            "fields_support",
+            "Служба заботы уже была заполнена — оставили вашу настройку. "
+            "Проверить: Настройки → «Профиль»"
+            if support_kept else
+            f"Служба заботы записана: @{support_nick} — заработают "
+            "«Тех. поддержка» в боте и на лендинге. "
+            "Проверить: Настройки → «Профиль»",
+        ))
+    if channel_nick:
+        prelog.append((
+            "fields_channel",
+            f"Канал @{channel_nick} записан в «Каналы основателя» — "
+            "по нему заработает проверка подписки в воронках подарков. "
+            "Проверить: Mini App → «Основатель»",
+        ))
+
+    async def _write_prelog(order_id: int) -> None:
+        """Кладёт записи о расставленных полях первыми строками лога заказа.
+
+        ⚠️ Пишем ПОСЛЕ создания (или перезапуска) заказа, но ДО того, как его
+        возьмёт поллер: лог принадлежит заказу, и раньше его записать некуда.
+        При перезапуске лог обнуляется (`setup_log='[]'`) — значит эти строки
+        встанут первыми и там.
+        """
+        import json
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [{"step": k, "text": t, "ok": True, "at": now} for k, t in prelog]
+        if not rows:
+            return
+        await db.execute(
+            """UPDATE service_orders
+                  SET setup_log = COALESCE(setup_log, '[]'::jsonb) || $2::jsonb
+                WHERE id = $1""",
+            order_id, json.dumps(rows, ensure_ascii=False),
+        )
+
     # ── перезапуск уже оплаченного ──
     existing = await db.fetchrow(
         """SELECT * FROM service_orders
@@ -880,6 +972,7 @@ async def start_setup(data: StartRequest,
                 WHERE id=$1""",
             existing["id"], username, title,
         )
+        await _write_prelog(existing["id"])
         return {"ok": True, "order_id": existing["id"], "paid": True,
                 "message": "Настройка запущена — платить повторно не нужно"}
 
@@ -916,6 +1009,10 @@ async def start_setup(data: StartRequest,
                  RETURNING id""",
             client_id, svc["id"], username, title,
         )
+        # ⚠️ Бесплатная выдача (по промокоду) — тоже пишем первые строки лога.
+        # Раньше они появлялись только при перезапуске, и человек, запускающий
+        # услугу впервые, не видел расставленных полей вовсе.
+        await _write_prelog(order_id)
         return {"ok": True, "order_id": order_id, "paid": True,
                 "message": "Настройка поставлена в очередь"}
 

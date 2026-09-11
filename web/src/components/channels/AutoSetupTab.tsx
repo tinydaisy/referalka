@@ -69,7 +69,6 @@ export default function AutoSetupTab() {
   const [nameCheck, setNameCheck] = useState<{ free: boolean; message: string } | null>(null)
   const [starting, setStarting] = useState(false)
   /** Ссылка на канал клиента — спрашивается при запуске, идёт в «Каналы основателя». */
-  const [channelUrl, setChannelUrl] = useState('')
   /**
    * Услуга ещё не открыта этому кабинету (ручка ответила 403).
    *
@@ -119,6 +118,10 @@ export default function AutoSetupTab() {
   const [savingNick, setSavingNick] = useState(false)
   const [nickSaved, setNickSaved] = useState(false)
   const [nickError, setNickError] = useState<string | null>(null)
+  // ⚠️ Обычная переменная, а не состояние: состояние применяется к СЛЕДУЮЩЕЙ
+  // перерисовке, и сразу после `saveNick` в нём ещё старое значение —
+  // задача ушла бы в очередь при неудачном сохранении.
+  const nickErrorRef = useRef<string | null>(null)
 
   /** Итоговое значение поля: черновик, если трогали, иначе — из настроек. */
   const effNick    = (nick        ?? (state?.telegram_username || '')).trim().replace(/^@/, '')
@@ -127,15 +130,18 @@ export default function AutoSetupTab() {
   /** Все три обязательных поля заполнены — от этого зависит вид блока и запуск. */
   const allFilled = !!(effNick && effSupport && effChannel)
 
+  /** Ставит ошибку и в состояние (для показа), и в переменную (для проверки сразу). */
+  const putNickError = (msg: string | null) => { nickErrorRef.current = msg; setNickError(msg) }
+
   const saveNick = async () => {
     // ⚠️ ВСЕ ТРИ ПОЛЯ ОБЯЗАТЕЛЬНЫ: без ника некому передать бота, без службы
     // заботы не заработает «Тех. поддержка» в боте и на лендинге, без канала —
     // проверка подписки в воронках подарков. Услуга ради этого и делается.
     if (!effNick || !effSupport || !effChannel) {
-      setNickError('Заполните все три поля — они нужны для настройки')
+      putNickError('Заполните все три поля — они нужны для настройки')
       return
     }
-    setSavingNick(true); setNickError(null); setNickSaved(false)
+    setSavingNick(true); putNickError(null); setNickSaved(false)
     try {
       // ⚠️⚠️ ПИШЕМ ТОЛЬКО ТО, ЧТО ЧЕЛОВЕК ТРОНУЛ (`?? null` = не трогали).
       // Иначе форма перезаписала бы уже настроенное теми же значениями —
@@ -157,7 +163,7 @@ export default function AutoSetupTab() {
       setNick(null); setSupportNick(null); setChanNick(null)
       await load(true)
     } catch (e: any) {
-      setNickError(e?.message || 'Не удалось сохранить')
+      putNickError(e?.message || 'Не удалось сохранить')
     } finally {
       setSavingNick(false)
     }
@@ -246,10 +252,25 @@ export default function AutoSetupTab() {
   }
 
   const start = async () => {
+    // ⚠️⚠️ ПОЛЯ СОХРАНЯЮТСЯ ЗДЕСЬ, отдельной кнопки «Сохранить» нет.
+    // Она сбивала с толку: человек нажимал и не понимал, куда сохранилось —
+    // в кабинет уже или только «в форму». Теперь точка одна: нажал «Поставить
+    // в очередь» — данные легли в настройки кабинета, и об этом говорит лог.
+    if (!effNick || !effSupport || !effChannel) {
+      putNickError('Заполните все три поля — они нужны для настройки')
+      return
+    }
     setStarting(true)
+    putNickError(null)
     try {
+      await saveNick()
+      // ⚠️ Дальше идём, только если сохранение прошло: `saveNick` ставит
+      // `nickError` и ничего не бросает, поэтому проверяем результат сами —
+      // иначе задача уйдёт в очередь с неприменёнными настройками.
+      if (nickErrorRef.current) { setStarting(false); return }
+
       const r = await api.tgAutosetup.start(
-        username, title || undefined, channelUrl.trim() || undefined)
+        username, title || undefined, effChannel || undefined)
       if (r.payment_url) { window.location.href = r.payment_url; return }
       await load()
     } catch (e: any) {
@@ -486,42 +507,41 @@ export default function AutoSetupTab() {
               </p>
               <p className={`text-xs mt-0.5 ${
                 allFilled ? 'text-gray-500' : 'text-amber-800'}`}>
-                Они будут выставлены в настройках вашего кабинета. Все три поля
-                обязательны — без них услуга не сможет закончить настройку.
+                Проставим их в настройках вашего кабинета, когда поставите
+                задачу в очередь. Все три обязательны — без них услуга не
+                сможет закончить настройку.
               </p>
 
+              {/* ⚠️ Первые два поля — в ДВЕ КОЛОНКИ: это пара «кому передать
+                  бота» / «кому писать за помощью», их сравнивают глазами
+                  (часто это один и тот же аккаунт). Канал — отдельная строка
+                  ниже: он не про людей, а про проверку подписки.
+                  На телефоне колонки складываются в одну (`sm:`). */}
               <div className="mt-3 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                 <NickField
                   label="Ваш Telegram"
                   hint="На этот аккаунт передадим права на бота и группу"
                   value={effNick}
                   filled={!!state.telegram_username}
-                  onChange={v => { setNick(v); setNickSaved(false); setNickError(null) }}
-                  onEnter={saveNick}
+                  onChange={v => { setNick(v); setNickSaved(false); putNickError(null) }}
                 />
                 <NickField
                   label="Telegram службы заботы"
                   hint="По нему люди напишут вам из бота и с лендинга — можно тот же аккаунт"
                   value={effSupport}
                   filled={!!state.support_username}
-                  onChange={v => { setSupportNick(v); setNickSaved(false); setNickError(null) }}
-                  onEnter={saveNick}
+                  onChange={v => { setSupportNick(v); setNickSaved(false); putNickError(null) }}
                 />
+                </div>
                 <NickField
                   label="Никнейм вашего Telegram-канала"
                   hint="Нужен ПУБЛИЧНЫЙ канал: по нему заработает проверка подписки в воронках подарков"
                   value={effChannel}
                   filled={!!state.channel_username}
-                  onChange={v => { setChanNick(v); setNickSaved(false); setNickError(null) }}
-                  onEnter={saveNick}
+                  onChange={v => { setChanNick(v); setNickSaved(false); putNickError(null) }}
                 />
               </div>
-
-              <button onClick={saveNick}
-                      disabled={savingNick || !effNick || !effSupport || !effChannel}
-                      className="btn-primary px-4 mt-3 whitespace-nowrap disabled:opacity-50">
-                {savingNick ? <Loader2 size={15} className="animate-spin" /> : 'Сохранить'}
-              </button>
 
               {nickSaved && (
                 <p className="mt-2 text-sm text-green-700 flex items-center gap-1.5">
@@ -624,34 +644,6 @@ export default function AutoSetupTab() {
               ⚠️ Ссылка идёт в «Каналы основателя» — по ним работает проверка
               подписки в воронках лид-магнитов и гейт в чатах. Без неё «настройка
               под ключ» оставляет эту часть пустой. */}
-          {/* ⚠️⚠️ ТОЛЬКО ПУБЛИЧНЫЙ КАНАЛ, И ТОЛЬКО НИКНЕЙМОМ.
-              По нику Telegram отдаёт числовой id канала (`getChat`) — проверено
-              на живом канале. По ссылке-приглашению закрытого канала
-              (t.me/+abc…) id получить НЕЛЬЗЯ: Bot API её не резолвит, метода
-              нет. Без id не работает ни проверка подписки в воронках, ни гейт
-              в чатах — то есть закрытый канал сюда вписывать бессмысленно.
-              Поэтому просим именно ник и говорим об этом прямо. */}
-          <label className="block text-sm font-medium text-gray-700 mt-5 mb-1.5">
-            Никнейм вашего Telegram-канала
-            <span className="text-gray-400 font-normal"> — если он есть</span>
-          </label>
-          <div className="flex items-center rounded-lg border border-gray-300 focus-within:border-gray-400">
-            <span className="pl-3 pr-1 text-gray-400 select-none">@</span>
-            <input
-              value={channelUrl}
-              onChange={e => setChannelUrl(e.target.value.replace(/^@+/, ''))}
-              placeholder="my_channel"
-              className="flex-1 rounded-r-lg px-1 py-2.5 text-sm outline-none"
-              style={{ minWidth: 0 }}
-            />
-          </div>
-          <p className="text-xs text-gray-500 mt-1.5">
-            Пропишем канал в настройках — по нему заработает проверка подписки
-            в воронках подарков. Нужен <b>публичный</b> канал: у закрытого
-            Telegram не отдаёт идентификатор, и проверка на нём работать не
-            будет. Ник виден в канале: «Информация» → «Ссылка».
-          </p>
-
           {/* ⚠️ Условие про 3 дня показываем ДО оплаты, а не после — иначе споры. */}
           <div className="mt-5 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-600">
             После настройки нужно будет <b>зайти в бота и вступить в группу</b> —
@@ -1325,7 +1317,8 @@ function NickField({
   /** Уже настроено в кабинете — подсказываем это, чтобы человек не гадал. */
   filled: boolean
   onChange: (v: string) => void
-  onEnter: () => void
+  /** Необязателен: сохранение идёт при постановке в очередь, не по Enter. */
+  onEnter?: () => void
 }) {
   return (
     <div>
@@ -1338,7 +1331,7 @@ function NickField({
         <input
           value={value}
           onChange={e => onChange(e.target.value.trim().replace(/^@/, ''))}
-          onKeyDown={e => { if (e.key === 'Enter') onEnter() }}
+          onKeyDown={e => { if (e.key === 'Enter') onEnter?.() }}
           placeholder="ник_без_собаки"
           className="flex-1 py-2.5 px-1 outline-none text-sm bg-transparent"
         />
