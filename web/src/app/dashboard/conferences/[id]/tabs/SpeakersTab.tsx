@@ -80,6 +80,19 @@ function hasNoTopics(sp: any): boolean {
   return topics.length === 0 || topics.every(t => !t.trim())
 }
 
+// Роли, у которых выступление в программе предполагается. Организаторам,
+// жюри и партнёрам слот не нужен — предупреждать о нём у них нечего.
+const ROLES_WITH_SLOT = ['speaker', 'headliner']
+
+// Слот в программе не занят. Показываем ТОЛЬКО когда у события программа
+// вообще заведена (есть дни): без программы слотов нет ни у кого, и
+// предупреждение висело бы у всего списка без смысла.
+function hasNoSlot(sp: any, hasProgram: boolean): boolean {
+  if (!hasProgram) return false
+  if (!ROLES_WITH_SLOT.includes(sp.role)) return false
+  return !sp.slot_label
+}
+
 function getMissingGiftLabels(sp: any, raffleEnabled: boolean): string[] {
   const missing: string[] = []
   // Подарок «после эфира» проверяем только если показ поля включён
@@ -125,6 +138,9 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   // Включён ли розыгрыш для этого события — нужно, чтобы скрыть
   // оранжевые предупреждения «нет подарка розыгрыша» если фича выключена.
   const [raffleEnabled, setRaffleEnabled] = useState(false)
+  // Заведена ли программа (есть дни) — от этого зависит показ предупреждения
+  // «нет слота в программе».
+  const [hasProgram, setHasProgram] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
   // Премия/турнир открыта под /dashboard/tournaments — сохраняем этот путь
@@ -203,6 +219,14 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
     api.raffle.settings.get(eventId)
       .then((r: any) => setRaffleEnabled(!!r?.is_enabled))
       .catch(() => setRaffleEnabled(false))
+  }, [eventId])
+
+  // Дни программы — нужны, чтобы не показывать «нет слота» событию,
+  // у которого программы нет вовсе.
+  useEffect(() => {
+    api.conference.days.list(eventId)
+      .then((r: any) => setHasProgram((r?.days || []).length > 0))
+      .catch(() => setHasProgram(false))
   }, [eventId])
 
   // Прямые ссылки саморегистрации спикером (2026-05-29).
@@ -465,6 +489,11 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
                   <AlertTriangle size={11} /> нет темы выступления
                 </span>
               )
+            )}
+            {hasNoSlot(sp, hasProgram) && (
+              <span className="flex items-center gap-0.5 text-xs text-amber-500">
+                <AlertTriangle size={11} /> нет слота в программе
+              </span>
             )}
             {getMissingGiftLabels(sp, raffleEnabled).map(label => (
               <span key={label} className="flex items-center gap-0.5 text-xs text-amber-500">
