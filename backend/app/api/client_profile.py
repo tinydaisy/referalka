@@ -915,6 +915,9 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                    -- интро с замками после регистрации.
                    e.sub_check_at_chat, e.sub_check_at_registration,
                    e.hide_stream_button, e.skip_contact_form,
+                   -- Вкладка «Интро» (мигр. 406): показывать её или сразу
+                   -- открывать содержимое события — решает клиент галочкой.
+                   e.show_welcome_tab,
                    e.landing_cta_label, e.landing_cta_repeat,
                    -- «Регистрация ещё не открыта» (мигр. 345): вместо кнопки
                    -- участия показывается заглушка. Флаг нужен фронту здесь,

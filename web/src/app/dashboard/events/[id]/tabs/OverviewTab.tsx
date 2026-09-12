@@ -23,6 +23,9 @@ export default function OverviewTab({
   const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
   const [hideStreamButton, setHideStreamButton] = useState<boolean>(!!event.hide_stream_button)
+  // Вкладка «Интро» (мигр. 406). Старый ответ API поля не содержит —
+  // `!== false` значит «показывать», как было до появления настройки.
+  const [showWelcomeTab, setShowWelcomeTab] = useState<boolean>(event.show_welcome_tab !== false)
   // Офлайн-событие: галочка + адрес и своё название кнопки (миграция 394).
   const [isOffline, setIsOffline] = useState<boolean>(!!event.is_offline)
   const [address, setAddress] = useState<string>(event.address || '')
@@ -114,6 +117,7 @@ export default function OverviewTab({
       const lu = landingUrl.trim()
       if (lu !== (event.landing_url || ''))                     payload.landing_url = lu || null
       if (hideStreamButton !== !!event.hide_stream_button)      payload.hide_stream_button = hideStreamButton
+      if (showWelcomeTab !== (event.show_welcome_tab !== false)) payload.show_welcome_tab = showWelcomeTab
       if (isOffline !== !!event.is_offline)                     payload.is_offline = isOffline
       if (address !== (event.address || ''))                    payload.address = address
       if (addressBtn !== (event.address_button_label || ''))    payload.address_button_label = addressBtn
@@ -216,6 +220,22 @@ export default function OverviewTab({
                       rows={4} className="input"
                       placeholder="Например: «Подключайтесь к стриму за 5 минут до начала. После эфира — заглядывайте в чат»" />
           </Field>
+
+          {/* Вкладка «Интро» (мигр. 406). Стоит рядом с описанием: это про то,
+              что человек видит сразу после регистрации. */}
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 14 }}>
+            <input type="checkbox" checked={showWelcomeTab}
+                   onChange={e => setShowWelcomeTab(e.target.checked)}
+                   style={{ marginTop: 3, width: 18, height: 18, cursor: 'pointer' }} />
+            <span>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Показывать приветственный экран «Интро»</span>
+              <span style={{ display: 'block', fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                Сразу после регистрации человек попадает на экран-поздравление со списком
+                разделов приложения. Снимите галочку — он будет попадать сразу в событие.
+                Экран с подпиской на каналы это не отключает: он показывается всегда.
+              </span>
+            </span>
+          </label>
 
           {/* ⚠️⚠️ ГАЛОЧКА «ИДЁТ ПОСТОЯННО» СТОИТ ИМЕННО ЗДЕСЬ, У ПОЛЕЙ ДАТЫ.
               Раньше она жила в блоке «Настройка ссылок» — далеко отсюда, и

@@ -47,6 +47,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     description_post_register: event?.description_post_register || '',
     stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
+    // Вкладка «Интро» (мигр. 406). Поля нет в старом ответе → «показывать».
+    show_welcome_tab: conf?.show_welcome_tab !== false,
     // Офлайн-событие: адрес и карта вместо кнопки эфира (миграция 394).
     is_offline: !!conf?.is_offline,
     address: conf?.address || '',
@@ -128,6 +130,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       description_post_register: event?.description_post_register || '',
       stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
+    // Вкладка «Интро» (мигр. 406). Поля нет в старом ответе → «показывать».
+    show_welcome_tab: conf?.show_welcome_tab !== false,
     // Офлайн-событие: адрес и карта вместо кнопки эфира (миграция 394).
     is_offline: !!conf?.is_offline,
     address: conf?.address || '',
@@ -211,6 +215,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       const confPatch: any = {}
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
       if (form.hide_stream_button !== !!conf?.hide_stream_button)      confPatch.hide_stream_button = form.hide_stream_button
+      if (form.show_welcome_tab !== (conf?.show_welcome_tab !== false)) confPatch.show_welcome_tab = form.show_welcome_tab
       if (form.is_offline !== !!conf?.is_offline)                       confPatch.is_offline = form.is_offline
       if (form.geo_lat !== (conf?.geo_lat ?? null))                     confPatch.geo_lat = form.geo_lat
       if (form.geo_lon !== (conf?.geo_lon ?? null))                     confPatch.geo_lon = form.geo_lon
@@ -307,6 +312,23 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата.
             Поддерживается HTML: {'<b>, <i>, <a href="...">, <br>, <ul><li>'}. В простом тексте ссылки http(s) кликабельны автоматически.
           </p>
+        </div>
+        {/* Вкладка «Интро» (мигр. 406) — рядом с описанием: это про то, что
+            человек видит сразу после регистрации. */}
+        <div>
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={form.show_welcome_tab}
+              onChange={e => setForm(f => ({ ...f, show_welcome_tab: e.target.checked }))}
+              className="mt-0.5 w-[18px] h-[18px] cursor-pointer" />
+            <span>
+              <span className="text-sm font-medium text-gray-700">Показывать приветственный экран «Интро»</span>
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Сразу после регистрации человек попадает на экран-поздравление со списком
+                разделов приложения. Снимите галочку — он будет попадать сразу в событие.
+                Экран с подпиской на каналы это не отключает: он показывается всегда.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
 

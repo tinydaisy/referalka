@@ -329,6 +329,7 @@ class ConferenceUpdate(BaseModel):
     geo_lon: Optional[float] = None
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
+    show_welcome_tab: Optional[bool] = None        # показывать вкладку «Интро» (миграция 406)
     # ⚠️ Поля обязаны быть ЗДЕСЬ, а не только в списке EVENT_FIELDS: Pydantic
     # выбрасывает всё, чего нет в модели, — запрос отвечал 200, а значение до
     # базы не доходило.
@@ -396,6 +397,7 @@ async def get_conference(
                e.is_offline, e.address, e.address_button_label, e.geo_lat, e.geo_lon,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
+               e.show_welcome_tab AS event_show_welcome_tab,
                e.disabled_platforms AS event_disabled_platforms,
                e.landing_url AS event_landing_url,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_tg_chat_id,
@@ -432,6 +434,7 @@ async def get_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
+    d["show_welcome_tab"] = bool(d.pop("event_show_welcome_tab"))
     # Способ регистрации и связанные поля живут в events, а страница настроек
     # читает их отсюда — без распаковки выбор в списке всегда сбрасывался.
     d["thanks_destination"] = d.pop("event_thanks_destination", None) or "bots"
@@ -502,7 +505,7 @@ async def update_conference(
     EVENT_FIELDS = (
         "primary_chat_platform",
         "vip_url", "vip_button_label", "offer_url", "offer_id",
-        "chat_button_label", "accent_button", "hide_stream_button",
+        "chat_button_label", "accent_button", "hide_stream_button", "show_welcome_tab",
         "is_offline", "address", "address_button_label", "geo_lat", "geo_lon",
         # Выключенные площадки события (миграция 263)
         "disabled_platforms",
@@ -625,6 +628,7 @@ async def update_conference(
                e.is_offline, e.address, e.address_button_label, e.geo_lat, e.geo_lon,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
+               e.show_welcome_tab AS event_show_welcome_tab,
                e.disabled_platforms AS event_disabled_platforms,
                e.landing_url AS event_landing_url,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_tg_chat_id,
@@ -655,6 +659,7 @@ async def update_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
+    d["show_welcome_tab"] = bool(d.pop("event_show_welcome_tab"))
     d["disabled_platforms"] = list(d.pop("event_disabled_platforms", None) or [])
     d["end_action"] = d.pop("event_end_action", None) or "next_event"
     d["end_gift_lead_magnet_id"] = d.pop("event_end_gift_lead_magnet_id", None)

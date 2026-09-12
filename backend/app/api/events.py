@@ -218,6 +218,11 @@ class UpdateEventRequest(BaseModel):
     # показывается. TRUE = жёстко скрыта. Ссылка эфира теперь = вебинарная
     # комната дня (см. webinar_service.day_stream_url), колонка stream_url убрана.
     hide_stream_button: Optional[bool] = None
+    # Показывать вкладку «Интро» в Mini App после регистрации (миграция 406).
+    # TRUE (default) = показывается. ⚠️ Имя НЕ начинается с `welcome_` намеренно:
+    # выше стоит гейт подписки на все поля `welcome_*` (это про ПИСЬМО), и вкладка
+    # под него попадать не должна — она не платная возможность.
+    show_welcome_tab: Optional[bool] = None
     # Площадки, выключенные у события (миграция 263): их ссылки не отдаются
     # наружу (спикерам, участникам, в рассылках). Сам бот площадки работает.
     disabled_platforms: Optional[List[str]] = None
@@ -938,7 +943,8 @@ async def copy_event(
                   skip_contact_form, landing_cta_label, landing_cta_repeat, registration_mode,
                   person_wording,
                   registration_closed, pre_reg_text, pre_reg_btn_label, pre_reg_btn_url,
-                  pre_reg_poster_url, partner_enabled, gifts_open_to_guests)
+                  pre_reg_poster_url, partner_enabled, gifts_open_to_guests,
+                  show_welcome_tab)
                VALUES ($1,$2,$3,$4,$5,$6,
                        $37,$38,
                        $7,$8,$9,$10,$11,
@@ -949,7 +955,7 @@ async def copy_event(
                        $21,$22,
                        $23,$24,
                        $25,$26,$27,$28,$29,
-                       $30,$31,$32,$33,$34,$35,$36)
+                       $30,$31,$32,$33,$34,$35,$36,$39)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -997,6 +1003,10 @@ async def copy_event(
             # колонок раньше, но значения проще дописать в конец, чем
             # пересчитывать номера всех параметров между ними.
             src.get('start_at'), src.get('end_at'),
+            # ⚠️ Вкладка «Интро» ($39) — тоже в конец, по той же причине, что даты.
+            # Без переноса копия молча включала бы её обратно (DEFAULT TRUE) там,
+            # где клиент её осознанно выключил.
+            True if src.get('show_welcome_tab') is None else bool(src.get('show_welcome_tab')),
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)
