@@ -259,13 +259,52 @@ async def public_speaker_page(client_ref: str, db: asyncpg.Connection = Depends(
 @public.get("/clients/{client_id}/offerings", summary="Продукты клиента (для Mini App)")
 async def public_client_offerings(client_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
-        """SELECT id, title, description, action_url, is_paid, cover_url, sort_order
-             FROM client_offerings
-            WHERE client_id = $1
-            ORDER BY is_paid DESC, sort_order, id""",
+        """SELECT o.id, o.title, o.description, o.action_url, o.is_paid, o.cover_url,
+                  o.sort_order, o.lead_magnet_id, o.package_id,
+                  lm.slug AS lm_slug, pk.slug AS pkg_slug
+             FROM client_offerings o
+             LEFT JOIN lead_magnets          lm ON lm.id = o.lead_magnet_id
+             LEFT JOIN lead_magnet_packages  pk ON pk.id = o.package_id
+            WHERE o.client_id = $1
+            ORDER BY o.is_paid DESC, o.sort_order, o.id""",
         client_id
     )
     items = [dict(r) for r in rows]
+
+    # ⚠️⚠️ ССЫЛКА ЛИД-МАГНИТА РАЗНАЯ НА КАЖДОЙ ПЛОЩАДКЕ, поэтому отдаём НАБОР
+    # ссылок, а не одну. Человек, смотрящий из MAX, должен уйти в MAX-бота, а
+    # не в Telegram, где у него может не быть аккаунта вовсе. Какую взять —
+    # решает Mini App по своей площадке; нет своей — показывает выбор.
+    #
+    # ⚠️ Ссылки строит ОБЩАЯ `build_funnel_landing_links` — та же, что выдаёт
+    # ссылки воронок в кабинете. Своей копии не заводить: она разъедется с
+    # остальными местами, и метка `m_{slug}` перестанет совпадать с тем, что
+    # разбирают боты.
+    from ..services.share_links import build_funnel_landing_links
+    cache: dict[tuple[str, str], dict[str, str]] = {}
+    for it in items:
+        slug, kind = None, "m"
+        if it.get("lm_slug"):
+            slug, kind = it["lm_slug"], "m"
+        elif it.get("pkg_slug"):
+            slug, kind = it["pkg_slug"], "p"
+        it.pop("lm_slug", None)
+        it.pop("pkg_slug", None)
+        if not slug:
+            it["gift_links"] = None
+            continue
+        key = (kind, slug)
+        if key not in cache:
+            try:
+                cache[key] = await build_funnel_landing_links(
+                    db, client_id=client_id, slug=slug, kind=kind,
+                )
+            except Exception:
+                # ⚠️ Сбой построения ссылок не должен ронять всю Экосистему:
+                # карточка просто останется без выдачи.
+                cache[key] = {}
+        it["gift_links"] = cache[key] or None
+
     return {
         "paid":  [i for i in items if i["is_paid"]],
         "free":  [i for i in items if not i["is_paid"]],
@@ -1891,6 +1930,11 @@ class OfferingIn(BaseModel):
     is_paid:      bool = True
     cover_url:    Optional[str] = None
     sort_order:   int = 0
+    # ⚠️ Карточка либо ведёт по своей ссылке (`action_url`), либо выдаёт
+    # лид-магнит. 0 приравнивается к «снять выбор» — так же, как у подарка
+    # спикера (`gift_lead_magnet_id=0`).
+    lead_magnet_id: Optional[int] = None
+    package_id:     Optional[int] = None
 
 
 class OfferingPatch(BaseModel):
@@ -1900,6 +1944,34 @@ class OfferingPatch(BaseModel):
     is_paid:      Optional[bool] = None
     cover_url:    Optional[str] = None
     sort_order:   Optional[int] = None
+    lead_magnet_id: Optional[int] = None
+    package_id:     Optional[int] = None
+
+
+async def _assert_offering_gift_owned(
+    db: asyncpg.Connection, client_id: int,
+    lead_magnet_id: Optional[int], package_id: Optional[int],
+) -> None:
+    """Лид-магнит/пакет должен принадлежать ЭТОМУ клиенту.
+
+    ⚠️ Номер приходит из браузера. Без проверки, зная чужой id, можно было бы
+    поставить себе в витрину чужой лид-магнит — и раздавать чужие материалы
+    со своей страницы.
+    """
+    if lead_magnet_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM lead_magnets WHERE id = $1 AND client_id = $2",
+            lead_magnet_id, client_id,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Лид-магнит не найден")
+    if package_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM lead_magnet_packages WHERE id = $1 AND client_id = $2",
+            package_id, client_id,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Пакет не найден")
 
 
 @offerings_router.get("", summary="Список продуктов клиента")
@@ -1908,10 +1980,17 @@ async def list_offerings(
     db: asyncpg.Connection = Depends(get_db),
 ):
     rows = await db.fetch(
-        """SELECT id, title, description, action_url, is_paid, cover_url, sort_order, created_at, updated_at
-             FROM client_offerings
-            WHERE client_id = $1
-            ORDER BY is_paid DESC, sort_order, id""",
+        """SELECT o.id, o.title, o.description, o.action_url, o.is_paid, o.cover_url,
+                  o.sort_order, o.created_at, o.updated_at,
+                  o.lead_magnet_id, o.package_id,
+                  -- Название выбранного подарка — чтобы в кабинете было видно,
+                  -- ЧТО выдаёт карточка, без второго запроса на каждую строку.
+                  COALESCE(lm.name, pk.name) AS gift_name
+             FROM client_offerings o
+             LEFT JOIN lead_magnets         lm ON lm.id = o.lead_magnet_id
+             LEFT JOIN lead_magnet_packages pk ON pk.id = o.package_id
+            WHERE o.client_id = $1
+            ORDER BY o.is_paid DESC, o.sort_order, o.id""",
         int(client["sub"])
     )
     return {"items": [dict(r) for r in rows]}
@@ -1923,13 +2002,21 @@ async def create_offering(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    client_id = int(client["sub"])
+    # ⚠️ Магнит ИЛИ пакет: если прислали оба, оставляем магнит — иначе
+    # ограничение в БД отклонит вставку с невнятной для клиента ошибкой.
+    lm_id = data.lead_magnet_id or None
+    pkg_id = None if lm_id else (data.package_id or None)
+    await _assert_offering_gift_owned(db, client_id, lm_id, pkg_id)
     row = await db.fetchrow(
         """INSERT INTO client_offerings
-              (client_id, title, description, action_url, is_paid, cover_url, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING id, title, description, action_url, is_paid, cover_url, sort_order""",
-        int(client["sub"]), data.title.strip(), data.description, data.action_url,
-        data.is_paid, data.cover_url, data.sort_order
+              (client_id, title, description, action_url, is_paid, cover_url, sort_order,
+               lead_magnet_id, package_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id, title, description, action_url, is_paid, cover_url, sort_order,
+                     lead_magnet_id, package_id""",
+        client_id, data.title.strip(), data.description, data.action_url,
+        data.is_paid, data.cover_url, data.sort_order, lm_id, pkg_id
     )
     return dict(row)
 
@@ -1941,6 +2028,7 @@ async def update_offering(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    client_id = int(client["sub"])
     sets = []
     args: list[Any] = []
     for field in ("title", "description", "action_url", "is_paid", "cover_url", "sort_order"):
@@ -1948,6 +2036,29 @@ async def update_offering(
         if v is not None:
             sets.append(f"{field} = ${len(args)+1}")
             args.append(v.strip() if isinstance(v, str) else v)
+
+    # ⚠️⚠️ ВЫБОР ПОДАРКА СНИМАЕТСЯ НУЛЁМ, а не `null`. Правило `if v is not
+    # None` выше не различает «не прислали» и «прислали пусто», поэтому снять
+    # уже выбранный лид-магнит через него невозможно вовсе — карточка
+    # навсегда осталась бы с выдачей. Ноль = «убрать», как у подарка спикера.
+    #
+    # ⚠️ Магнит и пакет взаимоисключающие: ставя один, обнуляем другой, иначе
+    # в базе окажется пара и ограничение отклонит запись.
+    if data.lead_magnet_id is not None:
+        lm_id = data.lead_magnet_id or None
+        await _assert_offering_gift_owned(db, client_id, lm_id, None)
+        sets.append(f"lead_magnet_id = ${len(args)+1}")
+        args.append(lm_id)
+        if lm_id:
+            sets.append("package_id = NULL")
+    if data.package_id is not None:
+        pkg_id = data.package_id or None
+        await _assert_offering_gift_owned(db, client_id, None, pkg_id)
+        sets.append(f"package_id = ${len(args)+1}")
+        args.append(pkg_id)
+        if pkg_id:
+            sets.append("lead_magnet_id = NULL")
+
     if not sets:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
     sets.append("updated_at = NOW()")
@@ -1955,7 +2066,8 @@ async def update_offering(
     row = await db.fetchrow(
         f"""UPDATE client_offerings SET {', '.join(sets)}
             WHERE id = ${len(args)-1} AND client_id = ${len(args)}
-            RETURNING id, title, description, action_url, is_paid, cover_url, sort_order""",
+            RETURNING id, title, description, action_url, is_paid, cover_url, sort_order,
+                      lead_magnet_id, package_id""",
         *args
     )
     if not row:

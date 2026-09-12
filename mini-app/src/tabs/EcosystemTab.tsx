@@ -3,6 +3,7 @@ import { getClientProfile, getClientOfferings } from '../api'
 import OwnerPage from '../pages/OwnerPage'
 import EventDescription from '../components/EventDescription'
 import { linkify } from '../utils/linkify'
+import { getPlatform, getPlatformName } from '../platform'
 
 interface Props {
   clientId: number
@@ -54,6 +55,19 @@ interface Offering {
   action_url?: string
   is_paid: boolean
   cover_url?: string
+  /** ⚠️ Карточка может выдавать ЛИД-МАГНИТ вместо перехода по своей ссылке.
+   *  Ссылка у него РАЗНАЯ на каждой площадке (у Telegram своя, у ВКонтакте
+   *  своя, у MAX своя), поэтому бэкенд отдаёт НАБОР — {telegram|vk|max → url}.
+   *  Берём ссылку своей площадки; нет её — предлагаем выбрать из доступных. */
+  gift_links?: Record<string, string> | null
+}
+
+/** Подписи площадок для окна выбора. Держать в синхроне с `PLATFORM_LABEL`
+ *  бэкенда (share_links.py) — человек видит эти слова и в рассылках. */
+const PLATFORM_LABEL: Record<string, string> = {
+  telegram: 'Telegram',
+  vk: 'ВКонтакте',
+  max: 'MAX',
 }
 
 const PEACH = 'var(--peach)'
@@ -70,7 +84,33 @@ function OfferingCard({ o }: { o: Offering }) {
   // Описание свёрнуто — раскрывается по клику на заголовок/стрелку (синяя стрелка
   // в жёлтом круге). Слово «Бесплатно» не пишем — уже понятно из вкладки.
   const [open, setOpen] = useState(false)
+  const [pickOpen, setPickOpen] = useState(false)
   const hasDesc = !!(o.description && o.description.trim())
+
+  // ⚠️⚠️ ССЫЛКА ЛИД-МАГНИТА ВЫБИРАЕТСЯ ПОД ПЛОЩАДКУ ЗРИТЕЛЯ. Человек, который
+  // смотрит из MAX, должен уйти в MAX-бота: чужая площадка означает, что
+  // подарок он просто не получит — аккаунта там может не быть вовсе.
+  const gift = o.gift_links || null
+  const platforms = gift ? Object.keys(gift).filter(k => gift[k]) : []
+  const mine = getPlatformName()
+  // В вебе своей площадки нет вовсе — там всегда предлагаем выбор.
+  const myLink = gift && mine !== 'web' ? gift[mine] : undefined
+
+  // Что делает кнопка: своя площадка есть → ведём сразу; нет → выбор
+  // (решение владельца). Открыть «первую попавшуюся» нельзя — человек
+  // ушёл бы в мессенджер, которым не пользуется.
+  const href = myLink || o.action_url
+  const needsPick = !myLink && !o.action_url && platforms.length > 0
+
+  function openGift(p: string) {
+    setPickOpen(false)
+    const url = gift?.[p]
+    if (url) getPlatform().openExternal(url)
+  }
+
+  // ⚠️ Карточка без выдачи вовсе (лид-магнит удалён либо у клиента нет ни
+  // одного бота) остаётся видимой, но БЕЗ кнопки: название и описание полезны
+  // сами по себе, а кнопка, ведущая в никуда, выглядит поломкой.
   return (
     <div style={{
       background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
@@ -118,20 +158,45 @@ function OfferingCard({ o }: { o: Offering }) {
           )}
         </div>
       </div>
-      {o.action_url && (
-        <a href={o.action_url} target="_blank" rel="noreferrer"
-           style={{
-             display: 'block', marginTop: 10,
-             background: o.is_paid
-               ? 'var(--gradient-peach)'
-               : 'var(--gradient-135)',
-             color: o.is_paid ? DARK : PEACH,
-             padding: 10, borderRadius: 10, textAlign: 'center',
-             fontWeight: 700, fontSize: 13, textDecoration: 'none',
-             boxShadow: o.is_paid ? '0 2px 6px rgba(var(--peach-rgb), 0.4)' : 'none',
-           }}>
+      {(href || needsPick) && (
+        <button
+          onClick={() => { if (href) getPlatform().openExternal(href); else setPickOpen(true) }}
+          style={{
+            display: 'block', width: '100%', marginTop: 10, border: 'none', cursor: 'pointer',
+            background: o.is_paid
+              ? 'var(--gradient-peach)'
+              : 'var(--gradient-135)',
+            color: o.is_paid ? DARK : PEACH,
+            padding: 10, borderRadius: 10, textAlign: 'center',
+            fontWeight: 700, fontSize: 13,
+            boxShadow: o.is_paid ? '0 2px 6px rgba(var(--peach-rgb), 0.4)' : 'none',
+          }}>
           Получить
-        </a>
+        </button>
+      )}
+
+      {/* ⚠️ Своей площадки у человека нет (смотрит из MAX, а MAX-бота у
+          клиента нет) — предлагаем выбрать из тех, что есть, вместо того
+          чтобы молча увести в чужой мессенджер. */}
+      {pickOpen && (
+        <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) setPickOpen(false) }}>
+          <div className="modal-sheet">
+            <h2>Где вам удобно получить?</h2>
+            <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16, lineHeight: 1.4 }}>
+              Выберите мессенджер — материалы придут туда.
+            </p>
+            {platforms.map(p => (
+              <button key={p} className="btn btn-primary" onClick={() => openGift(p)}
+                      style={{ marginBottom: 8 }}>
+                {PLATFORM_LABEL[p] || p}
+              </button>
+            ))}
+            <button onClick={() => setPickOpen(false)}
+                    style={{ marginTop: 4, background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13, width: '100%', padding: 10, cursor: 'pointer' }}>
+              Отмена
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

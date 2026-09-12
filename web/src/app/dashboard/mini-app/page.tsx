@@ -123,6 +123,11 @@ interface Offering {
   is_paid: boolean
   cover_url?: string | null
   sort_order: number
+  /** Выдавать лид-магнит вместо перехода по `action_url` (миграция 406). */
+  lead_magnet_id?: number | null
+  package_id?: number | null
+  /** Название выбранного подарка — отдаёт список, чтобы показать его в строке. */
+  gift_name?: string | null
 }
 
 // Telegram-каналы основателя — отдельная секция выше (FounderTgChannelsField),
@@ -1553,14 +1558,30 @@ function OfferingModal({
   const [isPaid, setIsPaid] = useState<boolean>(initial?.is_paid ?? true)
   const [saving, setSaving] = useState(false)
 
+  // ⚠️ Карточка выдаёт ЛИБО свою ссылку, ЛИБО лид-магнит. Второе нужно,
+  // потому что у магнита ссылка РАЗНАЯ на каждой площадке: человек из MAX
+  // должен уйти в MAX-бота, а не в Telegram. Одним полем адреса это не
+  // выразить, поэтому выбор — отдельным списком.
+  const [lmId, setLmId] = useState<number>(initial?.lead_magnet_id || 0)
+  const [magnets, setMagnets] = useState<{ id: number; name: string }[]>([])
+
+  useEffect(() => {
+    // Список грузим один раз при открытии формы — магнитов у клиента
+    // обычно единицы, отдельный поиск тут не нужен.
+    api.leadMagnets.list()
+      .then((r: any) => setMagnets((r.items || r || []).map((m: any) => ({ id: m.id, name: m.name }))))
+      .catch(() => setMagnets([]))
+  }, [])
+
   function isDirty(): boolean {
     if (!initial) {
-      return !!(title.trim() || desc.trim() || url.trim())
+      return !!(title.trim() || desc.trim() || url.trim() || lmId)
     }
     return title  !== (initial.title       || '')
         || desc   !== (initial.description || '')
         || url    !== (initial.action_url  || '')
         || isPaid !== (initial.is_paid ?? true)
+        || lmId   !== (initial.lead_magnet_id || 0)
   }
 
   function attemptClose() {
@@ -1580,6 +1601,9 @@ function OfferingModal({
         description: desc.trim() || null,
         action_url: url.trim() || null,
         is_paid: isPaid,
+        // ⚠️ НОЛЬ, а не null: бэкенд не различает «не прислали» и «прислали
+        // пусто», и снять уже выбранный магнит через null было бы нельзя.
+        lead_magnet_id: lmId || 0,
       }
       if (initial) await api.miniApp.offerings.update(initial.id, payload)
       else         await api.miniApp.offerings.create(payload)
@@ -1620,6 +1644,26 @@ function OfferingModal({
             <label className="label">Ссылка (куда ведёт кнопка «Узнать подробнее»)</label>
             <input type="url" value={url} onChange={e => setUrl(e.target.value)}
                    className="input" placeholder="https://..." />
+          </div>
+
+          {/* ⚠️ Второй способ вместо ссылки — выдать свой лид-магнит. Его
+              адрес РАЗНЫЙ на каждой площадке, поэтому Mini App подставит
+              нужный сам: смотрит из MAX → ссылка на MAX-бота, из Telegram →
+              на Telegram. Нет площадки зрителя — предложит выбрать. */}
+          <div>
+            <label className="label">Или выдать лид-магнит</label>
+            <select value={lmId} onChange={e => setLmId(Number(e.target.value))}
+                    className="input">
+              <option value={0}>— не выдавать, вести по ссылке выше —</option>
+              {magnets.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {lmId
+                ? 'Кнопка приведёт человека в вашего бота на его площадке — там он подпишется и получит материал. Ссылка выше при этом не используется.'
+                : 'Выберите, если хотите выдавать материал через бота: ссылка подставится под площадку человека, а он попадёт к вам в базу.'}
+            </p>
           </div>
           <div>
             <label className="label">Куда показывать в Mini App</label>
