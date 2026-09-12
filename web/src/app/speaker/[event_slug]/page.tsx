@@ -3140,14 +3140,21 @@ function SlotTab({ token, myName, canEdit = true, wording = 'speaker' }: { token
     .filter(d => (effStage === ORPHAN ? (d.stage_id ?? null) === null : (d.stage_id ?? null) === effStage))
     .sort((a, b) => a.day_number - b.day_number)
 
-  // какие дни раскрыты: трогали → openDays; не трогали → день моего слота, иначе первый
-  const defaultOpenDay = (myDay && stageDays.some(d => d.day_number === myDay.day_number))
-    ? myDay.day_number
-    : (stageDays[0]?.day_number ?? null)
-  const isDayOpen = (dn: number) => openDays != null ? openDays.has(dn) : dn === defaultOpenDay
+  // ⚠️⚠️ ПО УМОЛЧАНИЮ РАСКРЫТЫ ВСЕ ДНИ СО СЛОТАМИ (решение владельца 12.09.2026).
+  // Раньше раскрывался ровно один — день своего слота, иначе первый; остальные
+  // спикер видел свёрнутыми и не понимал, что свободные слоты есть и в других днях:
+  // чтобы выбрать время, приходилось открывать каждый день по очереди.
+  // Здесь дни не простыня — это короткий список выступлений, показать их целиком
+  // дешевле, чем заставлять искать.
+  //
+  // `openDays === null` — «человек ничего не сворачивал»: тогда открыты все.
+  // Как только он свернул хоть один день, дальше решает его набор.
+  const isDayOpen = (dn: number) => openDays != null ? openDays.has(dn) : true
   const toggleDay = (dn: number) => {
     setOpenDays(prev => {
-      const base = prev != null ? new Set(prev) : (defaultOpenDay != null ? new Set([defaultOpenDay]) : new Set<number>())
+      // ⚠️ База первого клика — ВСЕ дни со слотами, а не один. Иначе сворачивание
+      // одного дня схлопнуло бы заодно и все остальные.
+      const base = prev != null ? new Set(prev) : new Set(stageDays.map(d => d.day_number))
       base.has(dn) ? base.delete(dn) : base.add(dn)
       return base
     })
