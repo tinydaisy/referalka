@@ -10,8 +10,6 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
-import AutoSetupTab from '@/components/channels/AutoSetupTab'
-import SolutionsTab from '@/components/solutions/SolutionsTab'
 import QrLinkButton from '@/components/QrLinkButton'
 import LockedOverlay from '@/components/LockedOverlay'
 
@@ -105,9 +103,12 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 
 export default function ChannelsPage() {
   /**
-   * Вкладка открывается и по адресу: `/dashboard/channels?tab=autosetup`.
-   * На неё ведёт кнопка «Перейти к настройке» со страницы подписки — без
-   * этого человек попадал на «Боты» и сам искал нужную вкладку.
+   * Вкладка открывается и по адресу: `/dashboard/channels?tab=chats`.
+   *
+   * ⚠️ Значения `autosetup` и `solutions` здесь больше НЕ обрабатываются —
+   * оба раздела уехали в Тех.поддержку (`/dashboard/autosetup`). Старые
+   * ссылки на них внутри кабинета переписаны; сюда такой адрес приведёт на
+   * «Боты», а не в пустоту.
    *
    * ⚠️ Читаем адрес НАПРЯМУЮ, а не хуком `useUrlTab`: внутри него
    * `useSearchParams`, а страница без динамического сегмента с ним обязана
@@ -117,17 +118,17 @@ export default function ChannelsPage() {
    * обёртку не стоит.
    */
   const pathname = usePathname()
-  const [tab, setTabState] = useState<'bots' | 'chats' | 'autosetup' | 'solutions'>(() => {
+  const [tab, setTabState] = useState<'bots' | 'chats'>(() => {
     if (typeof window === 'undefined') return 'bots'
     const v = new URLSearchParams(window.location.search).get('tab')
-    return v === 'autosetup' || v === 'chats' || v === 'solutions' ? v : 'bots'
+    return v === 'chats' ? v : 'bots'
   })
 
   /**
    * ⚠️⚠️ ПЕРЕЧИТЫВАЕМ ВКЛАДКУ ПРИ ПЕРЕХОДЕ ПО ССЫЛКЕ, а не только при открытии.
    *
    * `useState` с функцией срабатывает ОДИН раз — при первом монтировании.
-   * Переход по ссылке `?tab=autosetup` из другого раздела кабинета идёт
+   * Переход по ссылке `?tab=chats` из другого раздела кабинета идёт
    * клиентской навигацией: адрес меняется, а компонент уже смонтирован и
    * начальное значение больше не читается — человек попадал на «Боты», хотя
    * ссылка вела на автонастройку. Ровно та же причина описана в `useUrlTab`.
@@ -137,7 +138,7 @@ export default function ChannelsPage() {
   useEffect(() => {
     const sync = () => {
       const v = new URLSearchParams(window.location.search).get('tab')
-      const next = (v === 'autosetup' || v === 'chats' || v === 'solutions') ? v : 'bots'
+      const next = v === 'chats' ? v : 'bots'
       setTabState(prev => (prev === next ? prev : next))
     }
     sync()
@@ -158,7 +159,7 @@ export default function ChannelsPage() {
    * историю — иначе «Назад» будет ходить по вкладкам вместо возврата на
    * предыдущую страницу. Тот же приём, что в `useUrlTab`.
    */
-  const setTab = (v: 'bots' | 'chats' | 'autosetup' | 'solutions') => {
+  const setTab = (v: 'bots' | 'chats') => {
     setTabState(v)
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
@@ -246,8 +247,6 @@ export default function ChannelsPage() {
   }
 
   const isVip = (me?.features || []).includes('channels')
-  // ⚠️ Раздел «Готовые решения» пока обкатывается — только у админа (мигр. 400).
-  const hasSolutions = (me?.features || []).includes('ready_solutions')
   // Системный сервисный аккаунт ПЛЮСОНа (client 3): для него системный @pluson_bot
   // (и системные VK/MAX) — это фактически ЕГО собственные боты. Поэтому апсейл
   // «подключите свой бот» и красный баннер ему не показываем.
@@ -302,27 +301,15 @@ export default function ChannelsPage() {
         </div>
       )}
 
-      {/* Подвкладки: Боты / Группы/Каналы для рассылок / Автонастройка.
-          ⚠️ «Автонастройка» СКРЫТА без фичи, а не показана с замком: услуга
-          пока не продаётся клиентам, дразнить незачем (тот же приём, что у
-          «Автообзвонов» в сайдбаре). */}
+      {/* Подвкладки: Боты / Группы и каналы для рассылок.
+          ⚠️⚠️ «Автонастройка» и «Готовые решения» ОТСЮДА УЕХАЛИ — они живут в
+          Тех.поддержке, пунктом «Автонастройка и готовые решения» над
+          «Инструкциями» (решение владельца 12.09.2026). Сюда их не возвращать:
+          в «Каналы» человек приходит подключать бота, а не искать помощь с
+          настройкой, и там они терялись. Второй копии быть не должно. */}
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
         <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Группы/Каналы для рассылок</TabBtn>
-        {/* ⚠️ Вкладка видна ВСЕМ, а не только с фичей. Услуга открывается по
-            коду доступа, и вводить его человеку негде, если вкладки нет вовсе.
-            Внутри без доступа показывается описание услуги и поле для кода. */}
-        {/* ⚠️ Пока раздел обкатывается — вкладка СКРЫТА без фичи, а не показана
-            с замком (как «Автообзвоны» и «Продукты»): клиентам он ещё не
-            продаётся, дразнить незачем. Открыть = строка в `tariff_features`. */}
-        {hasSolutions && (
-          <TabBtn active={tab === 'solutions'} onClick={() => setTab('solutions')}>
-            Готовые решения
-          </TabBtn>
-        )}
-        <TabBtn active={tab === 'autosetup'} onClick={() => setTab('autosetup')}>
-          Автонастройка
-        </TabBtn>
       </div>
 
 
@@ -354,8 +341,6 @@ export default function ChannelsPage() {
 
       {tab === 'chats' && <BroadcastChatsTab />}
 
-      {tab === 'solutions' && hasSolutions && <SolutionsTab />}
-      {tab === 'autosetup' && <AutoSetupTab />}
 
       {(creating || editing) && (
         <ChannelModal

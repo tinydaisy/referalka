@@ -969,7 +969,7 @@ function ServicesBlock() {
                     промокоду» — перемена состояния была не видна.
                     ⚠️ Ведём на ВКЛАДКУ автонастройки (?tab=autosetup), а не в
                     «Каналы»: там три вкладки, и человек попадал на «Боты». */}
-                <Link href="/dashboard/channels?tab=autosetup"
+                <Link href="/dashboard/autosetup"
                       className="w-full px-3 py-2.5 rounded-lg text-xs font-semibold text-center block
                                  bg-green-600 text-white hover:bg-green-700 transition-colors">
                   {/* setup_state лежит ВНУТРИ заказа, а заказа может не быть

@@ -42,7 +42,7 @@ export default function SolutionPage() {
     return (
       <div className="p-4 md:p-8">
         <p className="text-sm text-gray-500">Решение не найдено.</p>
-        <Link href="/dashboard/channels?tab=solutions"
+        <Link href="/dashboard/autosetup?tab=solutions"
               className="mt-3 inline-block text-sm underline" style={{ color: DARK }}>
           ← Ко всем решениям
         </Link>
@@ -86,7 +86,7 @@ export default function SolutionPage() {
 
   return (
     <div className="max-w-3xl p-4 md:p-8">
-      <Link href="/dashboard/channels?tab=solutions"
+      <Link href="/dashboard/autosetup?tab=solutions"
             className="mb-4 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
         <ArrowLeft size={15} /> Ко всем решениям
       </Link>
