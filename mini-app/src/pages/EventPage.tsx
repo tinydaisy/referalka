@@ -140,6 +140,14 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         my_people:            part.my_people || [],
         top:                  part.top       || [],
         my_rank:              part.my_rank,
+        // ⚠️ Эти четыре поля бэк отдаёт НА ВЕРХНЕМ УРОВНЕ ответа, а GameTab
+        // читает их из participant. Без явного проброса там undefined:
+        // `!participant.hide_rating` давало true и ТОП рейтинг показывался
+        // всем, даже когда клиент его скрыл.
+        hide_rating:          part.hide_rating,
+        gift_count_mode:      part.gift_count_mode,
+        gift_count_value:     part.gift_count_value,
+        clicked_count:        part.clicked_count,
       } : null)
       setPrefill(part?.prefill || null)
     } catch (_) { /* offline / 5xx — оставляем то, что было */ }
@@ -214,6 +222,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         my_people:            part.my_people || [],
         top:                  part.top       || [],
         my_rank:              part.my_rank,
+        // ⚠️ Те же четыре поля с верхнего уровня ответа — см. reloadParticipant.
+        hide_rating:          part.hide_rating,
+        gift_count_mode:      part.gift_count_mode,
+        gift_count_value:     part.gift_count_value,
+        clicked_count:        part.clicked_count,
       } : null)
       setPrefill(part?.prefill || null)
 

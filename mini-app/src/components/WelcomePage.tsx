@@ -61,6 +61,14 @@ export default function WelcomePage({
   // peach-плашка (это онбординг, не «Программа»), а VIP красится по выбору
   // клиента: 'vip' → красная (дефолт), 'chat' | 'none' → тёмно-синяя.
   const vipAccent: 'red' | 'blue' = event?.accent_button === 'vip' || !event?.accent_button ? 'red' : 'blue'
+  // Плитки интро обязаны называться ТАК ЖЕ, как вкладки внизу, — иначе человек
+  // читает «Программа», а в меню видит «Подробности» и не понимает, куда идти.
+  // Источник тот же, что у BottomNav в EventPage: clients.tab_label_* (мигр. 185).
+  const labelProgram   = (event?.tab_label_program   || '').trim() || 'Программа'
+  // ⚠️ Дефолты обязаны совпадать с NAV_REGISTERED в EventPage — иначе у клиента
+  // без своих названий плитка и вкладка снова разойдутся («Подарки»/«Привилегии»).
+  const labelGame      = (event?.tab_label_game      || '').trim() || 'Привилегии'
+  const labelEcosystem = (event?.tab_label_ecosystem || '').trim() || 'О проекте'
   const { openChat, modal, loading } = useChatGate(event, tgUser)
 
   async function handleContinue() {
@@ -217,20 +225,20 @@ export default function WelcomePage({
         ) : (
         <>
         <p style={{ color: 'var(--dark)', fontSize: 13, fontWeight: 600, margin: '4px 0 10px' }}>
-          А ещё в Mini App вас ждёт:
+          В этом приложении у вас:
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Tile
             icon="📅"
-            title="Программа"
-            text="Расписание по дням и кнопка входа в эфир, когда событие идёт."
+            title={labelProgram}
+            text="Все подробности, важная информация и ссылки"
           />
           {referralEnabled && (
             <Tile
               icon="🎯"
-              title="Подарки"
-              text="Приглашайте друзей по своей партнёрской ссылке и забирайте подарки за приведённых."
+              title={labelGame}
+              text="Делитесь своей партнерской ссылкой с друзьями и получайте дополнительные привилегии"
             />
           )}
           {raffleEnabled && (
@@ -242,8 +250,8 @@ export default function WelcomePage({
           )}
           <Tile
             icon="🌐"
-            title="О проекте"
-            text="Продукты и материалы от организатора — платно и бесплатно."
+            title={labelEcosystem}
+            text="Информация о нас"
           />
         </div>
 
