@@ -535,6 +535,21 @@ async def _run_setup(db, order) -> None:
         await _log_step(db, order_id, "wait",
                         "Готово. Осталось зайти в бота и вступить в группу")
 
+        # ⚠️⚠️ ПИСЬМО УХОДИТ СРАЗУ, а не ждёт напоминаний. Раньше о том, что
+        # настройка дошла до «зайдите в бота», человек узнавал ТОЛЬКО из
+        # `remind` — а та бежит раз в час и шлёт не чаще раза в 20 часов.
+        # Закрыл вкладку — и следующий шаг всплывал в лучшем случае через
+        # сутки; бот тем временем занимает слот и держит очередь.
+        #
+        # ⚠️ Ошибка отправки НЕ роняет настройку: бот создан, работа сделана —
+        # человек увидит тот же шаг в кабинете и в напоминаниях.
+        try:
+            fresh = await db.fetchrow("SELECT * FROM service_orders WHERE id=$1", order_id)
+            if fresh:
+                await _send_ready_notice(db, fresh)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ready notice failed for order %s: %s", order_id, e)
+
     except tgs.BotFatherError as e:
         state = "queued" if e.retryable else "failed"
         # ⚠️⚠️ BotFather ограничивает создание ботов, и лимит бывает СУТОЧНЫМ:
@@ -863,6 +878,40 @@ async def _remind():
         await db.close()
 
 
+async def _send_ready_notice(db, order) -> None:
+    """Бот создан — зовём человека забрать права. Шлём СРАЗУ, один раз.
+
+    ⚠️ Это не напоминание: напоминания (`_send_reminder`) идут потом, раз в
+    20 часов. Здесь — первое и главное сообщение, ради которого человек и
+    оставлял почту: настройка дошла до шага, который без него не двинется.
+
+    ⚠️ Почта, а не только мессенджеры: человек мог закрыть кабинет, а в боте
+    его ещё нет вовсе — он туда как раз и не зашёл.
+    """
+    text = (
+        f"✅ Ваш бот @{order['bot_username']} создан и настроен.\n\n"
+        f"Остался один шаг — он за вами:\n"
+        f"1. Откройте бота: https://t.me/{order['bot_username']}\n"
+        f"2. Нажмите «Запустить»\n"
+        f"3. Вернитесь в кабинет — мы передадим вам права владельца\n\n"
+        f"Без этого шага Telegram не даёт передать бота: он должен увидеть, "
+        f"что вы с ним знакомы."
+    )
+
+    try:
+        from app.services.channels import notify_organizer_all_channels
+        await notify_organizer_all_channels(order["client_id"], text, db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ready notice to channels failed for order %s: %s", order["id"], e)
+
+    try:
+        await _send_reminder_email(
+            db, order, text, subject="Бот готов — заберите права владельца",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ready notice email failed for order %s: %s", order["id"], e)
+
+
 async def _send_reminder(db, order) -> None:
     """Напоминание по всем каналам сразу: кабинет, почта, боты клиента.
 
@@ -893,7 +942,9 @@ async def _send_reminder(db, order) -> None:
         logger.warning("reminder email failed for order %s: %s", order["id"], e)
 
 
-async def _send_reminder_email(db, order, text: str) -> None:
+async def _send_reminder_email(
+    db, order, text: str, *, subject: str = "Заберите вашего Telegram-бота",
+) -> None:
     email = await db.fetchval("SELECT email FROM clients WHERE id=$1", order["client_id"])
     if not email:
         return
@@ -904,7 +955,7 @@ async def _send_reminder_email(db, order, text: str) -> None:
     await asyncio.to_thread(
         sender.send,
         to_email=email,
-        subject="Заберите вашего Telegram-бота",
+        subject=subject,
         html=html,
         text=text,
     )

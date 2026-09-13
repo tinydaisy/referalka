@@ -107,6 +107,28 @@ async def activate_by_code(data: ActivateCodeRequest,
     return {"ok": True, "already": False, "message": "Услуга подключена"}
 
 
+def _kick_queue() -> None:
+    """Двигает очередь НЕМЕДЛЕННО, не дожидаясь минутного тика.
+
+    ⚠️⚠️ Без этого нажатие кнопки означало ожидание до 60 секунд НА ПУСТОЙ
+    очереди: заказ просто ложился в `queued` и ждал ближайшего запуска
+    `tg-setup-tick` (раз в минуту). Человек смотрел на неподвижный экран и
+    решал, что услуга не работает.
+
+    ⚠️ Сама работа всё равно идёт В ОЧЕРЕДИ, а не здесь: разговор с BotFather
+    — это переписка с паузами на десятки секунд, HTTP-запрос из браузера
+    столько не ждёт и отвалится по таймауту. Мы лишь будим поллер.
+
+    ⚠️ Сбой отправки НЕ роняет запуск: заказ уже создан и лежит в очереди —
+    его подхватит обычный тик через минуту. Тогда медленно, но не потеряно.
+    """
+    try:
+        from app.celery_app import celery
+        celery.send_task("app.tasks.tg_setup.tick")
+    except Exception as e:  # pragma: no cover — очередь недоступна
+        logger.warning("tg_setup: не удалось разбудить очередь сразу: %s", e)
+
+
 async def _service(db):
     row = await db.fetchrow(
         "SELECT * FROM services WHERE slug=$1 AND is_active=TRUE", SERVICE_SLUG
@@ -221,7 +243,8 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
     # аккаунт, и затирать его настройку нельзя. Без этого поля фронт не знает,
     # занято ли оно, и перезаписал бы вслепую.
     nick_row = await db.fetchrow(
-        "SELECT telegram_username, work_tg_username FROM clients WHERE id=$1",
+        "SELECT telegram_username, work_tg_username, email, email_verified "
+        "  FROM clients WHERE id=$1",
         client_id,
     )
     tg_nick = nick_row["telegram_username"] if nick_row else None
@@ -289,6 +312,14 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         "channel_username": chan_nick,
         "suggestions": tgs.suggest_bot_usernames(brand or ""),
         "claim_days": 3,
+        # ⚠️ ПОЧТА — ЕДИНСТВЕННЫЙ НАДЁЖНЫЙ КАНАЛ СВЯЗИ В ЭТОЙ УСЛУГЕ. Через
+        # пару минут от человека потребуется действие (зайти в бота и принять
+        # права), а в боте его ещё нет вовсе — позвать туда можно только
+        # письмом. Непроверенный адрес означает, что позвать будет некуда, и
+        # бот сгорит через 3 дня, заняв слот. Поэтому запуск требует
+        # подтверждения (см. отказ в `/start`).
+        "email": nick_row["email"] if nick_row else None,
+        "email_verified": bool(nick_row["email_verified"]) if nick_row else False,
     }
 
 
@@ -871,6 +902,26 @@ async def start_setup(data: StartRequest,
             "вам права на бота и группу",
         )
 
+    # ⚠️⚠️ ПОЧТА ДОЛЖНА БЫТЬ ПОДТВЕРЖДЕНА ДО ЗАПУСКА (решение владельца).
+    # Через пару минут настройка упрётся в шаг, который делает сам человек:
+    # зайти в бота и принять права. Позвать его туда можно только письмом — в
+    # боте его ещё нет, а кабинет он к тому времени обычно закрыл. Непроверенный
+    # адрес = звать некуда: бот повисит 3 дня, займёт слот и сгорит.
+    #
+    # ⚠️ Проверка на СЕРВЕРЕ, а не только на экране: кнопку легко обойти
+    # обычным запросом мимо интерфейса.
+    email_ok = await db.fetchrow(
+        "SELECT email, email_verified FROM clients WHERE id=$1", client_id
+    )
+    if not email_ok or not email_ok["email_verified"]:
+        raise HTTPException(
+            400,
+            "Сначала подтвердите почту — на неё мы пришлём ссылку на бота, "
+            "когда настройка дойдёт до передачи прав. Письмо со ссылкой "
+            "подтверждения уже у вас; если не нашли — отправьте заново "
+            "в плашке вверху кабинета.",
+        )
+
     # Служба заботы: наружу ник, в базе — ссылка (так это поле заполняется
     # во всём проекте, см. `tg_support_link`).
     support_nick = (data.support_username or "").strip().lstrip("@")
@@ -973,6 +1024,7 @@ async def start_setup(data: StartRequest,
             existing["id"], username, title,
         )
         await _write_prelog(existing["id"])
+        _kick_queue()
         return {"ok": True, "order_id": existing["id"], "paid": True,
                 "message": "Настройка запущена — платить повторно не нужно"}
 
@@ -1013,8 +1065,9 @@ async def start_setup(data: StartRequest,
         # Раньше они появлялись только при перезапуске, и человек, запускающий
         # услугу впервые, не видел расставленных полей вовсе.
         await _write_prelog(order_id)
+        _kick_queue()
         return {"ok": True, "order_id": order_id, "paid": True,
-                "message": "Настройка поставлена в очередь"}
+                "message": "Настройка началась"}
 
     # ⚠️ coming_soon — оплату не открываем вовсе. Услуга видна, но не продаётся.
     if svc["coming_soon"]:
@@ -1098,6 +1151,10 @@ async def _mark_service_paid(db, order_id: int, *, provider: str,
         json.dumps(raw or {}, ensure_ascii=False), next_state,
     )
     logger.info("service order %s paid via %s → %s", order_id, provider, next_state)
+    # ⚠️ Человек только что оплатил и смотрит на экран — начинаем сразу, а не
+    # через минуту. Если имя бота ещё не введено, будить очередь незачем.
+    if next_state == "queued":
+        _kick_queue()
     return {"ok": True, "status": "paid"}
 
 

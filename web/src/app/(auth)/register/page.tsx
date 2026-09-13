@@ -95,7 +95,8 @@ export default function RegisterPage() {
       })
       localStorage.setItem('plusson_token', res.access_token)
       localStorage.removeItem('pluson_referrer_pid')  // pid использован
-      // Через корень /dashboard — нет своего бота → «Каналы» (с плашкой), иначе → события
+      // Через корень /dashboard — он сам решает, куда высадить: нет своего
+      // Telegram-бота → автонастройка (сделаем за него), иначе → события.
       window.location.href = '/dashboard'
     } catch (err: any) {
       setError(err.message)

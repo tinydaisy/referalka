@@ -54,6 +54,10 @@ type State = {
   channel_username?: string | null
   suggestions: string[]
   claim_days: number
+  /** Почта кабинета и подтверждена ли она. Без подтверждения запуск закрыт:
+   *  письмо — единственный способ позвать человека забрать права на бота. */
+  email?: string | null
+  email_verified?: boolean
 }
 
 // Пока настройка идёт — обновляем экран часто; когда всё замерло — редко.
@@ -478,6 +482,23 @@ export default function AutoSetupTab() {
         всплывёт в самом конце, когда бот уже создан и передавать его будет
         некому. Поправленное сохраняется сразу, без ухода со страницы.
       */}
+      {/* ⚠️ ВВОДНАЯ СТРОКА — ПЕРВОЕ, ЧТО ВИДНО. Человека приводят сюда сразу
+          после регистрации и при каждом заходе, пока у него нет бота: он ещё
+          не знает, что это за раздел и зачем ему поля. Одна фраза «сделаем
+          за вас» объясняет это быстрее, чем список шагов. */}
+      {!finished && !inProgress && !order && (
+        <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5">
+          <h2 className="text-lg font-bold text-gray-900">
+            Сделаем за вас первичную настройку — в несколько кликов
+          </h2>
+          <p className="text-sm text-gray-600 mt-1.5 leading-relaxed">
+            Создадим Telegram-бота, привяжем к нему приложение, заведём группу
+            для уведомлений и пропишем всё в кабинете. От вас — данные ниже;
+            в конце зайдёте в бота и примете права владельца.
+          </p>
+        </div>
+      )}
+
       {/* ─── Три обязательных поля: ваш ник, служба заботы, канал ─── */}
       {/*
         ⚠️⚠️ ПОКАЗЫВАЕМ ВСЕГДА, а не только при пустом нике. Раньше блок стоял
@@ -652,12 +673,34 @@ export default function AutoSetupTab() {
             (повторно платить не нужно).
           </div>
 
+          {/* ⚠️⚠️ ПОЧТА — ОБЯЗАТЕЛЬНОЕ УСЛОВИЕ ЗАПУСКА (решение владельца).
+              Через пару минут настройка упрётся в шаг, который делает сам
+              человек: зайти в бота и принять права. Позвать его туда можно
+              только письмом — в боте его ещё нет, а кабинет он обычно уже
+              закрыл. Тот же отказ продублирован на сервере: кнопку легко
+              обойти запросом мимо интерфейса. */}
+          {state.email_verified === false && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-medium text-amber-900">
+                Сначала подтвердите почту
+              </p>
+              <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                Мы напишем на неё, когда бот будет готов, — там будет ссылка,
+                чтобы зайти в бота и принять права владельца. Письмо со
+                ссылкой подтверждения уже отправлено
+                {state.email ? <> на <b>{state.email}</b></> : null}; если не
+                нашли — отправьте заново в плашке вверху кабинета.
+              </p>
+            </div>
+          )}
+
           <button
             onClick={start}
             // ⚠️ Запуск требует ВСЕ ТРИ поля, а не только ник: без службы
             // заботы и канала настройка дойдёт до конца и оставит их пустыми —
             // то есть не сделает половину того, ради чего услуга покупалась.
-            disabled={starting || !nameCheck?.free || !allFilled}
+            disabled={starting || !nameCheck?.free || !allFilled
+                      || state.email_verified === false}
             className="btn-gold w-full mt-4 py-3 disabled:opacity-50"
           >
             {/* ⚠️ Про деньги здесь не пишем. До этого экрана доходит только
@@ -703,35 +746,51 @@ export default function AutoSetupTab() {
             человек решает, что услуга не работает, и пишет в поддержку.
             По номеру видно движение — обновил страницу, номер уменьшился.
           */}
-          {st === 'queued' && !!state.queue_position && (
+          {/* ⚠️ ГОВОРИМ, ЧТО ИМЕННО ПРОИСХОДИТ И СКОЛЬКО ЖДАТЬ. Настройка идёт
+              минутами, и без этого экран выглядит зависшим: человек решает,
+              что услуга сломалась, и уходит со страницы — а уйти как раз
+              нельзя, через пару минут от него потребуется действие. */}
+          {st === 'queued' && (
             <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold text-[#25455D]">
-                  {state.queue_position}
-                </span>
-                <span className="text-sm text-gray-600">
-                  — ваш номер в очереди
-                  {!!state.queue_total && state.queue_total > 1 && (
-                    <span className="text-gray-400"> из {state.queue_total}</span>
-                  )}
-                </span>
-              </div>
-              <p className="text-sm text-gray-600 mt-1.5">
-                {state.queue_position === 1
-                  ? 'Вы первый — настройка начнётся в ближайшую минуту.'
-                  : `Перед вами ${state.queue_position - 1} — начнём, как только освободится место.`}
-              </p>
-              {/* Обновлять руками не обязательно: экран сам перезапрашивает
-                  состояние каждые 5 секунд, пока настройка идёт. */}
+              {state.queue_position && state.queue_position > 1 ? (
+                <>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold text-[#25455D]">
+                      {state.queue_position}
+                    </span>
+                    <span className="text-sm text-gray-600">
+                      — ваш номер в очереди
+                      {!!state.queue_total && state.queue_total > 1 && (
+                        <span className="text-gray-400"> из {state.queue_total}</span>
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1.5">
+                    Перед вами {state.queue_position - 1} — начнём, как только
+                    освободится место. Обычно это несколько минут.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-700">
+                  Подбираем свободного настройщика — это занимает до минуты.
+                </p>
+              )}
               <p className="text-xs text-gray-400 mt-1.5">
                 Страница обновляется сама — можно не перезагружать.
               </p>
             </div>
           )}
           {st === 'running' && (
-            <p className="text-sm text-gray-600">
-              Ваша очередь подошла — выполняем шаги настройки.
-            </p>
+            <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+              <p className="text-sm text-gray-700">
+                Создаём бота и настраиваем его — обычно 2–3 минуты.
+              </p>
+              <p className="text-sm text-gray-600 mt-1.5">
+                <b>Не уходите со страницы:</b> когда бот будет готов, вам нужно
+                будет зайти в него и принять права владельца. Мы также напишем
+                об этом на почту.
+              </p>
+            </div>
           )}
           {/* ⚠️ Второго списка шагов здесь НЕТ намеренно — отчёт о работе один,
               выше (ServiceChecklist). Два списка про одно и то же расходились. */}
