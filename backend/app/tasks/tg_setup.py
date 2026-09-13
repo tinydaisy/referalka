@@ -764,6 +764,40 @@ async def _finish_setup(db, order) -> None:
                             "Настройка завершена — бот, группа и настройки "
                             "кабинета готовы к работе")
 
+            # ⚠️⚠️ ДВЕ РАБОЧИЕ ЗАГОТОВКИ — иначе человек остаётся с пустым
+            # ботом: бот есть, а что он умеет и как это проверить, непонятно.
+            # Заготовки дают нажать свою же ссылку, увидеть выдачу глазами и
+            # заменить тексты на свои (названия — заглушки «тут ваше…»).
+            #
+            # ⚠️ Ошибка НЕ роняет настройку: бот и группа уже переданы, работа
+            # сделана. Заготовки — приятное дополнение, а не часть услуги.
+            try:
+                from app.api.solutions import create_demo_lead_magnets
+                demos = await create_demo_lead_magnets(db, client_id)
+                for d in demos:
+                    if d.get("created"):
+                        await _log_step(
+                            db, order_id, f"demo{d['num']}",
+                            f"Создан лид-магнит «{d['name']}» — проверьте выдачу "
+                            f"на себе и замените тексты на свои. "
+                            f"Править: раздел «Лид-магниты»",
+                        )
+                # ⚠️ Про витрину пишем ОТДЕЛЬНОЙ строкой: карточки «О проекте»
+                # человек ищет в другом разделе (Mini App → «Продукты»), и без
+                # этой строки он не узнает, что они появились.
+                if demos:
+                    await _log_step(
+                        db, order_id, "offerings",
+                        "Раздел «О проекте» в Mini App наполнен: два бесплатных "
+                        "материала и «Стратегическая сессия» со ссылкой в вашу "
+                        "личку. Проверить глазами участника: "
+                        f"https://t.me/{order['bot_username']}/"
+                        "?startapp=ref_tabecosystem · "
+                        "Править: Mini App → «Продукты»",
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("demo lead magnets failed for order %s: %s", order_id, e)
+
     except Exception as e:  # noqa: BLE001
         logger.exception("tg_setup finish order %s failed", order_id)
         # ⚠️ Счётчик и здесь: без него шаг повторялся каждую минуту вечно.

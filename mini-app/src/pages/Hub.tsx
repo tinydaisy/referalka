@@ -19,7 +19,7 @@ interface Props {
 const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 
 const CALENDAR_TAB: NavItem = { id: 'calendar',  label: 'Календарь',   icon: 'calendar'  }
-const ECOSYSTEM_TAB: NavItem = { id: 'ecosystem', label: 'О проекте',  icon: 'ecosystem' }
+const ECOSYSTEM_TAB: NavItem = { id: 'ecosystem', label: 'О нас',  icon: 'ecosystem' }
 const PARTNER_TAB: NavItem = { id: 'partner',   label: 'Партнёру',   icon: 'game' }
 
 const PEACH = 'var(--peach)'

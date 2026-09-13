@@ -68,7 +68,7 @@ export default function WelcomePage({
   // ⚠️ Дефолты обязаны совпадать с NAV_REGISTERED в EventPage — иначе у клиента
   // без своих названий плитка и вкладка снова разойдутся («Подарки»/«Привилегии»).
   const labelGame      = (event?.tab_label_game      || '').trim() || 'Привилегии'
-  const labelEcosystem = (event?.tab_label_ecosystem || '').trim() || 'О проекте'
+  const labelEcosystem = (event?.tab_label_ecosystem || '').trim() || 'О нас'
   const { openChat, modal, loading } = useChatGate(event, tgUser)
 
   async function handleContinue() {

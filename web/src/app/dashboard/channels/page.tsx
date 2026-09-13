@@ -274,13 +274,26 @@ export default function ChannelsPage() {
         </p>
       </div>
 
+      {/* ⚠️⚠️ ПЛАШКА ВЕДЁТ В АВТОНАСТРОЙКУ, а не просто сообщает о проблеме.
+          Раньше человеку говорили «подключите бота» и оставляли одного: чтобы
+          получить бота, надо уйти в @BotFather, создать его руками, забрать
+          токен и вернуться. Услуга «под ключ» делает это за него и открыта
+          всем тарифам — значит первой строкой должна стоять она, а ручной
+          путь остаётся рядом для тех, у кого бот уже есть. */}
       {!hasOwnBot && (
         <div className="mb-6 rounded-xl bg-red-600 text-white px-5 py-4 shadow-lg">
           <div className="text-lg font-bold">Подключите хотя бы 1 бот</div>
           <div className="text-sm text-white/90 mt-1">
-            Подключите своего бота Telegram, сообщество ВКонтакте или бота MAX —
-            чтобы сервис работал и вы могли пользоваться полным функционалом
-            (воронки, события, рассылки, чаты).
+            Без бота не работают воронки, события, рассылки и чаты.
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Link href="/dashboard/autosetup"
+                  className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-red-700">
+              Настроить за пару кликов — Автонастройка
+            </Link>
+            <span className="text-sm text-white/80">
+              или добавьте бота самостоятельно ниже
+            </span>
           </div>
         </div>
       )}

@@ -61,7 +61,7 @@ const NAV_NOT_REG: NavItem[] = [
   // бессмысленно — именно по ней человек и решает, регистрироваться ли.
   // Остальные вкладки закрыты потому, что там содержимое события; здесь
   // содержимое ОБЩЕЕ и публичное, оно же открыто на витрине клиента.
-  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
+  { id: 'ecosystem', label: 'О нас', icon: 'ecosystem' },
 ]
 const NAV_REGISTERED: NavItem[] = [
   { id: 'welcome',   label: 'Интро',      icon: 'welcome'   },
@@ -69,13 +69,13 @@ const NAV_REGISTERED: NavItem[] = [
   { id: 'speakers',  label: 'Спикеры',    icon: 'speakers'  },
   { id: 'game',      label: 'Привилегии',    icon: 'game'      },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle'    },
-  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
+  { id: 'ecosystem', label: 'О нас', icon: 'ecosystem' },
 ]
 const NAV_ENDED: NavItem[] = [
   { id: 'results',   label: 'Итоги',      icon: 'results'   },
   { id: 'game',      label: 'Привилегии',    icon: 'game'      },
   { id: 'calendar',  label: 'Календарь',  icon: 'calendar'  },
-  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
+  { id: 'ecosystem', label: 'О нас', icon: 'ecosystem' },
 ]
 // ⚠️ Отдельного набора вкладок для веба БЫТЬ НЕ ДОЛЖНО. Раньше здесь лежал
 // NAV_WEB_PUBLIC, где незарегистрированному гостю Программа и Спикеры были

@@ -107,8 +107,15 @@ async def _new_lead_magnet(db, client_id: int, *, name: str, description: str,
                            url: str, link_source: str = "fixed",
                            support_prefill: Optional[str] = None,
                            button_label: Optional[str] = None,
-                           require_survey_id: Optional[int] = None) -> dict:
-    """Лид-магнит теми же правилами, что и созданный руками."""
+                           require_survey_id: Optional[int] = None,
+                           demo_solution_num: Optional[int] = None) -> dict:
+    """Лид-магнит теми же правилами, что и созданный руками.
+
+    ⚠️ `demo_solution_num` ставится ТОЛЬКО автонастройкой (миграция 411): по
+    нему экран итога находит две свои заготовки среди десятков магнитов
+    клиента. При обычной установке решения метки нет — человек ставит решение
+    осознанно, и его магнит ничем не «демо».
+    """
     # ⚠️ slug генерирует общая функция: свой генератор дал бы коды другого
     # формата, и ссылки решений отличались бы от обычных.
     from app.api.lead_magnets import _make_unique_lead_magnet_slug
@@ -117,11 +124,12 @@ async def _new_lead_magnet(db, client_id: int, *, name: str, description: str,
     row = await db.fetchrow(
         """INSERT INTO lead_magnets
              (client_id, name, description, url, slug, link_mode, button_label,
-              link_source, support_prefill, require_survey_id)
-           VALUES ($1,$2,$3,$4,$5,'both',$6,$7,$8,$9)
+              link_source, support_prefill, require_survey_id, demo_solution_num)
+           VALUES ($1,$2,$3,$4,$5,'both',$6,$7,$8,$9,$10)
            RETURNING id, name, slug""",
         client_id, name, description, url, slug,
         button_label, link_source, support_prefill, require_survey_id,
+        demo_solution_num,
     )
     return dict(row)
 
@@ -240,8 +248,13 @@ async def _new_survey(db, client_id: int, *, title: str,
 async def _install_magnet_for_subscribe(db, cid: int, slug: str) -> list[dict]:
     lm = await _new_lead_magnet(
         db, cid,
-        name=_named(slug, "Чек-лист «10 шагов»"),
-        description="Замените на свой материал: файл, папку или запись.",
+        # ⚠️⚠️ НАЗВАНИЕ И ОПИСАНИЕ — ЗАГЛУШКИ, а не выдуманный пример
+        # (решение владельца). «Чек-лист „10 шагов“» выглядел как настоящий
+        # материал: человек оставлял его как есть и раздавал людям ссылку на
+        # несуществующий чек-лист. Текст-заглушка прямо говорит, что тут
+        # должно стоять своё, — мимо не пройдёшь.
+        name=_named(slug, "Тут ваше название лид-магнита"),
+        description="Тут ваше описание лид-магнита — что человек получит.",
         url="https://pluson.ru/",
         button_label="Забрать материал",
     )
@@ -263,8 +276,11 @@ async def _install_consult_support(db, cid: int, slug: str) -> list[dict]:
         )
     lm = await _new_lead_magnet(
         db, cid,
-        name=_named(slug, "Запись на консультацию"),
-        description="После подписки человек получает ссылку, чтобы написать вам.",
+        # ⚠️ Заглушки — как в решении 1 (см. там же). Название остаётся
+        # осмысленным («Запись на консультацию» — это суть решения), а вот
+        # описание человек обязан переписать под себя: оно уходит людям.
+        name=_named(slug, "Запись на консультацию — тут ваше название"),
+        description="Тут ваше описание — о чём консультация и кому подойдёт.",
         url="",                      # ⚠️ при link_source='support' url не нужен
         link_source="support",
         support_prefill="Хочу консультацию",
@@ -705,3 +721,141 @@ async def install(slug: str, client=Depends(get_current_client),
 
     logger.info("solution %s installed for client %s", slug, cid)
     return InstallOut(ok=True, created=created)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Демо-заготовки для автонастройки
+# ─────────────────────────────────────────────────────────────────────────
+#
+# ⚠️⚠️ ЗАЧЕМ. Человек заканчивает автонастройку и остаётся с пустым ботом:
+# бот есть, а что он умеет — непонятно, проверить нечего. Две рабочие
+# заготовки дают ему сразу нажать свою же ссылку, увидеть выдачу глазами и
+# заменить тексты на свои. Поэтому у них названия-заглушки («тут ваше
+# название») — оставить как есть нельзя, это видно с первого взгляда.
+#
+# ⚠️ СОЗДАЁМ ПРИ КАЖДОЙ АВТОНАСТРОЙКЕ, даже если прошлые демо удалены
+# (решение владельца): человек прогоняет настройку заново именно чтобы
+# получить рабочие заготовки. Повторный прогон — осознанное действие.
+#
+# ⚠️ А вот если демо ЕЩЁ НА МЕСТЕ — второй раз не плодим, показываем ссылки
+# на существующие: иначе после каждой перенастройки в списке копились бы
+# одинаковые «тут ваше название».
+DEMO_SOLUTIONS = (1, 4)
+
+
+async def create_demo_lead_magnets(db, client_id: int) -> list[dict]:
+    """Две рабочие заготовки после автонастройки. Возвращает [{num, id, name, slug}].
+
+    ⚠️ Зовётся из автонастройки (tasks/tg_setup), а не из установки решения:
+    это не «поставить решение», а «дать боту что уметь с первой минуты».
+
+    ⚠️ Своих INSERT не пишем — только `_new_lead_magnet`, та же функция, что
+    создаёт магниты решений и руками: иначе разъедутся slug, режим ссылок и
+    подпись кнопки.
+    """
+    out: list[dict] = []
+    for num in DEMO_SOLUTIONS:
+        existing = await db.fetchrow(
+            """SELECT id, name, slug FROM lead_magnets
+                WHERE client_id = $1 AND demo_solution_num = $2
+                ORDER BY id LIMIT 1""",
+            client_id, num,
+        )
+        if existing:
+            out.append({"num": num, **dict(existing), "created": False})
+            continue
+
+        if num == 1:
+            lm = await _new_lead_magnet(
+                db, client_id,
+                name="Демо 1 · Тут ваше название лид-магнита",
+                description="Тут ваше описание лид-магнита — что человек получит.",
+                url="https://pluson.ru/",
+                button_label="Забрать материал",
+                demo_solution_num=1,
+            )
+        else:
+            # ⚠️ Решение 4 ведёт человека в личку и берёт контакт из службы
+            # заботы. К концу автонастройки она уже заполнена — это одно из
+            # трёх обязательных полей запуска, так что ссылке есть куда вести.
+            lm = await _new_lead_magnet(
+                db, client_id,
+                name="Демо 4 · Запись на консультацию — тут ваше название",
+                description="Тут ваше описание — о чём консультация и кому подойдёт.",
+                url="",
+                link_source="support",
+                support_prefill="Хочу консультацию",
+                button_label="Написать нам",
+                demo_solution_num=4,
+            )
+        out.append({"num": num, **lm, "created": True})
+
+    # ⚠️ Заодно наполняем «О проекте» в Mini App: пустая витрина — это пустой
+    # раздел, в который человек заходит и уходит. Бесплатные карточки берут
+    # ТЕ ЖЕ демо-магниты (ссылка подставится под площадку зрителя сама,
+    # миграция 410), платная — «Стратегическая сессия» со ссылкой в личку.
+    try:
+        await _ensure_demo_offerings(db, client_id, out)
+    except Exception:  # noqa: BLE001 — витрина не критична, магниты уже есть
+        logger.exception("demo offerings failed for client %s", client_id)
+
+    return out
+
+
+async def _ensure_demo_offerings(db, client_id: int, magnets: list[dict]) -> None:
+    """Карточки в «О проекте»: два бесплатных магнита + платная сессия.
+
+    ⚠️ Не плодим дубли: карточку заводим, только если такой ещё нет. Человек
+    мог переименовать или удалить её — навязывать второй раз не надо, ищем по
+    связи с магнитом (бесплатные) и по метке в названии (платная).
+    """
+    for m in magnets:
+        exists = await db.fetchval(
+            "SELECT 1 FROM client_offerings WHERE client_id=$1 AND lead_magnet_id=$2",
+            client_id, m["id"],
+        )
+        if exists:
+            continue
+        await db.execute(
+            """INSERT INTO client_offerings
+                 (client_id, title, description, is_paid, sort_order, lead_magnet_id)
+               VALUES ($1,$2,$3,FALSE,$4,$5)""",
+            client_id, m["name"],
+            "Тут ваше описание — что человек получит и кому это подойдёт.",
+            m["num"], m["id"],
+        )
+
+    # ── платная карточка ──
+    paid_title = "Стратегическая сессия"
+    exists = await db.fetchval(
+        "SELECT 1 FROM client_offerings WHERE client_id=$1 AND title=$2",
+        client_id, paid_title,
+    )
+    if exists:
+        return
+
+    # ⚠️ Ссылка — В ЛИЧКУ ТОГО АККАУНТА, который клиент сам указал службой
+    # заботы при автонастройке. Заранее вписанный текст сообщения избавляет
+    # человека от «здравствуйте, я по поводу…»: он просто жмёт «отправить».
+    row = await db.fetchrow(
+        "SELECT work_tg_username FROM clients WHERE id=$1", client_id
+    )
+    link = ""
+    if row and row["work_tg_username"]:
+        from app.services.support_message import tg_support_link
+        base = tg_support_link(row["work_tg_username"])
+        if base:
+            link = f"{base}?text=Хочу%20стратегическую%20сессию"
+
+    await db.execute(
+        """INSERT INTO client_offerings
+             (client_id, title, description, action_url, is_paid, sort_order)
+           VALUES ($1,$2,$3,$4,TRUE,0)""",
+        client_id, paid_title,
+        "Глубокая сессия 2–3 часа один на один:\n"
+        "• разберём вашу задачу по шагам и найдём, где теряются клиенты;\n"
+        "• соберём дорожную карту действий на ближайшие месяцы;\n"
+        "• подберём инструменты под вашу нишу и ресурсы.\n\n"
+        "Замените текст на свой. Для уточнения стоимости напишите в личку.",
+        link or None,
+    )

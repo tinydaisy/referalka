@@ -58,6 +58,9 @@ type State = {
    *  письмо — единственный способ позвать человека забрать права на бота. */
   email?: string | null
   email_verified?: boolean
+  /** Демо-заготовки, созданные автонастройкой (миграция 411) — их показывает
+   *  итог со ссылкой «проверьте выдачу на себе». */
+  demo_magnets?: { id: number; name: string; slug: string; num: number; link?: string | null }[]
 }
 
 // Пока настройка идёт — обновляем экран часто; когда всё замерло — редко.
@@ -126,6 +129,11 @@ export default function AutoSetupTab() {
   // перерисовке, и сразу после `saveNick` в нём ещё старое значение —
   // задача ушла бы в очередь при неудачном сохранении.
   const nickErrorRef = useRef<string | null>(null)
+  // ⚠️ Блок итога на длинной странице оказывается ниже экрана: человек ждал
+  // результата, настройка завершилась — а он видит всё те же поля и не
+  // понимает, что уже готово. Скроллим к итогу ОДИН раз, когда он появился.
+  const doneRef = useRef<HTMLDivElement | null>(null)
+  const scrolledToDone = useRef(false)
 
   /** Итоговое значение поля: черновик, если трогали, иначе — из настроек. */
   const effNick    = (nick        ?? (state?.telegram_username || '')).trim().replace(/^@/, '')
@@ -242,6 +250,16 @@ export default function AutoSetupTab() {
     timer.current = setTimeout(() => load(true), delay)
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [state, load])
+
+  // ⚠️ Прокрутка к итогу — ОДИН раз (`scrolledToDone`). Экран обновляется сам
+  // каждые 5–30 секунд, и без замка страницу дёргало бы вниз при каждом
+  // обновлении, пока человек читает итог или листает вверх.
+  useEffect(() => {
+    if (state?.order?.setup_state !== 'done') return
+    if (scrolledToDone.current || !doneRef.current) return
+    scrolledToDone.current = true
+    doneRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [state])
 
   const checkName = async () => {
     setChecking(true); setNameCheck(null)
@@ -1000,38 +1018,76 @@ export default function AutoSetupTab() {
 
       {/* ─── Готово ─── */}
       {finished && order && (
-        <div className="rounded-xl border border-green-300 bg-green-50 p-5 mb-5">
+        /* ⚠️ ЯКОРЬ + ПРОКРУТКА: страница длинная, и готовый итог оказывался
+           ниже экрана — человек его просто не видел и не понимал, что делать
+           дальше. Скроллим сюда сами, как только настройка завершилась. */
+        <div ref={doneRef}
+             className="rounded-xl border border-green-300 bg-green-50 p-5 mb-5 scroll-mt-4">
           <div className="flex items-center gap-2 font-bold text-green-900 mb-2">
             <Check size={18} /> Поздравляем — всё готово!
           </div>
           <p className="text-sm text-green-900/80">
-            Бот <b>@{order.bot_username}</b> и группа уведомлений теперь ваши.
-            Всё прописано в кабинете — можно работать.
+            Всё прописано в кабинете. Вот что у вас теперь есть и что стоит
+            проверить прямо сейчас:
           </p>
+
+          {/* ⚠️ ИТОГ СПИСКОМ СО ССЫЛКАМИ, а не одной фразой «всё готово».
+              Человек только что отдал данные и ждёт результата — ему нужно
+              видеть, ЧТО именно получилось и куда нажать. */}
+          <ol className="mt-4 space-y-3">
+            <DoneItem n={1} title="Ваш бот"
+                      href={`https://t.me/${order.bot_username}`}
+                      linkText={`@${order.bot_username}`}
+                      hint="Зайдите и нажмите «Открыть приложение» — увидите кабинет глазами участника." />
+
+            {order.group_invite_link && (
+              <DoneItem n={2} title="Канал уведомлений"
+                        href={order.group_invite_link}
+                        linkText="Открыть группу"
+                        hint="Мы сохранили её в кабинете — заявки и регистрации придут сюда. Закрепите её у себя в Telegram, чтобы не потерять." />
+            )}
+
+            {(state.demo_magnets || []).map((d, i) => (
+              <DoneItem key={d.id}
+                        n={(order.group_invite_link ? 3 : 2) + i}
+                        title={d.num === 1
+                          ? 'Тестовый лид-магнит'
+                          : 'Запись на консультацию'}
+                        href={d.link || '/dashboard/lead-magnets'}
+                        linkText={d.link ? 'Проверить выдачу' : 'Открыть'}
+                        hint={d.num === 1
+                          ? 'Нажмите ссылку и пройдите путь как человек со стороны — так видно, что получит ваш подписчик. Потом замените название, описание и файл на свои.'
+                          : 'Человек подписывается на канал и получает ссылку, чтобы написать вам в личку. Замените текст на свой.'}
+                        editHref="/dashboard/lead-magnets" />
+            ))}
+
+            {/* ⚠️ Витрина «О нас» — отдельным пунктом: она наполняется теми же
+                заготовками, но живёт в ДРУГОМ разделе кабинета (Mini App →
+                «Продукты»), и без этой строки человек про неё не узнает.
+                Ссылка ведёт в Mini App сразу на нужную вкладку
+                (`ref_tabecosystem`) — можно посмотреть глазами участника. */}
+            <DoneItem n={(order.group_invite_link ? 3 : 2)
+                          + (state.demo_magnets || []).length}
+                      title="Раздел «О нас» в Mini App"
+                      href={`https://t.me/${order.bot_username}?startapp=ref_tabecosystem`}
+                      linkText="Посмотреть глазами участника"
+                      hint="Мы наполнили его: два бесплатных материала и «Стратегическая сессия» со ссылкой в вашу личку. Замените тексты на свои."
+                      editHref="/dashboard/mini-app?tab=products" />
+          </ol>
+
           <div className="mt-4 rounded-lg bg-white border border-green-200 px-4 py-3 text-sm text-gray-700">
-            <b>Последний шаг, если нужно:</b> добавьте бота в свой канал —
+            <b>Ещё один шаг, если нужен:</b> добавьте бота в свой канал —
             тогда сможете рассылать и туда. Права можно отключить все,
             кроме «Публикация сообщений». Как добавите — мы увидим это сами
             и подключим канал.
           </div>
 
-          {/* ⚠️ Не бросаем человека на «готово»: бот есть, а что с ним делать —
-              непонятно. Сразу предлагаем взять готовую воронку, чтобы бот начал
-              приносить заявки, а не стоял пустым. */}
-          <div className="mt-4 rounded-lg bg-white border border-green-200 px-4 py-3">
-            <p className="text-sm font-medium text-gray-900">
-              Какое готовое решение вам нужно?
-            </p>
-            <p className="text-sm text-gray-600 mt-1">
-              Загрузим в вашего бота готовую воронку — например, запись на
-              консультацию: человек подписывается, заполняет анкету, а заявка
-              приходит вам.
-            </p>
-            <Link href="/dashboard/lead-magnets"
-                  className="btn-gold inline-block mt-3 px-4 py-2 text-sm font-semibold">
-              Выбрать готовое решение
-            </Link>
-          </div>
+          <p className="mt-4 text-sm text-gray-600">
+            По всем вопросам — <Link href="/dashboard/help"
+              className="font-medium text-[#25455D] underline">
+              наша техподдержка
+            </Link>.
+          </p>
         </div>
       )}
 
@@ -1079,6 +1135,58 @@ export default function AutoSetupTab() {
  * какому верить. Оставлен этот: у него есть ссылки «проверить», которых в логе
  * не было. Точность лога перенесена сюда — см. `failed` ниже.
  */
+/** Пункт итога: что получилось, куда нажать и что с этим делать.
+ *
+ * ⚠️ У каждого пункта ОБЯЗАТЕЛЬНО есть ссылка и пояснение: «всё готово» без
+ * них не говорит человеку ничего — он не знает, где теперь его бот, куда
+ * придут заявки и что нужно заменить на своё.
+ */
+function DoneItem({ n, title, href, linkText, hint, editHref }: {
+  n: number
+  title: string
+  href: string
+  linkText: string
+  hint: string
+  editHref?: string
+}) {
+  // Внешние ссылки (t.me, приглашение в группу) открываем новой вкладкой,
+  // внутренние разделы кабинета — обычным переходом.
+  const external = /^https?:\/\//.test(href)
+  return (
+    <li className="rounded-lg bg-white border border-green-200 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <span className="shrink-0 flex h-6 w-6 items-center justify-center rounded-full
+                         bg-green-100 text-xs font-bold text-green-800">
+          {n}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-gray-900">{title}</p>
+          <p className="text-xs text-gray-600 mt-1 leading-relaxed">{hint}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {external ? (
+              <a href={href} target="_blank" rel="noreferrer"
+                 className="text-sm font-medium text-[#25455D] underline break-all">
+                {linkText}
+              </a>
+            ) : (
+              <Link href={href}
+                    className="text-sm font-medium text-[#25455D] underline">
+                {linkText}
+              </Link>
+            )}
+            {editHref && (
+              <Link href={editHref} className="text-xs text-gray-500 underline">
+                Изменить настройки
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    </li>
+  )
+}
+
+
 function ServiceChecklist({ steps, botUsername, groupLink, supportFilled,
                            nickFilled, channelFilled, log }: {
   steps?: Record<string, boolean>

@@ -156,7 +156,7 @@ const DEFAULT_TAB_LABELS = {
   tab_label_program:   'Программа',
   tab_label_speakers:  'Спикеры',
   tab_label_game:      'Подарки',
-  tab_label_ecosystem: 'О проекте',
+  tab_label_ecosystem: 'О нас',
   tab_label_partner:   'Партнёру',
 } as const
 

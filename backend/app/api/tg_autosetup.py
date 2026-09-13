@@ -320,7 +320,43 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         # подтверждения (см. отказ в `/start`).
         "email": nick_row["email"] if nick_row else None,
         "email_verified": bool(nick_row["email_verified"]) if nick_row else False,
+        # ⚠️ Демо-заготовки (миграция 411) — их показывает экран итога со
+        # ссылками «проверьте выдачу на себе». Отдаём всегда, а не только на
+        # «готово»: человек мог уйти со страницы и вернуться позже.
+        "demo_magnets": await _demo_magnets(db, client_id),
     }
+
+
+async def _demo_magnets(db, client_id: int) -> list[dict]:
+    """Демо-лид-магниты, созданные автонастройкой, — со ссылкой на выдачу.
+
+    ⚠️ Ссылка строится ОБЩЕЙ `build_funnel_landing_links`, как везде в
+    проекте: своя склейка разошлась бы с тем, что разбирают боты.
+    """
+    rows = await db.fetch(
+        """SELECT id, name, slug, demo_solution_num
+             FROM lead_magnets
+            WHERE client_id = $1 AND demo_solution_num IS NOT NULL
+            ORDER BY demo_solution_num""",
+        client_id,
+    )
+    if not rows:
+        return []
+    from app.services.share_links import build_funnel_landing_links
+    out: list[dict] = []
+    for r in rows:
+        try:
+            links = await build_funnel_landing_links(
+                db, client_id=client_id, slug=r["slug"], kind="m",
+            )
+        except Exception:  # noqa: BLE001 — без ссылки карточка всё равно нужна
+            links = {}
+        out.append({
+            "id": r["id"], "name": r["name"], "slug": r["slug"],
+            "num": r["demo_solution_num"],
+            "link": links.get("telegram") or next(iter(links.values()), None),
+        })
+    return out
 
 
 class CheckNameRequest(BaseModel):

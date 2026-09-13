@@ -374,6 +374,29 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
 
     _asyncio.create_task(_send_welcome_email_bg(client["id"]))
 
+    # ⚠️⚠️ ЗАГОТОВКИ СОЗДАЮТСЯ КАЖДОМУ НОВОМУ КЛИЕНТУ (решение владельца):
+    # два демо-лид-магнита и наполненный раздел «О проекте». Пустой кабинет
+    # ничего не объясняет — человек не понимает, что платформа умеет и с чего
+    # начать. Заготовки названы «тут ваше название», то есть заменить их
+    # придётся осознанно, случайно не оставишь.
+    #
+    # ⚠️ В ФОНЕ и с проглоченной ошибкой: регистрация не должна падать из-за
+    # заготовок. Не создались — человек всё равно вошёл в кабинет, а
+    # автонастройка создаст их позже (там тот же вызов).
+    async def _seed_demo_bg(client_id: int):
+        try:
+            from app.database import get_pool
+            from app.api.solutions import create_demo_lead_magnets
+            pool = await get_pool()
+            if pool is None:
+                return
+            async with pool.acquire() as conn:
+                await create_demo_lead_magnets(conn, client_id)
+        except Exception:
+            logger.exception("demo seed failed for client %s", client_id)
+
+    _asyncio.create_task(_seed_demo_bg(client["id"]))
+
     # Уведомление ОСНОВАТЕЛЮ ПЛЮСОНа о новом клиенте платформы — тоже в фоне
     # (мессенджеры отвечают не мгновенно, регистрация ждать не должна).
     async def _notify_founder_bg(cid: int, cname: str, cemail: str,
