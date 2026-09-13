@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
+import { useMe } from '@/hooks/useMe'
 import {
   AUTOSETUP_STEPS, AUTOSETUP_FROM_CLIENT, AUTOSETUP_NOT_INCLUDED,
 } from '@/lib/autosetupSteps'
@@ -134,6 +135,11 @@ export default function AutoSetupTab() {
   // понимает, что уже готово. Скроллим к итогу ОДИН раз, когда он появился.
   const doneRef = useRef<HTMLDivElement | null>(null)
   const scrolledToDone = useRef(false)
+  // ⚠️ Каталог готовых решений пока открыт не всем (фича `ready_solutions`).
+  // Кнопку показываем только тем, у кого раздел есть: иначе человек нажмёт и
+  // упрётся в пустую вкладку — хуже, чем если бы кнопки не было вовсе.
+  const { me } = useMe()
+  const hasSolutions = (me?.features || []).includes('ready_solutions')
 
   /** Итоговое значение поля: черновик, если трогали, иначе — из настроек. */
   const effNick    = (nick        ?? (state?.telegram_username || '')).trim().replace(/^@/, '')
@@ -1080,6 +1086,34 @@ export default function AutoSetupTab() {
             тогда сможете рассылать и туда. Права можно отключить все,
             кроме «Публикация сообщений». Как добавите — мы увидим это сами
             и подключим канал.
+          </div>
+
+          {/* ⚠️⚠️ «ЧТО ДАЛЬШЕ» — КРУПНО И ПОСЛЕДНИМ БЛОКОМ. Бот настроен, но
+              сам по себе он ничего не продаёт: человек дочитал итог и не
+              знает, за что взяться. Показываем два узнаваемых сценария и
+              ведём в каталог решений — оттуда воронка ставится кнопкой. */}
+          <div className="mt-5 rounded-lg bg-white border border-green-200 px-4 py-4">
+            <p className="text-base font-bold text-gray-900">
+              Что дальше?
+            </p>
+            <p className="text-sm text-gray-700 mt-2 leading-relaxed">
+              Хотите провести бесплатный эфир и собрать людей руками аудитории?
+              Или упаковать свой продукт и открывать доступ к материалам?
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              {hasSolutions && (
+                <Link href="/dashboard/autosetup?tab=solutions"
+                      className="btn-gold px-4 py-2 text-sm font-semibold">
+                  Посмотреть каталог готовых решений
+                </Link>
+              )}
+              <Link href="/dashboard/help"
+                    className={hasSolutions
+                      ? 'text-sm font-medium text-[#25455D] underline'
+                      : 'btn-gold px-4 py-2 text-sm font-semibold'}>
+                {hasSolutions ? 'или напишите нам — поможем' : 'Напишите нам — поможем'}
+              </Link>
+            </div>
           </div>
 
           <p className="mt-4 text-sm text-gray-600">
