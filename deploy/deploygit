@@ -157,26 +157,53 @@ if [ -n "$CURRENT" ] && [ "$CURRENT" = "$SHA" ] && [ -f "$PROJECT/mini-app/dist/
   exit 0
 fi
 
-# ── 2. Качаем артефакт ─────────────────────────────────────────────────────
-ART_URL=$(api "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts" |
+# ── 2. Качаем сборку ───────────────────────────────────────────────────────
+# ⚠️⚠️ ДВА ИСТОЧНИКА, и релиз ПЕРВЫЙ (14.09.2026). Артефакты живут в хранилище
+# с квотой 500 МБ на всю учётку; когда она кончилась, загрузка вставала, и
+# выкатывать было НЕЧЕГО, хотя сборка проходила целиком. Релизы в эту квоту не
+# входят, поэтому сборка едет туда. Артефакт остаётся запасным путём — для
+# сборок, сделанных до этой правки.
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+
+echo "► Ищу сборку в релизах..."
+REL_URL=$(api "https://api.github.com/repos/$REPO/releases/tags/build-$SHA" |
   python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    for a in d.get('assets', []):
+        if a['name'] == 'build.tar.gz':
+            print(a['url']); break
+except Exception:
+    pass
+")
+
+if [ -n "$REL_URL" ]; then
+  echo "► Качаю из релиза build-$SHA..."
+  curl -sSL -H "Authorization: token $TOKEN" \
+       -H "Accept: application/octet-stream" "$REL_URL" -o "$TMP/out_build.tar.gz"
+  mkdir -p "$TMP/out" && mv "$TMP/out_build.tar.gz" "$TMP/out/build.tar.gz"
+else
+  echo "► В релизах нет — пробую артефакт сборки..."
+  ART_URL=$(api "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts" |
+    python3 -c "
 import json,sys
 for a in json.load(sys.stdin).get('artifacts', []):
     if a['name'] == 'build' and not a['expired']:
         print(a['archive_download_url']); break
 ")
-[ -z "$ART_URL" ] && {
-  echo "❌ Готовая сборка не найдена (могла истечь — GitHub хранит их ограниченно)."
-  echo "   Запустите сборку заново в Actions или выкатите командой:  deploy"
-  exit 1
-}
+  [ -z "$ART_URL" ] && {
+    echo "❌ Готовой сборки нет ни в релизах, ни в артефактах."
+    echo "   Причина обычно одна: квота артефактов (500 МБ на учётку) —"
+    echo "   тогда прогон зелёный, а файла нет. Перезапустите сборку в Actions"
+    echo "   (она положит её в релиз) или выкатите командой:  deploy"
+    exit 1
+  }
+  curl -sSL -H "Authorization: token $TOKEN" "$ART_URL" -o "$TMP/build.zip"
+  unzip -q "$TMP/build.zip" -d "$TMP/out"
+fi
 
-echo "► Качаю сборку..."
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-curl -sSL -H "Authorization: token $TOKEN" "$ART_URL" -o "$TMP/build.zip"
-unzip -q "$TMP/build.zip" -d "$TMP/out"
-
-# Внутри zip лежит build.tar.gz — тот самый архив, который ждёт release.sh
+# Внутри — build.tar.gz, тот самый архив, который ждёт release.sh
 [ -f "$TMP/out/build.tar.gz" ] || {
   echo "❌ В сборке нет ожидаемого архива — формат изменился."
   exit 1

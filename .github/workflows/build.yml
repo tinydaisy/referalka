@@ -19,6 +19,12 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# ⚠️⚠️ БЕЗ ЭТОГО РЕЛИЗ НЕ СОЗДАСТСЯ. По умолчанию GITHUB_TOKEN даёт только
+# чтение, и `gh release create` отвечает отказом доступа — сборка снова станет
+# красной, теперь уже по другой причине.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -114,10 +120,50 @@ jobs:
           tar -czf build.tar.gz -C out .
           ls -lh build.tar.gz
 
+      # ⚠️⚠️ ДВА ПУТИ ДОСТАВКИ, и релиз — ОСНОВНОЙ (14.09.2026).
+      #
+      # Артефакты живут в хранилище с общей на учётку квотой 500 МБ. Она
+      # кончилась, и сборка встала НАСМЕРТЬ: все шаги зелёные, падает только
+      # загрузка — «Artifact storage quota has been hit, usage is recalculated
+      # every 6-12 hours». Место освободили сразу (70 МБ из 500), а счётчик
+      # GitHub пересчитывает сам, и выкатить было нечего ПОЛДНЯ.
+      #
+      # Релизы в эту квоту НЕ входят. Поэтому сборка едет релизом, а артефакт
+      # остаётся запасным путём и больше никогда не роняет прогон целиком
+      # (continue-on-error). deploygit умеет забрать и оттуда, и оттуда.
+      - name: Кладём сборку в релиз
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="build-${GITHUB_SHA::8}"
+          # Тег на коммит сборки: по нему deploygit находит нужную версию.
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" build.tar.gz \
+            --title "Сборка ${GITHUB_SHA::8}" \
+            --notes "Автоматическая сборка. Накат: deploygit" \
+            --target "$GITHUB_SHA"
+          echo "✓ Сборка в релизе $TAG"
+
+      # ⚠️ Старые релизы сборок чистим тут же — иначе они копятся так же, как
+      # копились артефакты. Держим 10 последних: хватает на откат назад.
+      - name: Убираем старые релизы сборок
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("build-"))]
+                  | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' \
+          | while read -r t; do
+              [ -n "$t" ] && gh release delete "$t" --yes --cleanup-tag || true
+            done
+
+      # ⚠️ Запасной путь. `continue-on-error` обязателен: без него упёршаяся
+      # квота снова красит прогон в «failure», хотя сборка уже уехала релизом.
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: build
           path: build.tar.gz
-          # 7 дней, а не 90: хватает для отката на пару версий назад и
-          # не съедает бесплатные 500 МБ хранилища.
           retention-days: 7
