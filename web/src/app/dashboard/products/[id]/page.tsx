@@ -14,6 +14,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import { usePaymentMinimum } from '@/hooks/usePaymentMinimum'
 import FeatureLock from '@/components/FeatureLock'
 import ProductLandingTab from './LandingTab'
 import {
@@ -594,6 +595,8 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
   const [isActive, setIsActive] = useState(tariff?.is_active ?? true)
   const [isFeatured, setIsFeatured] = useState(tariff?.is_featured ?? false)
   const [saving, setSaving] = useState(false)
+  // Предупреждение о цене ниже минимума платёжной системы.
+  const { warnFor: minPaymentWarn } = usePaymentMinimum()
 
   // Цена до скидки — только для подсказки в форме (боевой расчёт на бэке).
   const oldPricePreview = (() => {
@@ -691,6 +694,11 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
             <input value={price} onChange={e => setPrice(e.target.value)} inputMode="numeric"
                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             <p className="mt-1 text-xs text-gray-400">Цена к оплате. Пусто или 0 — бесплатный доступ</p>
+            {/* Предупреждение, а не запрет: цену решает клиент, но платёж ниже
+                порога платёжная система просто не пропустит. */}
+            {minPaymentWarn(price) && (
+              <p className="mt-1 text-xs text-amber-700">{minPaymentWarn(price)}</p>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-sm text-gray-600">Скидка</label>
@@ -741,12 +749,13 @@ function TariffForm({ productId, tariff, onClose, onSaved }: {
           </p>
         </div>
 
-        <div>
-          <label className="mb-1 block text-sm text-gray-600">Код товара</label>
-          <input value={payProductId} onChange={e => setPayProductId(e.target.value)}
-                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-          <p className="mt-1 text-xs text-gray-400">Нужен только для LeadPay</p>
-        </div>
+        {/* ⚠️ Поле «Код товара» убрано (решение владельца 14.09.2026): карточки
+            товара не нужны НИ ОДНОЙ системе — LeadPay переведён на v2, где
+            название и цена идут в запросе. Заводить карточку на каждый тариф и
+            следить, чтобы её цена не разошлась с нашей, — ручная работа,
+            которая ломается при первой же скидке или промокоде.
+            Состояние `payProductId` оставлено: оно шлёт уже сохранённое
+            значение обратно, чтобы правка тарифа не затёрла старые коды. */}
 
         {/* Вознаграждение партнёру за продажу этого тарифа (миграция 347).
             ⚠️ Показываем только при подключённой партнёрке: у остальных это

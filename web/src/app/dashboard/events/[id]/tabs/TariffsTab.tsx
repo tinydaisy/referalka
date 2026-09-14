@@ -5,6 +5,7 @@ import { Plus, Save, Trash2, Pencil, X, Users, FileText, ChevronUp, ChevronDown,
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useUrlTab } from '@/hooks/useUrlTab'
+import { usePaymentMinimum } from '@/hooks/usePaymentMinimum'
 import { MultiSelectDropdown } from '@/components/MultiSelectDropdown'
 
 // Тарифы мероприятия (миграция 157). Раздел показывается только клиентам
@@ -141,6 +142,8 @@ export default function TariffsTab({
   // у тарифа — код товара (мы сами создаём заказ) или внешнюю ссылку.
   const [payReady, setPayReady] = useState(false)
   const [needsProductId, setNeedsProductId] = useState(false)
+  // Предупреждение о цене ниже минимума платёжной системы.
+  const { warnFor: minPaymentWarn } = usePaymentMinimum()
   // Модули ПЛЮСОНа, которые тариф может выдать бонусом (миграция 307).
   // Пустой список = у клиента нет фичи, блок в форме не показываем.
   const [bonusFeatures, setBonusFeatures] = useState<{ id: number; slug: string; name: string }[]>([])
@@ -583,6 +586,11 @@ export default function TariffsTab({
             <Field label="Сумма, ₽" hint="Это цена к оплате. Оставьте пустым, если «по запросу»">
               <input value={form.price} onChange={e => setForm({ ...form, price: e.target.value.replace(/[^0-9]/g, '') })}
                      className="input-tar" placeholder="29000" inputMode="numeric" />
+              {/* Предупреждение, а не запрет: цену решает клиент, но платёж
+                  ниже порога платёжная система просто не пропустит. */}
+              {minPaymentWarn(form.price) && (
+                <div className="mt-2 text-xs text-amber-700">{minPaymentWarn(form.price)}</div>
+              )}
             </Field>
             <Field label="Скидка"
                    hint="Если есть — на лендинге рядом с ценой появится вторая, зачёркнутая. Пусто = скидки нет">
@@ -682,8 +690,10 @@ export default function TariffsTab({
             {/* Развилка: платёжная система подключена → мы сами создаём
                 заказ и ловим оплату вебхуком. Не подключена → внешняя
                 ссылка, оплаты отмечаются вручную.
-                ⚠️ Код товара просим только там, где он нужен (LeadPay);
-                Продамусу хватает названия и цены выше. */}
+                ⚠️ Код товара сейчас не нужен НИ ОДНОЙ системе (LeadPay
+                переведён на v2). Ветку не удаляем: `needs_product_id`
+                приходит с бэкенда, и поле вернётся само, если появится
+                система с карточками товара. */}
             {payReady ? (needsProductId ? (
               <Field label="Код товара в платёжной системе"
                      hint="Номер карточки товара — например 63959. Заказ и оплата отметятся сами">

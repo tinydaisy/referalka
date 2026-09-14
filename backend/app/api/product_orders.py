@@ -323,7 +323,10 @@ async def create_order(
                 product_id=product_id, tariff_id=t["id"], tariff_kind="product",
                 contact_id=contact_id, email=data.email,
             )
-            price = promo["price_after"]
+            # ⚠️ Не ниже минимума платёжной системы (LeadPay — 100 ₽):
+            # иначе отказ придёт уже на её странице. Ноль не трогается.
+            price = promo_svc.clamp_to_provider_minimum(
+                promo["price_after"], t["pay_provider"])
         except promo_svc.PromoError as e:
             raise HTTPException(status_code=400, detail=str(e))
 

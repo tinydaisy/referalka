@@ -117,8 +117,12 @@ async def get_settings(
         "pay_tbank_test_mode": d.get("pay_tbank_test_mode"),
     })
     d["providers"] = client_payments.PROVIDERS
-    # Нужен ли в тарифе код товара — у Продамуса и Т-Банка не нужен.
+    # Нужен ли в тарифе код товара. ⚠️ Сейчас НЕ нужен никому (LeadPay переведён
+    # на v2) — поле остаётся как единая точка на случай системы с карточками.
     d["needs_product_id"] = (d.get("pay_provider") or "") in client_payments.NEEDS_PRODUCT_ID
+    # Минимальный платёж выбранной системы — форма тарифа предупреждает,
+    # если цена ниже: такой платёж система просто не пропустит.
+    d["min_payment_rub"] = client_payments.min_payment_rub(d.get("pay_provider"))
     # Справочники для чека Т-Банка (сервис «Чеки от Т-Бизнеса»).
     d["tbank_taxations"] = client_payments.TBANK_TAXATIONS
     d["tbank_vats"] = client_payments.TBANK_VATS

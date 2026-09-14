@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import { usePaymentMinimum } from '@/hooks/usePaymentMinimum'
 
 type Props = {
   /** Платёжная система клиента — от неё зависит, работают ли промокоды. */
@@ -325,6 +326,8 @@ function PromoForm({ edit, onClose, onSaved }:
   const [discountKind, setDiscountKind] =
     useState<'percent' | 'amount'>(edit?.discount_kind || 'percent')
   const [discountValue, setDiscountValue] = useState(String(edit?.discount_value ?? '20'))
+  // Порог платёжной системы — объясняем правило под полем скидки.
+  const { minPayment, providerName } = usePaymentMinimum()
   const [scope, setScope] = useState<'all' | 'event' | 'product'>(
     edit?.scope_product_id ? 'product' : edit?.scope_event_id ? 'event'
       : edit ? 'all' : 'event')
@@ -449,6 +452,19 @@ function PromoForm({ edit, onClose, onSaved }:
                      className="rounded-lg border border-gray-300 px-3 py-2"
                      style={{ flex: '1 1 auto', minWidth: 0 }} />
             </div>
+            {/* ⚠️ Конкретную цену тут не проверить — один код действует на
+                разные тарифы. Поэтому объясняем само правило: скидка не
+                опускает цену ниже порога платёжной системы (иначе оплата
+                не пройдёт), а полный ноль — случай особый, платёжка там
+                не нужна вовсе. */}
+            {minPayment > 0 && (
+              <p className="mt-2 text-xs text-gray-500">
+                Если после скидки выходит меньше {minPayment.toLocaleString('ru-RU')} ₽,
+                покупатель заплатит {minPayment.toLocaleString('ru-RU')} ₽ —
+                меньше {providerName} не принимает. Скидка «в ноль» работает
+                как обычно: оплата не понадобится совсем.
+              </p>
+            )}
           </Row>
 
           {/* ⚠️ По умолчанию «событие», а не «на всё»: код «на всё» молча
