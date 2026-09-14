@@ -273,6 +273,17 @@ async def _pick_account(db):
     ⚠️ Берём только health='ok': аккаунт под спам-блоком ботов не создаёт
     вовсе (BotFather отвечает «cannot create new bots»), и заказ на нём
     просто сгорел бы. Проверку здоровья гоняет отдельная задача.
+
+    ⚠️⚠️ ЧЕТЫРЕ ОГРАНИЧИТЕЛЯ, и каждый про своё (миграция 414):
+      • `max_slots`          — сколько ботов висит НЕПЕРЕДАННЫМИ сейчас;
+      • `cooldown_until`     — Telegram уже сказал «подожди столько-то»;
+      • `daily_bot_limit`    — сколько создаём за сутки (наша страховка);
+      • `min_create_gap_min` — пауза после предыдущего создания.
+    Первые два — реакция на уже случившееся, вторые два — чтобы до этого не
+    доводить: у BotFather нарастающий лимит, и три аккаунта подряд легко
+    создают ботов за минуты и ложатся все разом на 17 часов.
+
+    ⚠️ NULL или 0 в новых полях = без ограничения (прежнее поведение).
     """
     return await db.fetchrow(
         """
@@ -281,12 +292,26 @@ async def _pick_account(db):
                  WHERE so.setup_account_id = a.id
                    AND so.bot_transferred_at IS NULL
                    AND so.bot_created_at IS NOT NULL
-                   AND so.setup_state IN ('running','awaiting_user')) AS busy
+                   AND so.setup_state IN ('running','awaiting_user')) AS busy,
+               (SELECT COUNT(*) FROM service_orders so
+                 WHERE so.setup_account_id = a.id
+                   AND so.bot_created_at >= NOW() - INTERVAL '24 hours') AS made_today
           FROM tg_setup_accounts a
          WHERE a.is_active = TRUE AND a.health = 'ok'
            -- ⚠️ Аккаунт, упёршийся в лимит BotFather, отдыхает: он физически
            -- не создаст бота, пока срок не пройдёт. Берём следующий свободный.
            AND (a.cooldown_until IS NULL OR a.cooldown_until <= NOW())
+           -- Суточный лимит — считаем по фактическим заказам за 24 часа.
+           AND (COALESCE(a.daily_bot_limit, 0) = 0
+                OR (SELECT COUNT(*) FROM service_orders so2
+                     WHERE so2.setup_account_id = a.id
+                       AND so2.bot_created_at >= NOW() - INTERVAL '24 hours')
+                    < a.daily_bot_limit)
+           -- Пауза между созданиями — от отметки последнего.
+           AND (COALESCE(a.min_create_gap_min, 0) = 0
+                OR a.last_bot_created_at IS NULL
+                OR a.last_bot_created_at
+                   <= NOW() - (a.min_create_gap_min || ' minutes')::interval)
          ORDER BY busy ASC, a.id ASC
          LIMIT 1
         """
@@ -342,6 +367,17 @@ async def _run_setup(db, order) -> None:
                 "UPDATE service_orders SET bot_token=$2, bot_created_at=NOW(), "
                 "       claim_deadline=$3, updated_at=NOW() WHERE id=$1",
                 order_id, token, deadline,
+            )
+            # ⚠️ Отметка и счётчик на АККАУНТЕ (миграция 414): по ним очередь
+            # считает паузу между созданиями, а админка показывает, сколько
+            # ботов аккаунт сделал. Без этого пауза не работает вовсе —
+            # `last_bot_created_at` остался бы пустым навсегда.
+            await db.execute(
+                "UPDATE tg_setup_accounts "
+                "   SET last_bot_created_at = NOW(), "
+                "       bots_created_total = bots_created_total + 1, "
+                "       updated_at = NOW() WHERE id = $1",
+                acc.id,
             )
             order = await db.fetchrow("SELECT * FROM service_orders WHERE id=$1", order_id)
             await _log_step(db, order_id, "bot",

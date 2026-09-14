@@ -17,7 +17,8 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import {
-  AlertTriangle, Check, Loader2, Plus, RefreshCw, Trash2, Upload, X,
+  AlertTriangle, Check, Loader2, PauseCircle, PlayCircle, Plus, RefreshCw,
+  KeyRound, Settings2, Trash2, Upload, X,
 } from 'lucide-react'
 
 interface Account {
@@ -37,6 +38,17 @@ interface Account {
   health: string
   health_note: string | null
   health_checked_at: string | null
+  /** Сколько ботов создаём за сутки. 0 или null — без ограничения. */
+  daily_bot_limit: number | null
+  /** Пауза в минутах после предыдущего создания. 0 или null — без паузы. */
+  min_create_gap_min: number | null
+  last_bot_created_at: string | null
+  bots_created_total: number
+  made_today: number
+  transferred_total: number
+  cooldown_until: string | null
+  /** Почему аккаунт сейчас не берёт заказы — считает БЭКЕНД (см. list_accounts). */
+  blocked_reasons: string[]
 }
 
 interface Order {
@@ -366,8 +378,68 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
   onCheck: () => void; onDelete: () => void; onChanged: () => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const bundleRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [togglingActive, setTogglingActive] = useState(false)
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const h = HEALTH[a.health] || HEALTH.unknown
+
+  /** Включить/выключить аккаунт для выдачи ботов.
+   *
+   * ⚠️ Спрашиваем подтверждение только при ВЫКЛЮЧЕНИИ и называем последствие:
+   * если это последний живой аккаунт, заказы встанут в очередь и будут ждать,
+   * а не отвалятся с ошибкой. Человек должен понимать, что именно он делает.
+   */
+  async function onToggleActive() {
+    const next = !a.is_active
+    if (!next && !confirm(
+      `Выключить +${a.phone}? Новые боты на нём создаваться не будут — `
+      + 'заказы уйдут на другие аккаунты, а если свободных нет, встанут в '
+      + 'очередь до включения. Уже созданные боты клиенты заберут как обычно.'
+    )) return
+    setTogglingActive(true)
+    try {
+      await adminFetch(`/api/v1/admin/tg-setup/accounts/${a.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: next }),
+      })
+      onChanged()
+    } catch (e: any) {
+      alert(`Не удалось переключить: ${e.message}`)
+    } finally {
+      setTogglingActive(false)
+    }
+  }
+
+  /** Загружает КОМПЛЕКТ продавца: zip / .session / .json / twoFA.txt.
+   *
+   * ⚠️ Файлов может быть несколько и сразу на несколько номеров — бэкенд
+   * разберёт и ответит по каждому отдельно. Показываем построчно: молчаливое
+   * «готово» скрыло бы, что половина комплектов мёртвая.
+   */
+  async function uploadBundle(files: File[]) {
+    setUploading(true)
+    try {
+      const token = localStorage.getItem('plusson_admin_token') || localStorage.getItem('plusson_token')
+      const fd = new FormData()
+      files.forEach(f => fd.append('files', f))
+      const r = await fetch(`${API}/api/v1/admin/tg-setup/accounts/upload-bundle`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd,
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`)
+      const lines = (data.results || []).map((x: any) =>
+        `${x.ok ? '✅' : '❌'} +${x.phone} — ${x.note}${x.twofa_found ? ' · пароль из комплекта' : ''}`)
+      const errs = (data.errors || []).map((e: string) => `⚠️ ${e}`)
+      alert([...lines, ...errs].join('\n') || 'Ничего не нашлось')
+      onChanged()
+    } catch (e: any) {
+      alert(`Не удалось загрузить комплект: ${e.message}`)
+    } finally {
+      setUploading(false)
+    }
+  }
 
   async function uploadSession(file: File) {
     setUploading(true)
@@ -408,13 +480,45 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
             <Field label="Пароль двухфакторки" value={a.twofa_password || '— не задан'} mono />
             <Field label="Слоты"
                    value={`${a.busy_slots} занято из ${a.max_slots} · свободно ${a.free_slots}`} />
-            <Field label="Прокси" value={a.proxy ? shortProxy(a.proxy) : '— без прокси'} mono />
+            <Field label="Прокси"
+                   value={a.proxy ? shortProxy(a.proxy) : '— без прокси'}
+                   mono
+                   /* ⚠️ Иностранному номеру прокси обязателен: без него вход
+                      идёт с российского IP, и Telegram блокирует аккаунт.
+                      Российский номер (+7) в прокси не нуждается. */
+                   warn={!a.proxy && !a.phone.startsWith('7')} />
             <Field
               label="Файл сессии"
               value={a.session_exists ? 'на месте' : '— не загружен'}
               warn={!a.session_exists}
             />
+            <Field label="Ботов за сутки"
+                   value={a.daily_bot_limit
+                     ? `${a.made_today} из ${a.daily_bot_limit}`
+                     : `${a.made_today} · без лимита`}
+                   warn={!!a.daily_bot_limit && a.made_today >= a.daily_bot_limit} />
+            <Field label="Пауза между ботами"
+                   value={a.min_create_gap_min
+                     ? `${a.min_create_gap_min} мин`
+                     : '— без паузы'} />
+            <Field label="Создано всего"
+                   value={`${a.bots_created_total} · передано ${a.transferred_total}`} />
           </div>
+
+          {/* ⚠️ Причины считает БЭКЕНД (list_accounts), а не браузер: правила
+              живут в `_pick_account`, и вторая копия условий здесь разъехалась
+              бы с очередью. Человек видит ровно ту причину, по которой очередь
+              пропускает аккаунт. */}
+          {a.blocked_reasons?.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {a.blocked_reasons.map((r, i) => (
+                <span key={i}
+                      className="px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-800 border border-amber-200">
+                  {r}
+                </span>
+              ))}
+            </div>
+          )}
 
           {a.health_note && (
             <div className="mt-2 text-xs text-gray-400 line-clamp-2">{a.health_note}</div>
@@ -422,6 +526,30 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
         </div>
 
         <div className="flex flex-col gap-1.5 shrink-0">
+          {/* ⚠️ Рычаг «выдавать ботов / не выдавать» — на случай, когда аккаунт
+              нельзя трогать прямо сейчас (выступление, демонстрация, разбор
+              проблемы). Выключённый аккаунт очередь не берёт вовсе
+              (`_pick_account`: WHERE is_active = TRUE), а остальные продолжают
+              работать — заказы просто уходят к ним.
+              ⚠️ Уже созданные и ещё не переданные боты выключение НЕ трогает:
+              их слоты остаются занятыми, клиенты забирают их как обычно. */}
+          <button onClick={onToggleActive} disabled={togglingActive}
+                  className={`text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 ${
+                    a.is_active
+                      ? 'border-gray-200 hover:border-amber-300 text-amber-700'
+                      : 'border-green-300 text-green-700 hover:border-green-400'}`}>
+            {togglingActive
+              ? <Loader2 size={13} className="animate-spin" />
+              : (a.is_active ? <PauseCircle size={13} /> : <PlayCircle size={13} />)}
+            {a.is_active ? 'Выключить' : 'Включить'}
+          </button>
+          {/* Подпись под кнопкой: человек должен понимать, что выключение
+              значит «не участвует в создании ботов», а не «удалён». */}
+          <div className="text-[10px] text-gray-400 leading-tight max-w-[110px]">
+            {a.is_active
+              ? 'участвует в создании ботов'
+              : 'в создании ботов не участвует'}
+          </div>
           <button onClick={onCheck} disabled={checking}
                   className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-400 flex items-center gap-1.5">
             {checking ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
@@ -432,14 +560,49 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
             {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
             Сессия
           </button>
+          {/* ⚠️ Отдельно от «Сессии»: там один голый .session, здесь — весь
+              комплект продавца (zip с .session, .json и twoFA.txt). Пароль
+              двухфакторки из комплекта подставляется сам. */}
+          <button onClick={() => bundleRef.current?.click()} disabled={uploading}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-400 flex items-center gap-1.5">
+            <Upload size={13} /> Комплект
+          </button>
+          {/* ⚠️ Единственный способ вернуть аккаунт с аннулированным ключом:
+              файлом такой не чинится, только вход с кодом из SMS. */}
+          <button onClick={() => setLoginOpen(true)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-400 flex items-center gap-1.5">
+            <KeyRound size={13} /> Войти по коду
+          </button>
+          <button onClick={() => setEditOpen(true)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-400 flex items-center gap-1.5">
+            <Settings2 size={13} /> Лимиты
+          </button>
           <button onClick={onDelete}
                   className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-red-600 hover:border-red-300 flex items-center gap-1.5">
             <Trash2 size={13} /> Удалить
           </button>
           <input ref={fileRef} type="file" accept=".session" className="hidden"
                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadSession(f) }} />
+          <input ref={bundleRef} type="file" multiple
+                 accept=".zip,.session,.json,.txt" className="hidden"
+                 onChange={e => {
+                   const fs = Array.from(e.target.files || [])
+                   if (fs.length) uploadBundle(fs)
+                   e.target.value = ''
+                 }} />
         </div>
       </div>
+
+      {loginOpen && (
+        <LoginByCodeModal phone={a.phone} proxy={a.proxy}
+                          onClose={() => setLoginOpen(false)}
+                          onDone={() => { setLoginOpen(false); onChanged() }} />
+      )}
+      {editOpen && (
+        <EditLimitsModal account={a}
+                         onClose={() => setEditOpen(false)}
+                         onSaved={() => { setEditOpen(false); onChanged() }} />
+      )}
     </div>
   )
 }
@@ -469,6 +632,11 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [twofa, setTwofa] = useState('')
   const [proxy, setProxy] = useState('')
   const [slots, setSlots] = useState(5)
+  // ⚠️ 0 = «без ограничения». Дефолты осторожные: BotFather даёт 17 часов
+  // отдыха после десятка ботов подряд, и на трёх аккаунтах это происходит
+  // за минуты. Лучше медленнее, чем всё встало.
+  const [dailyLimit, setDailyLimit] = useState(8)
+  const [gapMin, setGapMin] = useState(45)
   const [saving, setSaving] = useState(false)
 
   async function save() {
@@ -479,6 +647,7 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         body: JSON.stringify({
           phone, title: title || null, twofa_password: twofa || null,
           proxy: proxy || null, max_slots: slots,
+          daily_bot_limit: dailyLimit || 0, min_create_gap_min: gapMin || 0,
         }),
       })
       onSaved()
@@ -515,6 +684,32 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
               Сколько непереданных ботов держим одновременно
             </p>
           </div>
+
+          {/* ⚠️ Три ограничителя про РАЗНОЕ, поэтому поля отдельные:
+              слоты — сколько висит непереданными;
+              суточный лимит — сколько создаём за сутки;
+              пауза — как часто. У BotFather нарастающий лимит, и без двух
+              последних три аккаунта ложатся разом на 17 часов. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ботов в сутки
+              </label>
+              <input type="number" min={0} max={50} value={dailyLimit}
+                     onChange={e => setDailyLimit(+e.target.value)}
+                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+              <p className="text-xs text-gray-400 mt-1">0 — без лимита</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Пауза, минут
+              </label>
+              <input type="number" min={0} max={720} value={gapMin}
+                     onChange={e => setGapMin(+e.target.value)}
+                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+              <p className="text-xs text-gray-400 mt-1">между созданиями</p>
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900">
@@ -530,6 +725,224 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Мастер входа по коду из SMS: телефон → код → облачный пароль.
+ *
+ * ⚠️⚠️ ЕДИНСТВЕННЫЙ способ вернуть аккаунт с аннулированным ключом
+ * (`AuthKeyDuplicatedError`). Файлом такой не чинится: Telegram отзывает ключ
+ * у САМОГО АККАУНТА, и даже исходная сессия от продавца перестаёт работать.
+ *
+ * ⚠️ Шаги — отдельные запросы, но клиент Telethon между ними живёт на сервере
+ * (см. `tg_account_connect`). Поэтому окно нельзя просто закрыть: уходя,
+ * сообщаем серверу отменить вход, иначе клиент повиснет в памяти.
+ */
+function LoginByCodeModal({ phone, proxy, onClose, onDone }: {
+  phone: string; proxy: string | null
+  onClose: () => void; onDone: () => void
+}) {
+  const [step, setStep] = useState<'start' | 'code' | 'password'>('start')
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function call(path: string, body: any) {
+    setBusy(true); setMsg('')
+    try {
+      const r = await adminFetch(`/api/v1/admin/tg-setup/accounts/login/${path}`, {
+        method: 'POST', body: JSON.stringify(body),
+      })
+      return r
+    } catch (e: any) {
+      setMsg(e.message || 'Не получилось')
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function sendCode() {
+    const r = await call('start', { phone, proxy })
+    if (!r) return
+    if (r.status === 'already') {
+      setMsg('Аккаунт и так подключён — вход не нужен')
+      setTimeout(onDone, 1200)
+    } else if (r.status === 'code_sent') {
+      setStep('code')
+      setMsg('Код отправлен в Telegram на этот номер')
+    } else {
+      setMsg(r.msg || 'Не удалось запросить код')
+    }
+  }
+
+  async function sendStep(path: 'code' | 'password', value: string) {
+    const r = await call(path, { phone, value })
+    if (!r) return
+    if (r.status === 'ok') {
+      setMsg('Готово — аккаунт подключён')
+      setTimeout(onDone, 900)
+    } else if (r.status === 'need_password') {
+      setStep('password')
+      setMsg('Нужен облачный пароль (двухфакторка)')
+    } else {
+      setMsg(r.msg || 'Не подошло')
+    }
+  }
+
+  /** ⚠️ Уходя — отменяем вход на сервере: иначе клиент Telethon повиснет. */
+  function close() {
+    adminFetch('/api/v1/admin/tg-setup/accounts/login/cancel', {
+      method: 'POST', body: JSON.stringify({ phone }),
+    }).catch(() => {})
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg text-gray-900">Вход по коду</h3>
+          <button onClick={close} className="text-gray-400 hover:text-gray-700">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="text-sm text-gray-600 mb-4">
+          Номер <span className="font-mono">+{phone}</span>
+          {!proxy && !phone.startsWith('7') && (
+            <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900">
+              У иностранного номера не задан прокси — вход пойдёт с российского
+              адреса, и Telegram может заблокировать аккаунт. Сначала укажите прокси.
+            </div>
+          )}
+        </div>
+
+        {step === 'start' && (
+          <button onClick={sendCode} disabled={busy}
+                  className="btn-gold w-full py-2.5">
+            {busy ? 'Запрашиваем…' : 'Запросить код'}
+          </button>
+        )}
+
+        {step === 'code' && (
+          <div className="space-y-3">
+            <Input label="Код из Telegram" value={code} onChange={setCode}
+                   placeholder="12345"
+                   hint="Код приходит в приложение Telegram, не в SMS" />
+            <button onClick={() => sendStep('code', code)} disabled={busy || !code}
+                    className="btn-gold w-full py-2.5">
+              {busy ? 'Проверяем…' : 'Подтвердить'}
+            </button>
+          </div>
+        )}
+
+        {step === 'password' && (
+          <div className="space-y-3">
+            <Input label="Облачный пароль" value={password} onChange={setPassword}
+                   hint="Он же нужен для передачи ботов — сохраним его в карточке" />
+            <button onClick={() => sendStep('password', password)}
+                    disabled={busy || !password} className="btn-gold w-full py-2.5">
+              {busy ? 'Входим…' : 'Войти'}
+            </button>
+          </div>
+        )}
+
+        {msg && <p className="mt-3 text-sm text-gray-700">{msg}</p>}
+      </div>
+    </div>
+  )
+}
+
+/** Правка ограничителей у существующего аккаунта.
+ *
+ * ⚠️ Три поля про РАЗНОЕ, поэтому и правятся раздельно:
+ * слоты — сколько ботов висит непереданными; суточный лимит — сколько создаём
+ * за сутки; пауза — как часто. Первое про Telegram-лимит на аккаунт, два
+ * других — наша страховка от нарастающего лимита BotFather.
+ */
+function EditLimitsModal({ account: a, onClose, onSaved }: {
+  account: Account; onClose: () => void; onSaved: () => void
+}) {
+  const [slots, setSlots] = useState(a.max_slots)
+  const [daily, setDaily] = useState(a.daily_bot_limit ?? 0)
+  const [gap, setGap] = useState(a.min_create_gap_min ?? 0)
+  const [proxy, setProxy] = useState(a.proxy || '')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      await adminFetch(`/api/v1/admin/tg-setup/accounts/${a.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          max_slots: slots, daily_bot_limit: daily,
+          min_create_gap_min: gap, proxy: proxy || null,
+        }),
+      })
+      onSaved()
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg text-gray-900">Ограничители +{a.phone}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <NumField label="Слотов" value={slots} onChange={setSlots}
+                      hint="висит непереданными" min={1} max={20} />
+            <NumField label="В сутки" value={daily} onChange={setDaily}
+                      hint="0 — без лимита" min={0} max={50} />
+            <NumField label="Пауза, мин" value={gap} onChange={setGap}
+                      hint="между ботами" min={0} max={720} />
+          </div>
+          <Input label="Прокси" value={proxy} onChange={setProxy}
+                 placeholder="socks5://логин:пароль@хост:порт"
+                 hint="Иностранному номеру обязателен" />
+        </div>
+
+        <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-xs text-gray-600">
+          Сейчас создано за сутки: <b>{a.made_today}</b>
+          {a.daily_bot_limit ? ` из ${a.daily_bot_limit}` : ' (без лимита)'}.
+          Всего за жизнь аккаунта: <b>{a.bots_created_total}</b>, из них передано
+          клиентам <b>{a.transferred_total}</b>.
+        </div>
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="btn-primary flex-1 py-2.5">Отмена</button>
+          <button onClick={save} disabled={saving} className="btn-gold flex-1 py-2.5">
+            {saving ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NumField({ label, value, onChange, hint, min, max }: {
+  label: string; value: number; onChange: (v: number) => void
+  hint?: string; min?: number; max?: number
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <input type="number" min={min} max={max} value={value}
+             onChange={e => onChange(+e.target.value)}
+             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
     </div>
   )
 }

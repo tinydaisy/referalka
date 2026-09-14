@@ -189,9 +189,23 @@ async def connect(acc: SetupAccount):
     if not Path(session + ".session").exists():
         raise RuntimeError(f"Файл сессии не найден: {session}.session")
 
+    # ⚠️⚠️ ИНОСТРАННЫЙ НОМЕР БЕЗ ПРОКСИ — НЕ ПОДКЛЮЧАЕМ (решение владельца).
+    # `parse_proxy` при пустой строке возвращает None, и Telethon идёт НАПРЯМУЮ
+    # молча: узбекский аккаунт светит российским IP, а это ровно то, за что
+    # Telegram блокирует. Так мы уже потеряли аккаунт (07.09.2026).
+    # Российским номерам прокси не нужен — они и так с российского адреса.
+    proxy_cfg = parse_proxy(acc.proxy)
+    digits = re.sub(r"\D", "", acc.phone or "")
+    if not proxy_cfg and not digits.startswith("7"):
+        raise RuntimeError(
+            f"У аккаунта {acc.phone} не задан прокси. Иностранный номер без "
+            f"прокси подключится с российского IP — Telegram за это блокирует. "
+            f"Укажите прокси в админке."
+        )
+
     client = TelegramClient(
         session, api_id, api_hash,
-        proxy=parse_proxy(acc.proxy),
+        proxy=proxy_cfg,
         # ⚠️ catch_up=False — не догонять пропущенные апдейты за оффлайн.
         # Иначе Telethon может залипнуть на разборе истории вместо работы.
         catch_up=False,
