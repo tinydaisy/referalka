@@ -324,7 +324,28 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         # ссылками «проверьте выдачу на себе». Отдаём всегда, а не только на
         # «готово»: человек мог уйти со страницы и вернуться позже.
         "demo_magnets": await _demo_magnets(db, client_id),
+        # ⚠️ Почему заказ ещё ждёт и когда вернёмся — то же, что уходит
+        # письмом. Человек с открытой страницей должен видеть причину, а не
+        # неподвижный «крутилку»: иначе он решает, что услуга сломалась.
+        "queue_wait": await _queue_wait(db, order),
     }
+
+
+async def _queue_wait(db, order) -> Optional[dict]:
+    """Причина ожидания и время возврата — для экрана.
+
+    ⚠️ Считает ТА ЖЕ функция, что и для писем (`_queue_wait_reason`): экран и
+    письмо обязаны говорить одно и то же, иначе человек верит тому, что
+    страшнее.
+    """
+    if not order or order["setup_state"] != "queued":
+        return None
+    try:
+        from app.tasks.tg_setup import _queue_wait_reason
+        reason, back_at = await _queue_wait_reason(db, dict(order))
+        return {"reason": reason, "back_at": back_at}
+    except Exception:  # noqa: BLE001 — без причины экран просто её не покажет
+        return None
 
 
 async def _demo_magnets(db, client_id: int) -> list[dict]:

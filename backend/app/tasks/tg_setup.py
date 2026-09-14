@@ -845,6 +845,43 @@ async def _tick():
         if order:
             await _run_setup(db, order)
 
+        # 2б. Кто ждёт в очереди — сообщаем, что заявка принята и не потерялась.
+        #
+        # ⚠️⚠️ ПИСЬМО ТОЛЬКО ТЕМ, У КОГО НЕ НАЧАЛОСЬ СРАЗУ. Обычно очередь
+        # берёт заказ за секунды (её будит сама кнопка), и письмо «принято»
+        # через 9 секунд рядом с письмом «бот готов» — шум. Поэтому ждём
+        # 2 минуты: если за это время не началось, человеку правда нужно
+        # знать, что заявка в работе.
+        #
+        # ⚠️ Отметки (`queued_notice_at`), а не «прошло ли N минут»: поллер
+        # бежит каждую минуту, иначе письмо ушло бы десять раз подряд.
+        waiting = await db.fetch(
+            """SELECT * FROM service_orders
+                WHERE setup_state = 'queued' AND status = 'paid'
+                  AND bot_created_at IS NULL
+                  AND updated_at < NOW() - INTERVAL '2 minutes'
+                  AND queued_notice_at IS NULL"""
+        )
+        for row in waiting:
+            await _send_queue_notice(db, row, "accepted")
+            await db.execute(
+                "UPDATE service_orders SET queued_notice_at = NOW() WHERE id=$1", row["id"])
+
+        # 2в. Ждёт больше 10 минут — второе письмо, уже с причиной и, если
+        # она известна, точным временем возврата.
+        delayed = await db.fetch(
+            """SELECT * FROM service_orders
+                WHERE setup_state = 'queued' AND status = 'paid'
+                  AND bot_created_at IS NULL
+                  AND queued_notice_at IS NOT NULL
+                  AND queued_notice_at < NOW() - INTERVAL '10 minutes'
+                  AND delay_notice_at IS NULL"""
+        )
+        for row in delayed:
+            await _send_queue_notice(db, row, "delay")
+            await db.execute(
+                "UPDATE service_orders SET delay_notice_at = NOW() WHERE id=$1", row["id"])
+
         # 3. Те, кто ждёт клиента и уже дождался хотя бы одного действия.
         waiting = await db.fetch(
             "SELECT * FROM service_orders "
@@ -910,6 +947,101 @@ async def _remind():
         return {"reminded": len(rows), "expired": len(expired)}
     finally:
         await db.close()
+
+
+async def _queue_wait_reason(db, order) -> tuple[str, datetime | None]:
+    """Почему заказ ещё ждёт и когда вернёмся. → (причина, время-или-None).
+
+    ⚠️⚠️ ПРИЧИНУ НАЗЫВАЕМ ЧЕСТНО, НО НЕ ПЕРЕКЛАДЫВАЕМ НА TELEGRAM. «Telegram
+    вас ограничил» — неправда и пугает: ограничение стоит на НАШЕМ служебном
+    аккаунте, к клиенту оно отношения не имеет. «Все менеджеры заняты» —
+    тоже плохо: звучит как «у нас всё сломалось».
+    Формулировка одна: у площадки есть предел на одновременное создание
+    ботов, мы выжидаем его и продолжим сами.
+
+    Причины:
+      'limit'  — все живые аккаунты на отдыхе по лимиту. Время ИЗВЕСТНО
+                 (`cooldown_until`) — его и называем, не выдумывая.
+      'slots'  — свободных слотов нет: кто-то не забрал своего бота. Срок
+                 неизвестен, обещать его нельзя.
+      'queue'  — просто ждёт своей очереди.
+    """
+    # Своя отсрочка заказа (BotFather ответил «try again in N») — самая точная.
+    if order.get("retry_after") and order["retry_after"] > datetime.now(timezone.utc):
+        return "limit", order["retry_after"]
+
+    row = await db.fetchrow(
+        """SELECT
+             COUNT(*) FILTER (WHERE a.cooldown_until IS NOT NULL
+                                AND a.cooldown_until > NOW())        AS on_cooldown,
+             COUNT(*)                                                AS alive,
+             MIN(a.cooldown_until) FILTER (WHERE a.cooldown_until > NOW()) AS back_at,
+             COALESCE(SUM(a.max_slots), 0)                           AS slots,
+             COALESCE(SUM((SELECT COUNT(*) FROM service_orders so
+                            WHERE so.setup_account_id = a.id
+                              AND so.bot_transferred_at IS NULL
+                              AND so.bot_created_at IS NOT NULL
+                              AND so.setup_state IN ('running','awaiting_user'))), 0) AS busy
+           FROM tg_setup_accounts a
+          WHERE a.is_active = TRUE AND a.health = 'ok'"""
+    )
+    if not row or not row["alive"]:
+        return "slots", None
+    if row["on_cooldown"] and row["on_cooldown"] >= row["alive"]:
+        return "limit", row["back_at"]
+    if row["busy"] >= row["slots"]:
+        return "slots", None
+    return "queue", None
+
+
+def _msk(dt: datetime) -> str:
+    """Время по Москве строкой «в 09:40» / «завтра в 09:40»."""
+    msk = dt.astimezone(timezone(timedelta(hours=3)))
+    now = datetime.now(timezone(timedelta(hours=3)))
+    prefix = "завтра " if msk.date() > now.date() else ""
+    return f"{prefix}в {msk:%H:%M} МСК"
+
+
+async def _send_queue_notice(db, order, kind: str) -> None:
+    """Письмо об ожидании: 'accepted' — принято, 'delay' — всё ещё ждём.
+
+    ⚠️ Коротко. Длинное письмо про очередь никто не дочитывает, а сказать
+    нужно ровно три вещи: приняли, ничего делать не надо, напишем сами.
+    """
+    reason, back_at = await _queue_wait_reason(db, order)
+
+    if kind == "accepted":
+        subject = "Заявка на автонастройку принята"
+        text = ("Заявка принята — настраиваем.\n\n"
+                "Напишем, когда бот будет готов: останется зайти в него и "
+                "принять права владельца. Делать ничего не нужно.")
+    else:
+        subject = "Автонастройка: ещё в работе"
+        if reason == "limit" and back_at:
+            when = _msk(back_at)
+            text = (f"Ваш бот — следующий в очереди.\n\n"
+                    f"У площадки Telegram есть предел на количество ботов, "
+                    f"создаваемых за раз. Выжидаем его и продолжим {when} — "
+                    f"автоматически, от вас ничего не нужно.")
+        elif reason == "limit":
+            text = ("Ваш бот — следующий в очереди.\n\n"
+                    "У площадки Telegram есть предел на количество ботов, "
+                    "создаваемых за раз. Выжидаем его и продолжим сами — "
+                    "напишем, как только бот будет готов.")
+        else:
+            text = ("Заявка в работе, не потерялась.\n\n"
+                    "Создаём ботов по очереди — как только дойдёт до вашего, "
+                    "сразу напишем. От вас ничего не нужно.")
+
+    try:
+        from app.services.channels import notify_organizer_all_channels
+        await notify_organizer_all_channels(order["client_id"], text, db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("queue notice to channels failed for order %s: %s", order["id"], e)
+    try:
+        await _send_reminder_email(db, order, text, subject=subject)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("queue notice email failed for order %s: %s", order["id"], e)
 
 
 async def _send_ready_notice(db, order) -> None:

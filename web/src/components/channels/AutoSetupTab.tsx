@@ -62,6 +62,9 @@ type State = {
   /** Демо-заготовки, созданные автонастройкой (миграция 411) — их показывает
    *  итог со ссылкой «проверьте выдачу на себе». */
   demo_magnets?: { id: number; name: string; slug: string; num: number; link?: string | null }[]
+  /** Почему заказ ещё ждёт: 'limit' — выжидаем предел площадки (время известно),
+   *  'slots' — впереди другие заказы, 'queue' — подбираем аккаунт. */
+  queue_wait?: { reason: 'limit' | 'slots' | 'queue'; back_at?: string | null } | null
 }
 
 // Пока настройка идёт — обновляем экран часто; когда всё замерло — редко.
@@ -794,6 +797,26 @@ export default function AutoSetupTab() {
                     освободится место. Обычно это несколько минут.
                   </p>
                 </>
+              ) : state.queue_wait?.reason === 'limit' ? (
+                /* ⚠️ Причину называем ЧЕСТНО, но не перекладываем на Telegram
+                   («вас ограничили» — неправда, ограничение на нашем служебном
+                   аккаунте) и не пишем «все менеджеры заняты» — звучит как
+                   поломка. Время берём настоящее, из `cooldown_until`. */
+                <p className="text-sm text-gray-700">
+                  Ваш бот — следующий в очереди. У площадки Telegram есть предел
+                  на количество ботов, создаваемых за раз: выжидаем его и
+                  продолжим
+                  {state.queue_wait.back_at
+                    ? <> в {new Date(state.queue_wait.back_at).toLocaleTimeString('ru-RU',
+                        { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })} МСК</>
+                    : ' автоматически'}
+                  {' '}— от вас ничего не нужно.
+                </p>
+              ) : state.queue_wait?.reason === 'slots' ? (
+                <p className="text-sm text-gray-700">
+                  Заявка в работе. Создаём ботов по очереди — как только дойдёт
+                  до вашего, сразу продолжим и напишем.
+                </p>
               ) : (
                 <p className="text-sm text-gray-700">
                   Подбираем свободного настройщика — это занимает до минуты.
