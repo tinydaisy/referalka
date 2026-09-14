@@ -169,8 +169,9 @@ export default function TariffsTab({
     api.paymentSettings.get()
       .then(r => {
         setPayReady(!!r?.is_configured)
-        // Код товара нужен только LeadPay. Продамус берёт название и цену
-        // прямо из ссылки — заводить товар заранее не надо.
+        // ⚠️ Код товара сейчас не нужен НИ ОДНОЙ системе: LeadPay переведён
+        // на v2, где название и цена идут в запросе. Флаг оставлен как
+        // единая точка — вернётся система с карточками, поле появится само.
         setNeedsProductId(!!r?.needs_product_id)
       })
       .catch(() => {})
