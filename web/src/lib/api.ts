@@ -1934,6 +1934,9 @@ export const api = {
   admin: {
     stats: () => request('/api/v1/admin/stats'),
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),
+    // ⚠️ Справочник фич для фильтра по модулям. Не путать с публичным
+    // `api.features()` — тот отдаёт витрину цен, без служебных фич.
+    features: () => request('/api/v1/admin/features'),
     getClient: (id: number) => request(`/api/v1/admin/clients/${id}`),
     // Бэк принимает параметры в QUERY STRING, не в body (PATCH /admin/clients/{id})
     updateClient: (id: number, data: { is_active?: boolean; tariff_slug?: string; tariff_days?: number; collab_hub_blocked?: boolean }) => {

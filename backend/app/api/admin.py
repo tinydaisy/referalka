@@ -1,11 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+from datetime import datetime, timezone
 from app.auth import get_current_admin, hash_password
 from app.database import get_db
 from app.config import settings
 import asyncpg
 import json
+import logging
+import math
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Администратор"])
 
@@ -63,6 +68,13 @@ async def list_clients(
     subscription: Optional[str] = None,   # active | inactive
     has_bot: Optional[str] = None,        # yes | no
     in_collab: Optional[str] = None,      # yes | no
+    feature: Optional[str] = None,        # slug фичи/модуля
+    feature_source: Optional[str] = None, # any | addon — откуда доступ
+    min_subscribers: Optional[int] = None,
+    min_events: Optional[int] = None,
+    min_channels: Optional[int] = None,
+    sort: Optional[str] = None,           # см. SORT_COLUMNS
+    sort_dir: Optional[str] = None,       # asc | desc
     limit: int = 50,
     offset: int = 0,
     admin=Depends(get_current_admin),
@@ -93,6 +105,63 @@ async def list_clients(
                 "JOIN features f2 ON f2.id = ca2.feature_id "
                 "WHERE ca2.client_id = c.id AND f2.slug = 'collab_hub' AND ca2.status = 'active'))")
         conditions.append(cond if in_collab == "yes" else f"NOT {cond}")
+
+    # ─── Фильтр по модулю/услуге ────────────────────────────────────────
+    #
+    # ⚠️⚠️ ОДИН ФИЛЬТР НА ВСЕ ФИЧИ, а не по фильтру на каждую. Их 36, и
+    # отдельными выпадашками панель стала бы нечитаемой; список из 36 пунктов
+    # в одном селекторе — читаемо и покрывает всё разом.
+    #
+    # ⚠️ Доступ к фиче даёт ТРИ разных источника (тариф, купленный модуль,
+    # вложенные фичи модуля), и общий `_CLIENT_FEATURES_SQL` их уже сводит.
+    # Своего запроса не пишем: он разошёлся бы с тем, по чему гейтятся
+    # разделы, и админка показывала бы не тех клиентов.
+    #
+    # ⚠️ `feature_source='addon'` — «КУПИЛ ОТДЕЛЬНО», а не «есть доступ». Это
+    # разные вопросы: конференции входят в тариф у одних и куплены модулем у
+    # других, и владельцу нужно уметь спросить именно про покупку (кто платил).
+    if feature:
+        from app.services.features import _CLIENT_FEATURES_SQL
+        params.append(feature)
+        p = len(params)
+        if feature_source == "addon":
+            conditions.append(
+                f"""EXISTS (SELECT 1 FROM client_addons ca3
+                              JOIN features f3 ON f3.id = ca3.feature_id
+                             WHERE ca3.client_id = c.id AND f3.slug = ${p}
+                               AND ca3.status = 'active' AND ca3.expires_at > NOW())"""
+            )
+        else:
+            # ⚠️ `$1` внутри общего запроса — это client_id, поэтому подставляем
+            # туда `c.id` текущей строки, а slug идёт отдельным параметром.
+            conditions.append(
+                f"EXISTS (SELECT 1 FROM ("
+                f"{_CLIENT_FEATURES_SQL.replace('$1', 'c.id')}"
+                f") fs WHERE fs.slug = ${p})"
+            )
+
+    # ─── Пороги по числовым колонкам ────────────────────────────────────
+    #
+    # ⚠️ Считаем ТЕМИ ЖЕ подзапросами, что и колонки в выдаче: иначе фильтр
+    # «подписчиков от 100» отберёт не тех, кого показывает столбец, и цифрам
+    # перестанут верить.
+    _MIN_FILTERS = {
+        "min_subscribers": (min_subscribers,
+            "(SELECT COUNT(*) FROM platform_user_channels puc "
+            "   JOIN client_channels cc ON cc.id = puc.client_channel_id "
+            "  WHERE cc.client_id = c.id AND puc.is_unsubscribed = FALSE)"),
+        "min_events": (min_events,
+            "(SELECT COUNT(*) FROM events e WHERE EXISTS("
+            "  SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id "
+            "    AND eo.client_id=c.id AND eo.status='accepted'))"),
+        "min_channels": (min_channels,
+            "(SELECT COUNT(*) FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id "
+            "  WHERE cc.client_id = c.id AND ch.is_system = FALSE)"),
+    }
+    for _name, (_val, _expr) in _MIN_FILTERS.items():
+        if _val is not None and _val > 0:
+            params.append(_val)
+            conditions.append(f"{_expr} >= ${len(params)}")
 
     if search:
         params.append(f"%{search}%")
@@ -136,6 +205,30 @@ async def list_clients(
     where = " AND ".join(conditions)
     params.extend([limit, offset])
 
+    # ─── Сортировка по клику на заголовок столбца ───────────────────────
+    #
+    # ⚠️⚠️ ТОЛЬКО БЕЛЫЙ СПИСОК. Имя столбца приходит из браузера и уходит
+    # прямо в SQL — принимать его как есть нельзя ни при каких условиях.
+    # Тот же приём, что в таблице заявок анкет (`sort_map`).
+    SORT_COLUMNS = {
+        "created_at": "c.created_at",
+        "name": "c.name",
+        "tariff": "t.price",
+        "expires_at": "cs.expires_at",
+        "events": "events_count",
+        "contacts": "contacts_count",
+        "subscribers": "subscribers_count",
+        "unsubscribed": "unsubscribed_count",
+        "channels": "own_channels_count",
+        "collaborators": "collaborators_count",
+    }
+    sort_col = SORT_COLUMNS.get(sort or "", "c.created_at")
+    direction = "ASC" if (sort_dir or "").lower() == "asc" else "DESC"
+    # ⚠️ `c.id` вторым ключом — без него строки с одинаковым значением
+    # «плавают» между страницами, и при листании часть клиентов пропадает,
+    # а часть показывается дважды.
+    order_by = f"{sort_col} {direction} NULLS LAST, c.id DESC"
+
     # Расширенные колонки: тариф, фичи активной подписки, статус подписки, число событий,
     # число своих не-системных каналов, число подписчиков (через client_channels),
     # число отписавшихся, число коллабораторов.
@@ -153,6 +246,19 @@ async def list_clients(
             WHERE tf.tariff_id = cs.tariff_id
               AND cs.status = 'active'
               AND cs.expires_at > NOW()) AS features,
+          -- ⚠️ КУПЛЕННЫЕ МОДУЛИ — ОТДЕЛЬНО от фич тарифа. Выше собираются
+          -- только `tariff_features`, то есть то, что клиенту дал тариф;
+          -- модуль, за который он ЗАПЛАТИЛ отдельно (Конференции, Турниры,
+          -- Коллабораторная), туда не попадает вовсе — и в админке его не
+          -- было видно. Владельцу нужно именно это: кто что купил и до когда.
+          (SELECT json_agg(json_build_object(
+                     'slug', f.slug, 'name', f.name,
+                     'expires_at', ca.expires_at)
+                   ORDER BY ca.expires_at)
+             FROM client_addons ca
+             JOIN features f ON f.id = ca.feature_id
+            WHERE ca.client_id = c.id
+              AND ca.status = 'active' AND ca.expires_at > NOW()) AS addons,
           (SELECT COUNT(*) FROM events e WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=c.id AND eo.status='accepted')) AS events_count,
           (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id AND ct.is_active = TRUE) AS contacts_count,
           (SELECT COUNT(*) FROM client_channels cc
@@ -193,7 +299,7 @@ async def list_clients(
         LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
         LEFT JOIN tariffs t ON t.id = cs.tariff_id
         WHERE {where}
-        ORDER BY c.created_at DESC
+        ORDER BY {order_by}
         LIMIT ${len(params)-1} OFFSET ${len(params)}
         """,
         *params
@@ -340,6 +446,167 @@ async def get_client(
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     return {"client": dict(client)}
+
+
+@router.get("/clients/{client_id}/billing", summary="Подписка и модули клиента")
+async def client_billing(
+    client_id: int,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Всё о доступах клиента ОДНИМ ответом: подписка в днях и деньгах + модули.
+
+    ⚠️⚠️ ЗАЧЕМ. Окно управления показывало только кнопки тарифов и поле «срок
+    в днях» с пояснением про пересчёт остатка — но САМОГО остатка нигде не
+    было: ни сколько дней прошло, ни сколько осталось, ни за какие деньги.
+    Решение принималось вслепую. Про модули не было вовсе ни слова, хотя
+    подключать их нужно так же часто, как менять тариф.
+
+    ⚠️ Пересчёт считаем ТОЙ ЖЕ `recalc_days`, что применяется при смене
+    тарифа: показанная цифра обязана совпасть с тем, что реально произойдёт.
+    """
+    from app.services.contact_limits import recalc_days
+
+    sub = await db.fetchrow(
+        """SELECT cs.id, cs.started_at, cs.expires_at, cs.status, cs.source,
+                  t.slug, t.name, t.price
+             FROM client_subscriptions cs
+             JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE cs.id = (SELECT current_subscription_id FROM clients WHERE id = $1)""",
+        client_id,
+    )
+
+    now = datetime.now(timezone.utc)
+    days_left = days_used = 0
+    if sub:
+        if sub["expires_at"]:
+            days_left = max(0, math.ceil((sub["expires_at"] - now).total_seconds() / 86400))
+        if sub["started_at"]:
+            days_used = max(0, int((now - sub["started_at"]).total_seconds() // 86400))
+
+    # Во что превратится остаток при переходе на каждый из тарифов — чтобы
+    # админ видел последствия ДО нажатия, а не после.
+    tariffs = await db.fetch(
+        "SELECT slug, name, price FROM tariffs ORDER BY price"
+    )
+    old_price = float(sub["price"] or 0) if sub else 0
+    preview = [
+        {
+            "slug": t["slug"], "name": t["name"], "price": float(t["price"] or 0),
+            "days_after": recalc_days(days_left, old_price, float(t["price"] or 0)),
+            "current": bool(sub and t["slug"] == sub["slug"]),
+        }
+        for t in tariffs
+    ]
+
+    # Модули: и купленные (активные), и те, что можно подключить.
+    addons = await db.fetch(
+        """SELECT ca.id, ca.status, ca.started_at, ca.expires_at, ca.price, ca.months,
+                  f.slug, f.name
+             FROM client_addons ca
+             JOIN features f ON f.id = ca.feature_id
+            WHERE ca.client_id = $1
+            ORDER BY (ca.status = 'active' AND ca.expires_at > NOW()) DESC, ca.expires_at DESC""",
+        client_id,
+    )
+    available = await db.fetch(
+        "SELECT slug, name, price_monthly FROM features WHERE is_addon = TRUE ORDER BY name"
+    )
+
+    return {
+        "subscription": ({
+            "tariff_slug": sub["slug"], "tariff_name": sub["name"],
+            "price": float(sub["price"] or 0),
+            "status": sub["status"], "source": sub["source"],
+            "started_at": sub["started_at"], "expires_at": sub["expires_at"],
+            "days_left": days_left, "days_used": days_used,
+        } if sub else None),
+        "tariffs": preview,
+        "addons": [dict(a) for a in addons],
+        "available_addons": [dict(a) for a in available],
+    }
+
+
+class AddonGrant(BaseModel):
+    feature_slug: str
+    days: int = 30
+
+
+@router.post("/clients/{client_id}/addons", summary="Подключить/продлить модуль")
+async def grant_addon(
+    client_id: int,
+    data: AddonGrant,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Выдаёт клиенту модуль на N дней. Уже есть активный — ПРОДЛЕВАЕТ его.
+
+    ⚠️ Один активный модуль на (клиент, фича) — как при обычной покупке: там
+    продление тоже делает UPDATE, а не вторую строку. Иначе у клиента
+    оказались бы две записи с разными сроками, и какой из них верить —
+    непонятно.
+    """
+    feat = await db.fetchrow(
+        "SELECT id, name FROM features WHERE slug = $1 AND is_addon = TRUE",
+        data.feature_slug,
+    )
+    if not feat:
+        raise HTTPException(404, "Модуль не найден")
+    days = max(1, min(int(data.days or 30), 3650))
+
+    existing = await db.fetchrow(
+        """SELECT id, expires_at FROM client_addons
+            WHERE client_id = $1 AND feature_id = $2
+              AND status = 'active' AND expires_at > NOW()""",
+        client_id, feat["id"],
+    )
+    if existing:
+        row = await db.fetchrow(
+            """UPDATE client_addons
+                  SET expires_at = expires_at + ($2 || ' days')::interval,
+                      updated_at = NOW()
+                WHERE id = $1 RETURNING expires_at""",
+            existing["id"], str(days),
+        )
+    else:
+        row = await db.fetchrow(
+            """INSERT INTO client_addons
+                 (client_id, feature_id, started_at, expires_at, status, source, price, months)
+               VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval,
+                       'active', 'admin', 0, 0)
+               RETURNING expires_at""",
+            client_id, feat["id"], str(days),
+        )
+    logger.info("admin %s granted addon %s to client %s for %s days",
+                admin.get("sub"), data.feature_slug, client_id, days)
+    return {"ok": True, "expires_at": row["expires_at"], "name": feat["name"]}
+
+
+@router.delete("/clients/{client_id}/addons/{feature_slug}", summary="Отключить модуль")
+async def revoke_addon(
+    client_id: int,
+    feature_slug: str,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Гасит активный модуль.
+
+    ⚠️ Помечаем `expired`, а не удаляем строку: история покупок нужна — по ней
+    видно, что клиент платил за модуль, даже если сейчас доступа нет.
+    """
+    res = await db.execute(
+        """UPDATE client_addons ca
+              SET status = 'expired', expires_at = NOW(), updated_at = NOW()
+             FROM features f
+            WHERE f.id = ca.feature_id AND f.slug = $2
+              AND ca.client_id = $1 AND ca.status = 'active'""",
+        client_id, feature_slug,
+    )
+    if res == "UPDATE 0":
+        raise HTTPException(404, "Активный модуль не найден")
+    logger.info("admin %s revoked addon %s from client %s",
+                admin.get("sub"), feature_slug, client_id)
+    return {"ok": True}
 
 
 @router.patch("/clients/{client_id}", summary="Обновить клиента")

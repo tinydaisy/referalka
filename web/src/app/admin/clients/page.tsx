@@ -21,6 +21,9 @@ interface Client {
   tariff_slug: string | null
   tariff_name: string | null
   features: string[] | null
+  /** ⚠️ Модули, КУПЛЕННЫЕ отдельно (`client_addons`). В `features` их нет:
+   *  там только то, что дал тариф. */
+  addons?: { slug: string; name: string; expires_at: string | null }[] | null
   offer_accepted_at?: string | null
   offer_accepted_version?: string | null
   privacy_consent_at?: string | null
@@ -73,6 +76,13 @@ export default function AdminClientsPage() {
   const [subscription, setSubscription] = useState('')
   const [hasBot, setHasBot] = useState('')
   const [inCollab, setInCollab] = useState('')
+  // ⚠️ ОДИН фильтр на все 36 фич и модулей вместо выпадашки на каждую: иначе
+  // панель не читается. `featureSource` отделяет «есть доступ» (тариф ИЛИ
+  // покупка) от «купил отдельно» — это разные вопросы: конференции у одних
+  // входят в тариф, а другие за них платили.
+  const [feature, setFeature] = useState('')
+  const [featureSource, setFeatureSource] = useState('')
+  const [allFeatures, setAllFeatures] = useState<{ slug: string; name: string }[]>([])
   const [syncing, setSyncing] = useState(false)
   const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
   const [manageClient, setManageClient] = useState<Client | null>(null)
@@ -87,15 +97,25 @@ export default function AdminClientsPage() {
     if (subscription) qs.set('subscription', subscription)
     if (hasBot) qs.set('has_bot', hasBot)
     if (inCollab) qs.set('in_collab', inCollab)
+    if (feature) qs.set('feature', feature)
+    if (feature && featureSource) qs.set('feature_source', featureSource)
     qs.set('limit', String(limit))
     api.admin.clients(qs.toString())
       .then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) })
       .catch(() => {})
-  }, [search, limit, minContacts, subscription, hasBot, inCollab, reloadTick])
+  }, [search, limit, minContacts, subscription, hasBot, inCollab, feature, featureSource, reloadTick])
+
+  // Справочник фич для выпадающего списка — грузим один раз.
+  useEffect(() => {
+    api.admin.features()
+      .then((r: any) => setAllFeatures(r.features || []))
+      .catch(() => {})
+  }, [])
 
   // Смена фильтра/поиска — снова с первой страницы, иначе останется раздутый
   // limit от прошлого просмотра.
-  useEffect(() => { setLimit(50) }, [search, minContacts, subscription, hasBot, inCollab])
+  useEffect(() => { setLimit(50) },
+    [search, minContacts, subscription, hasBot, inCollab, feature, featureSource])
 
   // Разметить контакты тегами plusson:* — после этого сегменты доступны
   // в рассылках кабинета как обычный фильтр по тегам.
@@ -190,6 +210,32 @@ export default function AdminClientsPage() {
             <option value="yes">В Коллабораторной</option>
             <option value="no">Не в Коллабораторной</option>
           </select>
+
+          {/* ⚠️ Фильтр по МОДУЛЮ/УСЛУГЕ — один список на все фичи. Ищет по
+              доступу из любого источника (тариф, купленный модуль, вложенные
+              фичи модуля) — тем же выражением, по которому гейтятся разделы. */}
+          <select
+            value={feature} onChange={e => setFeature(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none max-w-[230px]"
+          >
+            <option value="">Модуль: любой</option>
+            {allFeatures.map(f => (
+              <option key={f.slug} value={f.slug}>{f.name}</option>
+            ))}
+          </select>
+          {/* Второй селектор появляется только когда модуль выбран: без него
+              он ничего не фильтрует и только занимает место. */}
+          {feature && (
+            <select
+              value={featureSource} onChange={e => setFeatureSource(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+              title="«Купил отдельно» — только те, кто оплатил модуль, без тех, кому он достался в тарифе"
+            >
+              <option value="">Доступ: любой</option>
+              <option value="addon">Купил отдельно</option>
+            </select>
+          )}
+
           <button
             onClick={syncTags} disabled={syncing}
             title="Проставить контактам теги plusson:no_sub / sub_no_bot / sub_and_bot / in_collab — чтобы рассылать по сегментам из кабинета"
@@ -296,6 +342,23 @@ export default function AdminClientsPage() {
                       <div className={`text-[10px] mt-1 ${c.subscription_status === 'expired' ? 'text-red-500' : 'text-gray-400'}`}>
                         {c.subscription_status === 'expired' ? 'истекла ' : 'до '}
                         {new Date(c.subscription_expires_at).toLocaleDateString('ru')}
+                      </div>
+                    )}
+                    {/* ⚠️ КУПЛЕННЫЕ МОДУЛИ — рядом с тарифом. Раньше их не было
+                        видно нигде: колонка `features` собирает только то, что
+                        дал тариф, и оплаченные Конференции или Турниры в
+                        админке не показывались вовсе. */}
+                    {(c.addons || []).length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(c.addons || []).map(a => (
+                          <span key={a.slug}
+                                title={a.expires_at
+                                  ? `Модуль оплачен до ${new Date(a.expires_at).toLocaleDateString('ru')}`
+                                  : 'Купленный модуль'}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200">
+                            {a.name}
+                          </span>
+                        ))}
                       </div>
                     )}
                   </td>
