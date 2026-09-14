@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
+from app.services.addon_grant import grant_addon
 from app.services.person_name import DISPLAY_NAME_SQL
 from app.services.plusson_bonus_days import bonus_day_numbers
 from app.services import plusson_bonus_texts as T
@@ -287,26 +288,17 @@ async def _grant_module_days(db, *, client_id: int, feature_id: int, days: int) 
     не сгорали. Флаги предупреждений сбрасываем, иначе таск решит, что уже
     уведомлял об истечении.
     """
-    existing = await db.fetchrow(
-        """SELECT id, expires_at FROM client_addons
-            WHERE client_id = $1 AND feature_id = $2
-              AND status = 'active' AND expires_at > NOW()
-            ORDER BY expires_at DESC LIMIT 1""",
-        client_id, feature_id)
-    if existing:
-        await db.execute(
-            """UPDATE client_addons
-                  SET expires_at = $2, notified_7d = FALSE, notified_3d = FALSE,
-                      notified_1d = FALSE, updated_at = NOW()
-                WHERE id = $1""",
-            existing["id"], existing["expires_at"] + timedelta(days=days))
-    else:
-        await db.execute(
-            """INSERT INTO client_addons
-                 (client_id, feature_id, started_at, expires_at, status, source, months)
-               VALUES ($1,$2, NOW(), NOW() + ($3 || ' days')::interval,
-                       'active', 'paid', 1)""",
-            client_id, feature_id, str(days))
+    # ⚠️ Выдача/продление — ТОЛЬКО через общий grant_addon (см. его докстринг):
+    # своя копия падала на уникальном индексе, если у клиента оставалась истёкшая
+    # строка со статусом 'active'.
+    await grant_addon(
+        db,
+        client_id=client_id,
+        feature_id=feature_id,
+        days=days,
+        source="paid",
+        add_months=1,
+    )
 
 
 # ───────────────────────── Доставка сообщения ────────────────────────────

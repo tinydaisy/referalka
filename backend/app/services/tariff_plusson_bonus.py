@@ -35,6 +35,8 @@ from datetime import datetime, timedelta
 
 import asyncpg
 
+from app.services.addon_grant import grant_addon
+
 logger = logging.getLogger(__name__)
 
 # Ссылка на установку пароля живёт дольше часа (как у восстановления):
@@ -181,30 +183,17 @@ async def _grant_module(db, *, client_id: int, feature_id: int, months: int) -> 
     таск решит, что уже уведомлял, и клиент не получит предупреждений.
     """
     add_days = 30 * max(1, months)
-    existing = await db.fetchrow(
-        """SELECT id, expires_at FROM client_addons
-            WHERE client_id = $1 AND feature_id = $2
-              AND status = 'active' AND expires_at > NOW()
-            ORDER BY expires_at DESC LIMIT 1""",
-        client_id, feature_id,
+    # ⚠️ Выдача/продление — ТОЛЬКО через общий grant_addon (см. его докстринг):
+    # своя копия падала на уникальном индексе, если у клиента оставалась истёкшая
+    # строка со статусом 'active'.
+    await grant_addon(
+        db,
+        client_id=client_id,
+        feature_id=feature_id,
+        days=add_days,
+        source="paid",
+        add_months=months,
     )
-    if existing:
-        await db.execute(
-            """UPDATE client_addons
-                  SET expires_at = $2, months = months + $3,
-                      notified_7d = FALSE, notified_3d = FALSE, notified_1d = FALSE,
-                      updated_at = NOW()
-                WHERE id = $1""",
-            existing["id"], existing["expires_at"] + timedelta(days=add_days), months,
-        )
-    else:
-        await db.execute(
-            """INSERT INTO client_addons
-                 (client_id, feature_id, started_at, expires_at, status, source, months)
-               VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval,
-                       'active', 'paid', $4)""",
-            client_id, feature_id, str(add_days), months,
-        )
 
 
 async def _password_link(db, client_id: int) -> str | None:

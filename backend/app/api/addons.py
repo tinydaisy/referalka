@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from app.database import get_db
 # ⚠️ Имя человека — только общим хелпером (правило проекта, person_name.py).
 from app.services.person_name import display_name
+from app.services.addon_grant import grant_addon
 from app.auth import get_current_client as get_current_user
 from app.services.assistant_access import assistant_is_restricted
 from app.api.subscriptions import (
@@ -461,40 +462,25 @@ async def _apply_paid_addon_order(
                 WHERE id=$1""",
             order_id, order_num, payment_type, json.dumps(raw, ensure_ascii=False),
         )
-        existing = await db.fetchrow(
-            """SELECT id, expires_at FROM client_addons
-                WHERE client_id=$1 AND feature_id=$2 AND status='active' AND expires_at > NOW()
-                ORDER BY expires_at DESC LIMIT 1""",
-            order["client_id"], order["feature_id"],
+        # ⚠️ Выдача/продление — ТОЛЬКО через общий grant_addon (см. его докстринг).
+        # Своей копии «найти действующий → продлить, иначе вставить» здесь быть не
+        # должно: именно она падала на уникальном индексе, когда у клиента
+        # оставалась истёкшая строка со статусом 'active' — оплата в LeadPay
+        # проходила, а модуль не выдавался и заказ вечно висел «ждём оплаты».
+        # Продление идёт от КОНЦА действующего модуля, а не от даты оплаты: иначе
+        # клиент, заплативший заранее, терял бы оставшиеся дни.
+        # ⚠️ price — сумма ПОСЛЕДНЕЙ оплаты (в рублях), иначе в отчётах по выручке
+        # модуль выглядит бесплатным, хотя деньги прошли.
+        granted = await grant_addon(
+            db,
+            client_id=order["client_id"],
+            feature_id=order["feature_id"],
+            days=add_days,
+            source="paid",
+            add_months=months,
+            price=paid_rub,
         )
-        if existing:
-            # Продление действующего модуля — месяц К УЖЕ ИМЕЮЩЕМУСЯ сроку, а не от
-            # даты оплаты: иначе клиент, заплативший заранее, терял бы оставшиеся дни.
-            new_expires = existing["expires_at"] + timedelta(days=add_days)
-            # ⚠️ price — сумма ПОСЛЕДНЕЙ оплаты (в рублях). Раньше колонка не
-            # заполнялась вовсе, и в отчётах по выручке модуль был без суммы,
-            # хотя деньги прошли.
-            # ⚠️ Флаги предупреждений сбрасываем при продлении (миграция 276):
-            # продление — это UPDATE той же строки, и без сброса клиент больше
-            # никогда не получил бы предупреждений об истечении — таск считал бы,
-            # что уже уведомлял.
-            await db.execute(
-                "UPDATE client_addons SET expires_at=$2, months=months+$3, price=$4, "
-                "notified_7d=FALSE, notified_3d=FALSE, notified_1d=FALSE, "
-                "updated_at=NOW() WHERE id=$1",
-                existing["id"], new_expires, months, paid_rub,
-            )
-            addon_id = existing["id"]
-        else:
-            addon_id = await db.fetchval(
-                """INSERT INTO client_addons
-                     (client_id, feature_id, started_at, expires_at, status, source, months, price)
-                   VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval,
-                           'active', 'paid', $4, $5)
-                   RETURNING id""",
-                order["client_id"], order["feature_id"], str(add_days), months,
-                paid_rub,
-            )
+        addon_id = granted["id"]
 
         # 🔒 Заморозка цены: оплатил в акционный период → фиксируем цену на N месяцев
         # ОТ ДАТЫ ОПЛАТЫ. Повторная оплата в акцию продлевает лок (UPSERT), не дублирует.

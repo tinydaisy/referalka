@@ -4,6 +4,7 @@ from typing import Optional
 from datetime import datetime, timezone
 from app.auth import get_current_admin, hash_password
 from app.database import get_db
+from app.services.addon_grant import grant_addon
 from app.config import settings
 import asyncpg
 import json
@@ -554,29 +555,19 @@ async def grant_addon(
         raise HTTPException(404, "Модуль не найден")
     days = max(1, min(int(data.days or 30), 3650))
 
-    existing = await db.fetchrow(
-        """SELECT id, expires_at FROM client_addons
-            WHERE client_id = $1 AND feature_id = $2
-              AND status = 'active' AND expires_at > NOW()""",
-        client_id, feat["id"],
+    # ⚠️ Выдача/продление — ТОЛЬКО через общий grant_addon (см. его докстринг).
+    # Своя копия падала на уникальном индексе, если у клиента оставалась истёкшая
+    # строка со статусом 'active': выдача модуля из админки отваливалась ошибкой.
+    # ⚠️ add_months=0 и price=None — ручная выдача не деньги, в отчёт по выручке
+    # она попадать не должна.
+    row = await grant_addon(
+        db,
+        client_id=client_id,
+        feature_id=feat["id"],
+        days=days,
+        source="admin",
+        add_months=0,
     )
-    if existing:
-        row = await db.fetchrow(
-            """UPDATE client_addons
-                  SET expires_at = expires_at + ($2 || ' days')::interval,
-                      updated_at = NOW()
-                WHERE id = $1 RETURNING expires_at""",
-            existing["id"], str(days),
-        )
-    else:
-        row = await db.fetchrow(
-            """INSERT INTO client_addons
-                 (client_id, feature_id, started_at, expires_at, status, source, price, months)
-               VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval,
-                       'active', 'admin', 0, 0)
-               RETURNING expires_at""",
-            client_id, feat["id"], str(days),
-        )
     logger.info("admin %s granted addon %s to client %s for %s days",
                 admin.get("sub"), data.feature_slug, client_id, days)
     return {"ok": True, "expires_at": row["expires_at"], "name": feat["name"]}
