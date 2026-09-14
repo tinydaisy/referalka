@@ -83,6 +83,16 @@ export default function AdminClientsPage() {
   const [feature, setFeature] = useState('')
   const [featureSource, setFeatureSource] = useState('')
   const [allFeatures, setAllFeatures] = useState<{ slug: string; name: string }[]>([])
+  // Сортировка по клику на заголовок. По умолчанию — новые сверху, как было.
+  const [sort, setSort] = useState('created_at')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  // ⚠️ Повторный клик по тому же столбцу переворачивает порядок, клик по
+  // другому — начинает с убывания: для чисел «сначала самые большие» почти
+  // всегда то, что нужно.
+  const toggleSort = (key: string) => {
+    if (sort === key) setSortDir(d => (d === 'desc' ? 'asc' : 'desc'))
+    else { setSort(key); setSortDir('desc') }
+  }
   const [syncing, setSyncing] = useState(false)
   const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
   const [manageClient, setManageClient] = useState<Client | null>(null)
@@ -99,11 +109,12 @@ export default function AdminClientsPage() {
     if (inCollab) qs.set('in_collab', inCollab)
     if (feature) qs.set('feature', feature)
     if (feature && featureSource) qs.set('feature_source', featureSource)
+    if (sort) { qs.set('sort', sort); qs.set('sort_dir', sortDir) }
     qs.set('limit', String(limit))
     api.admin.clients(qs.toString())
       .then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) })
       .catch(() => {})
-  }, [search, limit, minContacts, subscription, hasBot, inCollab, feature, featureSource, reloadTick])
+  }, [search, limit, minContacts, subscription, hasBot, inCollab, feature, featureSource, sort, sortDir, reloadTick])
 
   // Справочник фич для выпадающего списка — грузим один раз.
   useEffect(() => {
@@ -238,19 +249,52 @@ export default function AdminClientsPage() {
 
           <button
             onClick={syncTags} disabled={syncing}
-            title="Проставить контактам теги plusson:no_sub / sub_no_bot / sub_and_bot / in_collab — чтобы рассылать по сегментам из кабинета"
+            /* ⚠️ Название «Проставить теги сегментам» не объясняло ни что
+               произойдёт, ни где смотреть результат: кнопка пишет НЕ в этот
+               список, а в базу КОНТАКТОВ кабинета — рассылки идут по
+               контактам, и иначе клиентов платформы нечем сегментировать. */
+            title={'Размечает ваши КОНТАКТЫ (кабинет 1) тегами по состоянию клиентов:\n'
+                 + '• plusson:no_sub — нет активной подписки\n'
+                 + '• plusson:sub_no_bot — подписка есть, своего бота нет\n'
+                 + '• plusson:sub_and_bot — есть и подписка, и бот\n'
+                 + '• plusson:in_collab — в Коллабораторной\n\n'
+                 + 'Смотреть и рассылать: «Контакты» → фильтр по тегам.\n'
+                 + 'Сопоставление по почте, телефону и TG-нику.'}
             className="px-3 py-2 rounded-lg text-sm bg-brand text-white hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
           >
-            {syncing ? 'Размечаю…' : 'Проставить теги сегментам'}
+            {syncing ? 'Размечаю…' : 'Разметить контакты для рассылок'}
           </button>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full">
+            {/* ⚠️ Заголовки КЛИКАБЕЛЬНЫЕ: первый клик — по убыванию, второй —
+                по возрастанию, стрелка показывает текущее направление.
+                Столбцы без ключа (`key: null`) не сортируются — по галочке
+                «коллаб запрещена» и по кнопкам сортировать нечего. */}
             <thead className="bg-gray-50">
               <tr>
-                {['Клиент', 'Тариф', 'Событий', 'Контактов', 'Подписчиков', 'Своих ботов', 'Коллаб.', 'Коллаб. запрещена', 'Зарег.', ''].map(h => (
-                  <th key={h} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                {([
+                  { label: 'Клиент',            key: 'name' },
+                  { label: 'Тариф',             key: 'tariff' },
+                  { label: 'Событий',           key: 'events' },
+                  { label: 'Контактов',         key: 'contacts' },
+                  { label: 'Подписчиков',       key: 'subscribers' },
+                  { label: 'Своих ботов',       key: 'channels' },
+                  { label: 'Коллаб.',           key: 'collaborators' },
+                  { label: 'Коллаб. запрещена', key: null },
+                  { label: 'Зарег.',            key: 'created_at' },
+                  { label: '',                  key: null },
+                ] as { label: string; key: string | null }[]).map(h => (
+                  <th key={h.label}
+                      onClick={() => h.key && toggleSort(h.key)}
+                      className={`px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap
+                                  ${h.key ? 'cursor-pointer select-none hover:text-gray-800' : ''}`}>
+                    {h.label}
+                    {h.key && sort === h.key && (
+                      <span className="ml-1 text-[#25455D]">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -432,7 +476,7 @@ export default function AdminClientsPage() {
                       title="Тариф и бонусы"
                       className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-gray-300 whitespace-nowrap"
                     >
-                      Тариф · бонусы
+                      Тариф · модули · бонусы
                     </button>
                     {/* ⚠️ Владельца платформы (id=1) и системный сервисный
                         аккаунт удалять нельзя — на них держатся общие боты и
@@ -460,21 +504,36 @@ export default function AdminClientsPage() {
         </div>
       </div>
 
-      <p className="text-xs text-gray-400 mt-4">
+      {/* ⚠️ ЛИСТАНИЕ — СРАЗУ ПОД ТАБЛИЦЕЙ И ЗАМЕТНОЕ. Кнопка здесь была и
+          раньше, но стояла НИЖЕ серой подсказки про будущие колонки: на
+          длинном списке её не находили и считали, что видны все клиенты,
+          хотя показывались первые 50 из 157. Теперь это первое, что идёт
+          после таблицы, и рядом всегда написано, сколько показано из скольких. */}
+      <div className="mt-4 flex flex-col items-center gap-2">
+        <div className="text-sm text-gray-500">
+          Показано {clients.length} из {total}
+        </div>
+        {clients.length < total && (
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              onClick={() => setLimit(l => l + 50)}
+              className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Показать ещё 50
+            </button>
+            <button
+              onClick={() => setLimit(total)}
+              className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Показать всех ({total})
+            </button>
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400 mt-6 text-center">
         💡 Колонки «дата продления», «выручка» и история тарифов появятся когда подключим тарифную архитектуру (отдельная задача).
       </p>
-
-      {/* Модалка с метриками качества email-рассылок */}
-      {clients.length < total && (
-        <div className="mt-4 flex justify-center">
-          <button
-            onClick={() => setLimit(l => l + 50)}
-            className="px-5 py-2.5 rounded-xl border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Показать ещё · {clients.length} из {total}
-          </button>
-        </div>
-      )}
 
       {qualityModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -714,6 +773,47 @@ function ManageClientModal({ client, onClose, onDone }: {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
+  // ⚠️⚠️ ТЕКУЩЕЕ СОСТОЯНИЕ — ОБЯЗАТЕЛЬНО. Окно показывало кнопки тарифов и
+  // поле «срок в днях» с пояснением про пересчёт остатка, но САМОГО остатка
+  // нигде не было: ни сколько дней прошло, ни сколько осталось, ни за какие
+  // деньги. Решение принималось вслепую, и про модули не было ни слова.
+  const [billing, setBilling] = useState<any>(null)
+  const [addonSlug, setAddonSlug] = useState('')
+  const [addonDays, setAddonDays] = useState('30')
+
+  const loadBilling = () => {
+    api.admin.clientBilling(client.id)
+      .then((r: any) => setBilling(r))
+      .catch(() => setBilling(null))
+  }
+  useEffect(loadBilling, [client.id])
+
+  async function grantAddon() {
+    if (!addonSlug) return
+    setBusy(true); setErr(''); setOk('')
+    try {
+      const r: any = await api.admin.grantAddon(client.id, {
+        feature_slug: addonSlug, days: Number(addonDays) || 30,
+      })
+      setOk(`Модуль «${r.name}» подключён до ${new Date(r.expires_at).toLocaleDateString('ru')}`)
+      setAddonSlug('')
+      loadBilling()
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось подключить модуль')
+    } finally { setBusy(false) }
+  }
+
+  async function revokeAddon(slug: string, name: string) {
+    if (!confirm(`Отключить модуль «${name}»? Доступ пропадёт сразу.`)) return
+    setBusy(true); setErr(''); setOk('')
+    try {
+      await api.admin.revokeAddon(client.id, slug)
+      setOk(`Модуль «${name}» отключён`)
+      loadBilling()
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось отключить модуль')
+    } finally { setBusy(false) }
+  }
 
   async function changeTariff() {
     if (!tariff) return
@@ -727,6 +827,7 @@ function ManageClientModal({ client, onClose, onDone }: {
         ? `Тариф изменён, срок ${days} дн.`
         : 'Тариф изменён, срок пересчитан из остатка')
       setTariff(''); setDays('')
+      loadBilling()   // показать новое состояние, не закрывая окно
     } catch (e: any) {
       setErr(e?.message || 'Не удалось сменить тариф')
     } finally { setBusy(false) }
@@ -763,6 +864,40 @@ function ManageClientModal({ client, onClose, onDone }: {
         {err && <div className="mb-3 text-sm text-red-600">{err}</div>}
         {ok && <div className="mb-3 text-sm text-emerald-700">{ok}</div>}
 
+        {/* ⚠️ СНАЧАЛА — ЧТО ЕСТЬ СЕЙЧАС, потом уже действия. Без этого блока
+            админ менял тариф вслепую: пояснение про «пересчитается остаток»
+            есть, а самого остатка не видно. */}
+        {billing?.subscription && (
+          <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <div className="text-sm font-semibold text-gray-900">
+              Сейчас: {billing.subscription.tariff_name}
+              {billing.subscription.price > 0 && (
+                <span className="font-normal text-gray-500">
+                  {' '}· {billing.subscription.price.toLocaleString('ru-RU')} ₽/мес
+                </span>
+              )}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+              <div>Осталось дней: <b className={billing.subscription.days_left <= 3
+                ? 'text-red-600' : 'text-gray-900'}>{billing.subscription.days_left}</b></div>
+              <div>Прошло дней: <b className="text-gray-900">{billing.subscription.days_used}</b></div>
+              <div>
+                До: <b className="text-gray-900">
+                  {billing.subscription.expires_at
+                    ? new Date(billing.subscription.expires_at).toLocaleDateString('ru')
+                    : '—'}
+                </b>
+              </div>
+              <div>
+                Статус: <b className={billing.subscription.status === 'active'
+                  ? 'text-emerald-700' : 'text-red-600'}>
+                  {billing.subscription.status === 'active' ? 'активна' : billing.subscription.status}
+                </b>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mb-5">
           <div className="text-sm font-medium text-gray-800 mb-2">Сменить тариф</div>
           <div className="flex flex-wrap gap-2 mb-2">
@@ -784,6 +919,25 @@ function ManageClientModal({ client, onClose, onDone }: {
             placeholder="Срок в днях (пусто — пересчитать остаток)"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-2"
           />
+          {/* ⚠️ ПОКАЗЫВАЕМ РЕЗУЛЬТАТ ЦИФРОЙ, а не описываем правило словами.
+              «Остаток пересчитается по цене нового тарифа» ничего не говорит,
+              пока не видно, во что превратятся конкретные дни этого клиента.
+              Считает ту же формулу, что применится при нажатии. */}
+          {tariff && billing?.tariffs && (
+            <div className="mb-2 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-900">
+              {(() => {
+                const t = billing.tariffs.find((x: any) => x.slug === tariff)
+                if (!t) return null
+                if (days.trim()) {
+                  return <>Будет установлено ровно <b>{Number(days)} дн.</b> — остаток
+                    ({billing.subscription?.days_left ?? 0} дн.) не учитывается.</>
+                }
+                return <>Останется <b>{t.days_after} дн.</b> вместо
+                  текущих {billing.subscription?.days_left ?? 0} дн.
+                  {t.price > 0 && <> (пересчёт по цене {t.price.toLocaleString('ru-RU')} ₽/мес)</>}</>
+              })()}
+            </div>
+          )}
           <div className="text-[11px] text-gray-400 mb-2 leading-snug">
             Пусто — остаток пересчитается по цене нового тарифа: с дорогого на дешёвый
             дней станет больше, наоборот — меньше. Прожитые дни не возвращаются.
@@ -794,6 +948,61 @@ function ManageClientModal({ client, onClose, onDone }: {
           >
             Применить тариф
           </button>
+        </div>
+
+        {/* ⚠️⚠️ МОДУЛИ — их здесь не было вовсе, хотя подключать их нужно так
+            же часто, как менять тариф: Конференции, Турниры, Коллабораторная
+            покупаются отдельно от подписки и живут своим сроком. */}
+        <div className="mb-5 pt-5 border-t border-gray-100">
+          <div className="text-sm font-medium text-gray-800 mb-2">Модули</div>
+
+          {billing?.addons?.filter((a: any) =>
+            a.status === 'active' && new Date(a.expires_at) > new Date()).length > 0 ? (
+            <div className="mb-3 space-y-1.5">
+              {billing.addons
+                .filter((a: any) => a.status === 'active' && new Date(a.expires_at) > new Date())
+                .map((a: any) => (
+                  <div key={a.slug}
+                       className="flex items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-violet-900">{a.name}</div>
+                      <div className="text-[11px] text-violet-700">
+                        до {new Date(a.expires_at).toLocaleDateString('ru')}
+                        {' · осталось '}
+                        {Math.max(0, Math.ceil(
+                          (new Date(a.expires_at).getTime() - Date.now()) / 86400000))} дн.
+                      </div>
+                    </div>
+                    <button onClick={() => revokeAddon(a.slug, a.name)} disabled={busy}
+                            className="shrink-0 text-xs text-red-600 underline disabled:opacity-40">
+                      Отключить
+                    </button>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <div className="mb-3 text-xs text-gray-400">Купленных модулей нет</div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <select value={addonSlug} onChange={e => setAddonSlug(e.target.value)}
+                    className="flex-1 min-w-[180px] border border-gray-200 rounded-lg px-3 py-2 text-sm">
+              <option value="">Подключить модуль…</option>
+              {(billing?.available_addons || []).map((a: any) => (
+                <option key={a.slug} value={a.slug}>{a.name}</option>
+              ))}
+            </select>
+            <input type="number" value={addonDays} onChange={e => setAddonDays(e.target.value)}
+                   className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                   title="На сколько дней" />
+            <button onClick={grantAddon} disabled={!addonSlug || busy}
+                    className="btn-gold px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40">
+              Подключить
+            </button>
+          </div>
+          <div className="text-[11px] text-gray-400 mt-1.5 leading-snug">
+            Уже подключённый модуль — продлится на это число дней, а не начнётся заново.
+          </div>
         </div>
 
         <div className="pt-5 border-t border-gray-100">
