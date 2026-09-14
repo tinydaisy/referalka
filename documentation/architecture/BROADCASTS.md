@@ -1,0 +1,237 @@
+# Рассылки
+
+> ⚠️ Вынесено из `CLAUDE.md` 14.09.2026: файл вырос до 932 КБ и новая
+> сессия перестала открываться вовсе — он один не помещался в окно.
+> Текст перенесён ДОСЛОВНО. Правишь код — правь этот файл, а в
+> `CLAUDE.md` держи только короткую ссылку.
+
+### Привязка своего шаблона рассылки: день / слот спикера / ничего (миграция 260 от 2026-07-29, ПРОД)
+
+Свой (`type='custom'`) шаблон в «Шаблонах рассылок» раньше умел только одно — висеть на дне программы (`custom_day_ref` + `custom_time`). Привязать его к выступлению конкретного спикера было нельзя, хотя ручная рассылка в очереди так умеет.
+
+**Миграция 260:** `broadcast_templates.custom_bind_kind` (`none|day|slot`, CHECK; NULL = `day` — старые работают как работали) + `custom_slot_session_id` (FK `conf_sessions`, ON DELETE SET NULL) + `custom_slot_offset_min` + `custom_fire_at` (TIMESTAMPTZ).
+
+- **«К дню программы»** (`day`) — как было: день (`custom_day_ref`) + время.
+- **«К выступлению спикера»** (`slot`) — `fire_at` = старт слота + смещение в минутах (**минус = раньше старта**, −5 = «за 5 минут до»). ⚠️ В `broadcast_schedules.session_id` пишется **`conf_sessions.speaker_id` = `event_collaborators.id`** (не id слота!) — именно по нему `_resolve_speaker_placeholders` раскрывает `{speaker_name}`, `{speaker_topic}`, `{speaker_time}` и подставляет афишу спикера. Плюс пишется `day` слота — работают дневные плейсхолдеры.
+- **«Без привязки»** (`none`) — абсолютные дата+время (`custom_fire_at`).
+
+⚠️ **`type='custom'` переведён в «спикерскую» ветку join'а в `list_schedules`** ([modules/broadcasts.py](backend/app/api/modules/broadcasts.py)): `session_id` у custom — это `event_collaborators.id`, как у `speaker_intro`/`expert_day`, а не `conf_sessions.id`. Без этого имя спикера в очереди не показывалось.
+
+Слот удалён из программы или у него нет времени → рассылка при генерации просто пропускается (`skipped`), не падает. Привязка в UPDATE меняется только если фронт прислал `custom_bind_kind` (`model_fields_set`) — иначе переключение «слот → день» не смогло бы обнулить старый слот.
+
+**Фронт** ([templates/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/templates/page.tsx)): общий блок `CustomBindingFields` в обеих модалках (создание + правка) — три кнопки режима и поля под каждый. В карточке шаблона подпись через `customBindLabel`. У превью своего шаблона появился селектор спикера (`hasSpeaker: true`), а привязанный к слоту открывается сразу на дне и спикере этого слота.
+### Плейсхолдеры «Сегодня / Завтра в HH:MM МСК» — `{event_when}` и `{speaker_when}` (2026-07-29, ПРОД)
+
+Дата **без года**, время **без секунд**. Если дата не сегодня и не завтра — обычный формат «6 июля в 14:30 МСК».
+
+- **`{event_when}`** — когда СОБЫТИЕ. Работает в **любой** событийной рассылке (все типы, включая свои), и в тексте, и в заголовке (`subject`). Источник: конференция/турнир — старт первой сессии нужного дня (явный день рассылки, иначе ближайший непрошедший); мероприятие — `events.start_at` (МСК). Резолвер `_apply_event_when` в [message_builder.py](backend/app/services/message_builder.py), вызывается в общей части И в ветке `custom` (она возвращает раньше).
+- **`{speaker_when}`** — когда выступает СПИКЕР (слот из `conf_sessions`). Нужен шаблон со спикером (`speaker_intro`/`expert_day`/`5min_before`/`gift`) или свой шаблон с привязкой к слоту.
+
+⚠️ **«Сегодня/Завтра» считается от ДАТЫ ОТПРАВКИ (`fire_at`, МСК), а не от момента сборки** (хелпер `_msk_ref_date`) — иначе превью и реальная отправка разошлись бы. Общий хелпер — `relative_when(target_date, hhmm, ref_date)`. Пусто → строка с плейсхолдером убирается целиком, как у остальных. `speaker_when` добавлен в `_SPEAKER_ONLY_PLACEHOLDERS` и `_KNOWN_PLACEHOLDERS`, чтобы не уйти получателю сырым.
+### Нет своей площадки → в рассылку идут ВСЕ ссылки с подписью площадки (2026-07-30, ПРОД)
+
+**Зачем.** У спикера может не быть бота на площадке получателя (у Светланы нет ВК). Раньше срабатывал приоритет-фолбэк и человеку в ВК уходила ОДНА чужая ссылка (в ТГ) без пояснения — часть аудитории просто не понимала, куда её ведут, и теряла подарок.
+
+**Правило (общее для подарков и ссылки регистрации):**
+- Есть ссылка на площадке ПОЛУЧАТЕЛЯ → отдаём **только её, без подписи** (человек уже в этом мессенджере).
+- Своей нет (нет бота ИЛИ площадка выключена у события) → отдаём **ВСЕ имеющиеся**, каждую строкой с подписью: **«Через Телеграм: …», «Через МАКС: …», «Через ВК: …»**.
+- Нет ни одной → подарок: пусто (строка с плейсхолдером убирается); регистрация: веб-страница события.
+
+Порядок перечисления одинаковый везде — `telegram → max → vk` (`_MULTI_ORDER`), подписи — `PLATFORM_LABEL` в [share_links.py](backend/app/services/share_links.py). Точки: `pick_gift_funnel_link` (подарки) и `pick_signup_link` (`{signup_link}`).
+
+⚠️ **В АДРЕС КНОПКИ список класть нельзя** — Telegram отвергает многострочный URL («inline keyboard button URL is invalid») и **не доходит ВСЁ сообщение**, не только кнопка. Для кнопки — отдельная `pick_single_link` (одна ссылка по прежнему приоритету). В [tasks/broadcast.py](backend/app/tasks/broadcast.py) это флаг `as_url=True` у `_with_support` / `_with_gift_funnel`; он проставлен во всех 5 вызовах для `button_url` (TG ×2, VK, MAX, email). **При новом месте подстановки ссылки — решить, текст это или кнопка**, и взять соответствующую функцию.
+
+Фронт-превью ([templates/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/templates/page.tsx)) повторяет то же правило в `signupLink` и `giftMagnetUrl` — иначе превью расходится с реальной отправкой. Подписи держать в синхроне: `PLATFORM_LABEL_RU` / `MULTI_LINK_ORDER`.
+### «Итоги дня» — своё время отправки (2026-07-31, ПРОД)
+
+**Проблема.** Время `day_end` считалось ЖЁСТКО как «конец последней сессии дня + `offset_minutes`», задать своё было негде. Если день уже идёт и расчётный момент прошёл, `add_schedule` молча пропускал запись (`fire_at < past_cutoff`) — рассылку **невозможно было сформировать в очередь вообще**. Так вышло с iViSiON-8: программа дня 2 кончалась в 15:55, +30 мин = 16:25, а в 17:29 сформировать итоги уже не получалось.
+
+**Решение.** У шаблона `day_end` появилось поле **«⏰ Время отправки (МСК)»** (та же колонка `broadcast_templates.intro_start_time`, что у «за сутки» и «анонса знакомства»). Заполнено → отправка в этот час ТОГО ЖЕ дня; пусто → прежний расчёт «конец программы + 30 мин».
+
+⚠️ **Пустая строка = ЯВНАЯ очистка.** `intro_start_time` обновлялся через `COALESCE($13, …)` — `null` молча оставлял старое значение, и вернуться к автоматическому расчёту было нельзя. Теперь фронт шлёт `''` (не `null`), а UPDATE различает «не прислали» и «прислали пусто» через `model_fields_set` (флаг `$33`). Тот же паттерн, что у `custom_bind_kind`.
+### Кнопка «Выбрать все черновики» в очередях рассылок (2026-07-30, ПРОД)
+
+Рядом с «Выбрать все» — ссылка **«Выбрать все черновики»** (отмечает только `status='draft'`, повторный клик снимает выделение). Показывается, только если черновики в списке есть. Обе очереди: общие рассылки ([broadcasts/page.tsx](web/src/app/dashboard/broadcasts/page.tsx)) и событийные ([queue/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/queue/page.tsx)), функция `selectAllDrafts` — одинаковая в обеих.
+### День рассылки хранится ЯВНО — `broadcast_schedules.day` (миграция 214 от 2026-07-13)
+
+**Проблема.** Дневные рассылки (`2h_before_unreg/reg`, `30min_before`, `day_live`, `day_end`, `day_before_09_12_unreg/reg` — константа `DAY_TYPES` в [message_builder.py](backend/app/services/message_builder.py)) подставляют программу дня. Номер дня определялся **только по дате `fire_at`**: искали `conf_days` с `day_date` = дата отправки. Для «за 2 часа»/«за 30 минут» дата совпадает с днём — работало. Для **«за сутки» (`day_before_09_12_*`) отправка идёт НАКАНУНЕ**, такого `day_date` в `conf_days` нет → день молча падал в **1**, и в письмо уезжала программа первого дня. Селектор «День конференции» в модалке «Добавить рассылку вручную» существовал, но бэкенд поле `day` **выбрасывал** — хранить было негде.
+
+**Решение (миграция 214).** Колонка `broadcast_schedules.day INT NULL` — явный день программы. Приоритет в `build_message_content` (новый параметр `explicit_day=`): **явный день > вычисление по дате `fire_at`**. NULL = старое поведение (совместимость). Миграция бэкфиллит `day` у существующих дневных рассылок по дате отправки.
+
+**Что изменилось:**
+- **«За сутки» генерируется на КАЖДЫЙ день программы** (раньше — одна запись на всё событие, по первому дню). Отправка накануне дня в 09:12 МСК, содержимое — программа этого дня. Блок в `generate_schedules` перенесён внутрь цикла по дням ([modules/broadcasts.py](backend/app/api/modules/broadcasts.py)).
+- `add_schedule(..., day=)` в `generate_schedules` пишет день у всех дневных типов; `add_manual_schedule` сохраняет `data.day` (раньше принимал и игнорировал).
+- Все точки сборки сообщения передают `explicit_day=schedule["day"]` (Celery [tasks/broadcast.py](backend/app/tasks/broadcast.py), превью и тест-отправка в modules/broadcasts.py). Все они делают `SELECT bs.*` — колонка подтягивается сама.
+- **Фронт** ([queue/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/queue/page.tsx)): селектор «День программы» показывается для **всех** типов из `DAY_TYPES` (раньше — только для `day_*`, из-за чего у «за 2 часа»/«за 30 минут» выбора дня не было вовсе). При выборе дня **дата отправки подставляется автоматически** (хелпер `fireAtForDay`: старт первой сессии дня минус offset шаблона; для «за сутки» — накануне в 09:12), её можно поправить руками. В карточке очереди — синий бейдж «День N».
+- Селектор дня показывается только у событий с программой (`conf_days` не пуст). У обычного мероприятия дней нет — день всегда 1, поле не шлём.
+
+⚠️ **`5min_before` у турнира генерируется нормально** — если рассылок нет, значит шаблон **не отмечен галочкой** в модалке «Сформировать из программы» (там 11 шаблонов, список скроллится). Проверка: `SELECT count(*) FROM conf_sessions cs WHERE cs.event_id=N AND cs.speaker_id IS NOT NULL AND cs.start_time IS NOT NULL AND NOT EXISTS (SELECT 1 FROM broadcast_schedules bs WHERE bs.session_id=cs.id AND bs.type='5min_before')`. Новые слоты, добавленные после генерации, подхватываются повторным нажатием «Сформировать из программы» (дедуп по `session_id+type+template_id` не даёт дублей).
+### Сдвиг тайминга дня — двигает И слоты программы, И спикерские рассылки (2026-07-10, ПРОД 73d1798)
+
+**Зачем.** Программа поехала (спикер опоздал, затянулось выступление) — надо сдвинуть остаток дня. Слот (`conf_sessions.start_time/end_time`) и рассылка (`broadcast_schedules.fire_at`) — РАЗНЫЕ записи, не связанные автоматически. Сдвинуть одно без другого = рассинхрон («через 5 минут выступает X» уходит по старому времени).
+
+**⚠️ Обе точки входа делают ОДНО И ТО ЖЕ — двигают и слоты, и рассылки:**
+1. **Очередь рассылок** ([queue/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/queue/page.tsx)) — кнопка «Сдвиг тайминга» в тулбаре (видна если у события есть `conf_days`). Сначала выбор дня → подгрузка спикеров этого дня → выбор спикера → минуты.
+2. **Программа** — кнопка «↔ Сдвинуть тайминг» у КАЖДОГО дня, рядом с «⏱ Задать тайминг», в [ProgramTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ProgramTab.tsx) (конференция) и [TournamentProgramTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/TournamentProgramTab.tsx) (турнир, подкомпонент `DayAccordion`, проп `onShift`). Общая модалка — [ShiftTimingModal.tsx](web/src/components/ShiftTimingModal.tsx) (одна реализация на обе вкладки, с превью «было → станет»).
+
+**Что двигается:**
+- **Рассылки** — только `5min_before` и `gift` (константы `SHIFTABLE_TYPES` / `_SHIFT_BROADCAST_TYPES`), только `status IN ('draft','pending')` (отправленные не трогаем), у выбранного спикера и всех следующих за ним в этот день.
+- **Слоты программы** — ⚠️ **ВСЕ слоты дня со `start_time >= start_time выбранного`**, включая слоты БЕЗ рассылок (партнёрские вставки, «Тема уточняется»). Иначе программа разъедется внахлёст.
+- Минуты могут быть отрицательными (сдвинуть раньше). Через полночь НЕ переносим — упираемся в `23:59` (хелпер `_shift_hhmm`).
+- Всё в одной транзакции, затем `regenerate_landing_data` (ленивый импорт из `conference.py` — обратного импорта нет, цикла не будет).
+
+**«День» берётся из ПРОГРАММЫ (`conf_sessions.day`), а не из календарной даты `fire_at`** — подарок последнего выступления (`gift` = конец слота − offset) может уехать за полночь, но принадлежит своему дню. Другие дни не трогаются никогда.
+
+**Эндпоинты:**
+- `GET /events/{id}/broadcasts/schedules/shift-speakers?day=N` ([modules/broadcasts.py](backend/app/api/modules/broadcasts.py)) — спикеры дня с несданными `5min_before`/`gift`, по времени старта, с `schedules_count`. Пусто → фронт показывает «сдвигать нечего» и блокирует кнопку «Сдвинуть» (бэк дублирует проверку — 400).
+- `POST /events/{id}/broadcasts/schedules/shift-timing {day, from_session_id, minutes}` — сдвиг из очереди. Ответ: `{shifted, speakers_affected, sessions_shifted, minutes}`.
+- `POST /events/{id}/conference/sessions/shift-timing {day, from_session_id, minutes}` ([modules/conference.py](backend/app/api/modules/conference.py)) — сдвиг из программы. Ответ: `{sessions_shifted, broadcasts_shifted, minutes}`.
+
+⚠️ Роут `/schedules/shift-speakers` объявлен ДО `/schedules/{schedule_id}/…` — не переставлять, иначе перехватится как `schedule_id`.
+### Поле «С какими вопросами можно обращаться?» у коллаба + плейсхолдер {speaker_ask_topics} (миграция 203 от 2026-07-08, ПРОД)
+
+**Новое ГЛОБАЛЬНОЕ поле коллаба** (не per-event): `collaborators.ask_topics TEXT` + `collaborators.show_ask_topics_field BOOL` — список тем/вопросов эксперта, отдельно от per-event заметок (`event_collaborators.notes`). **Бэкфилл миграции 203:** у кого был `event_collaborators.show_notes_field=TRUE` → текст `notes` перенесён в `collaborators.ask_topics`, `show_ask_topics_field=TRUE`; заметки в БД остались, но `show_notes_field` снят везде.
+
+**Плейсхолдер `{speaker_ask_topics}`** (в шаблонах `expert_day`/`speaker_intro`, источник = `collaborators.ask_topics`) — раскрывается сам в **жирный заголовок «С какими темами и вопросами можно обратиться?» + список вопросов**. Пусто → строка убирается целиком (без заголовка). В [message_builder.py](backend/app/services/message_builder.py) `build_speaker_intro_message` (параметр `speaker_ask_topics`), SELECT expert_day тянет `c.ask_topics`. Шаблон `expert_day` в DEFAULT_TEMPLATES и в событии 24 (tmpl 223) переведён с захардкоженного `<b>С какими темами…:</b>\n{speaker_notes}` на `{speaker_ask_topics}`.
+
+**UI:** дашборд — карточка «С какими вопросами можно обращаться?» + галочка «Показывать в кабинете спикера» на странице спикера конференции (в форме ПРОФИЛЯ, т.к. поле глобальное — сохраняется `saveProfile`/`api.collaborators.update`). Кабинет спикера — секция с тем же полем при `show_ask_topics_field`. API: `ask_topics`/`show_ask_topics_field` в `CollaboratorUpdate` + `_COLLAB_SELECT` ([collaborators.py](backend/app/api/collaborators.py)); `ask_topics` в `CabinetUpdate` + GET/PATCH ([speaker_cabinet.py](backend/app/api/speaker_cabinet.py)).
+### Выбор источника фото в спикерских шаблонах + «Рассылки со мной» в кабинете спикера (миграция 202 от 2026-07-08, ПРОД)
+
+**Галочка «Какое фото спикера брать: афишу или просто фото»** в настройке шаблонов рассылок типов `speaker_intro` / `5min_before` / `expert_day`. БД: `broadcast_templates.speaker_photo_mode TEXT DEFAULT 'poster'` (CHECK `poster|photo`). `poster` (default, прежнее поведение) = индивидуальная афиша спикера из библиотеки `collaborator_posters`; `photo` = фото коллаба (`collaborators.photo_url`). Если у шаблона задано своё `photo_url` — оно в приоритете. Приоритет разрешения фото в [message_builder.py](backend/app/services/message_builder.py) (`build_message_content` получил параметр `speaker_photo_mode`): для 3 типов при `photo` → `speaker_photo or speaker_poster`, иначе `speaker_poster or speaker_photo`. `gift` остаётся на афише. Проброс: task [broadcast.py](backend/app/tasks/broadcast.py) (SELECT шаблона + передача), превью и тест-отправка в [modules/broadcasts.py](backend/app/api/modules/broadcasts.py). Поле в `TemplateCreate/Update` + INSERT/UPDATE/SELECT списка. UI — тумблер «Афиша спикера / Просто фото» в форме шаблона ([templates/page.tsx](web/src/app/dashboard/conferences/%5Bid%5D/broadcasts/templates/page.tsx)), плюс превью дашборда уважает режим.
+
+**Вкладка «Рекламные интеграции» в кабинете спикера** ([/speaker/<slug>](web/src/app/speaker/%5Bevent_slug%5D/page.tsx), компонент `MyBroadcastsTab`; вкладки кабинета — горизонтальный скролл в одну строку). Содержит: (1) **«Ваша карточка в кабинете участника»** — ссылка на карточку спикера (Mini App или веб по `clients.default_link_mode`, хелпер `speaker_card_link`); (2) **«ВЫ НА ЛЕНДИНГЕ»** — `events.landing_url` или fallback `pluson.ru/event/{slug}`; (3) **«Рассылки с вами»** — рассылки события, привязанные к спикеру (`broadcast_schedules.session_id = event_collaborators.id`): speaker_intro / 5min_before / gift / expert_day, только `pending`(«В очереди»)/`done`(«Отправлено»), **черновики скрыты**, глазик → превью через `build_message_content`. Эндпоинт `GET /api/v1/public/speaker-cabinet/me/my-broadcasts` ([speaker_cabinet.py](backend/app/api/speaker_cabinet.py)) отдаёт `broadcasts[] + card_link + landing_link`.
+
+**⚠️ «Отменить» рассылку = перевод в ЧЕРНОВИК (`draft`), не `cancelled`** (2026-07-08). `/schedules/{id}/cancel` и `/cancel-all` ([modules/broadcasts.py](backend/app/api/modules/broadcasts.py)) ставят `status='draft'` (+ чистят finished_at/started_at/error_log), чтобы рассылку можно было запустить снова (Celery берёт только `pending`, `draft` не трогает). Раньше `cancelled` — после отмены рассылку было не перезапустить.
+
+**⚠️ `expert_day` в списке очереди/кабинете спикера — session_id = `event_collaborators.id`** (как speaker_intro), НЕ `conf_sessions.id`. В `list_schedules` join спикера для `type IN ('speaker_intro','expert_day')` идёт через `event_collaborators` напрямую (иначе не резолвится `speaker_name` и пустой сниппет). Авто-фанаут `expert_day` и ручные вставки должны писать `snapshot_text` (= текст шаблона) — иначе в списке нет превью-сниппета.
+
+**Шаблон `expert_day`** ([DEFAULT_TEMPLATES](backend/app/api/modules/broadcasts.py)): кнопка **«ЗАДАТЬ ВОПРОС В ЧАТЕ»** с `button_url='{event_chat_tg}'` (раскрывается в `client_broadcast_chats.chat_url` чата события через `_apply_event_globals`). Никнейм эксперта в тексте = `{speaker_tg_username}` (личный @ник для тега), НЕ `{speaker_tg}` (это TG-канал). 🚨-строка «[Экспертный день] Завтра {speaker_name} ответит…» вынесена в **`subject`** (жирная первая строка в TG). `{speaker_notes}` (темы эксперта) и `{speaker_material}` (вводная+название) рендерятся **жирным** (`<b>`).
+
+**⚠️ Subject с плейсхолдерами `{speaker_name}`/`{brand_name}` резолвится в `build_message_content`** (2026-07-08): функция получила параметр `subject=` и возвращает `content["subject"]` с подставленным именем спикера (для speaker-типов) и брендом; task/preview используют его. Без этого subject уходил бы с сырым `{speaker_name}`. `from-preset` копирует `subject` из DEFAULT_TEMPLATES.
+### Реф-программа ПЛЮСОНа: закрепление приведённых за рефоводом + плейсхолдеры ссылок (миграция 189 от 2026-07-02)
+
+**Зачем.** Спикер (напр. Маша) рекламит событие клиента → человек (Вася) приходит по её реф-ссылке события → берёт «ПЛЮСОН» как подарок за регистрацию → регистрируется клиентом ПЛЮСОНа → должен закрепиться за Машей в реф-программе ПЛЮСОНа (`clients.referred_by_client_id`).
+
+**Два разных реф-кода у одного человека (НЕ путать):**
+- `contacts.ref_code` — код человека как КОНТАКТА в базе клиента (реф-программа события). Глобально уникален.
+- `clients.referral_code` — код человека как КЛИЕНТА ПЛЮСОНа (реф-программа ПЛЮСОНа).
+- Связь между ними = `collaborators.linked_client_id` (спикер привязал свой ПЛЮСОН-аккаунт попапом-логином).
+
+**Резолвер** [plusson_referral.py](backend/app/services/plusson_referral.py) `resolve_plusson_referrer(db, code)` — единая точка: по коду вернуть `client_id` рефовода. Порядок: (1) `clients.referral_code` → сразу клиент; (2) `contacts.ref_code` (или `merged_ref_codes`) → его `collaborators.linked_client_id`; (3) иначе None. `/register` ([auth.py](backend/app/api/auth.py)) зовёт его вместо прямого SELECT — понимает ОБА типа кодов. Мусорный/несуществующий код → None (регистрация без реферала).
+
+**+7 дней триала по реф-коду** — `REFERRAL_TRIAL_BONUS_DAYS=7` в [auth.py](backend/app/api/auth.py), поверх базы (30) и промо. Только при валидном коде. Публичный `GET /auth/referrer-info?pid=` — валидация кода для лендинга, возвращает `{valid, referrer_name, bonus_days}`. Лендинг ([LandingClient.tsx](web/src/app/LandingClient.tsx)) валидирует pid перед показом плашки «продлённый триал», мусор ({plsn_ref} и т.п.) не сохраняет. `/login` тоже не теряет pid при переходе на регистрацию.
+
+**Два плейсхолдера в ссылках лид-магнитов/подарков** (раскрываются реф-кодами РЕФОВОДА того, кто получает):
+- `{plsn_ref}` — плюсоновский реф-код рефовода (`contacts.ref_code`). Для `pluson.ru/?pid={plsn_ref}` или `pluson.ru/register?pid={plsn_ref}` (лендинг сам пробрасывает pid в register через localStorage).
+- `{ext_ref}` — сторонний партнёрский код рефовода (`contacts.external_ref_param`, напр. `gcpc=fdd97`). Для внешних лендингов.
+
+**Клиент вписывает плейсхолдер вручную** в поле «Ссылка» лид-магнита — только если ссылка ведёт в ПЛЮСОН/партнёрскую систему (к обычным файлам не нужно). Раскрытие — **в 3 точках выдачи ссылок подарков** (единый синтаксис): Mini App ([gifts.py](backend/app/api/gifts.py), рефовод по tg_id участника), веб-страница события ([event_page_html.py](backend/app/api/event_page_html.py) `_load_gifts`, рефовод по `?c={contact_id}` зрителя), воронки `/m/` ([funnel_service.py](backend/app/services/funnel_service.py) `_materials_for_run`, рефовод по `funnel_runs.referrer_contact_id`). Подстановка только если плейсхолдер реально есть в url.
+
+**Галочка «выдавать подарки через воронку» (миграция 189)** — `event_referral_settings.gift_via_funnel BOOL DEFAULT FALSE`, одна на событие. FALSE (default) = подарок = прямая ссылка на файл (как было). TRUE = `link_url` подарка ведёт на воронку `pluson.ru/m/{slug}` лид-магнита (проверка подписки + follow-up), а не сразу на файл; плейсхолдеры тогда раскрывает сама воронка. Применяется в обеих точках подарков (gifts.py + event_page_html.py). API — поле в GET/PUT `/events/{id}/referral/settings` ([referral_program.py](backend/app/api/referral_program.py)). UI — галочка в блоке «За что выдаются подарки» подвкладки «Подарки» ([ReferralProgramTab.tsx](web/src/app/dashboard/events/%5Bid%5D/tabs/ReferralProgramTab.tsx)).
+
+**⚠️ Работает только если рефовод — спикер с привязанным ПЛЮСОНом** (`linked_client_id`). Обычный участник-рефовод без ПЛЮСОН-аккаунта → `{plsn_ref}` подставится, но `/register` его не найдёт среди клиентов → регистрация без реферала (by design).
+### Галочки чатов рассылки главнее шаблона при ручном редактировании (миграция 235 от 2026-07-27, ПРОД)
+
+**Проблема.** Галочки «слать в чаты» (`send_to_event/client/private_chats`) у ШАБЛОННОЙ рассылки нельзя было СНЯТЬ — движок ([tasks/broadcast.py](backend/app/tasks/broadcast.py)) наследовал от шаблона при false у рассылки (`if not schedule.X and tmpl.X → True`). Снял галочку, сохранил → всё равно слалось в чаты; при повторном открытии галочка снова стояла.
+
+**Решение (миграция 235):** `broadcast_schedules.chats_overridden BOOL DEFAULT FALSE`. Правило — **редактировал рассылку → её настройки главнее шаблона**. При сохранении из edit-модалки очереди фронт шлёт `chats_overridden: true` → движок и `list_schedules` берут `send_to_*` СТРОГО из рассылки, шаблон не подмешивается (`eff_* = bs.X OR (NOT bs.chats_overridden AND bt.X)`). Нетронутые (FALSE) — наследуют шаблон как раньше (авто-сгенерированные подхватывают актуальный шаблон при отправке). UI: выбранные галочки подсвечены синей рамкой+✓. Custom-рассылки (template_id NULL) не наследуют вовсе. Гейт по фиче `broadcast_chats` остаётся поверх. Подробности — [[project_broadcast_chats_overridden]].
+### Кнопка «Тех.поддержка» в рассылке + «был в эфире» в карточке контакта (2026-07-27, ПРОД)
+
+**`{support_command}`** — URL-плейсхолдер КНОПКИ «Тех.поддержка» (вставлять в поле URL кнопки, не в текст). Клик → бот вызывает команду support (сообщение со всеми каналами связи клиента-владельца события). Резолвится в **deeplink по площадке получателя**: `build_support_command_links(handles, event_id)` в [share_links.py](backend/app/services/share_links.py) → `evsupport_<event_id>` (telegram.me `?start=`, vk.me `?ref=`, max.ru `?start=`). Обработчик deeplink `evsupport_` во ВСЕХ 3 ботах: TG `run_event_support` ([bot/handlers/funnel.py](backend/bot/handlers/funnel.py)) через `/start evsupport_`, VK `handle_vk_event_support` (в `message_allow`/`message_new` по `ref=evsupport_`), MAX `_handle_max_support` (в `_process_start`). Резолв в Celery ([tasks/broadcast.py](backend/app/tasks/broadcast.py)) через `support_cmd_by_platform`; `_with_support` теперь применяется и к `button_url` во ВСЕХ ветках (TG/VK/MAX/email/чаты события). Валидация: `{support_command}` пуст (красным, не в очередь), если у клиента нет своего бота ни на одной площадке. Памятка плейсхолдеров шаблонов дополнена.
+
+**Карточка контакта — «Был в эфире» + история вебинаров** ([contacts.py](backend/app/api/contacts.py) `GET /contacts/{id}`): поле `was_in_webinar` (из `contacts.was_in_webinar`) → зелёный бейдж «📺 Был в эфире» в шапке; секция `webinar_history` — по `webinar_presence` (contact_id), группировка по комнате дня: событие + день + дата + ~минуты (кол-во bucket'ов heartbeat) + признак `registered` (был ли в `webinar_registrations`). UI — [clients/page.tsx](web/src/app/dashboard/clients/page.tsx) `details`-секция «Был в эфире».
+### ⚠️⚠️ Тест, превью и боевая рассылка — ОДНА функция сборки (2026-08-24)
+
+Собирает сообщение [platform_delivery.py](backend/app/services/platform_delivery.py): подготовка вложения (одно на всю отправку), клавиатура, текст под площадку, отправка одному человеку. **Различаться должен только список получателей.**
+
+Раньше это были две независимые реализации (200 строк в тесте, 343 в бою) и разъехались по всем пунктам сразу: в MAX фото уходило голой ссылкой вместо вложения, HTML — тегами дословно, `recipient_kind='user'` забыт (`chat.not.found`, тест не доходил **никогда**); в VK фото ссылкой, токен не передан — сообщение уходило от **системного** сообщества ПЛЮСОНа; кнопка бралась одна вместо всех. Чинили одну половину — вторая продолжала врать, и тест перестал показывать то, что реально приходит людям.
+
+⚠️ **Новая площадка или новое поведение отправки — правится в `platform_delivery`, а не копируется в тест.** Своя сборка сообщения в тесте — это баг.
+
+⚠️ **Внешние ссылки в VK идут НАСТОЯЩИМИ кнопками.** Прежнее правило «VK срезает open_link на не-vk домены, поэтому пишем ссылкой в текст» **неверно** — проверено живой отправкой 2026-08-24: VK принимает и показывает, и одну кнопку, и несколько. Обход убран и в тесте, и в бою.
+
+⚠️ **Фото — только вложением**, на всех площадках. Голую R2-ссылку в текст не вставляем: выглядит как спам. Не загрузилось → шлём без фото.
+### ⚠️ Тело письма собирается ОДНОЙ функцией — и в бою, и в тесте (2026-08-14, ПРОД)
+
+**Симптом:** клиент жмёт «Тест», в Telegram картинка приходит, **на почту письмо без картинки**. Выглядит как «раньше работало, сломалось» — на деле тестовое письмо картинку не отправляло **ни разу**: боевая рассылка по базе вкладывать фото умела, а тест — нет, и расхождение никто не замечал, пока не сверили два письма.
+
+**Причина.** Тестовая отправка собирала тело сама и примитивно — `text.replace("\n", "<br>")`. Ни фото, ни обложки видео, ни кнопки. Боевая сборка при этом существовала, но жила **внутри цикла отправки** в Celery ([tasks/broadcast.py](backend/app/tasks/broadcast.py)) и переиспользовать её было нечем.
+
+Сборка вынесена в **[email_body.py](backend/app/services/email_body.py)** (`build_email_body`) — возвращает `html`, `text` (plain-fallback) и `inline_images`. Зовут её обе точки теста: событийные рассылки и общие (у них общий `_send_content_to_tests` в [modules/broadcasts.py](backend/app/api/modules/broadcasts.py)).
+
+⚠️ **`inline_images` ОБЯЗАТЕЛЬНО передавать в `EmailSender.send`** — фото вкладывается по Content-ID (`<img src="cid:broadcast_image">`), и без вложения ссылка останется битой: письмо снова уйдёт без картинки. Именно это и было сломано.
+
+⚠️ **Почему inline, а не ссылка на R2:** письмо автономно (файл в R2 удалят — картинка останется), Gmail не блокирует inline так, как remote, Outlook/Apple Mail показывают без «Show images».
+
+⚠️ **JPEG сжимается до ~90 КБ** — Gmail mobile и iOS Mail рендерят картинку тяжелее ~100 КБ как «прикрепление снизу», а не в теле письма. PNG/GIF не трогаем: у них прозрачность.
+
+⚠️ **Видео в письмо не встраивается** (почтовики режут `<video>`) — вместо него кликабельная обложка (первый кадр через ffmpeg) со ссылкой.
+
+**Правило на будущее:** новая точка отправки письма — звать `build_email_body`, а не собирать HTML на месте. Иначе тест снова разойдётся с боем, и клиент будет проверять вёрстку, которой в реальной рассылке нет.
+### Рассылки — единый движок для мероприятий и конференций (миграция 060 от 05.05.2026)
+
+**Один движок, разные шаблоны.** Все события (и `module_slug='conference'`, и обычные мероприятия) используют те же таблицы (`broadcast_templates`, `broadcast_schedules`, `broadcast_log`), тот же [`generate_schedules`](backend/app/api/modules/broadcasts.py), тот же [`message_builder.py`](backend/app/services/message_builder.py), тот же Celery-обработчик [`tasks/broadcast.py`](backend/app/tasks/broadcast.py). Различие — только в **наборе типов** шаблонов (auto-seed по `events.module_slug` при первом открытии вкладки «Рассылки»).
+
+**Контракт `contacts.ref_code`** — теперь `NOT NULL` (миграция 060). У каждого контакта обязательно есть личный реф-код. Бэк может полагаться на это без проверок.
+
+**Унифицированные имена типов** (после переименования миграцией 060):
+
+| Тип | Когда срабатывает | Аудитория | Где |
+|---|---|---|---|
+| `day_before_09_12_unreg` | за сутки до `events.start_at`, в 09:12 МСК | нерег | только мероприятия |
+| `day_before_09_12_reg`   | за сутки до `events.start_at`, в 09:12 МСК | зарег | только мероприятия |
+| `2h_before_unreg` | за 120 мин до старта дня (конф) или `start_at` (меропр) | нерег | оба |
+| `2h_before_reg`   | за 120 мин до старта | зарег | оба |
+| `30min_before`    | за 30 мин до старта дня/события | все | оба |
+| `5min_before`     | за 5 мин до старта **выступления спикера** (per-session) | все | **только конф** |
+| `event_live`      | за 5 мин до старта мероприятия (events.start_at − 5 мин) | все | **только меропр** |
+| `pre_conf` | за день в 10:43 МСК (анонс знакомства со спикерами) | все | только конф |
+| `speaker_intro`, `gift`, `day_live`, `day_end`, `vip_offer` | конф-специфика | разное | только конф |
+
+Старые имена `day_start_30min_unreg/reg`, `pre_start` миграцией 060 переименованы (включая поле `type` в `broadcast_schedules`). Не использовать в новом коде.
+
+**Миграция 065 (05.05.2026)** — split `5min_before` на конф (per-session, остаётся `5min_before`) и мероприятие (event-level, новый тип `event_live`). До 065 один тип `5min_before` использовался в обоих контекстах с разной семантикой, что путало клиента в UI. Все существующие записи `5min_before` в `broadcast_templates` / `broadcast_schedules` / `broadcast_log` для **не-конференций** автоматически переведены в `event_live`. Auto-seed в `list_templates` теперь: для конф сидится `5min_before`, для меропр — `event_live`.
+
+**Плейсхолдер `{game_link}`** — ссылка получателя на вкладку «Игра» события (партнёрский кабинет). Подставляется в момент отправки в Celery ([`tasks/broadcast.py`](backend/app/tasks/broadcast.py)): `https://t.me/{бот_клиента_или_pluson}?startapp=ref_pg{slug}_tabgame` (БЕЗ `_pid`). Получатели этих шаблонов уже зарегистрированы — их реферер зафиксирован при регистрации, перезатирать своим ref_code не надо. Mini App опознаёт получателя по `tg_id` из `initData`. В `message_builder.py` остаётся как литерал — подставляется только на самом последнем шаге.
+
+Используется в шаблонах **`2h_before_reg`** и **`day_before_09_12_reg`** — для зарег. участников эфира ещё нет (за 2ч/сутки до старта), вместо ссылки на стрим предлагаем «🎯 Вы ещё успеваете позвать друзей и получить подарки» → их персональный кабинет.
+
+**Mini App парсит `_tabXXX`** в startapp ([`App.tsx`](mini-app/src/App.tsx)) → передаёт `initialTab` в [`EventPage.tsx`](mini-app/src/pages/EventPage.tsx) → стартовая вкладка = указанная (game/raffle/program/ecosystem). Доступно только зарегистрированным; для нерег. флаг игнорируется (всегда landing).
+
+**`generate_schedules`**:
+- Для конференции — как раньше (по `conf_days`/`conf_sessions`). `5min_before` создаётся per-session.
+- **Турнир с программой (`module_slug='turnir'` + есть `conf_days`)** — с 2026-06-05 идёт по той же дневной логике, что конференция (флаг `use_day_program = is_conf or (is_turnir and has_conf_days)`). `2h_before_unreg/reg` и `30min_before` создаются **на каждый день программы** от первой сессии дня (время дня `conf_days.open_time` не используется — ориентир только на сессии). `event_live` и `day_before_09_12_*` — по первому дню программы. Раньше турнир ошибочно шёл по ветке мероприятия (только от `events.start_at`), дни программы игнорировались.
+- Для обычного мероприятия (`base` и турнир без программы) — точка отсчёта = `events.start_at`. Создаются: `event_live`, `30min_before`, `2h_before_unreg/reg` (relative offset до start_at) + `day_before_09_12_unreg/reg` (за сутки в 09:12 МСК). `5min_before` для мероприятий не используется — там `event_live`.
+- **400** при попытке генерации если у события с программой нет сессий со временем (`conf_sessions`) или у меропр не задан `events.start_at` — с понятным русским текстом ошибки.
+- **Плейсхолдер `{day_title}`** (message_builder `build_day_message`) — кастомное название дня (`conf_days.title`), fallback «День N». Программа дня (`{day_program}`) и `{day_date}` теперь строятся и для турнира (`is_program_event = module_slug in ('conference','turnir')`).
+
+**Флаг `is_overdue`** в API списка расписаний (`GET /broadcasts/schedules`) — `true` если `fire_at < NOW()` и статус `draft`/`pending`. Дашборд ([`broadcasts/queue/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/queue/page.tsx)) подсвечивает такие красной плашкой «⚠️ Время прошло — рассылка не отправится автоматически». Запись остаётся в `draft`, не уходит сама — клиент решает «перенести / отменить».
+
+**Дашборд BroadcastsTab** — [один компонент](web/src/app/dashboard/events/[id]/tabs/BroadcastsTab.tsx) для мероприятий и конференций (две карточки: «Шаблоны» и «Очередь», ведут на `/dashboard/conferences/{id}/broadcasts/{templates|queue}` — URL-сегмент `conferences` исторический, эти страницы работают с любым событием).
+### Выбор каналов отправки для рассылки (миграция 100 от 2026-05-22)
+
+К каждой рассылке (произвольной и шаблонной) клиент может выбрать **подмножество** своих каналов. По умолчанию рассылка уходит **по всем** подключённым каналам — это поведение «как было до миграции», обратная совместимость сохраняется.
+
+**Поле:** `target_channel_ids INTEGER[] NULL` в `broadcast_templates` и в `broadcast_schedules`.
+
+**Семантика:**
+- `NULL` — слать по всем каналам клиента (default).
+- `[]` (пустой массив) — никуда не слать.
+- `[3, 11]` — слать только через `channel_id` 3 и 11.
+
+**Источник истины в Celery** ([backend/app/tasks/broadcast.py](backend/app/tasks/broadcast.py)) — fallback-цепочка:
+1. `schedule.target_channel_ids` (приоритет — клиент мог переопределить per-расписание).
+2. Если NULL и есть `schedule.template_id` → `template.target_channel_ids` (наследование от шаблона).
+3. Если оба NULL → слать всем.
+
+Это позволяет:
+- Custom-рассылке задавать каналы вручную через UI формы.
+- Шаблонной рассылке наследовать значение из шаблона **в момент отправки** — если клиент позже меняет состав каналов в шаблоне, это автоматически применится к ВСЕМ ещё-не-отправленным `broadcast_schedules` (что хорошо для авто-генерируемых через `generate_schedules`, которые сами поле не копируют).
+
+**Фильтрация** применяется в каждой из 4 платформенных функций ([tasks/broadcast.py](backend/app/tasks/broadcast.py)):
+- **Telegram** — фильтрует `send_jobs` по `channel_id in target_channel_set`.
+- **VK** (`_send_broadcast_vk_part`), **MAX** (`_send_broadcast_max_part`), **Email** (`_send_broadcast_email_part`) — в начале функции; если итоговый `channel_id` платформы не в списке → `return 0` (вся платформа пропущена).
+
+**UI** — общий компонент [BroadcastChannelPicker.tsx](web/src/components/BroadcastChannelPicker.tsx). Список всех каналов клиента, сгруппированный по платформам (Telegram → VK → MAX → Email), с счётчиком подписчиков справа и кнопкой «Снять всё/Выбрать все». По умолчанию все галочки включены — фронт всегда отдаёт массив. Используется в двух местах:
+- Форма произвольной рассылки `/dashboard/broadcasts` (create + edit modals).
+- Редактор шаблона `/dashboard/conferences/{id}/broadcasts/templates` (edit + create modals).
