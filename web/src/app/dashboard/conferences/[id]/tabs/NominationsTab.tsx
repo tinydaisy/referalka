@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 // Матрица «люди × номинации»: раньше привязка была только поштучно —
 // зайти в карточку каждого человека. При 30 людях и 5 турах это 30 заходов.
@@ -46,7 +47,7 @@ export default function NominationsTab({ eventId }: { eventId: number }) {
   const [bulkText, setBulkText] = useState('')
   const [bulkCat, setBulkCat] = useState<number | null>(null)
   const [peopleFor, setPeopleFor] = useState<number | null>(null)
-  const [view, setView] = useState<'list' | 'matrix'>('list')
+  const [view, setView] = useUrlTab<'list' | 'matrix'>('view', 'list', ['list', 'matrix'])
 
   const load = async () => {
     setLoading(true)

@@ -11,6 +11,7 @@
  *    когда нужно переименовать, заменить файл или посмотреть, где он стоит.
  */
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -26,7 +27,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function ProductsPage() {
   const { me, isAssistant } = useMe()
-  const [tab, setTab] = useState<'products' | 'materials'>('products')
+  const [tab, setTab] = useUrlTab<'products' | 'materials'>('tab', 'products', ['products', 'materials'])
 
   // ⚠️ Гейт по фиче, не по тарифу. Замок нужен на САМОЙ странице: пункт меню
   // не мешает открыть раздел по прямой ссылке (правило проекта).

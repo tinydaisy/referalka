@@ -10,6 +10,7 @@
  * pluson.ru: клиент платит за свой домен и раздаёт его, а не наш.
  */
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -48,8 +49,10 @@ export default function ProductCardPage() {
 
   const [product, setProduct] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<
-    'main' | 'tariffs' | 'content' | 'landing' | 'buyers' | 'orders'>('main')
+  // ⚠️ Вкладка в АДРЕСЕ: обновление страницы оставляет человека на месте.
+  const [tab, setTab] = useUrlTab<
+    'main' | 'tariffs' | 'content' | 'landing' | 'buyers' | 'orders'>(
+    'tab', 'main', ['main', 'tariffs', 'content', 'landing', 'buyers', 'orders'])
 
   const load = async () => {
     try { setProduct(await api.products.get(productId)) } finally { setLoading(false) }

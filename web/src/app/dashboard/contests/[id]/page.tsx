@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -21,7 +22,7 @@ export default function ContestPage() {
   const router = useRouter()
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<TabKey>('overview')
+  const [activeTab, setActiveTab] = useUrlTab<TabKey>('tab', 'overview')
 
   async function reload() {
     const e = await api.events.get(eventId)

@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { usePathname } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -50,7 +51,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
   const hasAuto = !!me?.features?.includes('autowebinar')
   const [days, setDays] = useState<DayItem[]>([])
   const [activeDay, setActiveDay] = useState<number | null>(null)
-  const [subView, setSubView] = useState<SubView>('settings')
+  const [subView, setSubView] = useUrlTab<SubView>('sub', 'settings')
 
   // Запоминаем выбранную подвкладку и день (по событию) — чтобы после reload
   // остаться там, где были, а не сбрасываться на «Настройки»/первый день.

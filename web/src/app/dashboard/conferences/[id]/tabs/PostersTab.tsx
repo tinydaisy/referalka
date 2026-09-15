@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import FileUploader from '@/components/FileUploader'
@@ -30,7 +31,7 @@ type SubTab = 'posters' | 'days' | 'materials'
 // существующие данные мигрированы в event_posters миграцией 046.
 export default function PostersTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
   const { lang } = useLang()
-  const [tab, setTab] = useState<SubTab>('posters')
+  const [tab, setTab] = useUrlTab<SubTab>('sub', 'posters')
 
   const labels: Record<SubTab, string> = {
     posters:   lang === 'ru' ? 'Общие афиши' : 'Common posters',

@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Users, Star, Save, Plus, X, Gift, Image as ImageIcon } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -32,7 +33,7 @@ export default function CollabOrganizerCardPage() {
 
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState('')
-  const [tab, setTab] = useState<'talk' | 'profile' | 'links'>('talk')
+  const [tab, setTab] = useUrlTab<'talk' | 'profile' | 'links'>('tab', 'talk', ['talk', 'profile', 'links'])
   // Профиль спикера — карточка коллаба (та же, что в программе и на лендинге).
   const [prof, setProf] = useState<any>(null)
   const [achText, setAchText] = useState('')

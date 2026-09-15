@@ -9,6 +9,7 @@
  * заливки мимо кабинетов и осиротевшие записи. Ради них раздел и нужен.
  */
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { HardDrive, Loader2, AlertTriangle, Users, Server, FileWarning } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL || ''
@@ -32,7 +33,7 @@ type Data = {
 export default function AdminStoragePage() {
   const [data, setData] = useState<Data | null>(null)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'clients' | 'service' | 'orphans'>('clients')
+  const [tab, setTab] = useUrlTab<'clients' | 'service' | 'orphans'>('tab', 'clients', ['clients', 'service', 'orphans'])
 
   useEffect(() => {
     const token = localStorage.getItem('plusson_admin_token') || localStorage.getItem('plusson_token')

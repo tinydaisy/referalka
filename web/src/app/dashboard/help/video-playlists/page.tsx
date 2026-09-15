@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import { BookOpen, Youtube, ExternalLink } from 'lucide-react'
 
@@ -25,7 +26,7 @@ const LESSONS: Lesson[] = [
 type TabKey = 'yt' | 'vk'
 
 export default function VideoPlaylistsPage() {
-  const [tab, setTab] = useState<TabKey>('yt')
+  const [tab, setTab] = useUrlTab<TabKey>('tab', 'yt')
 
   return (
     <div className="pb-24 max-w-3xl">

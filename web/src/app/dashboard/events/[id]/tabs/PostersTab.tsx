@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
 import AnnouncementTextsBlock from '@/components/AnnouncementTextsBlock'
@@ -22,7 +23,7 @@ const ORIENTATIONS: { key: Orientation; label: string; ratio: string; aspect: st
 type SubTab = 'posters' | 'materials'
 
 export default function PostersTab({ eventId }: { eventId: number }) {
-  const [tab, setTab] = useState<SubTab>('posters')
+  const [tab, setTab] = useUrlTab<SubTab>('sub', 'posters')
 
   return (
     <div>

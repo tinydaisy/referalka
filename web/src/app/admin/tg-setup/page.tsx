@@ -16,6 +16,7 @@
  * берёт только аккаунты со статусом «Работает».
  */
 import { useEffect, useRef, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import {
   AlertTriangle, Check, HelpCircle, Loader2, PauseCircle, PlayCircle, Plus,
   RefreshCw, KeyRound, Settings2, Trash2, Upload, X,
@@ -105,7 +106,7 @@ const STATE: Record<string, string> = {
 }
 
 export default function AdminTgSetupPage() {
-  const [tab, setTab] = useState<'accounts' | 'orders' | 'service'>('accounts')
+  const [tab, setTab] = useUrlTab<'accounts' | 'orders' | 'service'>('tab', 'accounts', ['accounts', 'orders', 'service'])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [service, setService] = useState<any>(null)

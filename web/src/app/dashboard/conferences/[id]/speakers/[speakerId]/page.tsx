@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useRouter, useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Maximize2, Download, Copy, Plus, Trash2 } from 'lucide-react'
@@ -318,7 +319,7 @@ export default function ConferenceSpeakerPage() {
   const [channelVerifyMsg, setChannelVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [error, setError] = useState('')
   const [showWarning, setShowWarning] = useState(false)
-  const [subTab, setSubTab] = useState<'talk' | 'profile' | 'links' | 'stats'>('talk')
+  const [subTab, setSubTab] = useUrlTab<'talk' | 'profile' | 'links' | 'stats'>('sub', 'talk', ['talk', 'profile', 'links', 'stats'])
 
   useEffect(() => {
     api.auth.me().then((c: any) => {

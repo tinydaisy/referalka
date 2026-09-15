@@ -7,6 +7,7 @@
  * владельца. Иначе специалист набирал бы себе платящих и обходил остывших.
  */
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 
 const rub = (kop?: number | null) =>
@@ -26,7 +27,7 @@ const KIND: Record<string, string> = {
 type Tab = 'specs' | 'assign' | 'dialogs' | 'money'
 
 export default function AdminTechPage() {
-  const [tab, setTab] = useState<Tab>('specs')
+  const [tab, setTab] = useUrlTab<Tab>('tab', 'specs')
   const [specs, setSpecs] = useState<any[]>([])
   const [rates, setRates] = useState<any[]>([])
   const [fixTiers, setFixTiers] = useState<any[]>([])

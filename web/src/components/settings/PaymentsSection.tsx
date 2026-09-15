@@ -9,6 +9,7 @@
  * (у LeadPay — нет). Рядом клиент видит и то, и другое.
  */
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 import PaymentSettingsTab from './PaymentSettingsTab'
 import PromoCodesTab from './PromoCodesTab'
@@ -16,7 +17,9 @@ import PromoCodesTab from './PromoCodesTab'
 type Sub = 'main' | 'promo'
 
 export default function PaymentsSection() {
-  const [sub, setSub] = useState<Sub>('main')
+  // ⚠️ Подраздел в АДРЕСЕ: при обновлении страницы человек остаётся там же,
+  // а не улетает на «Основные настройки» (правило владельца 15.09.2026).
+  const [sub, setSub] = useUrlTab<Sub>('sub', 'main', ['main', 'promo'])
   const [payProvider, setPayProvider] = useState<string | null>(null)
 
   // Платёжная система нужна вкладке промокодов: от неё зависит, работают ли

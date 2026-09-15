@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useRouter, usePathname } from 'next/navigation'
 import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -155,7 +156,7 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   // Подвкладки: список спикеров / ссылки (регистрация + вход в кабинет).
   // Если subTab передан сверху (родитель управляет через группировку вкладок) —
   // используем его и прячем свою панель подвкладок (hideSubNav).
-  const [subTabLocal, setSubTab] = useState<'list' | 'links'>('list')
+  const [subTabLocal, setSubTab] = useUrlTab<'list' | 'links'>('sub', 'list', ['list', 'links'])
   const subTab = subTabProp ?? subTabLocal
   const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
   const [editSpeaker, setEditSpeaker] = useState<any>(null)

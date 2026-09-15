@@ -12,6 +12,7 @@
  * Авторизация stateless, спикер может передать код ассистенту — тот заполнит за него.
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useParams } from 'next/navigation'
 import QrLinkButton from '@/components/QrLinkButton'
 import CopyAllLinksButton from '@/components/CopyAllLinksButton'
@@ -312,7 +313,7 @@ export default function SpeakerCabinetPage() {
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; text: string; bot_handle?: string } | null>(null)
   const [verifying, setVerifying] = useState(false)
   const [refCopied, setRefCopied] = useState<string>('')
-  const [activeTab, setActiveTab] = useState<CabinetTab>('profile')
+  const [activeTab, setActiveTab] = useUrlTab<CabinetTab>('tab', 'profile')
   const [materials, setMaterials] = useState<SpeakerMaterials | null>(null)
   const [photoLinkCopied, setPhotoLinkCopied] = useState(false)
   // Привязка ПЛЮСОН-аккаунта спикера (миграция 167)

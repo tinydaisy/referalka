@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Copy, Check, RotateCcw, Trophy, AlertCircle } from 'lucide-react'
@@ -87,7 +88,7 @@ export default function RaffleTab() {
   const { id } = useParams()
   const eventId = Number(id)
   const [event, setEvent] = useState<any>(null)
-  const [sub, setSub] = useState<SubTab>('settings')
+  const [sub, setSub] = useUrlTab<SubTab>('sub', 'settings')
   const [settings, setSettings] = useState<Settings>({
     is_enabled: false, draw_at: null, subscription_grants_starter_ticket: true, intro_text: null,
   })

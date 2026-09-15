@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { Copy, Check, ArrowRight, Users, Wallet, X, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 import MaterialsTab from './MaterialsTab'
@@ -47,7 +48,7 @@ export default function PartnerProgramPage() {
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState<string | null>(null)
   const [showWithdrawModal, setShowWithdrawModal] = useState(false)
-  const [tab, setTab] = useState<Tab>('main')
+  const [tab, setTab] = useUrlTab<Tab>('tab', 'main')
   const [refFilter, setRefFilter] = useState<RefFilter>('all')
 
   function load() {

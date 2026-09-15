@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { CharCount, overClass, POSITIONING_LIMIT, ACHIEVEMENTS_LIMIT } from '@/components/FieldLimits'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -77,7 +78,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
-  const [chanTab, setChanTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
+  const [chanTab, setChanTab] = useUrlTab<'telegram' | 'vk' | 'max'>('chan', 'telegram', ['telegram', 'vk', 'max'])
 
   useEffect(() => {
     api.collaborators.get(collaboratorId)

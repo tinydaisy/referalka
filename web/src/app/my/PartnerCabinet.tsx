@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -39,7 +40,7 @@ async function get(path: string, token: string) {
 
 export default function PartnerCabinet({ token }: { token: string }) {
   const [me, setMe] = useState<any>(null)
-  const [tab, setTab] = useState<Tab>('materials')
+  const [tab, setTab] = useUrlTab<Tab>('tab', 'materials')
 
   useEffect(() => {
     get('/me', token).then(setMe).catch(() => setMe({ is_partner: false }))

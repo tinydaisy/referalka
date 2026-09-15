@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import { BookOpen, ExternalLink, Copy, Check, Gift, CalendarDays, Ticket, Globe } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -25,7 +26,7 @@ export default function MiniAppDeeplinksPage() {
   const [loading, setLoading] = useState(true)
 
   const [slug, setSlug] = useState('')
-  const [tab, setTab] = useState<string>('game')
+  const [tab, setTab] = useUrlTab<string>('tab', 'game')
   const [useOwnBot, setUseOwnBot] = useState(false)
 
   useEffect(() => {
