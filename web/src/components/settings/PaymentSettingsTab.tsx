@@ -285,13 +285,13 @@ export default function PaymentSettingsTab() {
               Один раз включите способы оплаты в LeadPay
             </p>
             <p className="mt-1 text-xs text-amber-800">
-              В кабинете LeadPay откройте{' '}
+              В кабинете LeadPay откройте <b>Настройки → Варианты оплаты</b> и
+              отметьте, чем можно платить (карта, СБП и прочее).{' '}
               <a href="https://lead-pay001.cloud.gram.ax/LeadPay/integracii/nastroyki-metodov-oplat-dlya-integracii"
                  target="_blank" rel="noreferrer"
                  className="inline-flex items-center gap-1 font-medium underline">
-                Настройки методов оплат для интеграции <ExternalLink className="h-3 w-3" />
-              </a>{' '}
-              и отметьте, чем можно платить (карта, СБП и прочее).
+                Их инструкция <ExternalLink className="h-3 w-3" />
+              </a>
             </p>
             <p className="mt-2 text-xs text-amber-800">
               Пока это не сделано, покупатель на странице оплаты увидит
