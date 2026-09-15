@@ -1217,6 +1217,10 @@ async def list_event_speakers(
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.vk_url, sp.max_url,
                   sp.instagram_url, sp.website_url,
+                  -- ⚠️ Медийные активы нужны кнопке «Скопировать список
+                  -- спикеров с каналами»: в строке списка идёт число
+                  -- подписчиков рядом со ссылкой на канал.
+                  sp.media_assets,
                   sp.access_code,
                   sp.linked_client_id,
                   (SELECT lc.email FROM clients lc WHERE lc.id = sp.linked_client_id) AS linked_client_email,

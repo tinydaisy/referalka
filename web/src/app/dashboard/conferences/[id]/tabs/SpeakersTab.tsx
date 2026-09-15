@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { useRouter, usePathname } from 'next/navigation'
-import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon, ChevronDown } from 'lucide-react'
+import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon, ChevronDown, Copy, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { personWording } from '@/lib/personWording'
 import { Spinner } from '@/components/Spinner'
@@ -153,6 +153,61 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   const defaultRole = defaultRoleFor(moduleSlug)
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [copiedList, setCopiedList] = useState(false)
+
+  /**
+   * Список состава для анонса: «Имя Фамилия (подписчики, ссылка на канал)».
+   *
+   * ⚠️ ПОРЯДОК: сначала выступающие (хедлайнеры и спикеры либо жюри — смотря
+   * какой модуль), потом партнёры. В посте о событии партнёры идут после тех,
+   * ради кого люди приходят. Организаторы в список не попадают — это не состав,
+   * который анонсируют.
+   *
+   * ⚠️ Между людьми ДВА переноса строки: список вставляют в пост, и там абзацы
+   * читаются, а не слипаются в простыню.
+   *
+   * ⚠️ Скобки показываем, только если внутри что-то есть: «Имя Фамилия ()» у
+   * человека без канала и подписчиков выглядит как недоделка.
+   */
+  function copySpeakersList() {
+    // media_assets: [{platform, subscribers}] — складываем всё, что заполнено.
+    const subsOf = (sp: any): number => {
+      const list = Array.isArray(sp.media_assets) ? sp.media_assets : []
+      return list.reduce((acc: number, m: any) => acc + (Number(m?.subscribers) || 0), 0)
+    }
+    // ⚠️ Дробные значения в базе есть (3.2) — это тысячи, введённые вручную.
+    // Не округляем до целого молча: показываем как есть.
+    const fmt = (n: number) => Number.isInteger(n) ? n.toLocaleString('ru-RU') : String(n)
+
+    const speakerRoles = ['headliner', 'speaker', 'jury']
+    const partnerRoles = ['partner', 'general_partner']
+    const ordered = [
+      ...speakers.filter(sp => speakerRoles.includes(sp.role)),
+      ...speakers.filter(sp => partnerRoles.includes(sp.role)),
+    ]
+
+    const text = ordered.map(sp => {
+      const parts: string[] = []
+      const subs = subsOf(sp)
+      if (subs > 0) parts.push(fmt(subs))
+      const link = sp.tg_channel_url || sp.vk_url || sp.max_url || sp.instagram_url || sp.website_url
+      if (link) parts.push(link)
+      return parts.length ? `${sp.name} (${parts.join(', ')})` : sp.name
+    }).join('\n\n')
+
+    const done = () => { setCopiedList(true); setTimeout(() => setCopiedList(false), 2000) }
+    navigator.clipboard.writeText(text).then(done).catch(() => {
+      // Запасной путь: navigator.clipboard недоступен вне HTTPS и в части
+      // встроенных браузеров — без него кнопка молча не работала бы.
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch {}
+      document.body.removeChild(ta)
+      done()
+    })
+  }
   // Подвкладки: список спикеров / ссылки (регистрация + вход в кабинет).
   // Если subTab передан сверху (родитель управляет через группировку вкладок) —
   // используем его и прячем свою панель подвкладок (hideSubNav).
@@ -730,6 +785,16 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-gray-500">{ts.count(speakers.length)}</p>
         <div className="flex gap-2">
+          {/* ⚠️ Список для анонсов: имя с фамилией, число подписчиков и ссылка
+              на канал — то, что вставляют в пост о событии. Порядок групп
+              фиксированный (сначала выступающие, потом партнёры): в посте
+              партнёры идут после тех, ради кого приходят. */}
+          <button onClick={copySpeakersList} disabled={!speakers.length}
+            title="Скопировать список для анонса: Имя Фамилия (подписчики, ссылка на канал)"
+            className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-40">
+            {copiedList ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
+            {copiedList ? 'Скопировано' : 'Скопировать список'}
+          </button>
           <button onClick={() => setModal('base')}
             className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
             <User size={15} /> {ts.fromBase}

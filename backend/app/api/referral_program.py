@@ -919,7 +919,7 @@ async def export_speaker_materials(
     roles = _export_roles(ev["module_slug"])
 
     # ── Коллабораторы нужных ролей (с реф-кодом) ──
-    from app.services import collaborator_sort
+    from app.services import collaborator_sort, person_name
     from app.api.modules.conference import ensure_collaborator_contact
     from app.services.share_links import build_share_links, resolve_event_link_mode
     _lm = await resolve_event_link_mode(db, client_id=client_id)
@@ -930,7 +930,13 @@ async def export_speaker_materials(
                    -- → афиши этого спикера в архив не кладём.
                    CASE WHEN ec.use_photo_instead_of_poster THEN NULL
                         ELSE ec.announcement_poster_ids END AS announcement_poster_ids,
-                   co.id AS collaborator_id, co.name, ctc.ref_code
+                   co.id AS collaborator_id,
+                   -- ⚠️ ИМЯ С ФАМИЛИЕЙ. Здесь стояло голое `co.name`, и в
+                   -- выгрузке для спикеров человек был без фамилии — и в
+                   -- «Реферальные ссылки.txt», и в именах файлов афиш.
+                   -- Склейку берём общим хелпером, а не руками (правило проекта).
+                   """ + person_name.DISPLAY_NAME_SQL("co") + """ AS name,
+                   ctc.ref_code
               FROM event_collaborators ec
               JOIN collaborators co  ON co.id = ec.speaker_id
          LEFT JOIN contacts ctc      ON ctc.id = co.contact_id
