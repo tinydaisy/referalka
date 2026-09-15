@@ -17,8 +17,8 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import {
-  AlertTriangle, Check, Loader2, PauseCircle, PlayCircle, Plus, RefreshCw,
-  KeyRound, Settings2, Trash2, Upload, X,
+  AlertTriangle, Check, HelpCircle, Loader2, PauseCircle, PlayCircle, Plus,
+  RefreshCw, KeyRound, Settings2, Trash2, Upload, X,
 } from 'lucide-react'
 
 interface Account {
@@ -478,8 +478,10 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
 
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
             <Field label="Пароль двухфакторки" value={a.twofa_password || '— не задан'} mono />
-            <Field label="Слоты"
-                   value={`${a.busy_slots} занято из ${a.max_slots} · свободно ${a.free_slots}`} />
+            <Field label="Ботов ждут получателя"
+                   value={`${a.busy_slots} из ${a.max_slots} · свободно ${a.free_slots}`}
+                   help={"Боты, которых уже создали, но клиенты ещё не забрали. Забрал — место освободилось.\n\n" +
+                         "Все места заняты → аккаунт не берёт новые заказы."} />
             <Field label="Прокси"
                    value={a.proxy ? shortProxy(a.proxy) : '— без прокси'}
                    mono
@@ -607,12 +609,12 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
   )
 }
 
-function Field({ label, value, mono, warn }: {
-  label: string; value: string; mono?: boolean; warn?: boolean
+function Field({ label, value, mono, warn, help }: {
+  label: string; value: string; mono?: boolean; warn?: boolean; help?: string
 }) {
   return (
     <div>
-      <div className="text-xs text-gray-400">{label}</div>
+      <div className="text-xs text-gray-400">{label}{help && <Hint text={help} />}</div>
       <div className={`${mono ? 'font-mono text-xs' : ''} ${warn ? 'text-amber-700' : 'text-gray-700'} truncate`}>
         {value}
       </div>
@@ -635,8 +637,8 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   // ⚠️ 0 = «без ограничения». Дефолты осторожные: BotFather даёт 17 часов
   // отдыха после десятка ботов подряд, и на трёх аккаунтах это происходит
   // за минуты. Лучше медленнее, чем всё встало.
-  const [dailyLimit, setDailyLimit] = useState(8)
-  const [gapMin, setGapMin] = useState(45)
+  const [dailyLimit, setDailyLimit] = useState(7)
+  const [gapMin, setGapMin] = useState(60)
   const [saving, setSaving] = useState(false)
 
   async function save() {
@@ -690,24 +692,28 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
               суточный лимит — сколько создаём за сутки;
               пауза — как часто. У BotFather нарастающий лимит, и без двух
               последних три аккаунта ложатся разом на 17 часов. */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Ботов в сутки
+                Новых ботов в сутки
               </label>
               <input type="number" min={0} max={50} value={dailyLimit}
                      onChange={e => setDailyLimit(+e.target.value)}
                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-              <p className="text-xs text-gray-400 mt-1">0 — без лимита</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Сколько ботов аккаунт создаёт за 24 часа. 0 — без ограничения.
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Пауза, минут
+                Пауза между ботами, минут
               </label>
               <input type="number" min={0} max={720} value={gapMin}
                      onChange={e => setGapMin(+e.target.value)}
                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-              <p className="text-xs text-gray-400 mt-1">между созданиями</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Сколько ждать после создания бота перед следующим. 0 — без паузы.
+              </p>
             </div>
           </div>
         </div>
@@ -901,13 +907,33 @@ function EditLimitsModal({ account: a, onClose, onSaved }: {
         </div>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
-            <NumField label="Слотов" value={slots} onChange={setSlots}
-                      hint="висит непереданными" min={1} max={20} />
-            <NumField label="В сутки" value={daily} onChange={setDaily}
-                      hint="0 — без лимита" min={0} max={50} />
-            <NumField label="Пауза, мин" value={gap} onChange={setGap}
-                      hint="между ботами" min={0} max={720} />
+          {/* ⚠️ Три числа про РАЗНОЕ, и подписи обязаны это объяснять: без них
+              «слоты» и «в сутки» читаются как одно и то же (вопрос владельца
+              15.09.2026). Слоты — сколько ботов лежит НЕВОСТРЕБОВАННЫМИ прямо
+              сейчас (освобождается, когда клиент забрал); в сутки — сколько
+              СОЗДАЛИ за день (не обнуляется передачей). */}
+          <div className="space-y-3">
+            <NumField label="Ботов ждут получателя"
+                      value={slots} onChange={setSlots} min={1} max={20}
+                      help={"Это как полки для готовых заказов.\n\n" +
+                            "Бот создан, но клиент ещё не забрал его — бот лежит и ждёт, место занято. " +
+                            "Клиент забрал (написал боту и принял права) — место освободилось.\n\n" +
+                            "Все места заняты → аккаунт не берёт новые заказы, пока кто-нибудь не заберёт своего бота.\n\n" +
+                            "Например 1 — очередь строго по одному: следующий заказ не начнётся, пока предыдущий клиент не забрал бота. " +
+                            "5 — пятеро могут ждать одновременно.\n\n" +
+                            "Ноль поставить нельзя: боту негде было бы лежать. Чтобы аккаунт не работал вовсе, выключите его галочкой «участвует в создании ботов».\n\n" +
+                            "Зачем ограничение: Telegram не разрешает держать на одном аккаунте много ботов."} />
+            <NumField label="Новых ботов в сутки"
+                      value={daily} onChange={setDaily} min={0} max={50}
+                      help={"Сколько ботов аккаунт создаёт за 24 часа. 0 — без ограничения.\n\n" +
+                            "Чем отличается от «ботов ждут получателя»: там — сколько лежит невостребованными прямо сейчас (освобождается, когда клиент забрал). " +
+                            "Здесь — сколько СОЗДАЛИ за день, и передача бота это число не уменьшает.\n\n" +
+                            "Зачем: у BotFather нарастающий запрет. Несколько ботов подряд — «подожди 2 минуты», десяток — «подожди 17 часов». " +
+                            "Ограничение не даёт подойти к этой грани."} />
+            <NumField label="Пауза между ботами, минут"
+                      value={gap} onChange={setGap} min={0} max={720}
+                      help={"Сколько минут ждать после создания бота, прежде чем делать следующего. 0 — без паузы.\n\n" +
+                            "Та же цель, что у суточного лимита: не частить, чтобы BotFather не выдал долгий запрет."} />
           </div>
           <Input label="Прокси" value={proxy} onChange={setProxy}
                  placeholder="socks5://логин:пароль@хост:порт"
@@ -932,13 +958,35 @@ function EditLimitsModal({ account: a, onClose, onSaved }: {
   )
 }
 
-function NumField({ label, value, onChange, hint, min, max }: {
+/** Вопросик с подсказкой по наведению.
+ *
+ * ⚠️ Длинные объяснения под полем делают форму нечитаемой, а без них человек
+ * не понимает, чем «слоты» отличаются от «в сутки» (вопрос владельца
+ * 15.09.2026). Поэтому объяснение прячется под знак вопроса.
+ *
+ * Вид тот же, что у критериев турнира — второго стиля подсказок в проекте
+ * быть не должно.
+ */
+function Hint({ text }: { text: string }) {
+  return (
+    <span className="ml-1 relative inline-flex align-middle text-gray-300 hover:text-gray-500 cursor-help group/qm">
+      <HelpCircle size={13} />
+      <span className="invisible opacity-0 group-hover/qm:visible group-hover/qm:opacity-100 transition-opacity absolute z-50 top-full left-0 mt-1 w-72 bg-[#1f2d3a] text-white text-[11px] font-normal normal-case leading-snug text-left whitespace-pre-line rounded-lg px-3 py-2 shadow-xl pointer-events-none">
+        {text}
+      </span>
+    </span>
+  )
+}
+
+function NumField({ label, value, onChange, hint, help, min, max }: {
   label: string; value: number; onChange: (v: number) => void
-  hint?: string; min?: number; max?: number
+  hint?: string; help?: string; min?: number; max?: number
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        {label}{help && <Hint text={help} />}
+      </label>
       <input type="number" min={min} max={max} value={value}
              onChange={e => onChange(+e.target.value)}
              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />

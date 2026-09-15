@@ -96,6 +96,17 @@ async def list_accounts(admin=Depends(get_current_admin), db=Depends(get_db)):
     return {"accounts": out}
 
 
+# ⚠️⚠️ ДЕФОЛТЫ НОВОМУ АККАУНТУ (решение владельца 15.09.2026).
+# Слоты — ВМЕСТИМОСТЬ: сколько созданных ботов может ждать, пока клиенты их
+# заберут. Их держит Telegram, поэтому 5 и не больше.
+# Суточный лимит и пауза — про ТЕМП создания: у BotFather нарастающий запрет
+# (несколько ботов подряд → «подожди 2 минуты», десяток → 17 часов), и слоты
+# его не ловят вовсе — бота передали, место освободилось, а счётчик созданий
+# у Telegram продолжает расти.
+DEFAULT_MAX_SLOTS = 5
+DEFAULT_DAILY_LIMIT = 7
+DEFAULT_GAP_MIN = 60
+
 class AccountIn(BaseModel):
     # ⚠️ Телефон обязателен только при СОЗДАНИИ. У PATCH своя модель
     # (AccountPatch): там телефон не меняют, а требовать его значило бы
@@ -135,7 +146,10 @@ async def create_account(data: AccountIn,
              RETURNING id""",
         phone, data.title, data.twofa_password, data.proxy,
         str(session_dir / phone), data.max_slots, data.is_active,
-        data.daily_bot_limit, data.min_create_gap_min,
+        # ⚠️ Не присланное поле = дефолт, а не «без ограничения»: аккаунт без
+        # суточного лимита легко доводит BotFather до 17-часового запрета.
+        data.daily_bot_limit if data.daily_bot_limit is not None else DEFAULT_DAILY_LIMIT,
+        data.min_create_gap_min if data.min_create_gap_min is not None else DEFAULT_GAP_MIN,
     )
     return {"ok": True, "id": account_id}
 
@@ -317,10 +331,12 @@ async def upload_bundle(files: list[UploadFile] = File(...),
             account_id = await db.fetchval(
                 """INSERT INTO tg_setup_accounts
                        (phone, title, username, twofa_password, session_path,
-                        max_slots, is_active, health)
-                    VALUES ($1, $2, $3, $4, $5, 5, TRUE, 'unknown')
+                        max_slots, is_active, health,
+                        daily_bot_limit, min_create_gap_min)
+                    VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'unknown', $7, $8)
                  RETURNING id""",
                 b.phone, b.title, b.username, twofa, base,
+                DEFAULT_MAX_SLOTS, DEFAULT_DAILY_LIMIT, DEFAULT_GAP_MIN,
             )
         results.append({"phone": b.phone, "ok": True, "note": note,
                         "id": account_id, "twofa_found": bool(b.twofa)})
@@ -437,11 +453,13 @@ async def _save_logged_in(db, res: dict, twofa: Optional[str] = None) -> None:
         await db.execute(
             """INSERT INTO tg_setup_accounts
                    (phone, title, username, tg_user_id, twofa_password,
-                    session_path, max_slots, is_active, health, health_note)
-                VALUES ($1, $2, $3, $4, $5, $6, 5, TRUE, 'unknown',
-                        'Вошли по коду из SMS')""",
+                    session_path, max_slots, is_active, health, health_note,
+                    daily_bot_limit, min_create_gap_min)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, 'unknown',
+                        'Вошли по коду из SMS', $8, $9)""",
             phone, res.get("title"), res.get("username"),
             res.get("tg_user_id"), twofa, base,
+            DEFAULT_MAX_SLOTS, DEFAULT_DAILY_LIMIT, DEFAULT_GAP_MIN,
         )
 
 

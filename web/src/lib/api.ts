@@ -69,8 +69,12 @@ async function request(path: string, options?: RequestInit) {
       const path = window.location.pathname
       // ⚠️ /admin/login тоже сюда: там 401 = «неверный пароль администратора»,
       // и без этой ветки страница уводила бы админа на клиентский вход.
+      // ⚠️ /admin/login и /tech/login тоже сюда: там 401 = «неверный пароль»,
+      // а не «вход протух». Без этого страница уводила бы человека на
+      // КЛИЕНТСКИЙ вход — поймано 15.09.2026 на кабинете внедренца.
       const onAuthPage = /^\/(login|register|password-reset|verify-email)/.test(path)
         || path.startsWith('/admin/login')
+        || path.startsWith('/tech/login')
       if (!onAuthPage) {
         try {
           localStorage.removeItem('plusson_token')
