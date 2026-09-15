@@ -637,9 +637,13 @@ export default function SpeakerCabinetPage() {
               chosenId={chosenId}
               setChosenId={setChosenId}
               onUsernameAutofill={(name) => {
+                // ⚠️ Менеджер паролей мог сохранить имя в любом порядке —
+                // сверяем и «Фамилия Имя», и «Имя Фамилия», иначе
+                // автозаполнение молча не срабатывает.
+                const n = (s: string) => (s || '').toLowerCase().replace(/ё/g, 'е').trim()
                 const found = (list || []).find(
-                  sp => sp.full_name.toLowerCase().replace(/ё/g, 'е').trim()
-                        === name.toLowerCase().replace(/ё/g, 'е').trim()
+                  sp => n(sp.full_name) === n(name)
+                     || n(`${sp.first_name} ${sp.last_name}`) === n(name)
                 )
                 if (found) setChosenId(found.speaker_event_id)
               }}
@@ -1801,8 +1805,17 @@ function SpeakerPicker({ list, chosenId, setChosenId, onUsernameAutofill, wordin
   const [open, setOpen] = useState<boolean>(false)
   const chosen = list.find(sp => sp.speaker_event_id === chosenId) || null
   const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').trim()
+  // ⚠️⚠️ Ищем в ОБОИХ порядках — «Фамилия Имя» И «Имя Фамилия». В списке
+  // показывается «Фамилия Имя» (так человек ищет себя глазами), но вводят
+  // люди привычное «Марго Форбс» — и раньше не находили никого: такой
+  // подстроки в «Форбс Марго» нет. Поймано на живом входе 16.09.2026.
+  // ⚠️ Плюс поиск по каждому полю отдельно: кто-то вводит только имя.
+  const haystack = (sp: SpeakerListItem) => norm(
+    [sp.full_name, `${sp.first_name} ${sp.last_name}`, sp.first_name, sp.last_name]
+      .filter(Boolean).join(' · ')
+  )
   const filtered = norm(query)
-    ? list.filter(sp => norm(sp.full_name).includes(norm(query)))
+    ? list.filter(sp => haystack(sp).includes(norm(query)))
     : list
   return (
     <div style={{ position: 'relative', marginBottom: 14 }}>

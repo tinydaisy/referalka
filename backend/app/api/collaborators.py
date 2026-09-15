@@ -9,6 +9,9 @@ from typing import Optional, List, Any
 from app.auth import get_current_client
 from app.database import get_db
 from app.services.collaborator_sort import avg_brought_sql, events_count_sql
+# ⚠️ Имя человека — только через person_name: «Имя Фамилия» для показа,
+# «Фамилия Имя» для поиска. Свою склейку в запросе не писать.
+from app.services.person_name import DISPLAY_NAME_SQL, SEARCH_NAME_SQL
 import asyncpg
 import secrets
 import json
@@ -328,7 +331,15 @@ async def list_collaborators(
     if q:
         rows = await db.fetch(
             f"SELECT {select} FROM collaborators c {_COLLAB_JOIN} "
-            f"WHERE c.created_by_client_id = $1 AND (c.name ILIKE $2 OR COALESCE(c.last_name,'') ILIKE $2) "
+            # ⚠️⚠️ Ищем и по СКЛЕЕННОМУ имени в обоих порядках. Раньше условие
+            # было только «имя ИЛИ фамилия» по отдельности, и запрос «Марго
+            # Форбс» не находил никого: целой строки нет ни в одном поле.
+            # Фамилия отделилась от имени миграцией 302 — поиск за ней не
+            # поехал. Образец — collab_hub.py, там уже так.
+            f"WHERE c.created_by_client_id = $1 AND ("
+            f"c.name ILIKE $2 OR COALESCE(c.last_name,'') ILIKE $2"
+            f" OR {DISPLAY_NAME_SQL('c')} ILIKE $2"
+            f" OR {SEARCH_NAME_SQL('c')} ILIKE $2) "
             f"ORDER BY {order_by}",
             client_id, f"%{q}%"
         )
