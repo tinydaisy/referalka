@@ -315,6 +315,14 @@ async def create_order(
     # ── Промокод (миграция 397) ──
     # ⚠️ product_tariffs.price — integer, а product_orders.amount — numeric.
     # Считаем в целых рублях, как и у события: у скидки нет копеек.
+    # ⚠️⚠️ То же, что у события: с кодом товара LeadPay берёт цену из карточки,
+    # и скидка превратилась бы в обман — на экране одна сумма, списана другая.
+    if data.promo_code and (t["pay_product_id"] or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="На этом тарифе промокоды не действуют.",
+        )
+
     promo = None
     if data.promo_code and price > 0:
         try:

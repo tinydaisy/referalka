@@ -1275,7 +1275,8 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
         # карточка тарифа и форма заказа неполные.
         _trs = await db.fetch(
             """SELECT id, title, description, excluded_description,
-                      order_hint, price, discount_kind, discount_value
+                      order_hint, price, discount_kind, discount_value,
+                      pay_product_id
                  FROM event_tariffs
                 WHERE event_id = $1 AND is_active
                 ORDER BY sort_order, id""",
@@ -1291,7 +1292,17 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                 ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""",
             row["id"])
         _promo_ok = supported_by_provider(_pp)
-        d["tariffs"] = [{**with_discount(t), "promo_allowed": _promo_ok} for t in _trs]
+        # ⚠️ У тарифа с кодом товара промокод не работает (LeadPay берёт цену
+        # из своей карточки) — поле покупателю не показываем: пустое поле,
+        # которое ничего не делает, хуже его отсутствия.
+        # ⚠️ Сам код товара наружу не отдаём — это внутренняя настройка
+        # кабинета, покупателю она не нужна.
+        d["tariffs"] = []
+        for t in _trs:
+            _t = with_discount(t)
+            _pid = (_t.pop("pay_product_id", None) or "").strip()
+            _t["promo_allowed"] = _promo_ok and not _pid
+            d["tariffs"].append(_t)
     except Exception:
         pass          # тарифы не должны ронять страницу события
 

@@ -448,7 +448,7 @@ async def get_public_landing(
     if "tariffs" in kinds:
         rows = await db.fetch(
             "SELECT t.id, t.code, t.title, t.description, t.excluded_description, t.price, "
-            "t.discount_kind, t.discount_value, t.pay_url, "
+            "t.discount_kind, t.discount_value, t.pay_url, t.pay_product_id, "
             "t.order_hint, t.sort_order, t.is_featured, "
             "t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, COALESCE(t.bonus_line_auto, TRUE) AS bonus_line_auto, "
             "f.name AS bonus_feature_name "
@@ -496,7 +496,13 @@ async def get_public_landing(
             # with_discount дописывает old_price / discount_percent —
             # зачёркнутую цену считаем в одном месте, а не в каждом рендерере.
             d = with_discount(r)
-            d["promo_allowed"] = promo_allowed
+            # ⚠️ Код товара считается ПО КАЖДОМУ тарифу, а не одним флагом на
+            # все: у тарифа с карточкой LeadPay берёт цену из неё и нашу сумму
+            # игнорирует — промокод там невозможен, поле показывать нельзя.
+            # ⚠️ Сам код наружу не отдаём: покупателю он не нужен, а это
+            # внутренняя настройка кабинета.
+            _pid = (d.pop("pay_product_id", None) or "").strip()
+            d["promo_allowed"] = promo_allowed and not _pid
             if featured:
                 d["is_featured"] = d["id"] == featured
             # ⚠️ Строка «Бонус:» собирается ЗДЕСЬ, а не пишется клиентом в

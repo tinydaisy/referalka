@@ -147,6 +147,28 @@ def is_configured(client: dict) -> bool:
     return False
 
 
+def _leadpay_result(resp, client: dict) -> str:
+    """Разбор ответа LeadPay — общий на обе версии API.
+
+    ⚠️ Один разбор на v1 и v2: копия неминуемо разъедется, и тогда одна ветка
+    будет объяснять отказ человеку, а вторая молча падать.
+    """
+    try:
+        body = resp.json()
+    except Exception:
+        logger.error("LeadPay (клиент %s): не JSON (%s): %s",
+                     client.get("id"), resp.status_code, resp.text[:300])
+        raise RuntimeError(
+            f"Платёжная система вернула непонятный ответ (HTTP {resp.status_code})")
+
+    if body.get("status") == "success" and body.get("url"):
+        return body["url"]
+
+    desc = body.get("description") or body.get("message") or "неизвестная ошибка"
+    logger.error("LeadPay (клиент %s) getLink: %s", client.get("id"), desc)
+    raise RuntimeError(f"Платёжная система: {desc}")
+
+
 def _leadpay_hash(params: dict, token: str) -> str:
     """HMAC-SHA256 по алгоритму LeadPay: ключи по алфавиту, значения склеены
     без разделителей, без поля `hash`."""
@@ -590,19 +612,43 @@ async def create_payment_link(
     login = (client["pay_leadpay_login"] or "").strip()
     token = (client["pay_leadpay_token"] or "").strip()
 
-    # ⚠️⚠️ ТОЛЬКО v2 — карточки товаров у клиентов не заводим (решение
-    # владельца 14.09.2026). Старый v1 (getLink) брал цену и название ИЗ
-    # КАРТОЧКИ по `product_id`, а переданную сумму молча игнорировал
-    # (проверено на боевых ключах 10.09.2026: ответ `success`, а на странице
-    # оплаты осталась цена карточки). Значит на v1 не работает ни промокод,
-    # ни скидка, ни правка цены тарифа: клиенту пришлось бы заводить карточку
-    # на КАЖДЫЙ тариф и держать её цену в согласии с нашей вручную.
-    # v2 принимает `product_name` и `product_price` прямо в запросе.
+    # ⚠️⚠️ ДВЕ ВЕТКИ, и выбирает их КЛИЕНТ — заполненным кодом товара:
     #
-    # ⚠️ У v2 `email` ОБЯЗАТЕЛЕН, и это безопасно: все формы заказа (веб,
-    # Mini App события, Mini App продукта) требуют почту — на неё приходит
-    # доступ. Возврата на v1 нет: он тихо выставил бы человеку чужую сумму,
-    # а это хуже честной ошибки.
+    #   код ЗАПОЛНЕН → v1: цену и название берёт КАРТОЧКА LeadPay, наша сумма
+    #       игнорируется (проверено на боевых ключах 10.09.2026: ответ
+    #       `success`, а на странице оплаты цена карточки). Промокод и скидка
+    #       на таком тарифе не работают — это сказано клиенту прямо в форме,
+    #       и поле промокода покупателю не показывается.
+    #   код ПУСТ → v2: `product_name` и `product_price` идут в запросе,
+    #       карточка не нужна, работают скидка и промокод.
+    #
+    # ⚠️ Прежняя правка выкинула v1 совсем, и это было ошибкой: у тарифов,
+    # заведённых раньше, код товара остался в базе, а способы приёма денег у
+    # LeadPay могут быть привязаны именно к карточке — без неё он отвечает
+    # «нет подходящих форм оплаты». Ветку вернули, выбор оставлен клиенту.
+    if product_id and str(product_id).strip():
+        params = {
+            "login": login,
+            "id": f"evt-{order_id}",
+            "product_id": str(product_id).strip(),
+            "count": "1",
+            "notification_url": notification_url,
+            "redirect_url_ok": redirect_url_ok,
+            "redirect_url_error": redirect_url_error,
+        }
+        if email:
+            params["email"] = email
+        if phone:
+            params["phone"] = phone
+        if fio:
+            params["fio"] = fio
+        params["hash"] = _leadpay_hash(params, token)
+        async with httpx.AsyncClient(timeout=20.0) as cli:
+            resp = await cli.post(LEADPAY_GETLINK_URL, data=params)
+        return _leadpay_result(resp, client), provider
+
+    # ⚠️ У v2 `email` ОБЯЗАТЕЛЕН (в v1 не был): все формы заказа его требуют —
+    # на почту приходит доступ, так что это безопасно.
     if price is None:
         raise RuntimeError("У тарифа не указана цена — LeadPay не примет заказ")
     if not email:
@@ -638,19 +684,7 @@ async def create_payment_link(
     async with httpx.AsyncClient(timeout=20.0) as cli:
         resp = await cli.post(url, data=params)
 
-    try:
-        body = resp.json()
-    except Exception:
-        logger.error("LeadPay (клиент %s): не JSON (%s): %s",
-                     client.get("id"), resp.status_code, resp.text[:300])
-        raise RuntimeError(f"Платёжная система вернула непонятный ответ (HTTP {resp.status_code})")
-
-    if body.get("status") == "success" and body.get("url"):
-        return body["url"], provider
-
-    desc = body.get("description") or body.get("message") or "неизвестная ошибка"
-    logger.error("LeadPay (клиент %s) getLink: %s", client.get("id"), desc)
-    raise RuntimeError(f"Платёжная система: {desc}")
+    return _leadpay_result(resp, client), provider
 
 
 async def check_credentials(provider: Optional[str], creds: dict) -> tuple[bool, str]:
