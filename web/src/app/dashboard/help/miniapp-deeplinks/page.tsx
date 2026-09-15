@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import { BookOpen, ExternalLink, Copy, Check, Gift, CalendarDays, Ticket, Globe } from 'lucide-react'
@@ -20,7 +20,22 @@ const TABS = [
   { id: 'ecosystem', label: '🌐 Экосистема', note: 'визитка бренда, основатель и продукты',                          icon: Globe },
 ] as const
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента в адресе,
+// поэтому Next пререндерит её на сборке. `useUrlTab` внутри читает адрес
+// (`useSearchParams`), а такой хук на пререндеренной странице требует
+// <Suspense> — без неё падает сборка ВСЕГО проекта:
+// «useSearchParams() should be wrapped in a suspense boundary».
+// ⚠️ `tsc` эту ошибку НЕ ловит — только сборка. Поймано 15.09.2026.
 export default function MiniAppDeeplinksPage() {
+  return (
+    <Suspense fallback={null}>
+      <MiniAppDeeplinksPageInner />
+    </Suspense>
+  )
+}
+
+function MiniAppDeeplinksPageInner() {
   const [events, setEvents] = useState<EventRow[]>([])
   const [botHandle, setBotHandle] = useState<string | null>(null) // handle своего TG-бота клиента (без @) или null = системный @pluson_bot
   const [loading, setLoading] = useState(true)

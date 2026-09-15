@@ -15,7 +15,7 @@
  * «cannot create new bots». Поэтому состояние здесь главный показатель: очередь
  * берёт только аккаунты со статусом «Работает».
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import {
   AlertTriangle, Check, HelpCircle, Loader2, PauseCircle, PlayCircle, Plus,
@@ -105,7 +105,20 @@ const STATE: Record<string, string> = {
   failed: 'Сорвалось',
 }
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента, поэтому
+// Next пререндерит её на сборке, а `useUrlTab` читает адрес (`useSearchParams`)
+// — на пререндеренной странице это требует <Suspense>, иначе падает сборка
+// ВСЕГО проекта. ⚠️ `tsc` такую ошибку не ловит, только сборка.
 export default function AdminTgSetupPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminTgSetupPageInner />
+    </Suspense>
+  )
+}
+
+function AdminTgSetupPageInner() {
   const [tab, setTab] = useUrlTab<'accounts' | 'orders' | 'service'>('tab', 'accounts', ['accounts', 'orders', 'service'])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [orders, setOrders] = useState<Order[]>([])

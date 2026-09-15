@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus, ChevronDown, Palette, CreditCard, Image as ImageIcon } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -43,7 +43,21 @@ const TIMEZONES = [
   { value: 'UTC', label: 'UTC (GMT+0)' },
 ]
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. Страница без динамического сегмента — Next
+// пререндерит её на сборке. Внутри живут PaymentsSection и StorageTab, а они
+// читают адрес через `useUrlTab` (`useSearchParams`): на пререндеренной
+// странице это требует <Suspense>, иначе падает сборка ВСЕГО проекта.
+// ⚠️ Опасность НЕ видна в самом файле — хук лежит во вложенном компоненте.
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SettingsPageInner />
+    </Suspense>
+  )
+}
+
+function SettingsPageInner() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'profile'
     // (тип Tab расширен — добавлен legal)

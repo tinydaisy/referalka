@@ -8,7 +8,7 @@
  * и показывает то, чего в учёте нет вовсе — служебные файлы платформы, ручные
  * заливки мимо кабинетов и осиротевшие записи. Ради них раздел и нужен.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { HardDrive, Loader2, AlertTriangle, Users, Server, FileWarning } from 'lucide-react'
 
@@ -30,7 +30,20 @@ type Data = {
   orphans: Orphan[]; orphans_bytes: number
 }
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента, поэтому
+// Next пререндерит её на сборке, а `useUrlTab` читает адрес (`useSearchParams`)
+// — на пререндеренной странице это требует <Suspense>, иначе падает сборка
+// ВСЕГО проекта. ⚠️ `tsc` такую ошибку не ловит, только сборка.
 export default function AdminStoragePage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminStoragePageInner />
+    </Suspense>
+  )
+}
+
+function AdminStoragePageInner() {
   const [data, setData] = useState<Data | null>(null)
   const [error, setError] = useState('')
   const [tab, setTab] = useUrlTab<'clients' | 'service' | 'orphans'>('tab', 'clients', ['clients', 'service', 'orphans'])

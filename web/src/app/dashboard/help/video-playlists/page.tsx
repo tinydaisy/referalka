@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import { BookOpen, Youtube, ExternalLink } from 'lucide-react'
@@ -25,7 +25,22 @@ const LESSONS: Lesson[] = [
 
 type TabKey = 'yt' | 'vk'
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента в адресе,
+// поэтому Next пререндерит её на сборке. `useUrlTab` внутри читает адрес
+// (`useSearchParams`), а такой хук на пререндеренной странице требует
+// <Suspense> — без неё падает сборка ВСЕГО проекта:
+// «useSearchParams() should be wrapped in a suspense boundary».
+// ⚠️ `tsc` эту ошибку НЕ ловит — только сборка. Поймано 15.09.2026.
 export default function VideoPlaylistsPage() {
+  return (
+    <Suspense fallback={null}>
+      <VideoPlaylistsPageInner />
+    </Suspense>
+  )
+}
+
+function VideoPlaylistsPageInner() {
   const [tab, setTab] = useUrlTab<TabKey>('tab', 'yt')
 
   return (

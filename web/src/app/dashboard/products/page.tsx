@@ -10,7 +10,7 @@
  *    нет намеренно: материал добавляется прямо из продукта, а сюда заходят,
  *    когда нужно переименовать, заменить файл или посмотреть, где он стоит.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import { api } from '@/lib/api'
@@ -25,7 +25,22 @@ const STATUS_LABEL: Record<string, string> = {
   archived: 'В архиве',
 }
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента в адресе,
+// поэтому Next пререндерит её на сборке. `useUrlTab` внутри читает адрес
+// (`useSearchParams`), а такой хук на пререндеренной странице требует
+// <Suspense> — без неё падает сборка ВСЕГО проекта:
+// «useSearchParams() should be wrapped in a suspense boundary».
+// ⚠️ `tsc` эту ошибку НЕ ловит — только сборка. Поймано 15.09.2026.
 export default function ProductsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ProductsPageInner />
+    </Suspense>
+  )
+}
+
+function ProductsPageInner() {
   const { me, isAssistant } = useMe()
   const [tab, setTab] = useUrlTab<'products' | 'materials'>('tab', 'products', ['products', 'materials'])
 

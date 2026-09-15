@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { Copy, Check, ArrowRight, Users, Wallet, X, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -43,7 +43,22 @@ const WD_STATUS: Record<string, { label: string; color: string }> = {
 type Tab = 'main' | 'materials' | 'referrals' | 'payouts'
 type RefFilter = 'all' | 'active' | 'inactive'
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента в адресе,
+// поэтому Next пререндерит её на сборке. `useUrlTab` внутри читает адрес
+// (`useSearchParams`), а такой хук на пререндеренной странице требует
+// <Suspense> — без неё падает сборка ВСЕГО проекта:
+// «useSearchParams() should be wrapped in a suspense boundary».
+// ⚠️ `tsc` эту ошибку НЕ ловит — только сборка. Поймано 15.09.2026.
 export default function PartnerProgramPage() {
+  return (
+    <Suspense fallback={null}>
+      <PartnerProgramPageInner />
+    </Suspense>
+  )
+}
+
+function PartnerProgramPageInner() {
   const [data, setData] = useState<RefData | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState<string | null>(null)

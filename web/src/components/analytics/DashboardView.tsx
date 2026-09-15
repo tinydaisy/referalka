@@ -13,6 +13,7 @@
  * 200 тысяч» — видно, кто из платёжеспособных готов покупать.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import PeopleColumnBase from './PeopleColumnBase'
@@ -494,7 +495,7 @@ function PickFieldsModal({ sources, used, onClose, onAdd }: {
   const groups = Array.from(new Set(sources.map(s => s.group)))
   const [group, setGroup] = useState(groups[0] || '')
   const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [view, setView] = useState<'tile' | 'list'>('tile')
+  const [view, setView] = useUrlTab<'tile' | 'list'>('view', 'tile', ['tile', 'list'])
   const [busy, setBusy] = useState(false)
 
   // Показываем только то, что имеет смысл рисовать: списки, да/нет, числа.

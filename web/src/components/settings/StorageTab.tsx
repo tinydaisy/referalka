@@ -11,6 +11,7 @@
  * считаем в браузере: размер файла и его принадлежность знает только сервер.
  */
 import { useEffect, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import Link from 'next/link'
 import {
   HardDrive, ChevronLeft, ExternalLink, Loader2, Search,
@@ -36,7 +37,7 @@ type KindStat = { label: string; count: number; size_bytes: number; size_human: 
 const API = process.env.NEXT_PUBLIC_API_URL || ''
 
 export default function StorageTab() {
-  const [view, setView] = useState<'summary' | 'details'>('summary')
+  const [view, setView] = useUrlTab<'summary' | 'details'>('storage', 'summary', ['summary', 'details'])
   const [usage, setUsage] = useState<Usage | null>(null)
   const [files, setFiles] = useState<FileRow[]>([])
   const [groups, setGroups] = useState<Group[]>([])

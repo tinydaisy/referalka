@@ -6,7 +6,7 @@
  * ⚠️ Распределение здесь, а не в кабинете внедренца: кому кого вести — решение
  * владельца. Иначе специалист набирал бы себе платящих и обходил остывших.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 
@@ -26,7 +26,20 @@ const KIND: Record<string, string> = {
 
 type Tab = 'specs' | 'assign' | 'dialogs' | 'money'
 
+
+// ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента, поэтому
+// Next пререндерит её на сборке, а `useUrlTab` читает адрес (`useSearchParams`)
+// — на пререндеренной странице это требует <Suspense>, иначе падает сборка
+// ВСЕГО проекта. ⚠️ `tsc` такую ошибку не ловит, только сборка.
 export default function AdminTechPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminTechPageInner />
+    </Suspense>
+  )
+}
+
+function AdminTechPageInner() {
   const [tab, setTab] = useUrlTab<Tab>('tab', 'specs')
   const [specs, setSpecs] = useState<any[]>([])
   const [rates, setRates] = useState<any[]>([])
