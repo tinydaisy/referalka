@@ -108,7 +108,8 @@ async def list_addons(
 
     feats = await db.fetch(
         """SELECT id, slug, name, description, tagline, bullet_points,
-                  price_monthly, price_6mo, promo_old_monthly, promo_old_6mo,
+                  price_monthly, price_6mo, price_12mo,
+                  promo_old_monthly, promo_old_6mo,
                   min_tariff_slug, coming_soon, leadpay_bundle_pro_product_id,
                   prodamus_payment_url, prodamus_payment_url_6mo,
                   leadpay_product_id, leadpay_product_id_6mo
@@ -175,11 +176,25 @@ async def list_addons(
         _lk = lock_map.get(f["id"])
         d["locked_price"] = int(_lk["locked_price"]) if _lk else None
         d["locked_until"] = _lk["expires_at"] if _lk else None
-        d["monthly_payable"] = bool(f["prodamus_payment_url"] or f["leadpay_product_id"])
-        d["sixmo_payable"] = bool(f["prodamus_payment_url_6mo"] or f["leadpay_product_id_6mo"])
+        # ⚠️ LeadPay платит ЛЮБОЙ период без карточки (v2, 15.09.2026): условие
+        # «есть карточка» убрано, иначе кнопки 6 и 12 месяцев не появлялись бы
+        # вовсе — колонки `leadpay_product_id_6mo` пусты у всех модулей.
+        # Остаётся одно требование: у модуля задана цена этого периода.
+        from app.services import leadpay as _lp   # ленивый импорт, как в оплате ниже
+        _lp_ready = _lp.is_configured()
+        d["monthly_payable"] = bool(f["prodamus_payment_url"] or _lp_ready or f["leadpay_product_id"])
+        d["sixmo_payable"] = bool(f["price_6mo"]) and bool(
+            f["prodamus_payment_url_6mo"] or _lp_ready or f["leadpay_product_id_6mo"])
+        d["twelvemo_payable"] = bool(f["price_12mo"]) and _lp_ready
         # Предпочтительный провайдер помесячной оплаты (Prodamus если есть ссылка, иначе LeadPay).
-        d["monthly_provider"] = "prodamus" if f["prodamus_payment_url"] else ("leadpay" if f["leadpay_product_id"] else None)
-        d["sixmo_provider"] = "prodamus" if f["prodamus_payment_url_6mo"] else ("leadpay" if f["leadpay_product_id_6mo"] else None)
+        # ⚠️ LeadPay годится всегда, когда он настроен, — карточка не нужна.
+        # Продамус остаётся предпочтительным там, где у модуля заведена его
+        # ссылка: она уже работает и заводилась вручную под конкретную сумму.
+        d["monthly_provider"] = "prodamus" if f["prodamus_payment_url"] else ("leadpay" if _lp_ready or f["leadpay_product_id"] else None)
+        d["sixmo_provider"] = "prodamus" if f["prodamus_payment_url_6mo"] else ("leadpay" if _lp_ready or f["leadpay_product_id_6mo"] else None)
+        # Год — только LeadPay: у Продамуса ссылка заводится под сумму заранее,
+        # длинных периодов у него нет вовсе.
+        d["twelvemo_provider"] = "leadpay" if _lp_ready else None
         for k in ("leadpay_bundle_pro_product_id", "prodamus_payment_url", "prodamus_payment_url_6mo",
                   "leadpay_product_id", "leadpay_product_id_6mo"):
             d.pop(k, None)
@@ -189,7 +204,7 @@ async def list_addons(
 
 class AddonOrderRequest(BaseModel):
     feature_slug: str
-    months: int = 1            # 1 или 6 (6 = цена со скидкой)
+    months: int = 1            # 1, 6 или 12 — у длинных цена за месяц ниже
     provider: str = "prodamus"  # 'prodamus' | 'leadpay'
     bundle: bool = False        # True = комплект «тариф Профи + модуль» одной оплатой (для клиента без Профи)
 
@@ -208,7 +223,10 @@ async def create_addon_order(
         raise HTTPException(status_code=400, detail="Неизвестный способ оплаты")
 
     client_id = int(user["sub"])
-    months = 6 if data.months >= 6 else 1
+    # ⚠️ Периоды те же, что у тарифов: 1, 6, 12. Мусор → 1 месяц, а не отказ:
+    # клиент не должен упереться в ошибку из-за кривого параметра, а месяц —
+    # самый безопасный исход (сверх ожидаемого не спишется).
+    months = 12 if data.months >= 12 else (6 if data.months >= 6 else 1)
     bundle = bool(data.bundle)
     if bundle:
         # Комплект «Профи + модуль» — только LeadPay-карточка, только на месяц.
@@ -216,7 +234,8 @@ async def create_addon_order(
         months = 1
 
     feat = await db.fetchrow(
-        """SELECT id, slug, name, is_addon, coming_soon, price_monthly, price_6mo, min_tariff_slug,
+        """SELECT id, slug, name, is_addon, coming_soon,
+                  price_monthly, price_6mo, price_12mo, min_tariff_slug,
                   prodamus_payment_url, prodamus_payment_url_6mo,
                   leadpay_product_id, leadpay_product_id_6mo, leadpay_bundle_pro_product_id,
                   leadpay_product_id_locked, price_monthly_locked
@@ -254,10 +273,23 @@ async def create_addon_order(
         pro_price = await db.fetchval("SELECT price FROM tariffs WHERE slug='pro'")
         price_month = int(feat["price_monthly"] or 0) + int(pro_price or 0)
         pay_url = None
+    elif months == 12:
+        # ⚠️ Карточка LeadPay НЕ нужна: сумма уходит в запросе (v2). Раньше
+        # здесь стоял бы откат на месячную карточку, и клиент заплатил бы
+        # цену одного месяца за год.
+        price_month = feat["price_12mo"] or feat["price_6mo"] or feat["price_monthly"]
+        pay_url = None          # у Продамуса длинных периодов нет
+        leadpay_pid = None
     elif months == 6:
         price_month = feat["price_6mo"] or feat["price_monthly"]
         pay_url = feat["prodamus_payment_url_6mo"] or feat["prodamus_payment_url"]
-        leadpay_pid = feat["leadpay_product_id_6mo"] or feat["leadpay_product_id"]
+        # ⚠️⚠️ Откат на МЕСЯЧНУЮ карточку убран (15.09.2026). Колонка
+        # `leadpay_product_id_6mo` пуста у всех модулей, и прежний
+        # `or leadpay_product_id` подставлял карточку одного месяца: у нас
+        # в заказе 4800 ₽, а LeadPay списал бы 1000. Мина не выстрелила
+        # только потому, что полугодовых оплат не случилось ни одной.
+        # Теперь сумма идёт в запросе через v2, карточка не нужна.
+        leadpay_pid = feat["leadpay_product_id_6mo"]
     else:
         price_month = feat["price_monthly"]
         pay_url = feat["prodamus_payment_url"]
@@ -283,8 +315,9 @@ async def create_addon_order(
         raise HTTPException(status_code=400, detail="У модуля не задана цена")
     if provider == "prodamus" and not pay_url:
         raise HTTPException(status_code=400, detail="Для модуля не настроена ссылка оплаты Prodamus")
-    if provider == "leadpay" and not leadpay_pid:
-        raise HTTPException(status_code=400, detail="Для модуля не настроена карточка LeadPay (product_id)")
+    # ⚠️ Требование карточки LeadPay СНЯТО (15.09.2026): сумма уходит в
+    # запросе через v2. Раньше из-за него полугодовая и годовая оплата были
+    # невозможны вовсе — колонки карточек периодов пусты у всех модулей.
 
     amount_rub = int(price_month) * months
     amount_kopecks = amount_rub * 100
@@ -305,6 +338,10 @@ async def create_addon_order(
             payment_url = await leadpay.create_payment_link(
                 order_id=order_id,
                 product_id=leadpay_pid,
+                # ⚠️ Название и сумма — для v2 (когда карточки нет). Период
+                # называем прямо: человек видит на странице оплаты, за что платит.
+                title=f"{feat['name']} — {months} мес." if months > 1 else feat["name"],
+                price=amount_rub,
                 notification_url=f"{base}/api/v1/integrations/leadpay/addon-webhook",
                 order_id_prefix="addon-",
                 email=client["email"] or None,

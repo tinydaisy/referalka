@@ -612,15 +612,27 @@ function ModulesBlock() {
                   {/* ⚠️ Вторая золотая кнопка рядом конкурировала с первой:
                       две одинаковые «главные» кнопки читаются как одна
                       сломанная. Полгода — второстепенное действие. */}
+                  {/* ⚠️ Процент СЧИТАЕМ из цен, а не пишем числом: захардкоженное
+                      «−20%» пережило бы правку цены и начало врать. Ровно так и
+                      было до 15.09.2026 — в подписи стояло −20%, хотя скидку
+                      меняли. Та же формула, что на лендинге. */}
                   {a.price_6mo && a.sixmo_payable && (
                     <button onClick={() => buy(a.slug, 6, false, a.sixmo_provider || 'prodamus')} disabled={!!loadingSlug}
                       className="w-full px-3 py-2 rounded-lg text-xs font-semibold border border-[#25455D]/30 text-[#25455D] hover:bg-blue-50 disabled:opacity-50 flex items-center justify-center gap-1.5">
                       {loadingSlug === a.slug + ':6'
                         ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
-                        : `6 мес — ${a.price_6mo?.toLocaleString('ru-RU')} ₽ (−20%)`}
+                        : `6 мес — ${a.price_6mo?.toLocaleString('ru-RU')} ₽/мес (−${Math.round((1 - a.price_6mo / (a.price_monthly || 1)) * 100)}%)`}
                     </button>
                   )}
-                  {!a.monthly_payable && !a.sixmo_payable && (
+                  {a.price_12mo && a.twelvemo_payable && (
+                    <button onClick={() => buy(a.slug, 12, false, a.twelvemo_provider || 'leadpay')} disabled={!!loadingSlug}
+                      className="w-full px-3 py-2 rounded-lg text-xs font-semibold border border-[#25455D]/30 text-[#25455D] hover:bg-blue-50 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      {loadingSlug === a.slug + ':12'
+                        ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Соединяем…</>
+                        : `12 мес — ${a.price_12mo?.toLocaleString('ru-RU')} ₽/мес (−${Math.round((1 - a.price_12mo / (a.price_monthly || 1)) * 100)}%)`}
+                    </button>
+                  )}
+                  {!a.monthly_payable && !a.sixmo_payable && !a.twelvemo_payable && (
                     <p className="text-xs text-amber-600">Оплата этого модуля скоро появится</p>
                   )}
                 </div>

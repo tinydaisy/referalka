@@ -90,7 +90,8 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
         # людей нельзя. Триал не исключаем — он показывает, что возможность
         # можно пощупать бесплатно.
         """SELECT f.slug, f.name, f.description, f.sort, f.hidden_in_card,
-                  f.is_addon, f.price_monthly, f.price_6mo, f.min_tariff_slug,
+                  f.is_addon, f.price_monthly, f.price_6mo, f.price_12mo,
+                  f.min_tariff_slug,
                   f.promo_old_monthly, f.promo_old_6mo,
                   f.tagline, f.bullet_points, f.coming_soon,
                   f.leadpay_bundle_pro_product_id,

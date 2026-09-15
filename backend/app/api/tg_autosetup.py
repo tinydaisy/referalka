@@ -1159,6 +1159,9 @@ async def _payment_link(db, svc, order_id: int, client_id: int) -> Optional[str]
         return await leadpay.create_payment_link(
             order_id=order_id,
             product_id=svc["leadpay_product_id"],
+            # Для v2 (когда карточки нет) — название и цена услуги из базы.
+            title=svc["name"],
+            price=svc["price"],
             notification_url=f"{base}/api/v1/integrations/leadpay/service-webhook",
             order_id_prefix="svc-",
         )

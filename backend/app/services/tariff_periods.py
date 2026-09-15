@@ -108,7 +108,10 @@ def period_of(tariff, months: int, provider: str) -> dict:
     price = month_price(tariff, months)
     lp = leadpay_product_id(tariff, months)
     if provider == "leadpay":
-        payable = price is not None and bool(lp)
+        # ⚠️ Карточка больше НЕ обязательна (15.09.2026): сумма уходит в
+        # запросе через api/v2/getLink. Прежнее `and bool(lp)` прятало период
+        # от клиента, если карточка не заведена, — теперь достаточно цены.
+        payable = price is not None
     elif provider == "bonus":
         payable = price is not None
     else:  # prodamus и всё остальное — только помесячно

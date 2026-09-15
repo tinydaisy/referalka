@@ -44,6 +44,7 @@ interface Feature {
   coming_soon?: boolean
   price_monthly: number | null
   price_6mo: number | null
+  price_12mo: number | null
   promo_old_monthly: number | null
   promo_old_6mo: number | null
   min_tariff_slug: string | null
@@ -377,6 +378,12 @@ function ModuleCard({ m, registerHref }: { m: Feature; registerHref: string }) {
             <p className="text-xs text-emerald-600 font-medium">
               {m.price_6mo.toLocaleString('ru-RU')} ₽/мес при оплате за 6 мес
               {' '}(−{Math.round((1 - m.price_6mo / (m.price_monthly || 1)) * 100)}%)
+            </p>
+          )}
+          {m.price_12mo && m.price_12mo < (m.price_monthly || 0) && (
+            <p className="text-xs text-emerald-600 font-medium">
+              {m.price_12mo.toLocaleString('ru-RU')} ₽/мес при оплате за 12 мес
+              {' '}(−{Math.round((1 - m.price_12mo / (m.price_monthly || 1)) * 100)}%)
             </p>
           )}
         </>

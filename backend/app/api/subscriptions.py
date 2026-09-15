@@ -123,6 +123,12 @@ async def create_order(
             payment_url = await leadpay.create_payment_link(
                 order_id=order_id,
                 product_id=period["leadpay_product_id"],
+                # ⚠️ Для v2 (когда карточки нет): сумма берётся из нашей базы,
+                # а не из карточки — значит цена в кабинете и на странице
+                # оплаты не могут разойтись. Итог уже посчитан в копейках.
+                title=(f"{tariff['name']} — {months} мес." if months > 1
+                       else str(tariff["name"])),
+                price=amount_kopecks / 100,
                 notification_url=f"{base}/api/v1/integrations/leadpay/webhook",
                 email=client["email"] or None,
                 phone=client["phone"] or None,
