@@ -139,7 +139,9 @@ product_tariffs (                        -- зеркало event_tariffs
   code, title, description, excluded_description,
   price INTEGER,                         -- рубли; NULL/0 = бесплатно, заказ не создаётся
   pay_url,                               -- фолбэк, когда платёжка не настроена
-  pay_product_id,                        -- код товара; нужен только LeadPay
+  pay_product_id,                        -- код карточки LeadPay; НЕ обязателен (с 15.09.2026)
+                                         -- пусто → v2 с нашей суммой (промокоды работают)
+                                         -- заполнен → v1 по карточке (промокоды НЕ работают)
   order_hint, sort_order, is_active, is_featured,
   created_at, updated_at
 )
