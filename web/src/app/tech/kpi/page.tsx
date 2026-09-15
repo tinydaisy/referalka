@@ -176,10 +176,12 @@ export default function TechKpiPage() {
         <h3 className="mb-3 text-base font-bold text-gray-900">Ставки</h3>
         <div className="grid gap-2 text-sm sm:grid-cols-2">
           {[
-            ['activation', 'Активация', 'вторая оплата после триала'],
+            ['activation', 'Активация', '10+ новых в воронке и вторая оплата'],
+            ['retention', 'Удержание', 'клиент оплатил второй месяц'],
             ['revival', 'Оживление', 'оплата после перерыва'],
             ['referral', 'Свой приведённый', 'каждый месяц, пока платит'],
             ['referral2', 'Второй уровень', 'кого привёл ваш приведённый'],
+            ['referral3', 'Третий уровень', 'следующий за вторым'],
           ].map(([kind, label, hint]) => {
             const v = pct(kind)
             if (!v) return null

@@ -14,9 +14,12 @@ const rub = (kop?: number | null) =>
 
 const KIND: Record<string, string> = {
   activation: 'Активации',
+  retention: 'Удержания',
   revival: 'Оживления',
   fix: 'Фикс за обслуживание',
-  referral: 'Процент за приведённых',
+  referral: 'Процент 1-го уровня',
+  referral2: 'Процент 2-го уровня',
+  referral3: 'Процент 3-го уровня',
   bonus: 'Премии',
 }
 

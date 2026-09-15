@@ -169,6 +169,17 @@ async def _on_payment(db: asyncpg.Connection, order_id: int) -> None:
             logger.info("tech: активация клиента %s не засчитана — %s новых из %s",
                         client_id, got, need)
 
+        # ── Удержание: 30 % за то, что клиент оплатил ВТОРОЙ месяц ──────
+        # ⚠️ Начисляется на том же событии, что и активация, но НЕЗАВИСИМО от
+        # порога подписчиков: активация — за качество запуска (10+ новых через
+        # воронку), удержание — за сам факт второй оплаты. Клиент может дожить
+        # до второго месяца и без выполненного порога; работа сделана, платим.
+        amount = await _amount(db, "retention", client_id)
+        if await _add(db, spec_id=spec_id, client_id=client_id,
+                      kind="retention", amount=amount, order_id=order_id,
+                      period=period, note="оплачен второй месяц"):
+            logger.info("tech: удержание клиента %s спецу %s", client_id, spec_id)
+
     # ── Оживление: оплата после 2+ месяцев тишины ────────────────────────
     # ⚠️ По РАЗРЫВУ между оплатами, а не по статусу подписки: статус меняет
     # задача раз в час и он отстаёт, а даты оплат — факт.
@@ -189,11 +200,19 @@ async def _on_payment(db: asyncpg.Connection, order_id: int) -> None:
 
 
 async def _referral_percents(db, *, client_id: int, order_id: int, period: str) -> None:
-    """10 % своему и 5 % второму уровню."""
+    """10 % своему, 5 % второму уровню, 2 % третьему.
+
+    ⚠️ Три уровня считаются ВСЕМ (решение владельца 15.09.2026), а не только
+    внедренцам: у обычного партнёра линии такой глубины не будет и строка
+    останется пустой. Одна механика дешевле двух параллельных.
+    """
     row = await db.fetchrow(
         """SELECT c.referred_by_tech_id AS l1,
                   (SELECT p.referred_by_tech_id FROM clients p
-                    WHERE p.id = c.referred_by_client_id) AS l2
+                    WHERE p.id = c.referred_by_client_id) AS l2,
+                  (SELECT g.referred_by_tech_id FROM clients g
+                    WHERE g.id = (SELECT p2.referred_by_client_id FROM clients p2
+                                   WHERE p2.id = c.referred_by_client_id)) AS l3
              FROM clients c WHERE c.id = $1""",
         client_id,
     )
@@ -214,6 +233,15 @@ async def _referral_percents(db, *, client_id: int, order_id: int, period: str) 
             await _add(db, spec_id=row["l2"], client_id=client_id, kind="referral2",
                        amount=amount, order_id=order_id, period=period,
                        note="5% второй уровень")
+
+    # ⚠️ Третий уровень — тот же принцип: платим, только если это НЕ тот же
+    # человек, что на первом или втором уровне. Иначе за одну оплату он собрал
+    # бы 10 %, 5 % и 2 % сразу.
+    if row["l3"] and row["l3"] not in (row["l1"], row["l2"]):
+        amount = await _amount(db, "referral3", client_id)
+        await _add(db, spec_id=row["l3"], client_id=client_id, kind="referral3",
+                   amount=amount, order_id=order_id, period=period,
+                   note="2% третий уровень")
 
 
 async def _level2_allowed(db, spec_id: int, client_id: int) -> bool:
