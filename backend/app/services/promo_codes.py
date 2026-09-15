@@ -315,15 +315,70 @@ async def reserve(
 
     apply_now=True — цена стала нулевой, оплаты не будет: списываем сразу.
     """
+    # ⚠️⚠️ ПОВТОРНАЯ ПОПЫТКА ОПЛАТЫ — ЭТО НОРМА, А НЕ ОШИБКА.
+    # Заказ создаётся через ON CONFLICT DO UPDATE, то есть при втором заходе
+    # человека на ту же форму возвращается ТОТ ЖЕ номер заказа. Раньше мы
+    # пытались вставить второе применение на него и падали с 500 прямо в лицо
+    # покупателю («что-то пошло не так»), хотя скидка уже посчиталась.
+    # Поймано на проде 15.09.2026: заказ 179, применение уже лежало с 04:29.
+    #
+    # Поэтому применение по заказу — ОДНО, и мы его обновляем:
+    #   'reserved' → просто освежаем суммы, счётчик НЕ трогаем (иначе каждая
+    #                неудачная попытка накручивала бы «применения»);
+    #   'released' → заказ оживает, возвращаем в резерв и счётчик поднимаем;
+    #   'applied'  → оплата уже прошла, повторно резервировать нечего.
+    order_where = (
+        ("event_order_id = $1", event_order_id) if event_order_id else
+        ("product_order_id = $1", product_order_id) if product_order_id else
+        ("subscription_order_id = $1", subscription_order_id) if subscription_order_id else
+        (None, None)
+    )
+
     async with db.transaction():
+        existing = None
+        if order_where[0]:
+            existing = await db.fetchrow(
+                f"SELECT id, status FROM promo_code_uses WHERE {order_where[0]} FOR UPDATE",
+                order_where[1],
+            )
+
+        if existing and existing["status"] == "applied":
+            # Оплата подтверждена — скидка состоялась, трогать нечего.
+            return existing["id"]
+
         row = await db.fetchrow(
             "SELECT max_uses, used_count FROM promo_codes WHERE id = $1 FOR UPDATE",
             promo_id,
         )
         if not row:
             raise PromoError("Промокод больше не действует")
-        if row["max_uses"] is not None and (row["used_count"] or 0) >= row["max_uses"]:
+        # ⚠️ Лимит проверяем, только когда применение ДЕЙСТВИТЕЛЬНО добавляется.
+        # У уже зарезервированного заказа место в лимите занято им самим —
+        # иначе человек с одноразовым кодом не смог бы повторить оплату,
+        # получив «промокод уже использован» из-за собственной же брони.
+        takes_slot = not existing or existing["status"] == "released"
+        if (takes_slot and row["max_uses"] is not None
+                and (row["used_count"] or 0) >= row["max_uses"]):
             raise PromoError("Промокод уже использован")
+
+        if existing:
+            await db.execute(
+                """UPDATE promo_code_uses
+                      SET status = $2, price_before = $3, price_after = $4,
+                          contact_id = COALESCE($5, contact_id),
+                          applied_at = CASE WHEN $2 = 'applied'
+                                            THEN COALESCE(applied_at, NOW()) END
+                    WHERE id = $1""",
+                existing["id"], "applied" if apply_now else "reserved",
+                price_before, price_after, contact_id,
+            )
+            if takes_slot:
+                await db.execute(
+                    "UPDATE promo_codes SET used_count = used_count + 1, "
+                    "updated_at = NOW() WHERE id = $1",
+                    promo_id,
+                )
+            return existing["id"]
 
         await db.execute(
             "UPDATE promo_codes SET used_count = used_count + 1, updated_at = NOW() WHERE id = $1",
