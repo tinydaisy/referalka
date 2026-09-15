@@ -1458,15 +1458,20 @@ export const api = {
   adminTech: {
     // ⚠️ Премиальный фонд: сумму считает владелец в фин-модели (процент от
     // прибыли компании) и вносит одним числом — платформа прибыль не знает.
-    bonusFunds: () => req('/admin/tech/bonus-funds'),
+    // ⚠️ Функции `req` в этом файле нет — запросы делает `request`, и путь
+    // ему передаётся ПОЛНЫЙ, с префиксом `/api/v1` (роутер подключён с ним в
+    // main.py). Из-за `req('/admin/tech/...')` сборка падала «Cannot find name
+    // 'req'» и блокировала выкатку всему проекту. Образец рядом:
+    // `specialists: () => request('/api/v1/admin/tech/specialists')`.
+    bonusFunds: () => request('/api/v1/admin/tech/bonus-funds'),
     setBonusFund: (period: string, amount_kopecks: number, note?: string) =>
-      req('/admin/tech/bonus-funds', {
+      request('/api/v1/admin/tech/bonus-funds', {
         method: 'POST',
         body: JSON.stringify({ period, amount_kopecks, note }),
       }),
     distributeFund: (period: string) =>
-      req(`/admin/tech/bonus-funds/${encodeURIComponent(period)}/distribute`,
-          { method: 'POST' }),
+      request(`/api/v1/admin/tech/bonus-funds/${encodeURIComponent(period)}/distribute`,
+              { method: 'POST' }),
     specialists: () => request('/api/v1/admin/tech/specialists'),
     createSpec: (data: any) =>
       request('/api/v1/admin/tech/specialists', { method: 'POST', body: JSON.stringify(data) }),
