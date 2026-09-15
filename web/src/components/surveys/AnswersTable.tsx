@@ -454,7 +454,7 @@ function ColumnsModal({ person, visitor, staff, visible, onToggle, onMove, onClo
   return (
     /* Модалка-форма: закрывается только крестиком, клик по фону не считается. */
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5"
+      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 scroll-visible"
            onClick={e => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-semibold text-gray-900">Настройка отображения</h3>

@@ -240,7 +240,7 @@ function CollaboratorPicker({
             />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 overflow-y-auto p-3 scroll-visible">
           {loading ? (
             <div className="text-center text-gray-400 text-sm py-8">Загрузка…</div>
           ) : list.length === 0 ? (

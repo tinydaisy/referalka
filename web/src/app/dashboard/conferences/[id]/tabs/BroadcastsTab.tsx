@@ -83,7 +83,7 @@ function TemplatesSection({ eventId, templates, setTemplates }: { eventId: numbe
 
       {modal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">{modal === 'new' ? 'Новый шаблон' : 'Редактировать шаблон'}</h3>
               <button onClick={() => setModal(null)}><X size={18} /></button>

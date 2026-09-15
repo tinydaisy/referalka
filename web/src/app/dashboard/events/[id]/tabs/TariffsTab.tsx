@@ -570,7 +570,7 @@ export default function TariffsTab({
           зависшим. Прокрутка на подложке + ограничение высоты у окна. */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 py-10">
-          <div className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-5"
+          <div className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-5 scroll-visible"
                onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-gray-800">{editing ? 'Изменить тариф' : 'Новый тариф'}</h3>

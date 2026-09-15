@@ -1303,7 +1303,7 @@ export default function QueuePage() {
       {/* ── Модалка: установить время отправки ── */}
       {fireAtModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">Настройки задачи</h3>
               <button onClick={() => setFireAtModal(null)}><X size={18} /></button>
@@ -1426,7 +1426,7 @@ export default function QueuePage() {
       {/* ── Сдвиг тайминга спикерских рассылок ── */}
       {shiftModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto scroll-visible"
                onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-semibold text-gray-800">Сдвиг тайминга</h3>
@@ -1545,7 +1545,7 @@ export default function QueuePage() {
 
       {genModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-semibold text-gray-800">Сформировать из программы</h3>
               <button onClick={() => setGenModal(false)}><X size={18} /></button>
@@ -1563,7 +1563,7 @@ export default function QueuePage() {
                 className="text-xs text-gray-500 hover:underline">Снять все</button>
             </div>
 
-            <div className="space-y-1.5 mb-5 max-h-[50vh] overflow-y-auto">
+            <div className="space-y-1.5 mb-5 max-h-[50vh] overflow-y-auto scroll-visible">
               {templates.length === 0 ? (
                 <p className="text-sm text-gray-400 py-4 text-center">Шаблонов нет — создайте на вкладке «Шаблоны»</p>
               ) : templates.map((t: any) => {
@@ -1952,7 +1952,7 @@ export default function QueuePage() {
       {/* ── Модалка: превью сообщения ── */}
       {previewModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800 text-sm">
                 Превью: {TYPE_LABELS[previewModal.template_type] || previewModal.template_type}
@@ -2196,7 +2196,7 @@ function CustomBroadcastModal(props: {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto scroll-visible">
         <div className="flex justify-between items-center mb-4">
           <h3 className="font-semibold text-gray-800">{ed?.id ? 'Редактировать рассылку' : 'Произвольная рассылка'}</h3>
           <button onClick={props.onClose}><X size={18} /></button>
@@ -2694,7 +2694,7 @@ function BulkBroadcastModal(props: {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] overflow-y-auto scroll-visible">
         <div className="flex justify-between items-center mb-4">
           <h3 className="font-semibold text-gray-800">Пакетная загрузка рассылок</h3>
           <button onClick={props.onClose}><X size={18} /></button>

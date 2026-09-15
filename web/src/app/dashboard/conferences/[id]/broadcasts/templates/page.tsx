@@ -1688,7 +1688,7 @@ export default function TemplatesPage() {
       {/* Модалка редактирования */}
       {editModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">Редактировать шаблон</h3>
               <button onClick={() => setEditModal(null)}><X size={18} /></button>
@@ -2011,7 +2011,7 @@ export default function TemplatesPage() {
       {/* Модалка выбора: новый шаблон с нуля или готовый из списка */}
       {addChoiceModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">Добавить шаблон</h3>
               <button onClick={() => setAddChoiceModal(false)}><X size={18} /></button>
@@ -2065,7 +2065,7 @@ export default function TemplatesPage() {
       {/* Модалка создания кастомного шаблона */}
       {createModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">Новый шаблон</h3>
               <button onClick={() => setCreateModal(false)}><X size={18} /></button>
@@ -2228,7 +2228,7 @@ export default function TemplatesPage() {
       {/* Модалка предпросмотра */}
       {previewModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800 text-sm">Предпросмотр: {previewModal.def.title}</h3>
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
@@ -2402,7 +2402,7 @@ export default function TemplatesPage() {
       {/* Модалка тестирования */}
       {testModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">Тест: {testModal.def.title}</h3>
               <button onClick={() => setTestModal(null)}><X size={18} /></button>

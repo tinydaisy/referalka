@@ -532,7 +532,7 @@ function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
   return (
     // ⚠️ Модалка НЕ закрывается по клику на фон (правило проекта) — только крестик / «Отмена».
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto scroll-visible">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <Plus size={18} style={{ color: '#FFCFA4' }} /> Добавить чат для рассылок

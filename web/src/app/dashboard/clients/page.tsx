@@ -573,7 +573,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Список */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto scroll-visible">
           {loading ? (
             <div className="p-8 text-center text-gray-400 text-sm">Загрузка...</div>
           ) : contacts.length === 0 ? (
@@ -1437,7 +1437,7 @@ function FilterPanel({ initial, onApply, onClose }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto scroll-visible">
         <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <SlidersHorizontal size={18} /> Фильтр контактов

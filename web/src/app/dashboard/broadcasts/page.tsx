@@ -728,7 +728,7 @@ export default function GeneralBroadcastsPage() {
       {/* Превью */}
       {previewModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800 text-sm">Превью сообщения</h3>
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
@@ -954,7 +954,7 @@ function CustomBroadcastModal(props: {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto scroll-visible">
         <div className="flex justify-between items-center mb-4">
           <h3 className="font-semibold text-gray-800">{isEdit ? 'Редактирование рассылки' : 'Произвольная рассылка'}</h3>
           <button onClick={props.onClose}><X size={18} /></button>
@@ -1329,7 +1329,7 @@ function BulkBroadcastModal(props: {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] overflow-y-auto scroll-visible">
         <div className="flex justify-between items-center mb-4">
           <h3 className="font-semibold text-gray-800">Пакетная загрузка рассылок</h3>
           <button onClick={props.onClose}><X size={18} /></button>

@@ -187,7 +187,7 @@ export default function DialogChat({
       </div>
 
       {/* Лента */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-gray-50">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-gray-50 scroll-visible">
         {loading ? (
           <div className="text-center text-gray-400 text-sm py-8">Загрузка…</div>
         ) : visible.length === 0 ? (

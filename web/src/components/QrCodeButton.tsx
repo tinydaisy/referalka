@@ -109,7 +109,7 @@ function QrModal({ url, title, fileBase, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto"
+      <div className="bg-white rounded-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto scroll-visible"
            onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
           <h3 className="font-semibold text-[#25455D] text-sm">QR-код</h3>

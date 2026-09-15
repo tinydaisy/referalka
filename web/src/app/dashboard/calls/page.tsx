@@ -494,7 +494,7 @@ function LogModal({ campaign, onClose }: any) {
               <Stat label="Потрачено" value={stats.total_cost != null ? `${Number(stats.total_cost).toFixed(2)} ₽` : '—'} />
             </div>
 
-            <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-gray-100">
+            <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-gray-100 scroll-visible">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr className="text-left text-gray-600">

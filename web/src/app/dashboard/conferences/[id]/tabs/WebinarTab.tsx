@@ -31,7 +31,7 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 scroll-visible">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-bold text-gray-900">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
@@ -1563,7 +1563,7 @@ function RecordingViewer({ eventId, day, rec, onClose }: {
                 следить за видео
               </label>
             </div>
-            <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+            <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0 scroll-visible">
               {loading ? <Spinner /> : !msgs.length ? (
                 <p className="text-sm text-gray-500">В этом запуске сообщений не было.</p>
               ) : msgs.map((m: any, i: number) => (

@@ -653,7 +653,7 @@ function DeleteClientModal({ client, onClose, onDone }: {
   return (
     // ⚠️ Клик по затемнению НЕ закрывает окно — правило проекта для форм.
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto scroll-visible">
         <div className="flex items-start gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
             <AlertTriangle size={20} className="text-red-600" />
@@ -849,7 +849,7 @@ function ManageClientModal({ client, onClose, onDone }: {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       {/* Клик по фону НЕ закрывает — в окне есть поля ввода */}
-      <div className="bg-white rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+      <div className="bg-white rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto scroll-visible"
            onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-4">
           <div>

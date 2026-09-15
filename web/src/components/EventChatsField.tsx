@@ -260,7 +260,7 @@ function ChatPickerModal({ platform, chats, loading, currentRef, onPick, onClose
           <h3 className="font-semibold text-gray-900">Выбрать чат {meta.label}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
         </div>
-        <div className="p-4 overflow-y-auto flex-1 space-y-2">
+        <div className="p-4 overflow-y-auto flex-1 space-y-2 scroll-visible">
           {loading ? (
             <p className="text-sm text-gray-400">Загрузка…</p>
           ) : chats.length === 0 ? (

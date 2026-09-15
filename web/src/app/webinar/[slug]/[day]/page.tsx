@@ -699,7 +699,7 @@ export default function WebinarRoomPage() {
             иначе flex-ребёнок не даёт ленте скроллиться и распирает контейнер. */}
         <div className="rounded-xl bg-white/5 flex flex-col overflow-hidden h-[70vh] md:h-[calc(100vh-2.5rem)] md:sticky md:top-4">
           <div className="p-3 border-b border-white/10 font-semibold text-sm shrink-0">Чат</div>
-          <div ref={chatBoxRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 text-sm">
+          <div ref={chatBoxRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 text-sm scroll-visible">
             {chat.map((m, i) => (
               <div key={m.id ?? m._tmpId ?? i} className={m._failed ? 'opacity-50' : ''}>
                 <span className="text-white/50 mr-1">{m.author_name || 'Гость'}:</span>

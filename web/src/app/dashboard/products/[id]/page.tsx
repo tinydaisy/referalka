@@ -1493,7 +1493,7 @@ function PickMaterialModal({ productId, sectionId, onClose, onAdded }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         onClick={e => e.stopPropagation()}
-        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5"
+        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 scroll-visible"
       >
         <div className="mb-4 flex items-center justify-between">
           <span className="text-lg font-semibold text-gray-900">Взять из имеющихся</span>
@@ -2201,7 +2201,7 @@ function AccessHistoryModal({
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5 scroll-visible">
           {loading ? (
             <p className="text-sm text-gray-400">Загружаем…</p>
           ) : !items.length ? (

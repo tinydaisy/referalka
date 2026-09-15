@@ -118,7 +118,7 @@ function PeopleModal({ dashId, cardId, option, title, onClose }: {
 
         {data && (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-gray-100">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-gray-100 scroll-visible">
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-gray-50">
                   {data.people.map((p: any) => (
@@ -580,7 +580,7 @@ function PickFieldsModal({ sources, used, onClose, onAdd }: {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-xl border border-gray-100 p-2">
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-xl border border-gray-100 p-2 scroll-visible">
           {!items.length && (
             <div className="p-4 text-center text-sm text-gray-400">
               Здесь всё уже добавлено.

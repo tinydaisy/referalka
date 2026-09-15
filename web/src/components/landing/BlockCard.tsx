@@ -1637,7 +1637,7 @@ function IconPicker({
               </button>
             </div>
 
-            <div className="flex-1 space-y-5 overflow-y-auto p-4">
+            <div className="flex-1 space-y-5 overflow-y-auto p-4 scroll-visible">
               {ICON_GROUPS.map(group => (
                 <div key={group}>
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">

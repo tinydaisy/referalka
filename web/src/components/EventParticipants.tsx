@@ -918,7 +918,7 @@ function AddFromContactModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="flex-1 overflow-y-auto p-2 scroll-visible">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="w-6 h-6 border-2 border-brand rounded-full border-t-transparent animate-spin" />

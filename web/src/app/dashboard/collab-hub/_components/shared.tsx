@@ -647,7 +647,7 @@ function AboutCollabModal({ req, onClose }: { req: any; onClose: () => void }) {
   const orgs: any[] = Array.isArray(req.collab_organizers) ? req.collab_organizers : []
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto scroll-visible" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-start mb-3 gap-3">
           <div>
             <h3 className="font-bold text-lg" style={{ color: DARK }}>{req.event_title}</h3>

@@ -1318,7 +1318,7 @@ function SnapshotView({ snap, onClose }: any) {
   const itog = (snap.rows || []).filter((r: any) => r.package_id === null)
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5 scroll-visible" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-semibold text-[#25455D] mb-1">{snap.snapshot.title || 'Отчёт'}</h3>
         <p className="text-xs text-gray-400 mb-4">{new Date(snap.snapshot.frozen_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}</p>
         <table className="text-sm w-full mb-4">

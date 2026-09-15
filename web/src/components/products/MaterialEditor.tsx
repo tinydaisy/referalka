@@ -129,7 +129,7 @@ export default function MaterialEditor({
       <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4">
         <div
           onClick={e => e.stopPropagation()}
-          className="my-6 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6"
+          className="my-6 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 scroll-visible"
         >
           {children}
         </div>
