@@ -1456,6 +1456,17 @@ export const api = {
 
   // Управление тех-специалистами — только для админа.
   adminTech: {
+    // ⚠️ Премиальный фонд: сумму считает владелец в фин-модели (процент от
+    // прибыли компании) и вносит одним числом — платформа прибыль не знает.
+    bonusFunds: () => req('/admin/tech/bonus-funds'),
+    setBonusFund: (period: string, amount_kopecks: number, note?: string) =>
+      req('/admin/tech/bonus-funds', {
+        method: 'POST',
+        body: JSON.stringify({ period, amount_kopecks, note }),
+      }),
+    distributeFund: (period: string) =>
+      req(`/admin/tech/bonus-funds/${encodeURIComponent(period)}/distribute`,
+          { method: 'POST' }),
     specialists: () => request('/api/v1/admin/tech/specialists'),
     createSpec: (data: any) =>
       request('/api/v1/admin/tech/specialists', { method: 'POST', body: JSON.stringify(data) }),

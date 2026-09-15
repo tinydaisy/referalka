@@ -20,6 +20,9 @@ const KIND: Record<string, string> = {
   referral: 'Процент 1-го уровня',
   referral2: 'Процент 2-го уровня',
   referral3: 'Процент 3-го уровня',
+  setup: 'Настройки под ключ',
+  ticket: 'Тикеты (подстраховка)',
+  quarter_bonus: 'Квартальная премия',
   bonus: 'Премии',
 }
 

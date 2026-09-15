@@ -340,6 +340,111 @@ function AssignTab({ specs, onChange }: any) {
 }
 
 // ── Начисления ───────────────────────────────────────────────────────────
+/** Премиальный фонд за квартал: ввод суммы и раздача по весам.
+ *
+ * ⚠️ Сумму считает владелец в фин-модели (процент от прибыли компании) и вносит
+ * сюда одним числом. Платформа прибыль не знает и знать не должна: в кабинете
+ * внедренца её показывать нельзя.
+ */
+function BonusFundBlock() {
+  const [funds, setFunds] = useState<any[]>([])
+  const [weights, setWeights] = useState<any[]>([])
+  const [period, setPeriod] = useState('')
+  const [rubles, setRubles] = useState('')
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    api.adminTech.bonusFunds().then((r: any) => {
+      setFunds(r.funds || []); setWeights(r.weights || [])
+    }).catch(() => {})
+  }, [tick])
+
+  // Квартал по умолчанию — предыдущий: премия считается после его закрытия.
+  useEffect(() => {
+    if (period) return
+    const d = new Date()
+    const q = Math.floor(d.getMonth() / 3)
+    const [y, qq] = q === 0 ? [d.getFullYear() - 1, 4] : [d.getFullYear(), q]
+    setPeriod(`${y}-Q${qq}`)
+  }, [period])
+
+  const totalWeight = weights.reduce((s, w) => s + Number(w.weight || 0), 0)
+
+  return (
+    <div className="rounded-xl bg-white p-4 shadow-sm">
+      <h3 className="mb-1 text-sm font-semibold text-gray-900">Премиальный фонд</h3>
+      <p className="mb-3 text-xs text-gray-500">
+        Сумму берите из фин-модели — процент от прибыли за квартал. Платформа
+        разделит её между внедренцами по весам их ролей.
+      </p>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input value={period} onChange={e => setPeriod(e.target.value)}
+               placeholder="2026-Q1"
+               className="w-28 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+        <input value={rubles} onChange={e => setRubles(e.target.value)}
+               placeholder="сумма, ₽" inputMode="numeric"
+               className="w-36 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+        <button
+          onClick={async () => {
+            const v = Math.round(Number(rubles.replace(/\s/g, '')) * 100)
+            if (!v || v <= 0) { alert('Введите сумму'); return }
+            try {
+              await api.adminTech.setBonusFund(period, v)
+              setRubles(''); setTick(t => t + 1)
+            } catch (e: any) { alert(e?.message || 'Не вышло') }
+          }}
+          className="btn-primary px-4 py-1.5 text-sm">Внести</button>
+      </div>
+
+      {!!weights.length && (
+        <div className="mb-4 text-xs text-gray-600">
+          Веса: {weights.map((w: any) =>
+            `${w.note || w.role} — ${Number(w.weight)}`).join(' · ')}
+          {totalWeight > 0 && <> (сумма {totalWeight})</>}
+        </div>
+      )}
+
+      <table className="w-full text-sm">
+        <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
+          <tr>
+            <th className="py-2">Квартал</th><th className="py-2">Сумма</th>
+            <th className="py-2">Статус</th><th className="py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {funds.map((f: any) => (
+            <tr key={f.period} className="border-b border-gray-50">
+              <td className="py-2 font-medium text-gray-900">{f.period}</td>
+              <td className="py-2">{rub(f.amount_kopecks)}</td>
+              <td className="py-2 text-gray-500">
+                {f.distributed_at ? 'роздан' : 'ждёт раздачи'}
+              </td>
+              <td className="py-2 text-right">
+                {!f.distributed_at && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Раздать ${rub(f.amount_kopecks)} за ${f.period}?`)) return
+                      try {
+                        const r: any = await api.adminTech.distributeFund(f.period)
+                        alert(`Начислено: ${r.accrued}`)
+                        setTick(t => t + 1)
+                      } catch (e: any) { alert(e?.message || 'Не вышло') }
+                    }}
+                    className="btn-gold px-3 py-1 text-xs">Раздать</button>
+                )}
+              </td>
+            </tr>
+          ))}
+          {!funds.length && (
+            <tr><td colSpan={4} className="py-3 text-gray-400">Фондов пока нет</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function MoneyTab({ specs }: any) {
   const [items, setItems] = useState<any[]>([])
   const [unpaidOnly, setUnpaidOnly] = useState(true)
@@ -359,6 +464,8 @@ function MoneyTab({ specs }: any) {
 
   return (
     <div className="space-y-4">
+      <BonusFundBlock />
+
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={unpaidOnly}

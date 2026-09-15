@@ -335,6 +335,7 @@ class ManualIn(BaseModel):
     note: Optional[str] = None
     client_id: Optional[int] = None
     period: Optional[str] = None
+    kind: Optional[str] = None   # bonus | setup | ticket
 
 
 @router.post("/accruals/manual", summary="Начислить вручную")
@@ -343,18 +344,93 @@ async def manual_accrual(
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Разовая премия или доплата. ⚠️ Вид `bonus` — он единственный не имеет
-    уникального индекса: одному человеку можно начислить премию дважды."""
+    """Разовая доплата, настройки под ключ или тикеты.
+
+    ⚠️ Настройки и тикеты вносятся РУКАМИ: события «клиент заказал настройку»
+    и «внедренец закрыл тикет» в платформе нет, вычислить их нечем. Суммы — по
+    таблице: настройки 60 % (клиент базы ПЛЮСОН) / 80 % (свой) / 100 % (мимо
+    кассы), тикеты 250 ₽ простой и 600 ₽ сложный.
+
+    ⚠️ Эти виды намеренно БЕЗ уникального индекса: за месяц у одного человека
+    может быть и десять тикетов, и несколько настроек."""
     if data.amount_kopecks <= 0:
         raise HTTPException(400, "Сумма должна быть больше нуля")
+    kind = data.kind or "bonus"
+    if kind not in ("bonus", "setup", "ticket"):
+        raise HTTPException(400, "Вручную начисляются только bonus, setup, ticket")
     row = await db.fetchrow(
         """INSERT INTO tech_accruals
              (spec_id, client_id, kind, amount_kopecks, period, note)
-           VALUES ($1,$2,'bonus',$3,$4,$5) RETURNING *""",
-        data.spec_id, data.client_id, data.amount_kopecks,
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
+        data.spec_id, data.client_id, kind, data.amount_kopecks,
         data.period, data.note,
     )
     return dict(row)
+
+
+# ── Премиальный фонд ─────────────────────────────────────────────────────
+# ⚠️ Сумму фонда считает ВЛАДЕЛЕЦ в фин-модели (процент от прибыли компании) и
+# вносит сюда одним числом. Платформа прибыль не знает: показывать её в кабинете
+# внедренца нельзя, а считать «примерно» — значит разойтись с выплатой.
+
+class FundIn(BaseModel):
+    period: str                      # '2026-Q1'
+    amount_kopecks: int
+    note: Optional[str] = None
+
+
+@router.get("/bonus-funds", summary="Премиальные фонды по кварталам")
+async def bonus_funds(
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    funds = await db.fetch(
+        "SELECT * FROM tech_bonus_funds ORDER BY period DESC LIMIT 12")
+    weights = await db.fetch(
+        "SELECT * FROM tech_bonus_weights ORDER BY weight DESC")
+    return {"funds": [dict(r) for r in funds],
+            "weights": [dict(r) for r in weights]}
+
+
+@router.post("/bonus-funds", summary="Внести фонд за квартал")
+async def set_bonus_fund(
+    data: FundIn,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️ Уже розданный фонд не меняется: сумма разошлась по людям, правка
+    задним числом рассогласовала бы её с начислениями."""
+    if data.amount_kopecks <= 0:
+        raise HTTPException(400, "Сумма должна быть больше нуля")
+    done = await db.fetchval(
+        "SELECT distributed_at FROM tech_bonus_funds WHERE period = $1",
+        data.period)
+    if done:
+        raise HTTPException(400, "Фонд за этот квартал уже роздан")
+    row = await db.fetchrow(
+        """INSERT INTO tech_bonus_funds (period, amount_kopecks, note)
+           VALUES ($1,$2,$3)
+           ON CONFLICT (period) DO UPDATE
+             SET amount_kopecks = EXCLUDED.amount_kopecks,
+                 note = EXCLUDED.note
+           RETURNING *""",
+        data.period, data.amount_kopecks, data.note,
+    )
+    return dict(row)
+
+
+@router.post("/bonus-funds/{period}/distribute", summary="Раздать фонд")
+async def distribute_fund(
+    period: str,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Делит фонд между работающими внедренцами по весам их ролей."""
+    from app.services.tech_accruals import accrue_quarter_bonus
+    n = await accrue_quarter_bonus(db, quarter=period)
+    if not n:
+        raise HTTPException(400, "Нечего раздавать: фонд не внесён или уже роздан")
+    return {"ok": True, "accrued": n}
 
 
 # ── Диалоги из @pluson_bot ───────────────────────────────────────────────

@@ -327,72 +327,70 @@ async def accrue_monthly_fix(db: asyncpg.Connection, period: Optional[str] = Non
 # ────────────────────── Квартальная премия ───────────────────────────────
 async def accrue_quarter_bonus(db: asyncpg.Connection,
                                quarter: Optional[str] = None) -> int:
-    """Премия за долю доживших: сколько из впервые оплативших сделали вторую.
+    """Делит введённый премиальный фонд между внедренцами ПО ВЕСАМ должностей.
 
-    ⚠️ Считается ЧЕРЕЗ МЕСЯЦ после конца квартала: у оплативших в последние
-    недели срок второй оплаты ещё не наступил, и доля вышла бы заниженной.
+    ⚠️⚠️ СУММУ ФОНДА ВВОДИТ АДМИН, А НЕ СЧИТАЕТ ПЛАТФОРМА. По таблице фонд —
+    процент от ПРИБЫЛИ компании (5/7/10/12 % по ступеням). Прибыль = выручка
+    минус налоги, инфраструктура, зарплаты команды и выплаты внедренцам; этих
+    данных в платформе нет, и показывать их в кабинете внедренца нельзя. Админ
+    считает фонд в фин-модели и вносит одним числом (`tech_bonus_funds`).
 
-    ⚠️ По ВСЕМ клиентам в работе — и своим, и чужим: удержание это работа
-    независимо от того, кто клиента привёл. Считать только по чужим означало бы
-    дыру — проблемного можно записать «своим», чтобы он выпал из знаменателя.
+    ⚠️ Прежняя механика (доля доживших → ступени `tech_quarter_tiers`) отменена
+    15.09.2026: таблица считает премию иначе. Таблицу ступеней не удаляем — по
+    ней объясняются уже выплаченные премии.
+
+    ⚠️ Вес зависит от ТИПА внедренца (`bonus_role`): «со своей сетью» ценится
+    выше, чем «на клиентах ПЛЮСОН». Доля = вес человека / сумма весов всех, кто
+    работает. Сумма весов значения не имеет — важны пропорции.
+
+    ⚠️ Раздача идёт ОДИН раз: `distributed_at` + уникальный индекс по
+    (spec_id, period). Повторный прогон задачи ничего не начислит заново.
     """
-    now = datetime.now(timezone.utc)
-    if not quarter:
-        # Закрываем квартал, закончившийся МЕСЯЦ назад.
-        q_month = now.month - 1
-        year = now.year
-        if q_month <= 0:
-            q_month += 12
-            year -= 1
-        quarter = f"{year}-Q{(q_month - 1) // 3 + 1}"
-
-    year, q = int(quarter[:4]), int(quarter[-1])
-    q_start = datetime(year, (q - 1) * 3 + 1, 1, tzinfo=timezone.utc)
-    q_end = (datetime(year + (q == 4), (q * 3) % 12 + 1, 1, tzinfo=timezone.utc))
-
-    rows = await db.fetch(
-        """SELECT ts.id AS spec_id,
-                  COUNT(DISTINCT f.client_id) AS first_payers,
-                  COUNT(DISTINCT f.client_id) FILTER (WHERE f.payments >= 2) AS survived
-             FROM tech_specialists ts
-             JOIN clients c ON c.tech_specialist_id = ts.id
-             JOIN LATERAL (
-               SELECT so.client_id,
-                      MIN(so.paid_at) AS first_at,
-                      COUNT(*) AS payments
-                 FROM subscription_orders so
-                WHERE so.client_id = c.id AND so.status = 'paid'
-                  AND so.amount_paid_card_kopecks > 0
-                GROUP BY so.client_id
-                HAVING MIN(so.paid_at) >= $1 AND MIN(so.paid_at) < $2
-             ) f ON TRUE
-            WHERE ts.is_active
-            GROUP BY ts.id""",
-        q_start, q_end,
+    fund = await db.fetchrow(
+        """SELECT period, amount_kopecks FROM tech_bonus_funds
+            WHERE distributed_at IS NULL AND amount_kopecks > 0
+              AND ($1::text IS NULL OR period = $1)
+            ORDER BY period LIMIT 1""",
+        quarter,
     )
+    if not fund:
+        return 0
+
+    period = fund["period"]
+    total = int(fund["amount_kopecks"])
+
+    # Кто участвует: работающие внедренцы с весом своей роли.
+    rows = await db.fetch(
+        """SELECT ts.id AS spec_id, COALESCE(w.weight, 0) AS weight
+             FROM tech_specialists ts
+             LEFT JOIN tech_bonus_weights w ON w.role = ts.bonus_role
+            WHERE ts.is_active"""
+    )
+    weights = sum(float(r["weight"] or 0) for r in rows)
+    if weights <= 0:
+        logger.warning("tech: премия за %s не роздана — нет весов", period)
+        return 0
 
     done = 0
     for r in rows:
-        total = int(r["first_payers"] or 0)
-        if total <= 0:
+        w = float(r["weight"] or 0)
+        if w <= 0:
             continue
-        rate = int(r["survived"] or 0) * 100 / total
-        amount = await db.fetchval(
-            """SELECT amount_kopecks FROM tech_quarter_tiers
-                WHERE $1 >= rate_from AND $1 < rate_to
-                ORDER BY rate_from DESC LIMIT 1""",
-            rate,
-        ) or 0
+        amount = int(round(total * w / weights))
         if amount and await _add(
                 db, spec_id=r["spec_id"], client_id=None, kind="quarter_bonus",
-                amount=int(amount), period=quarter,
-                note=f"дожили {r['survived']} из {total} ({rate:.0f}%)"):
+                amount=amount, period=period,
+                note=f"доля {w:g} из {weights:g}"):
             done += 1
-    logger.info("tech: премия за %s — %s начислений", quarter, done)
+
+    await db.execute(
+        "UPDATE tech_bonus_funds SET distributed_at = NOW() WHERE period = $1",
+        period,
+    )
+    logger.info("tech: премия за %s роздана — %s начислений", period, done)
     return done
 
 
-# ──────────────────────── Передача клиента ───────────────────────────────
 async def assign_client(db: asyncpg.Connection, *, client_id: int,
                         spec_id: Optional[int], reason: str = "") -> None:
     """Закрепить клиента за внедренцем (или снять, `spec_id=None`).
