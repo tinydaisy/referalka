@@ -272,6 +272,35 @@ export default function PaymentSettingsTab() {
             </p>
           </div>
 
+          {/* ⚠️⚠️ БЕЗ ЭТОЙ НАСТРОЙКИ ОПЛАТА НЕ ОТКРОЕТСЯ. LeadPay берёт способы
+              приёма денег из карточки товара; когда мы передаём цену напрямую
+              (а так работают скидки и промокоды), карточки нет — и способы
+              нужно один раз выбрать в разделе «Настройки методов оплат для
+              интеграции». Не сделано → человек видит у них «нет подходящих
+              форм оплаты» и уходит, а в кабинете всё выглядит исправным.
+              Стоило дня разбирательств 15.09.2026 — поэтому написано прямо
+              здесь, а не в инструкции, куда никто не заглянет. */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-900">
+              Один раз включите способы оплаты в LeadPay
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              В кабинете LeadPay откройте{' '}
+              <a href="https://lead-pay001.cloud.gram.ax/LeadPay/integracii/nastroyki-metodov-oplat-dlya-integracii"
+                 target="_blank" rel="noreferrer"
+                 className="inline-flex items-center gap-1 font-medium underline">
+                Настройки методов оплат для интеграции <ExternalLink className="h-3 w-3" />
+              </a>{' '}
+              и отметьте, чем можно платить (карта, СБП и прочее).
+            </p>
+            <p className="mt-2 text-xs text-amber-800">
+              Пока это не сделано, покупатель на странице оплаты увидит
+              «нет подходящих форм оплаты» — даже если у вас всё настроено верно.
+              После этого оплата работает <b>на любую сумму и без кодов товара</b>,
+              а значит заработают скидки и промокоды.
+            </p>
+          </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => save({
