@@ -485,7 +485,8 @@ class ConfirmStartedIn(BaseModel):
     accept_entered: bool = False
 
 
-async def _who_started_bot(bot_token: str, exclude_ids: set[int]) -> list[dict]:
+async def _who_started_bot(bot_token: str,
+                           exclude_ids: set[int]) -> tuple[list[dict], bool]:
     """Кто реально написал боту — читаем очередь апдейтов Telegram.
 
     ⚠️⚠️ ЗАЧЕМ ВООБЩЕ СПРАШИВАТЬ. Раньше нажатие «Сделано» просто ставило
@@ -500,9 +501,15 @@ async def _who_started_bot(bot_token: str, exclude_ids: set[int]) -> list[dict]:
 
     ⚠️ Отсекаем сервисные аккаунты платформы (`exclude_ids`): бота создавал наш
     аккаунт, он же в нём первый «подписчик», и принять его за клиента нельзя.
+
+    ⚠️⚠️ ВОЗВРАЩАЕМ ЕЩЁ И ПРИЗНАК «СПРОСИТЬ УДАЛОСЬ». Пустой список сам по себе
+    двусмыслен: он одинаково означает «человек не заходил» и «Telegram не
+    ответил». Сказать во втором случае «не видим вас среди подписчиков» —
+    значит обвинить человека в том, чего он не делал, и отправить его нажимать
+    «Старт» второй раз без всякого толку.
     """
     if not bot_token:
-        return []
+        return [], False
     out: list[dict] = []
     try:
         import httpx
@@ -511,6 +518,10 @@ async def _who_started_bot(bot_token: str, exclude_ids: set[int]) -> list[dict]:
                 f"https://api.telegram.org/bot{bot_token}/getUpdates",
                 params={"allowed_updates": '["message"]', "limit": 100},
             )
+            # Токен отозван / бот удалён — это не «никто не писал».
+            if r.status_code != 200 or not (r.json() or {}).get("ok"):
+                logger.warning("tg_setup: getUpdates ответил %s", r.status_code)
+                return [], False
             seen: set[int] = set()
             for upd in reversed((r.json() or {}).get("result") or []):
                 frm = (upd.get("message") or {}).get("from") or {}
@@ -528,7 +539,8 @@ async def _who_started_bot(bot_token: str, exclude_ids: set[int]) -> list[dict]:
                 })
     except Exception as e:  # noqa: BLE001 — сеть подвела: решает вызывающий
         logger.warning("tg_setup: не прочитал апдейты бота: %s", e)
-    return out
+        return [], False
+    return out, True
 
 
 @router.post("/confirm-started-bot", summary="Клиент подтверждает, что зашёл в бота")
@@ -586,7 +598,17 @@ async def confirm_started_bot(data: ConfirmStartedIn | None = None,
             "SELECT tg_user_id FROM tg_setup_accounts WHERE tg_user_id IS NOT NULL")
         if r["tg_user_id"]
     }
-    people = await _who_started_bot(order["bot_token"] or "", service_ids)
+    people, asked_ok = await _who_started_bot(order["bot_token"] or "", service_ids)
+
+    if not asked_ok:
+        # ⚠️ Спросить не смогли — НЕ обвиняем человека и НЕ отмечаем шаг.
+        # «Не видим вас среди подписчиков» здесь было бы враньём: мы просто
+        # не дозвонились до Telegram.
+        return {
+            "ok": False, "verified": False,
+            "message": "Не смогли проверить — Telegram сейчас не отвечает. "
+                       "Подождите минуту и нажмите «Сделано» ещё раз.",
+        }
 
     if not people:
         return {
