@@ -373,6 +373,42 @@ export default function AutoSetupTab() {
    */
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
+
+  /**
+   * «Я подтвердила» — перепроверка статуса почты ПО НАЖАТИЮ.
+   *
+   * ⚠️⚠️ Подтверждение идёт ВНЕ кабинета: человек уходит в почту, жмёт ссылку
+   * и возвращается — а плашка ещё висит (экран сам обновляется раз в 5-30
+   * секунд) и кнопка запуска не работает. Приходилось ждать вслепую.
+   *
+   * ⚠️ Верим только СЕРВЕРУ: галочка не ставит никаких отметок, она лишь
+   * заставляет перечитать состояние. Подтверждена почта или нет — решает
+   * `email_verified` в базе, как и раньше.
+   */
+  const [checkingEmail, setCheckingEmail] = useState(false)
+  const [emailNote, setEmailNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [emailJustConfirmed, setEmailJustConfirmed] = useState(false)
+  const recheckEmail = async () => {
+    setCheckingEmail(true); setEmailNote(null)
+    try {
+      const fresh = await api.tgAutosetup.get()
+      setState(fresh)
+      if (fresh?.email_verified) {
+        setEmailJustConfirmed(true)
+        setEmailNote(null)
+      } else {
+        setEmailNote({
+          ok: false,
+          text: 'Подтверждения пока не видим. Откройте письмо и нажмите ссылку '
+              + '— проверьте и папку «Спам». Потом нажмите ещё раз.',
+        })
+      }
+    } catch {
+      setEmailNote({ ok: false, text: 'Не смогли проверить — попробуйте ещё раз' })
+    } finally {
+      setCheckingEmail(false)
+    }
+  }
   const resendEmail = async () => {
     setResending(true)
     try {
@@ -1081,6 +1117,28 @@ export default function AutoSetupTab() {
               <p className="text-base font-bold text-amber-900 mt-2.5">
                 Не нашли письмо? Проверьте папку «Спам».
               </p>
+              {/* ⚠️⚠️ ГАЛОЧКА «Я ПОДТВЕРДИЛА» — ЧТОБЫ НЕ ЖДАТЬ ВСЛЕПУЮ
+                  (решение владельца 16.09.2026). Подтверждение происходит ВНЕ
+                  кабинета: человек уходит в почту, жмёт ссылку, возвращается —
+                  а плашка ещё висит (экран обновляется раз в 5-30 секунд) и
+                  кнопка запуска не работает. Приходилось «тупить» и гадать,
+                  сработало или нет. Теперь можно нажать самому: перепроверяем
+                  статус у сервера сразу и отвечаем прямо. */}
+              <label className="mt-4 flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={false} disabled={checkingEmail}
+                       onChange={recheckEmail}
+                       className="w-5 h-5 rounded border-gray-400 cursor-pointer" />
+                <span className="text-base font-semibold text-amber-900">
+                  {checkingEmail ? 'Проверяем…' : 'Я подтвердила — проверьте'}
+                </span>
+              </label>
+              {emailNote && (
+                <p className={`text-base font-medium mt-2 ${
+                  emailNote.ok ? 'text-green-700' : 'text-red-700'}`}>
+                  {emailNote.text}
+                </p>
+              )}
+
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <button onClick={resendEmail} disabled={resending}
                         className="btn-gold px-5 py-2.5 text-sm disabled:opacity-50">
@@ -1092,6 +1150,18 @@ export default function AutoSetupTab() {
                   </span>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ⚠️ Почта подтверждена — говорим об этом ЗЕЛЁНЫМ, а не молча
+              убираем плашку: человек только что нажимал ссылку и должен
+              увидеть, что это засчитано. */}
+          {state.email_verified === true && emailJustConfirmed && (
+            <div className="mt-4 rounded-xl border-2 border-green-300 bg-green-50 px-4 py-3 flex items-center gap-2.5">
+              <Check size={20} className="text-green-600 shrink-0" />
+              <p className="text-base font-semibold text-green-900">
+                Почта подтверждена — можно запускать настройку
+              </p>
             </div>
           )}
 
