@@ -89,8 +89,12 @@ export default function TechKpiPage() {
       </div>
 
       {/* ── Клиенты ────────────────────────────────────────────────────── */}
-      {kpi?.bonus_conditions && (() => {
-        const b = kpi.bonus_conditions
+      {/* ⚠️ Данные компонента лежат в `d` (см. useState выше) — в этом месте
+          стояло несуществующее имя `kpi`, и сборка падала «Cannot find name».
+          Само поле `bonus_conditions` приходит на верхнем уровне ответа
+          `api.tech.kpi()`, вложенности нет. */}
+      {d?.bonus_conditions && (() => {
+        const b = d.bonus_conditions
         const own = b.need_own_quarter > 0
         return (
           <div className="mb-6 rounded-xl bg-white p-4 shadow-sm">
