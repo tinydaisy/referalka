@@ -27,14 +27,16 @@ export default function ThanksPage({
 }: {
   searchParams: { order?: string; fail?: string }
 }) {
+  // ⚠️ Фон и цвета задаёт САМ ThanksContent из темы клиента. Своей обёртки с
+  // градиентом ПЛЮСОНа тут быть не должно: она перебила бы бренд клиента и
+  // фон оказался бы двойным — наш снаружи, его внутри.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#25455D] to-[#0a1520] px-4 py-10 text-white">
-      <div className="w-full max-w-lg text-center">
-        <ThanksContent
-          orderId={searchParams.order || null}
-          failed={searchParams.fail === '1'}
-        />
-      </div>
-    </div>
+    <>
+      <link rel="stylesheet" href="/fonts/landing-fonts.css" />
+      <ThanksContent
+        orderId={searchParams.order || null}
+        failed={searchParams.fail === '1'}
+      />
+    </>
   )
 }

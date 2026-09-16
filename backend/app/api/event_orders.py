@@ -690,13 +690,47 @@ async def get_order(
             bots.append({"platform": c["platform_slug"], "url": url})
     d["bots"] = bots
 
+    # ⚠️ Бренд и фирменные цвета берём ТЕМ ЖЕ запросом, что и каналы
+    # поддержки: страница «спасибо» — лицо КЛИЕНТА, а не ПЛЮСОНа. Раньше она
+    # была нарисована нашими цветами (#25455D + персиковые кнопки), и человек
+    # после оплаты попадал будто на чужой сайт.
     cl = await db.fetchrow(
-        """SELECT cl.work_tg_username, cl.work_vk, cl.work_max
+        """SELECT cl.work_tg_username, cl.work_vk, cl.work_max,
+                  cl.brand_name, cl.name AS owner_name, cl.brand_logo_url,
+                  cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient,
+                  cl.lp_color_heading, cl.lp_color_body,
+                  cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_radius,
+                  cl.lp_font_heading, cl.lp_font_body
              FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
             WHERE eo.event_id = $1 AND eo.status = 'accepted'
             ORDER BY eo.id LIMIT 1""",
         row["event_id"] if "event_id" in row else d.get("event_id"),
     )
+    if cl:
+        # ⚠️ Градиент и шрифты собираем ОБЩИМ хелпером лендинга, а не своей
+        # формулой: вторая копия разъедется с лендингом, и страница оплаты
+        # станет отличаться от страницы события.
+        from app.services.landing_theme import apply_theme_fields
+        theme = apply_theme_fields({
+            "bg_color": cl["lp_bg_color"], "bg_color_2": cl["lp_bg_color_2"],
+            "bg_angle": cl["lp_bg_angle"] if cl["lp_bg_angle"] is not None else 45,
+            "bg_gradient": cl["lp_bg_gradient"],
+            "font_heading": cl["lp_font_heading"], "font_body": cl["lp_font_body"],
+        })
+        d["brand"] = {
+            "name": cl["brand_name"] or cl["owner_name"] or "",
+            "logo_url": cl["brand_logo_url"] or None,
+            # Пустые значения оставляем None — фронт подставит свои дефолты,
+            # иначе у клиента без темы страница станет белой.
+            "bg_css": theme["bg_css"],
+            "color_heading": cl["lp_color_heading"] or None,
+            "color_body": cl["lp_color_body"] or None,
+            "btn_color": cl["lp_btn_color"] or None,
+            "btn_text_color": cl["lp_btn_text_color"] or None,
+            "btn_radius": cl["lp_btn_radius"],
+            "font_heading_css": theme["font_heading_css"],
+            "font_body_css": theme["font_body_css"],
+        }
     support = []
     if cl:
         if cl["work_tg_username"]:

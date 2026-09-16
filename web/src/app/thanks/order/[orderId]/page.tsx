@@ -24,14 +24,17 @@ export default function ThanksOrderPage({
   params: { orderId: string }
   searchParams: { fail?: string }
 }) {
+  // ⚠️ Фон и цвета задаёт САМ ThanksContent: они приходят из темы клиента
+  // вместе с заказом. Здесь их зашивать нельзя — страница «спасибо» это лицо
+  // клиента, а фиксированный градиент ПЛЮСОНа перебивал бы его бренд.
+  // Шрифты лендинга подключаем тем же файлом, что и страница события.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#25455D] to-[#0a1520] px-4 py-10 text-white">
-      <div className="w-full max-w-lg text-center">
-        <ThanksContent
-          orderId={params.orderId}
-          failed={searchParams.fail === '1'}
-        />
-      </div>
-    </div>
+    <>
+      <link rel="stylesheet" href="/fonts/landing-fonts.css" />
+      <ThanksContent
+        orderId={params.orderId}
+        failed={searchParams.fail === '1'}
+      />
+    </>
   )
 }
