@@ -19,7 +19,7 @@
   --------------------------------------------------------------------------
   Горизонтальная: знак СЛЕВА, справа от него колонка из двух строк.
     строка 1 — ПЛЮСОН  (крупно, золотой градиент)
-    строка 2 — от iViSiON  (мельче, курсив, белый)
+    строка 2 — от iViSiON  (мельче, прямой, белый)
   Колонка прижата к ПРАВОМУ краю (align-items:flex-end), поэтому
   правые края «ПЛЮСОН» и «iViSiON» стоят на одной вертикали.
   Знак и колонка выровнены по ЦЕНТРУ по вертикали (align-items:center).
@@ -28,7 +28,7 @@
   2. ШРИФТЫ
   --------------------------------------------------------------------------
   ПЛЮСОН      — Oswald, вес 600 (SemiBold), letter-spacing 0.055em
-  от iViSiON  — Roboto, вес 500 (Medium), КУРСИВ, letter-spacing 0.01em
+  от iViSiON  — Roboto, вес 500 (Medium), ПРЯМОЙ (не курсив), letter-spacing 0.01em
   Источник: Google Fonts. Локально в macOS — OswaldCyr.ttf и Roboto.
 
   ВАЖНО про выравнивание: letter-spacing добавляет отступ и ПОСЛЕ последней
@@ -87,7 +87,7 @@
   --------------------------------------------------------------------------
   6. ГОТОВЫЙ ФАЙЛ
   --------------------------------------------------------------------------
-  plusson_logo_dark.png — 1560 x 372 px, прозрачный фон, поля по 2px.
+  plusson-logo-gorizontalnyy-dlya-temnogo-fona.png — 1550 x 372 px, прозрачный фон, поля по 2px.
 
   Как пересобрать PNG (macOS, нужен Chrome):
     1) открыть этот файл в Chrome
@@ -184,7 +184,7 @@
     font-family:Roboto,sans-serif;
     font-size:var(--by-size);
     font-weight:500;
-    font-style:italic;
+    font-style:normal;
     letter-spacing:var(--by-tracking);
     color:var(--by-color);
     margin-top:var(--lead);
@@ -245,7 +245,7 @@
       <dd>Oswald 600, трекинг <code>0.055em</code></dd>
 
       <dt>Шрифт подписи</dt>
-      <dd>Roboto 500 Italic, трекинг <code>0.01em</code></dd>
+      <dd>Roboto 500, трекинг <code>0.01em</code></dd>
 
       <dt>Кегли</dt>
       <dd>ПЛЮСОН <code>52px</code> · подпись <code>16px</code></dd>
@@ -266,7 +266,7 @@
       <dd><code>#FFFFFF</code></dd>
 
       <dt>Готовый PNG</dt>
-      <dd><code>plusson_logo_dark.png</code> — 1560 × 372 px, прозрачный</dd>
+      <dd><code>plusson-logo-gorizontalnyy-dlya-temnogo-fona.png</code> — 1550 × 372 px, прозрачный</dd>
     </dl>
   </div>
 </div>

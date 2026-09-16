@@ -131,13 +131,17 @@ export default function OrderForm({
   // ⚠️ Подсказка организатора — ПОЛУПРОЗРАЧНАЯ плашка в акцентном цвете темы
   // (тот же, что у границ карточек и иконок). Сплошная красная заливка читалась
   // как вторая кнопка и спорила с настоящей.
+  // ⚠️ Прозрачность заметная (.85), а не лёгкая: на тёмном фоне страницы
+  // еле видная плашка не читается, а текст на ней должен быть тёмным.
   const hintBg = (() => {
     const hex = page.border_color || page.color_heading || '#FFCFA4'
     const m = /^#?([0-9a-f]{6})$/i.exec(hex)
-    if (!m) return 'rgba(255,255,255,.08)'
+    if (!m) return 'rgba(255,255,255,.12)'
     const n = parseInt(m[1], 16)
-    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, .14)`
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, .85)`
   })()
+  // Текст на персиковой плашке — тёмно-синий фон темы (#25455D у клиента 1).
+  const hintFg = page.bg_color || '#25455D'
 
   const btnStyle: React.CSSProperties = {
     color: page.btn_text_color || '#0a1520',
@@ -479,7 +483,9 @@ export default function OrderForm({
             <div className="mb-4 px-5 py-3.5 text-center text-[.85em] font-semibold leading-snug"
                  style={{
                    background: hintBg,
-                   color: page.color_heading || '#FFCFA4',
+                   // ⚠️ Текст — ТЁМНО-СИНИЙ из брендинга, а не персиковый и не
+                   // белый: на светлой персиковой плашке оба нечитаемы.
+                   color: hintFg,
                    borderRadius: page.btn_radius ?? page.radius ?? 12,
                  }}>
               {tariff.order_hint}
