@@ -335,7 +335,26 @@ async def my_kpi(
     role = await db.fetchval(
         "SELECT bonus_role FROM tech_specialists WHERE id = $1", spec_id)
 
+    # ── Квалификация: где человек сейчас и сколько до следующей ступени ──
+    # ⚠️ Показываем оборот СЕТИ — это не экономика компании, а масштаб его
+    # собственной работы, от которого зависит его же процент.
+    from app.services.tech_accruals import network_turnover_kopecks
+    turnover = await network_turnover_kopecks(db, spec_id)
+    q_cur = await db.fetchrow(
+        """SELECT turnover_from, turnover_to, percent FROM tech_qualification_tiers
+            WHERE $1 >= turnover_from AND $1 < turnover_to
+            ORDER BY turnover_from DESC LIMIT 1""", turnover)
+    q_next = await db.fetchrow(
+        """SELECT turnover_from, percent FROM tech_qualification_tiers
+            WHERE turnover_from > $1 ORDER BY turnover_from LIMIT 1""", turnover)
+
     return {
+        "qualification": {
+            "turnover_kopecks": turnover,
+            "percent": float(q_cur["percent"]) if q_cur else None,
+            "next_at_kopecks": int(q_next["turnover_from"]) if q_next else None,
+            "next_percent": float(q_next["percent"]) if q_next else None,
+        },
         "bonus_conditions": {
             "period": q_period,
             "role": role,

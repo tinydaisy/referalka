@@ -199,6 +199,41 @@ async def _on_payment(db: asyncpg.Connection, order_id: int) -> None:
     await _referral_percents(db, client_id=client_id, order_id=order_id, period=period)
 
 
+async def network_turnover_kopecks(db, spec_id: int) -> int:
+    """Оборот сети внедренца за месяц — по ЦЕНАМ ТАРИФОВ его платящих клиентов.
+
+    ⚠️ Сеть — ВСЕ действующие клиенты: и выданные ПЛЮСОНОМ, и приведённые им
+    лично, и пришедшие по его линии. Так задано листом «Ставки»: квалификация
+    растёт от общего масштаба работы, а не только от привлечения.
+    """
+    return int(await db.fetchval(
+        """SELECT COALESCE(SUM(t.price), 0) * 100
+             FROM clients c
+             JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+             JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE cs.status = 'active' AND cs.expires_at > NOW()
+              AND cs.source = 'paid'
+              AND (c.tech_specialist_id = $1 OR c.referred_by_tech_id = $1)""",
+        spec_id) or 0)
+
+
+async def qualification_percent(db, spec_id: int, default: float) -> float:
+    """Процент 1-го уровня по КВАЛИФИКАЦИИ — растёт от оборота сети.
+
+    ⚠️⚠️ Ставка `referral` в `tech_rates` — это СТАРТОВОЕ значение (10 %). Выше
+    оно поднимается вилкой `tech_qualification_tiers`: 10 → 10,5 → 11 → 11,5 →
+    12 % по мере роста оборота. Игнорировать вилку значило бы платить всем по
+    стартовой ставке независимо от масштаба.
+    """
+    turnover = await network_turnover_kopecks(db, spec_id)
+    row = await db.fetchrow(
+        """SELECT percent FROM tech_qualification_tiers
+            WHERE $1 >= turnover_from AND $1 < turnover_to
+            ORDER BY turnover_from DESC LIMIT 1""",
+        turnover)
+    return float(row["percent"]) if row else default
+
+
 async def _referral_percents(db, *, client_id: int, order_id: int, period: str) -> None:
     """10 % своему, 5 % второму уровню, 2 % третьему.
 
@@ -220,10 +255,15 @@ async def _referral_percents(db, *, client_id: int, order_id: int, period: str) 
         return
 
     if row["l1"]:
-        amount = await _amount(db, "referral", client_id)
+        # ⚠️ Процент 1-го уровня зависит от КВАЛИФИКАЦИИ: чем больше оборот сети,
+        # тем выше ставка (10 → 12 %). Берём вилку, а не стартовое значение.
+        _, base_pct, _ = await _rate(db, "referral")
+        pct = await qualification_percent(db, row["l1"], base_pct)
+        price = await _tariff_price_kopecks(db, client_id)
+        amount = int(round(price * pct / 100))
         await _add(db, spec_id=row["l1"], client_id=client_id, kind="referral",
                    amount=amount, order_id=order_id, period=period,
-                   note="10% свой приведённый")
+                   note=f"{pct:g}% свой приведённый (квалификация)")
 
     # ⚠️ Второй уровень — только если это НЕ тот же человек: иначе за одну
     # оплату он получил бы и 10 %, и 5 %.

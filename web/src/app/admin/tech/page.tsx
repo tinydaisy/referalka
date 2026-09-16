@@ -14,17 +14,43 @@ const rub = (kop?: number | null) =>
   `${Math.round((kop || 0) / 100).toLocaleString('ru-RU')} ₽`
 
 // ⚠️ Подписи и правила — по листу «2. KPI и проценты», не выдуманные.
+/** Названия ставок. ⚠️ Порядок повторяет лист «2. Ставки и KPI»:
+ *  активация → удержание → оживление, затем проценты по уровням 1-2-3. */
 const KIND: Record<string, string> = {
   activation: 'Активация — % от тарифа',
+  retention: 'Удержание — % от тарифа',
   revival: 'Оживление — % от тарифа',
-  fix: 'Фикс за обслуживание (по вилке ниже)',
-  referral: 'Свой приведённый — % пожизненно',
-  referral2: '2-й уровень — %',
+  referral: 'Процент 1-го уровня (свой приведённый)',
+  referral2: 'Процент 2-го уровня',
+  referral3: 'Процент 3-го уровня',
+  setup_pluson: 'Настройки: клиент из базы ПЛЮСОН',
+  setup_own: 'Настройки: ваш клиент через кассу',
+  setup_direct: 'Настройки: ваш клиент мимо кассы',
+  ticket_simple: 'Тикет простой',
+  ticket_hard: 'Тикет сложный (домены, почта, платежи)',
+  fix: 'Фикс за обслуживание',
   quarter_bonus: 'Квартальная премия',
   bonus: 'Премия вручную',
 }
 
-type Tab = 'specs' | 'assign' | 'dialogs' | 'money'
+/** ⚠️ Фикс задаётся ВИЛКОЙ на вкладке «Ставки», отдельной строки ему тут не
+ *  нужно — раньше она висела бесполезной подписью «считается по вилке». */
+const HIDDEN_RATES = ['fix', 'quarter_bonus', 'bonus']
+
+const ORDER = ['activation', 'retention', 'revival',
+               'referral', 'referral2', 'referral3',
+               'setup_pluson', 'setup_own', 'setup_direct',
+               'ticket_simple', 'ticket_hard']
+
+const sortRates = (rates: any[]) =>
+  [...(rates || [])]
+    .filter(r => !HIDDEN_RATES.includes(r.kind))
+    .sort((a, b) => {
+      const ia = ORDER.indexOf(a.kind), ib = ORDER.indexOf(b.kind)
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+    })
+
+type Tab = 'specs' | 'assign' | 'dialogs' | 'rates' | 'bonus' | 'money'
 
 
 // ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента, поэтому
@@ -44,7 +70,8 @@ function AdminTechPageInner() {
   const [specs, setSpecs] = useState<any[]>([])
   const [rates, setRates] = useState<any[]>([])
   const [fixTiers, setFixTiers] = useState<any[]>([])
-  const [quarterTiers, setQuarterTiers] = useState<any[]>([])
+  const [qualTiers, setQualTiers] = useState<any[]>([])
+  const [fundTiers, setFundTiers] = useState<any[]>([])
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
@@ -52,7 +79,8 @@ function AdminTechPageInner() {
     api.adminTech.rates().then((r: any) => {
       setRates(r.rates || [])
       setFixTiers(r.fix_tiers || [])
-      setQuarterTiers(r.quarter_tiers || [])
+      setQualTiers(r.qualification_tiers || [])
+      setFundTiers(r.fund_tiers || [])
     }).catch(() => {})
   }, [tick])
 
@@ -64,7 +92,8 @@ function AdminTechPageInner() {
       </p>
 
       <div className="mb-5 flex gap-2">
-        {([['specs', 'Люди и ставки'], ['assign', 'Клиенты'],
+        {([['specs', 'Люди'], ['assign', 'Клиенты'],
+           ['rates', 'Ставки и вилки'], ['bonus', 'Премии'],
            ['dialogs', 'Диалоги бота'],
            ['money', 'Начисления']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
@@ -75,10 +104,14 @@ function AdminTechPageInner() {
         ))}
       </div>
 
-      {tab === 'specs' && <SpecsTab specs={specs} rates={rates} fixTiers={fixTiers}
-                                    quarterTiers={quarterTiers}
+      {tab === 'specs' && <SpecsTab specs={specs} rates={rates}
                                     onChange={() => setTick(t => t + 1)} />}
       {tab === 'assign' && <AssignTab specs={specs} onChange={() => setTick(t => t + 1)} />}
+      {tab === 'rates' && <RatesTab rates={rates} fixTiers={fixTiers}
+                                    qualTiers={qualTiers}
+                                    onChange={() => setTick(t => t + 1)} />}
+      {tab === 'bonus' && <BonusTab fundTiers={fundTiers}
+                                    onChange={() => setTick(t => t + 1)} />}
       {tab === 'dialogs' && <DialogsTab specs={specs} />}
       {tab === 'money' && <MoneyTab specs={specs} />}
     </div>
@@ -86,7 +119,7 @@ function AdminTechPageInner() {
 }
 
 // ── Люди и ставки ────────────────────────────────────────────────────────
-function SpecsTab({ specs, rates, fixTiers, quarterTiers, onChange }: any) {
+function SpecsTab({ specs, rates, onChange }: any) {
   const [form, setForm] = useState({ email: '', name: '', telegram_username: '' })
   const [created, setCreated] = useState<any>(null)
 
@@ -187,23 +220,138 @@ function SpecsTab({ specs, rates, fixTiers, quarterTiers, onChange }: any) {
         </table>
       </div>
 
+    </div>
+  )
+}
+
+// ── Премии ───────────────────────────────────────────────────────────────
+/** Вкладка «Премии»: условия на квартал, ступени фонда, ввод прибыли, история.
+ *
+ * ⚠️⚠️ ПОНЯТИЯ «ДОЛЯ ДОЖИВШИХ» В СИСТЕМЕ НЕТ. Премия считается от ПРИБЫЛИ
+ * компании по ступеням (лист «2. Ставки и KPI», блок «ПРЕМИАЛЬНЫЙ ФОНД»).
+ * Прежний экран показывал долю доживших — это осталось от старой версии
+ * таблицы и вводило в заблуждение.
+ */
+function BonusTab({ fundTiers, onChange }: any) {
+  return (
+    <div className="space-y-4">
+      <QuarterReqBlock />
+
+      {/* ⚠️ Ступени фонда — процент от ПРИБЫЛИ компании за квартал. */}
+      <TierEditor kind="fund" tiers={fundTiers}
+                  title="Премиальный фонд — процент от прибыли компании"
+                  fromLabel="Прибыль за квартал, ₽" unit="%"
+                  hint="Владелец вводит прибыль за квартал — платформа сама берёт ступень и считает фонд."
+                  onChange={onChange} />
+
+      <BonusFundBlock />
+    </div>
+  )
+}
+
+
+// ── Ставки и вилки ───────────────────────────────────────────────────────
+/** Редактор одной вилки: ступени «от — до — значение».
+ *
+ * ⚠️ Вилки правятся здесь, а не миграцией: лист «2. Ставки и KPI» — единственное
+ * место, где меняются цифры, и правка не должна требовать выкатки.
+ */
+function TierEditor({ kind, tiers, title, hint, fromLabel, unit, money, onChange }: any) {
+  const [rows, setRows] = useState<any[]>([])
+  useEffect(() => { setRows(tiers || []) }, [tiers])
+
+  const fmt = (v: number) => money ? rub(v) : `${Number(v)} ${unit}`
+
+  return (
+    <div className="rounded-xl bg-white p-4 shadow-sm">
+      <div className="mb-1 text-sm font-semibold text-gray-800">{title}</div>
+      <p className="mb-3 text-xs text-gray-500">{hint}</p>
+      <table className="w-full text-sm">
+        <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
+          <tr>
+            <th className="py-2">{fromLabel} от</th>
+            <th className="py-2">до</th>
+            <th className="py-2">{money ? '₽/мес' : unit}</th>
+            <th className="py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((t: any) => (
+            <tr key={t.id} className="border-b border-gray-50 last:border-0">
+              <td className="py-1.5">
+                <input defaultValue={t.range_from ?? t.clients_from ?? t.turnover_from ?? t.profit_from}
+                       type="number"
+                       onBlur={e => { t._from = Number(e.target.value) }}
+                       className="w-28 rounded border border-gray-200 px-2 py-1 text-sm" />
+              </td>
+              <td className="py-1.5">
+                <input defaultValue={t.range_to ?? t.clients_to ?? t.turnover_to ?? t.profit_to}
+                       type="number"
+                       onBlur={e => { t._to = Number(e.target.value) }}
+                       className="w-28 rounded border border-gray-200 px-2 py-1 text-sm" />
+              </td>
+              <td className="py-1.5">
+                <input defaultValue={money ? Math.round((t.amount_kopecks || 0) / 100) : Number(t.percent)}
+                       type="number" step={money ? 1 : 0.5}
+                       onBlur={async e => {
+                         const v = Number(e.target.value)
+                         await api.adminTech.setTier(kind, {
+                           id: t.id,
+                           range_from: t._from ?? t.clients_from ?? t.turnover_from ?? t.profit_from,
+                           range_to: t._to ?? t.clients_to ?? t.turnover_to ?? t.profit_to,
+                           value: v,
+                         })
+                         onChange?.()
+                       }}
+                       className="w-28 rounded border border-gray-200 px-2 py-1 text-sm" />
+              </td>
+              <td className="py-1.5 text-right">
+                <button onClick={async () => {
+                          if (!confirm('Удалить ступень?')) return
+                          await api.adminTech.deleteTier(kind, t.id); onChange?.()
+                        }}
+                        className="text-xs text-gray-400 hover:text-red-500">удалить</button>
+              </td>
+            </tr>
+          ))}
+          {!rows.length && (
+            <tr><td colSpan={4} className="py-3 text-gray-400">Ступеней нет</td></tr>
+          )}
+        </tbody>
+      </table>
+      <button
+        onClick={async () => {
+          const last = rows[rows.length - 1]
+          const from = last
+            ? Number(last.clients_to ?? last.turnover_to ?? last.profit_to) + 1 : 0
+          await api.adminTech.setTier(kind, { range_from: from, range_to: from + 1, value: 0 })
+          onChange?.()
+        }}
+        className="mt-2 text-xs text-gray-500 hover:text-gray-800">+ ступень</button>
+    </div>
+  )
+}
+
+function RatesTab({ rates, fixTiers, qualTiers, onChange }: any) {
+  return (
+    <div className="space-y-4">
       <div className="rounded-xl bg-white p-4 shadow-sm">
         <div className="mb-1 text-sm font-semibold text-gray-800">Ставки</div>
         <p className="mb-3 text-xs text-gray-500">
           Новая ставка действует вперёд — уже начисленное не пересчитывается.
         </p>
         <div className="space-y-2">
-          {rates.map((r: any) => (
+          {sortRates(rates).map((r: any) => (
             <div key={r.kind} className="flex flex-wrap items-center gap-2">
-              <span className="min-w-[260px] text-sm text-gray-700">{KIND[r.kind] || r.kind}</span>
-              {r.kind === 'fix' ? (
-                <span className="text-xs text-gray-400">считается по вилке</span>
-              ) : r.of_tariff ? (
+              <span className="min-w-[300px] text-sm text-gray-700">{KIND[r.kind] || r.kind}</span>
+              {r.of_tariff || String(r.kind).startsWith('setup') ? (
                 <>
                   <input defaultValue={r.percent} type="number" step="0.5"
                          onBlur={e => api.adminTech.setRate(r.kind, { percent: Number(e.target.value) })}
                          className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-                  <span className="text-sm text-gray-500">% от тарифа клиента</span>
+                  <span className="text-sm text-gray-500">
+                    {String(r.kind).startsWith('setup') ? '% от чека настройки' : '% от тарифа клиента'}
+                  </span>
                 </>
               ) : (
                 <>
@@ -216,63 +364,27 @@ function SpecsTab({ specs, rates, fixTiers, quarterTiers, onChange }: any) {
             </div>
           ))}
         </div>
-
-        {/* ⚠️ ФИКС — ВИЛКА, А НЕ СУММА ЗА КАЖДОГО: 15–49 клиентов → 4 000 ₽ за
-            всех сразу. Умножение на число дало бы на сотне 30 000 вместо 12 000. */}
-        {!!rates?.length && (
-          <div className="mt-5 grid gap-5 md:grid-cols-2">
-            <div>
-              <div className="mb-1 text-sm font-semibold text-gray-800">
-                Фикс за обслуживание
-              </div>
-              <p className="mb-2 text-xs text-gray-500">
-                Считаются только ЧУЖИЕ платящие клиенты: за своих идёт процент.
-              </p>
-              <table className="w-full text-sm">
-                <tbody>
-                  {(fixTiers || []).map((t: any) => (
-                    <tr key={t.id} className="border-b border-gray-50 last:border-0">
-                      <td className="py-1.5 text-gray-600">
-                        {t.clients_from}–{t.clients_to} клиентов
-                      </td>
-                      <td className="py-1.5 text-right font-medium">
-                        {rub(t.amount_kopecks)}/мес
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm font-semibold text-gray-800">
-                Квартальная премия
-              </div>
-              <p className="mb-2 text-xs text-gray-500">
-                Доля доживших: из впервые оплативших за квартал сколько сделали
-                вторую оплату.
-              </p>
-              <table className="w-full text-sm">
-                <tbody>
-                  {(quarterTiers || []).map((t: any) => (
-                    <tr key={t.id} className="border-b border-gray-50 last:border-0">
-                      <td className="py-1.5 text-gray-600">
-                        {Number(t.rate_from)}–{Number(t.rate_to)} %
-                      </td>
-                      <td className="py-1.5 text-right font-medium">
-                        {rub(t.amount_kopecks)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* ⚠️ ФИКС — ВИЛКА, А НЕ СУММА ЗА КАЖДОГО: 15–49 клиентов → 4 000 ₽ за
+          всех сразу. Умножение на число дало бы на сотне 30 000 вместо 12 000. */}
+      <TierEditor kind="fix" tiers={fixTiers} money
+                  title="Фикс за обслуживание базы"
+                  fromLabel="Клиентов" unit="₽"
+                  hint="Считаются только ЧУЖИЕ платящие клиенты: за своих идёт процент. Вилка, а не сумма за каждого."
+                  onChange={onChange} />
+
+      {/* ⚠️ КВАЛИФИКАЦИЯ: процент 1-го уровня растёт от оборота сети. Оборот
+          сети — ВСЕ действующие клиенты внедренца, и выданные, и приведённые. */}
+      <TierEditor kind="qualification" tiers={qualTiers}
+                  title="Квалификация — процент 1-го уровня от оборота сети"
+                  fromLabel="Оборот в месяц, ₽" unit="%"
+                  hint="Сеть — все действующие клиенты внедренца: из базы ПЛЮСОН и приведённые им. Чем больше оборот, тем выше его процент."
+                  onChange={onChange} />
     </div>
   )
 }
+
 
 // ── Распределение ────────────────────────────────────────────────────────
 function AssignTab({ specs, onChange }: any) {
@@ -411,6 +523,14 @@ function QuarterReqBlock() {
           className="btn-primary px-4 py-1.5 text-sm">Сохранить</button>
       </div>
 
+      {/* ⚠️ Коэффициенты — вес в дележе фонда. Шкала 1–10, сумма значения не
+          имеет: доля = вес человека / сумма весов допущенных. */}
+      <div className="mb-4 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+        <b>Коэффициенты в премии:</b> тип В (со своей сетью) — 9,
+        тип Б (клиенты ПЛЮСОН) — 7. Шкала 1–10, важны пропорции, а не сумма.
+        Тип присваивается автоматически по числу своих активаций в месяц.
+      </div>
+
       <table className="w-full text-sm">
         <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
           <tr>
@@ -464,29 +584,37 @@ function BonusFundBlock() {
 
   return (
     <div className="rounded-xl bg-white p-4 shadow-sm">
-      <h3 className="mb-1 text-sm font-semibold text-gray-900">Премиальный фонд</h3>
+      <h3 className="mb-1 text-sm font-semibold text-gray-900">
+        Фонд за квартал и история
+      </h3>
       <p className="mb-3 text-xs text-gray-500">
-        Сумму берите из фин-модели — процент от прибыли за квартал. Платформа
-        разделит её между внедренцами по весам их ролей.
+        Введите прибыль компании за квартал — платформа возьмёт процент из вилки
+        выше, посчитает фонд и разделит его между внедренцами по весам ролей.
+        История ниже: видно, за какой период сколько было и роздано ли.
       </p>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <input value={period} onChange={e => setPeriod(e.target.value)}
-               placeholder="2026-Q1"
-               className="w-28 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-        <input value={rubles} onChange={e => setRubles(e.target.value)}
-               placeholder="сумма, ₽" inputMode="numeric"
-               className="w-36 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+      <div className="mb-4 flex flex-wrap items-end gap-2">
+        <label className="text-xs text-gray-500">Квартал<br />
+          <input value={period} onChange={e => setPeriod(e.target.value)}
+                 placeholder="2026-Q1"
+                 className="mt-1 w-28 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">Прибыль за квартал, ₽<br />
+          <input value={rubles} onChange={e => setRubles(e.target.value)}
+                 placeholder="напр. 800000" inputMode="numeric"
+                 className="mt-1 w-40 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+        </label>
         <button
           onClick={async () => {
             const v = Math.round(Number(rubles.replace(/\s/g, '')) * 100)
-            if (!v || v <= 0) { alert('Введите сумму'); return }
+            if (!v || v <= 0) { alert('Введите прибыль за квартал'); return }
             try {
-              await api.adminTech.setBonusFund(period, v)
+              // ⚠️ Отдаём ПРИБЫЛЬ — процент платформа возьмёт из вилки сама.
+              await api.adminTech.setBonusFund({ period, profit_kopecks: v })
               setRubles(''); setTick(t => t + 1)
             } catch (e: any) { alert(e?.message || 'Не вышло') }
           }}
-          className="btn-primary px-4 py-1.5 text-sm">Внести</button>
+          className="btn-primary px-4 py-1.5 text-sm">Посчитать фонд</button>
       </div>
 
       {!!weights.length && (
@@ -500,7 +628,8 @@ function BonusFundBlock() {
       <table className="w-full text-sm">
         <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
           <tr>
-            <th className="py-2">Квартал</th><th className="py-2">Сумма</th>
+            <th className="py-2">Квартал</th><th className="py-2">Прибыль</th>
+            <th className="py-2">%</th><th className="py-2">Фонд</th>
             <th className="py-2">Статус</th><th className="py-2"></th>
           </tr>
         </thead>
@@ -508,7 +637,13 @@ function BonusFundBlock() {
           {funds.map((f: any) => (
             <tr key={f.period} className="border-b border-gray-50">
               <td className="py-2 font-medium text-gray-900">{f.period}</td>
-              <td className="py-2">{rub(f.amount_kopecks)}</td>
+              <td className="py-2 text-gray-600">
+                {f.profit_kopecks ? rub(f.profit_kopecks) : '—'}
+              </td>
+              <td className="py-2 text-gray-600">
+                {f.percent ? `${Number(f.percent)}%` : '—'}
+              </td>
+              <td className="py-2 font-medium">{rub(f.amount_kopecks)}</td>
               <td className="py-2 text-gray-500">
                 {f.distributed_at ? 'роздан' : 'ждёт раздачи'}
               </td>
@@ -529,7 +664,7 @@ function BonusFundBlock() {
             </tr>
           ))}
           {!funds.length && (
-            <tr><td colSpan={4} className="py-3 text-gray-400">Фондов пока нет</td></tr>
+            <tr><td colSpan={6} className="py-3 text-gray-400">Фондов пока нет</td></tr>
           )}
         </tbody>
       </table>

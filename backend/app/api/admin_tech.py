@@ -232,14 +232,80 @@ async def get_rates(
     # ⚠️ Вилки отдаём ВМЕСТЕ со ставками: фикс и премия — тоже ставки, просто
     # ступенчатые. Отдельным запросом их бы забыли показать.
     fix = await db.fetch("SELECT * FROM tech_fix_tiers ORDER BY clients_from")
-    quarter = await db.fetch("SELECT * FROM tech_quarter_tiers ORDER BY rate_from")
     settings = await db.fetch("SELECT * FROM tech_settings ORDER BY key")
+    # ⚠️ Квалификация и фонд — тоже ставки, просто ступенчатые: отдаём вместе,
+    # иначе их пришлось бы искать в другом разделе.
+    qual = await db.fetch(
+        "SELECT * FROM tech_qualification_tiers ORDER BY turnover_from")
+    fund = await db.fetch(
+        "SELECT * FROM tech_fund_tiers ORDER BY profit_from")
     return {
         "rates": [dict(r) for r in rows],
         "fix_tiers": [dict(r) for r in fix],
-        "quarter_tiers": [dict(r) for r in quarter],
+        "qualification_tiers": [dict(r) for r in qual],
+        "fund_tiers": [dict(r) for r in fund],
         "settings": [dict(r) for r in settings],
     }
+
+
+# ── Редактирование вилок ─────────────────────────────────────────────────
+# ⚠️ Вилки правятся в админке, а не миграцией: лист «Ставки» прямо говорит —
+# это единственное место, где меняются цифры, и правка не должна требовать
+# выкатки.
+
+class TierIn(BaseModel):
+    id: Optional[int] = None
+    range_from: int
+    range_to: int
+    value: float          # ₽ для фикса, % для квалификации и фонда
+    note: Optional[str] = None
+
+
+_TIERS = {
+    "fix":           ("tech_fix_tiers", "clients_from", "clients_to", "amount_kopecks"),
+    "qualification": ("tech_qualification_tiers", "turnover_from", "turnover_to", "percent"),
+    "fund":          ("tech_fund_tiers", "profit_from", "profit_to", "percent"),
+}
+
+
+@router.post("/tiers/{kind}", summary="Добавить или изменить ступень")
+async def set_tier(
+    kind: str,
+    data: TierIn,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if kind not in _TIERS:
+        raise HTTPException(404, "Нет такой вилки")
+    table, c_from, c_to, c_val = _TIERS[kind]
+    # Фикс хранит копейки, остальные — проценты.
+    value = int(data.value * 100) if kind == "fix" else data.value
+    if data.id:
+        row = await db.fetchrow(
+            f"""UPDATE {table} SET {c_from}=$1, {c_to}=$2, {c_val}=$3, note=$4
+                 WHERE id=$5 RETURNING *""",
+            data.range_from, data.range_to, value, data.note, data.id)
+        if not row:
+            raise HTTPException(404, "Ступень не найдена")
+    else:
+        row = await db.fetchrow(
+            f"""INSERT INTO {table} ({c_from}, {c_to}, {c_val}, note)
+                 VALUES ($1,$2,$3,$4) RETURNING *""",
+            data.range_from, data.range_to, value, data.note)
+    return dict(row)
+
+
+@router.delete("/tiers/{kind}/{tier_id}", summary="Удалить ступень")
+async def del_tier(
+    kind: str, tier_id: int,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if kind not in _TIERS:
+        raise HTTPException(404, "Нет такой вилки")
+    table = _TIERS[kind][0]
+    await db.execute(f"DELETE FROM {table} WHERE id = $1", tier_id)
+    return {"ok": True}
 
 
 class RateIn(BaseModel):
@@ -375,7 +441,10 @@ async def manual_accrual(
 
 class FundIn(BaseModel):
     period: str                      # '2026-Q1'
-    amount_kopecks: int
+    # ⚠️ Вводится ПРИБЫЛЬ, процент берётся из вилки `tech_fund_tiers`. Вводить
+    # сразу сумму фонда — лишний шаг и место для ошибки: ступени заданы листом.
+    profit_kopecks: Optional[int] = None
+    amount_kopecks: Optional[int] = None   # запасной путь: задать фонд напрямую
     note: Optional[str] = None
 
 
@@ -400,21 +469,37 @@ async def set_bonus_fund(
 ):
     """⚠️ Уже розданный фонд не меняется: сумма разошлась по людям, правка
     задним числом рассогласовала бы её с начислениями."""
-    if data.amount_kopecks <= 0:
-        raise HTTPException(400, "Сумма должна быть больше нуля")
     done = await db.fetchval(
         "SELECT distributed_at FROM tech_bonus_funds WHERE period = $1",
         data.period)
     if done:
         raise HTTPException(400, "Фонд за этот квартал уже роздан")
+
+    profit = data.profit_kopecks or 0
+    amount = data.amount_kopecks or 0
+    percent = None
+    if profit > 0:
+        # Ступень по прибыли: процент задан листом «Ставки», не вводится руками.
+        tier = await db.fetchrow(
+            """SELECT percent FROM tech_fund_tiers
+                WHERE $1 >= profit_from AND $1 < profit_to
+                ORDER BY profit_from DESC LIMIT 1""", profit)
+        percent = float(tier["percent"]) if tier else 0.0
+        amount = int(round(profit * percent / 100))
+    if amount <= 0:
+        raise HTTPException(400, "Укажите прибыль за квартал или сумму фонда")
+
     row = await db.fetchrow(
-        """INSERT INTO tech_bonus_funds (period, amount_kopecks, note)
-           VALUES ($1,$2,$3)
+        """INSERT INTO tech_bonus_funds
+             (period, amount_kopecks, profit_kopecks, percent, note)
+           VALUES ($1,$2,$3,$4,$5)
            ON CONFLICT (period) DO UPDATE
              SET amount_kopecks = EXCLUDED.amount_kopecks,
+                 profit_kopecks = EXCLUDED.profit_kopecks,
+                 percent = EXCLUDED.percent,
                  note = EXCLUDED.note
            RETURNING *""",
-        data.period, data.amount_kopecks, data.note,
+        data.period, amount, profit or None, percent, data.note,
     )
     return dict(row)
 

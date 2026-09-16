@@ -1465,6 +1465,15 @@ export const api = {
     // `specialists: () => request('/api/v1/admin/tech/specialists')`.
     // ⚠️ Условия премии задаются на КАЖДЫЙ квартал: они зависят от плана на
     // период. Требуют свежей работы — оборот может идти со старых клиентов.
+    // ⚠️ Вилки правятся здесь, а не миграцией: лист «Ставки» — единственное
+    // место, где меняются цифры, и правка не должна требовать выкатки.
+    setTier: (kind: 'fix' | 'qualification' | 'fund',
+              v: { id?: number; range_from: number; range_to: number;
+                   value: number; note?: string }) =>
+      request(`/api/v1/admin/tech/tiers/${kind}`,
+              { method: 'POST', body: JSON.stringify(v) }),
+    deleteTier: (kind: 'fix' | 'qualification' | 'fund', id: number) =>
+      request(`/api/v1/admin/tech/tiers/${kind}/${id}`, { method: 'DELETE' }),
     quarterReqs: () => request('/api/v1/admin/tech/quarter-requirements'),
     setQuarterReq: (v: { period: string; base_from_pluson: number;
                          network_from_pluson: number; network_own: number;
@@ -1472,11 +1481,11 @@ export const api = {
       request('/api/v1/admin/tech/quarter-requirements',
               { method: 'POST', body: JSON.stringify(v) }),
     bonusFunds: () => request('/api/v1/admin/tech/bonus-funds'),
-    setBonusFund: (period: string, amount_kopecks: number, note?: string) =>
-      request('/api/v1/admin/tech/bonus-funds', {
-        method: 'POST',
-        body: JSON.stringify({ period, amount_kopecks, note }),
-      }),
+    // ⚠️ Вводится ПРИБЫЛЬ за квартал — процент платформа берёт из вилки сама.
+    setBonusFund: (v: { period: string; profit_kopecks?: number;
+                        amount_kopecks?: number; note?: string }) =>
+      request('/api/v1/admin/tech/bonus-funds',
+              { method: 'POST', body: JSON.stringify(v) }),
     distributeFund: (period: string) =>
       request(`/api/v1/admin/tech/bonus-funds/${encodeURIComponent(period)}/distribute`,
               { method: 'POST' }),
