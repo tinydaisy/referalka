@@ -126,18 +126,10 @@ export default function Sidebar() {
   }, [eventIdInPath])
   const inCollabEvent = eventIdInPath ? collabEventIds[eventIdInPath] === true : false
 
-  // Есть ли закрытый чат Коллабораторной хоть на одной площадке (TG/MAX,
-  // миграции 264 и 266). Сам пункт ведёт на внутреннюю страницу с кнопками —
-  // площадок две, прямой ссылкой в меню их не уместить.
-  // Грузим только тем, у кого раздел есть; ошибку глотаем — без ссылок просто
-  // не будет пункта меню, ломать сайдбар из-за этого нельзя.
-  const [hasCollabChat, setHasCollabChat] = useState(false)
-  useEffect(() => {
-    if (!hasCollabHub) return
-    api.collabHub.settings()
-      .then((r: any) => setHasCollabChat(!!(r?.chat_url || r?.chat_url_max)))
-      .catch(() => {})
-  }, [hasCollabHub])
+  // ⚠️ Здесь грузились настройки Коллабораторной ради пункта «Закрытый чат»
+  // (есть ли адрес чата в TG/MAX, миграции 264 и 266). Пункт убран из меню
+  // 16.09.2026 — запрос убран вместе с ним, чтобы сайдбар не ходил в API за
+  // тем, что больше не показывает. Вернуть пункт = вернуть и эти строки.
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -266,11 +258,10 @@ export default function Sidebar() {
         // авторизован, и право смотреть даёт сам модуль. Второй вход по коду
         // на почту тут был бы лишним шагом к данным, доступ к которым есть.
         { href: '/dashboard/collab-hub/materials', label: 'База материалов', icon: BookOpen },
-        // Закрытый чат участников — страница с кнопками на площадки (TG/MAX),
-        // адреса задаёт администратор платформы. Ни одной ссылки → пункта нет.
-        ...(hasCollabChat
-          ? [{ href: '/dashboard/collab-hub/chat', label: 'Закрытый чат', icon: MessageCircle }]
-          : []),
+        // ⚠️ ПУНКТ «ЗАКРЫТЫЙ ЧАТ» УБРАН ИЗ МЕНЮ (решение владельца 16.09.2026).
+        // Сама страница `/dashboard/collab-hub/chat` и её настройки остаются:
+        // по прямой ссылке она работает, и вернуть пункт — это одна строка.
+        // Раньше здесь был `...(hasCollabChat ? [{…}] : [])`.
         { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },
       ],
     }] : []),

@@ -1681,6 +1681,17 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled,
     // обязан стоять там же по порядку, иначе список снова читается вразнобой.
     { done: !!s.channel_linked, text: 'Вы добавили бота в админы канала',
       proof: '/dashboard/channels?tab=chats', proofLabel: 'Проверить' },
+    // ⚠️⚠️ ПОЛИТИКА — В ПЕРЕЧНЕ С САМОГО НАЧАЛА (требование владельца
+    // 16.09.2026). Шаг был только в списке действий НИЖЕ, а в этом отчёте его
+    // не было вовсе — человек читал «Что делаем за вас» и про ИНН с политикой
+    // не узнавал: «нет реквизитов ИНН так же».
+    // ⚠️ Пропуск — тоже закрытый пункт, но с другой подписью: шаг
+    // необязательный, и делать вид, что он «не сделан», неверно.
+    { done: !!s.policy_published || !!s.policy_skipped,
+      text: s.policy_skipped && !s.policy_published
+        ? 'Политику конфиденциальности вы настроите сами'
+        : 'Составили и опубликовали политику конфиденциальности (по вашему ИНН)',
+      proof: '/dashboard/settings?tab=legal', proofLabel: 'Проверить' },
     // Передача прав — ПОСЛЕДНИЙ шаг: им настройка и заканчивается.
     { done: !!s.bot_transferred, text: 'Передали вам права на бота', key: 'transfer',
       proof: 'https://telegram.me/BotFather', proofLabel: 'BotFather' },
