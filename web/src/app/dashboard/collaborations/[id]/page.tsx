@@ -127,6 +127,9 @@ export default function CollaborationPage({ params }: { params: { id: string } }
       const updates = {
         name: form.name,
         last_name: form.last_name || null,
+        // ⚠️ Явный вид карточки (миграция 425). По умолчанию в форме галочка
+        // стоит, поэтому у новых карточек партнёров сразу верный показ.
+        is_company: form.is_company !== false,
         title: form.title,
         achievements,
         photo_url: form.photo_url,
@@ -321,11 +324,33 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Фамилия</label>
+              {/* ⚠️ Подсказки «у компании оставьте пустым» больше НЕТ: вид
+                  карточки решает галочка ниже, а не фамилия (миграция 425).
+                  Прежняя подсказка обманывала — заполненная фамилия у бренда
+                  ломала показ логотипа. */}
               <input type="text" value={form.last_name || ''} onChange={set('last_name')}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-                placeholder="у компании — оставьте пустым" />
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
           </div>
+
+          {/* Вид карточки на лендинге: логотип целиком на белом (компания)
+              или фото квадратом (человек). */}
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-gray-200 p-3">
+            <input
+              type="checkbox"
+              checked={form.is_company !== false}
+              onChange={e => setForm((f: any) => ({ ...f, is_company: e.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-gray-700">Компания</span>
+              <span className="mt-0.5 block text-xs text-gray-500">
+                Уберите галочку, если ваш партнёр — человек. У компании логотип
+                показывается целиком на белом поле, у человека — фото квадратом,
+                как у спикеров.
+              </span>
+            </span>
+          </label>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.position}</label>
             <input type="text" value={form.title || ''} onChange={set('title')}

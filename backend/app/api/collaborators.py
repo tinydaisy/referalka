@@ -220,6 +220,10 @@ class CollaboratorCreate(BaseModel):
 class CollaboratorUpdate(BaseModel):
     name: Optional[str] = None
     last_name: Optional[str] = None
+    # ⚠️ Вид карточки на лендинге (миграция 425): компания — логотип целиком на
+    # белом, человек — фото квадратом. ЯВНАЯ галочка вместо угадывания по
+    # фамилии: у бренда фамилия бывает заполнена, и логотип уезжал в квадрат.
+    is_company: Optional[bool] = None
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
@@ -278,6 +282,8 @@ def row_to_dict(row):
 _COLLAB_SELECT = """
     c.id, btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.last_name,'')||' '||COALESCE(c.name,'') END) AS name, c.name AS first_name, c.last_name,
     c.title, c.achievements,
+    -- Вид карточки на лендинге (миграция 425): компания или человек.
+    c.is_company,
     c.photo_url,
     c.cutout_photo_url,
     (SELECT url FROM collaborator_posters cp
@@ -777,6 +783,10 @@ async def update_collaborator(
     # пустую строку, и снятое фото возвращалось бы обратно при сохранении.
     if "cutout_photo_url" in data.model_fields_set and not data.cutout_photo_url:
         updates_full["cutout_photo_url"] = None
+    # ⚠️ Галочку «Компания» надо уметь СНЯТЬ: False фильтр `v is not None` выше
+    # пропускает, но полагаться на это нельзя — пишем явно по факту присылки.
+    if "is_company" in data.model_fields_set:
+        updates_full["is_company"] = bool(data.is_company)
     # Личные идентичности TG/VK/MAX живут в platform_users (миграция 107),
     # а не в collaborators. Отделяем их из updates_full, чтобы не пытаться
     # UPDATE collaborators SET personal_vk_id = ... (колонок таких нет).
