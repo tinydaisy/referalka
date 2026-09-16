@@ -2870,9 +2870,11 @@ function PartnerCard({
   // ⚠️ NULL (галочка не задана) = прежнее поведение по фамилии: у карточек,
   // заведённых до миграции и не попавших в бэкфилл, вид не должен измениться
   // сам по себе.
-  const isPerson = p.is_company === true ? false
-    : p.is_company === false ? true
-    : Boolean(p.last_name && String(p.last_name).trim())
+  // ⚠️ Без вложенного тернарника: сборка Next на нём падала «Expression
+  // expected». Обычное ветвление читается яснее и не зависит от парсера.
+  let isPerson = Boolean(p.last_name && String(p.last_name).trim())
+  if (p.is_company === true) isPerson = false
+  else if (p.is_company === false) isPerson = true
 
   const inner = (
     <>
