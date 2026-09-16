@@ -309,8 +309,18 @@ async def list_clients(
     result = []
     for c in clients:
         d = dict(c)
-        raw = d.get("channels_breakdown")
-        d["channels_breakdown"] = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        # ⚠️⚠️ JSONB из asyncpg приходит СТРОКОЙ — её обязан разобрать каждый
+        # json_agg в этом запросе. `addons` добавили позже `channels_breakdown`
+        # и разбор дописать забыли: фронт получал текст вместо массива, падал
+        # на `(c.addons || []).map is not a function`, и ВЕСЬ раздел «Клиенты»
+        # в админке открывался белым экраном (16.09.2026).
+        #
+        # ⚠️ Новый json_agg в этом SELECT — сразу добавлять в список ниже,
+        # иначе админка ляжет так же и причина будет видна только в консоли
+        # браузера: в логах сервера при этом ЧИСТО, запрос отдаёт 200.
+        for _f in ("channels_breakdown", "addons"):
+            raw = d.get(_f)
+            d[_f] = json.loads(raw) if isinstance(raw, str) else (raw or [])
         result.append(d)
     return {"clients": result, "total": total}
 
