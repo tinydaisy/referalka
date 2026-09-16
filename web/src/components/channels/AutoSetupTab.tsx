@@ -239,6 +239,30 @@ export default function AutoSetupTab() {
    */
   const [startAnother, setStartAnother] = useState(false)
 
+  /**
+   * Приветственный экран — ПЕРВОЕ И ЕДИНСТВЕННОЕ, что видит новый человек.
+   *
+   * ⚠️⚠️ Раньше сразу после регистрации открывалась форма с десятком полей, и
+   * человек не понимал, куда попал и зачем всё это. Теперь сначала короткое
+   * «что это и зачем», кнопка «Начать» — и только потом поля.
+   *
+   * ⚠️ `null` = ещё не прочитали localStorage. Важно отличать от `false`:
+   * иначе на первом кадре мигнёт форма, которую мы как раз прячем.
+   */
+  const [welcomeDone, setWelcomeDone] = useState<boolean | null>(null)
+  useEffect(() => {
+    try {
+      setWelcomeDone(localStorage.getItem('plusson_autosetup_welcome') === '1')
+    } catch {
+      // Приватный режим / запрет хранилища — приветствие просто не запомнится.
+      setWelcomeDone(false)
+    }
+  }, [])
+  const startWelcome = () => {
+    try { localStorage.setItem('plusson_autosetup_welcome', '1') } catch { /* см. выше */ }
+    setWelcomeDone(true)
+  }
+
   const confirmStep = async (step: 'bot' | 'group' | 'channel',
                              acceptEntered = false) => {
     setConfirming(step)
@@ -506,6 +530,18 @@ export default function AutoSetupTab() {
   const locked = order?.locked ?? (inProgress || waitingUser)
 
   /**
+   * Показать приветствие вместо полей.
+   *
+   * ⚠️ Только НОВИЧКУ: есть заказ (в работе, готовый, сгоревший) — человек уже
+   * в процессе, приветствовать поздно, ему нужен статус. Пока `welcomeDone`
+   * равно `null` (localStorage ещё не прочитан) полей тоже не показываем —
+   * иначе форма мигает на первом кадре ровно в том виде, который мы прячем.
+   */
+  const showWelcome = !order && welcomeDone === false
+  /** Поля и форма запуска — только когда приветствие пройдено. */
+  const introPassed = !!order || welcomeDone === true
+
+  /**
    * Сколько действий реально осталось человеку — ровно столько карточек ниже.
    *
    * ⚠️ Заголовок «осталось одно действие» стоял намертво и противоречил тому,
@@ -573,20 +609,37 @@ export default function AutoSetupTab() {
         всплывёт в самом конце, когда бот уже создан и передавать его будет
         некому. Поправленное сохраняется сразу, без ухода со страницы.
       */}
-      {/* ⚠️ ВВОДНАЯ СТРОКА — ПЕРВОЕ, ЧТО ВИДНО. Человека приводят сюда сразу
-          после регистрации и при каждом заходе, пока у него нет бота: он ещё
-          не знает, что это за раздел и зачем ему поля. Одна фраза «сделаем
-          за вас» объясняет это быстрее, чем список шагов. */}
-      {!finished && !inProgress && !order && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5">
-          <h2 className="text-lg font-bold text-gray-900">
-            Сделаем за вас первичную настройку — в несколько кликов
+      {/* ⚠️⚠️ ПРИВЕТСТВИЕ — И БОЛЬШЕ НИЧЕГО НА ЭКРАНЕ (решение владельца
+          16.09.2026). Раньше человек, только что зарегистрировавшийся, попадал
+          сюда и видел СРАЗУ кучу полей: «непонятно, что к чему», «хреновая туча
+          каких-то полей». Первый экран должен объяснить, что это и зачем, —
+          и всё. Поля появляются только после «Начать».
+
+          ⚠️ Показываем ОДИН РАЗ и только тому, у кого заказа ещё нет: человек,
+          вернувшийся дозаполнить, видит сразу поля — иначе приветствие на
+          третьем заходе только мешает. Отметка живёт в localStorage, потому
+          что это вопрос удобства экрана, а не данные кабинета. */}
+      {showWelcome && (
+        <div className="rounded-2xl p-6 sm:p-8 mb-5 text-white"
+             style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+          <h2 className="text-2xl sm:text-3xl font-bold">
+            Добро пожаловать в ПЛЮСОН
           </h2>
-          <p className="text-sm text-gray-600 mt-1.5 leading-relaxed">
-            Создадим Telegram-бота, привяжем к нему приложение, заведём группу
-            для уведомлений и пропишем всё в кабинете. От вас — данные ниже;
-            в конце зайдёте в бота и примете права владельца.
+          <p className="text-base sm:text-lg text-white/90 mt-4 leading-relaxed max-w-2xl">
+            Заполните несколько полей — и мы создадим вашего бота, передадим вам
+            права и включим воронки. Это сэкономит вам полтора часа настроек.
           </p>
+          <p className="text-base sm:text-lg text-white/90 mt-3 leading-relaxed max-w-2xl">
+            Мы делаем всё, чтобы вы автоматизировали до 90% технических задач
+            без лишней возни.
+          </p>
+          <p className="text-xl font-bold mt-4" style={{ color: '#FFCFA4' }}>
+            Бесплатно.
+          </p>
+          <button onClick={startWelcome}
+                  className="btn-gold mt-6 px-10 py-3 text-base font-semibold">
+            Начать
+          </button>
         </div>
       )}
 
@@ -628,7 +681,7 @@ export default function AutoSetupTab() {
         </div>
       )}
 
-      {(startAnother || (!finished && !locked)) && (
+      {introPassed && (startAnother || (!finished && !locked)) && (
         <div className={`rounded-xl border px-5 py-4 mb-5 ${
           allFilled ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
           <div className="flex gap-3">
@@ -703,7 +756,7 @@ export default function AutoSetupTab() {
         `paid`, `setup_state='new'` — то есть человеку остаётся только назвать
         бота. Условие `!order` прятало форму, и запустить настройку было нечем.
       */}
-      {(!order || startAnother || (paid && !order.bot_username && !inProgress
+      {introPassed && (!order || startAnother || (paid && !order.bot_username && !inProgress
                    && !waitingUser && !finished)) && (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h3 className="font-semibold text-gray-900 mb-1">Как назвать бота</h3>
