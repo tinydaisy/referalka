@@ -84,7 +84,18 @@ const POLL_IDLE_MS = 30000
  * ⚠️ Переписали текст приветствия — ПОДНИМИТЕ ЦИФРУ. Тогда экран покажется
  * заново всем, кто видел прежнюю редакцию.
  */
-const WELCOME_KEY = 'plusson_autosetup_welcome_v2'
+const WELCOME_KEY_BASE = 'plusson_autosetup_welcome_v2'
+/**
+ * Ключ отметки — С ID КЛИЕНТА (16.09.2026).
+ *
+ * ⚠️⚠️ Общий ключ на браузер — ошибка: человек завёл ВТОРОЙ кабинет в том же
+ * браузере, а приветствие ему больше не показывалось — отметка осталась от
+ * первого. Выглядит как «приветствие исчезло у новых пользователей», хотя у
+ * настоящего нового (другой браузер) оно есть. Для владельца это ровно так и
+ * выглядело: она пересоздала кабинет и экран пропал.
+ */
+const welcomeKey = (clientId?: number | null) =>
+  clientId ? `${WELCOME_KEY_BASE}_${clientId}` : WELCOME_KEY_BASE
 
 export default function AutoSetupTab() {
   const [state, setState] = useState<State | null>(null)
@@ -300,16 +311,20 @@ export default function AutoSetupTab() {
    * иначе на первом кадре мигнёт форма, которую мы как раз прячем.
    */
   const [welcomeDone, setWelcomeDone] = useState<boolean | null>(null)
+  // ⚠️ Ждём `me`: до него неизвестно, ЧЕЙ это кабинет, и можно прочитать
+  // чужую отметку. Пока `welcomeDone` равно `null`, на экране нет ни
+  // приветствия, ни формы — мигания не будет.
   useEffect(() => {
+    if (!me?.id) return
     try {
-      setWelcomeDone(localStorage.getItem(WELCOME_KEY) === '1')
+      setWelcomeDone(localStorage.getItem(welcomeKey(me.id)) === '1')
     } catch {
       // Приватный режим / запрет хранилища — приветствие просто не запомнится.
       setWelcomeDone(false)
     }
-  }, [])
+  }, [me?.id])
   const startWelcome = () => {
-    try { localStorage.setItem(WELCOME_KEY, '1') } catch { /* см. выше */ }
+    try { localStorage.setItem(welcomeKey(me?.id), '1') } catch { /* см. выше */ }
     setWelcomeDone(true)
   }
 
