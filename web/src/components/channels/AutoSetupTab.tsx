@@ -153,6 +153,24 @@ export default function AutoSetupTab() {
   // понимает, что уже готово. Скроллим к итогу ОДИН раз, когда он появился.
   const doneRef = useRef<HTMLDivElement | null>(null)
   const scrolledToDone = useRef(false)
+  /**
+   * ШАГ 3 — экран между передачей прав и поздравлением.
+   *
+   * ⚠️⚠️ Права уходят АВТОМАТИЧЕСКИ через минуту после создания группы (в
+   * группу человека добавляет сам сервисный аккаунт, и этого уже достаточно
+   * для `_finish_setup`). Из-за этого экран перескакивал сразу на зелёный
+   * итог, и два шага — юрданные и бот в канал — человек не успевал увидеть
+   * вовсе: «я не успела настроить ИНН и не успела выставить канал».
+   *
+   * Теперь настройка `done` → показываем Шаг 3, а поздравление держим, пока
+   * не нажали «Завершить».
+   *
+   * ⚠️ Отметка в localStorage и С НОМЕРОМ ЗАКАЗА в ключе: это состояние
+   * ЭКРАНА (что человек уже прочитал), а не данные кабинета. Новый заказ —
+   * новый ключ, и Шаг 3 показывается заново, как и должен.
+   */
+  const [step3Done, setStep3Done] = useState<boolean | null>(null)
+  const step3Ref = useRef<HTMLDivElement | null>(null)
   // ⚠️ Каталог готовых решений пока открыт не всем (фича `ready_solutions`).
   // Кнопку показываем только тем, у кого раздел есть: иначе человек нажмёт и
   // упрётся в пустую вкладку — хуже, чем если бы кнопки не было вовсе.
@@ -372,15 +390,36 @@ export default function AutoSetupTab() {
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [state, load])
 
-  // ⚠️ Прокрутка к итогу — ОДИН раз (`scrolledToDone`). Экран обновляется сам
-  // каждые 5–30 секунд, и без замка страницу дёргало бы вниз при каждом
-  // обновлении, пока человек читает итог или листает вверх.
+  // ⚠️ Прокрутка — ОДИН раз (`scrolledToDone`). Экран обновляется сам каждые
+  // 5–30 секунд, и без замка страницу дёргало бы вниз при каждом обновлении,
+  // пока человек читает.
+  //
+  // ⚠️ Скроллим к ТОМУ, ЧТО СЕЙЧАС ПОКАЗАНО: после передачи прав это Шаг 3, а
+  // не поздравление (оно ждёт «Завершить»). Без этого прокрутка целилась в
+  // пустой `doneRef` и не срабатывала вовсе — человек не замечал, что экран
+  // сменился.
+  // ⚠️ Отметку «нажал Завершить» читаем ЗДЕСЬ, из `state`, а не из `order`:
+  // `order` вычисляется ниже ранних возвратов (loading/noAccess), и хук,
+  // поставленный там, нарушил бы порядок хуков React при первой отрисовке.
+  useEffect(() => {
+    const id = state?.order?.id
+    if (!id) return
+    try { setStep3Done(localStorage.getItem(`plusson_autosetup_step3_${id}`) === '1') }
+    catch { setStep3Done(false) }
+  }, [state?.order?.id])
+
   useEffect(() => {
     if (state?.order?.setup_state !== 'done') return
-    if (scrolledToDone.current || !doneRef.current) return
+    if (scrolledToDone.current) return
+    const target = step3Ref.current || doneRef.current
+    if (!target) return
     scrolledToDone.current = true
-    doneRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [state])
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // ⚠️ Зависимость только от `state`: `showStep3`/`showDone` объявлены ниже
+    // (после ранних возвратов), и ссылка на них здесь — ошибка «use before
+    // declaration», роняющая сборку. Экран обновляется опросом каждые 5 секунд,
+    // так что эффект всё равно переотработает, когда блок появится в DOM.
+  }, [state, step3Done])
 
   const checkName = async () => {
     setChecking(true); setNameCheck(null)
@@ -575,6 +614,29 @@ export default function AutoSetupTab() {
   const showWelcome = !order && welcomeDone === false
   /** Поля и форма запуска — только когда приветствие пройдено. */
   const introPassed = !!order || welcomeDone === true
+
+  /**
+   * ШАГ 3 — между передачей прав и поздравлением.
+   *
+   * ⚠️⚠️ Права уходят АВТОМАТИЧЕСКИ, через минуту после создания группы (в
+   * группу человека добавляет сам сервисный аккаунт, и этого уже достаточно
+   * для `_finish_setup`). Поэтому экран перескакивал на зелёный итог, а шаги
+   * «юрданные» и «бот в канал» человек не успевал даже увидеть.
+   *
+   * Теперь: настройка `done` → показываем Шаг 3, а поздравление держим, пока
+   * не нажали «Завершить». Отметка про завершение — в localStorage: это
+   * состояние ЭКРАНА (что человек уже прочитал), а не данные кабинета.
+   */
+  /** Шаг 3 виден: настройка завершена, но человек ещё не нажал «Завершить». */
+  const showStep3 = finished && step3Done === false && !startAnother
+  /** Поздравление — только ПОСЛЕ «Завершить». */
+  const showDone = finished && step3Done === true && !startAnother
+  const finishSetup = () => {
+    try {
+      if (order?.id) localStorage.setItem(`plusson_autosetup_step3_${order.id}`, '1')
+    } catch { /* приватный режим — просто не запомнится */ }
+    setStep3Done(true)
+  }
 
   /**
    * Сколько действий реально осталось человеку — ровно столько карточек ниже.
@@ -1201,40 +1263,14 @@ export default function AutoSetupTab() {
                 />
               )}
 
-              {/*
-                ⚠️ Свой канал — НЕОБЯЗАТЕЛЬНЫЙ шаг, и это сказано вслух: канал есть
-                не у всех, а без пометки человек считает настройку незавершённой и
-                идёт в поддержку.
-                ⚠️ Галочка нужна и здесь. Раньше её не было: рассчитывали, что
-                платформа увидит добавление бота сама через `my_chat_member`. Но
-                апдейт доходит, только пока бот слушается процессом plusson-bot, а
-                бот услуги создан позже его старта — человек добавил бота в канал
-                и не мог никак об этом сообщить.
-                ⚠️ Показываем только когда бот есть: добавлять в канал нечего.
-              */}
-              {!!order.bot_username && (
-                <ActionRow
-                  done={!!order.steps?.channel_linked}
-                  title="Добавьте бота в свой канал (если он есть)"
-                  hint="Админом, с правом «Публикация сообщений» — тогда сможете рассылать и в канал"
-                  doneHint="Канал подключён к рассылкам"
-                  icon={<Users size={16} />}
-                  label=""
-                  onConfirm={() => confirmStep('channel')}
-                  confirming={confirming === 'channel'}
-                  note={stepNote?.step === 'channel' ? stepNote : null}
-                />
-              )}
-
-              {/* ─── Шаг: политика конфиденциальности (152-ФЗ) ─── */}
-              <PolicyStep
-                published={!!order.steps?.policy_published}
-                skipped={!!order.steps?.policy_skipped}
-                onDone={() => load(true)}
-              />
-
-              {/* ⚠️ Плашка поддержки — там, где человек застревает. */}
-              <SupportBlock />
+              {/* ⚠️⚠️ КАНАЛ И ЮРДАННЫЕ ПЕРЕЕХАЛИ В ШАГ 3 (16.09.2026).
+                  Они стояли здесь, но настройка успевает закончиться за
+                  2-3 минуты — права передаются автоматически, как только
+                  система САМА добавила человека в группу. Экран перескакивал
+                  на зелёный итог, и оба шага «улетали»: владелец не успела
+                  ни ИНН заполнить, ни канал подключить. Теперь они идут
+                  ПОСЛЕ передачи прав, отдельным экраном, который не даёт
+                  завершить настройку, пока бот не в админах канала. */}
             </>
           )}
 
@@ -1258,16 +1294,19 @@ export default function AutoSetupTab() {
                   <ArrowRight size={16} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-base font-semibold text-gray-900">
                     Передать права на бота и группу
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    Когда отметили шаги выше — нажмите, и бот станет вашим
+                  {/* ⚠️ Прямо говорим, что произойдёт БЕЗ нажатия: права
+                      уходят сами, ближайшей фоновой задачей. Раньше человек
+                      думал, что без кнопки ничего не случится, и ждал. */}
+                  <div className="text-sm text-gray-600 mt-0.5">
+                    Если не нажмёте — бот будет передан вам через минуту
                   </div>
                 </div>
                 <button onClick={transferNow} disabled={transferring}
-                        className="btn-gold px-4 py-2 text-sm whitespace-nowrap disabled:opacity-50">
-                  {transferring ? 'Передаём…' : 'Передать мне'}
+                        className="btn-gold px-5 py-2.5 text-base font-semibold whitespace-nowrap disabled:opacity-50">
+                  {transferring ? 'Передаём…' : 'Передать сейчас'}
                 </button>
               </div>
 
@@ -1305,6 +1344,10 @@ export default function AutoSetupTab() {
           {/* ⚠️ Срок «зайдите до…» на ОСТАНОВЛЕННОЙ настройке не показываем:
               торопить человека к действию, которое уже ничего не изменит,
               бессмысленно — сначала разбирается поддержка. */}
+          {/* ⚠️ ПЛАШКА ПОДДЕРЖКИ — В САМОМ НИЗУ, НАД БЛОКОМ ПРО СРОК (решение
+              владельца 16.09.2026). Стояла выше, среди шагов, и перебивала их. */}
+          <SupportBlock />
+
           {order.claim_deadline && !order.steps?.bot_transferred && !failedTransfer && (
             <div className="mt-4 flex items-start gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
               <Clock size={15} className="mt-0.5 shrink-0" />
@@ -1319,19 +1362,128 @@ export default function AutoSetupTab() {
         </div>
       )}
 
-      {/* ─── Готово ─── */}
-      {finished && order && (
+      {/* ══════════════════════════════════════════════════════════════════
+          ШАГ 3 — ПОСЛЕ ПЕРЕДАЧИ ПРАВ, ДО ПОЗДРАВЛЕНИЯ (16.09.2026)
+
+          ⚠️⚠️ ЗАЧЕМ ОТДЕЛЬНЫЙ ЭКРАН. Права на бота уходят автоматически, как
+          только система сама добавила человека в группу, — через минуту после
+          её создания. Экран перескакивал сразу на зелёный итог, и два важных
+          шага «улетали»: человек не успевал ни юрданные заполнить, ни бота в
+          канал добавить. Теперь между передачей и поздравлением стоит этот
+          экран, и поздравление не показывается, пока не нажали «Завершить».
+
+          ⚠️⚠️ БОТ В КАНАЛЕ — ОБЯЗАТЕЛЕН, БЕЗ ВЫХОДА. Воронки лид-магнитов
+          проверяют подписку на канал основателя: пока бот не админ, ссылки
+          блокируются и материал не выдаётся вовсе
+          (`lead-magnets/page.tsx`, ветка `blocked`). Отпустить человека без
+          этого — отдать ему нерабочий кабинет.
+          ══════════════════════════════════════════════════════════════════ */}
+      {showStep3 && order && (
+        <div ref={step3Ref} className="rounded-xl border-2 p-5 sm:p-6 mb-5 scroll-mt-4"
+             style={{ borderColor: '#FFCFA4' }}>
+          <h3 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            Шаг 3. Осталось два дела
+          </h3>
+          <p className="text-base text-gray-700 mt-2">
+            Бот <b>@{order.bot_username}</b> уже ваш. Без этих двух шагов
+            воронки и регистрации работать не будут.
+          </p>
+
+          {/* ── Юрданные ── */}
+          <div className="mt-6">
+            <PolicyStep
+              published={!!order.steps?.policy_published}
+              skipped={!!order.steps?.policy_skipped}
+              onDone={() => load(true)}
+            />
+          </div>
+
+          {/* ── Бот в канал: ОБЯЗАТЕЛЬНО ── */}
+          <div className="mt-4 rounded-lg border-2 px-4 py-4"
+               style={{ borderColor: order.steps?.channel_linked ? '#86efac' : '#FFCFA4' }}>
+            <div className="flex items-start gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                order.steps?.channel_linked ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                {order.steps?.channel_linked ? <Check size={17} /> : <Users size={17} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-base font-semibold text-gray-900">
+                  Добавьте бота <b>@{order.bot_username}</b> в свой канал
+                </div>
+                {order.steps?.channel_linked ? (
+                  <div className="text-sm text-green-800 mt-1">
+                    Канал подключён — воронки заработали.
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-sm text-gray-700 mt-1 leading-relaxed">
+                      Администратором, с правом «Публикация сообщений».
+                      Без этого воронка не проверит подписку и подарок
+                      не выдастся — материал просто не придёт человеку.
+                    </div>
+                    <button onClick={() => confirmStep('channel')}
+                            disabled={confirming === 'channel'}
+                            className="btn-primary mt-3 px-5 py-2.5 text-sm disabled:opacity-50">
+                      {confirming === 'channel' ? 'Проверяем…' : 'Добавил — проверьте'}
+                    </button>
+                    {stepNote?.step === 'channel' && (
+                      <div className={`mt-3 flex items-start gap-2 rounded-lg px-3 py-2.5 border ${
+                        stepNote.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                        {stepNote.ok
+                          ? <Check size={15} className="text-green-600 shrink-0 mt-0.5" />
+                          : <XCircle size={15} className="text-red-600 shrink-0 mt-0.5" />}
+                        <div className={`text-sm ${stepNote.ok ? 'text-green-800' : 'text-red-800'}`}>
+                          {stepNote.text}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Завершить ── */}
+          <div className="mt-6">
+            <button onClick={finishSetup}
+                    disabled={!order.steps?.channel_linked}
+                    className="btn-gold px-10 py-4 text-lg font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed">
+              Завершить настройку
+            </button>
+            {!order.steps?.channel_linked && (
+              <p className="text-sm text-gray-600 mt-2">
+                Кнопка откроется, когда бот будет админом канала.
+              </p>
+            )}
+          </div>
+
+          <SupportBlock />
+        </div>
+      )}
+
+      {/* ─── Готово ───
+          ⚠️ `showDone`, а НЕ `finished`: поздравление ждёт нажатия «Завершить»
+          на Шаге 3, и скрывается целиком, когда человек начал настраивать
+          нового бота (`startAnother`) — раньше зелёный блок торчал внизу под
+          открытой формой, и экран выглядел как две настройки сразу. */}
+      {showDone && order && (
         /* ⚠️ ЯКОРЬ + ПРОКРУТКА: страница длинная, и готовый итог оказывался
            ниже экрана — человек его просто не видел и не понимал, что делать
            дальше. Скроллим сюда сами, как только настройка завершилась. */
         <div ref={doneRef}
-             className="rounded-xl border border-green-300 bg-green-50 p-5 mb-5 scroll-mt-4">
-          <div className="flex items-center gap-2 font-bold text-green-900 mb-2">
-            <Check size={18} /> Поздравляем — всё готово!
-          </div>
-          <p className="text-sm text-green-900/80">
-            Всё прописано в кабинете. Вот что у вас теперь есть и что стоит
-            проверить прямо сейчас:
+             className="rounded-xl border border-green-300 bg-green-50 p-5 sm:p-6 mb-5 scroll-mt-4">
+          {/* ⚠️⚠️ КРУПНО И С ПРЯМЫМ УКАЗАНИЕМ, ЧТО ДЕЛАТЬ (правило владельца).
+              Было «Поздравляем — всё готово!» 16-м кеглем и пояснение серым
+              14-м: «твоя хуйня под готово не читабельна». Раз человек должен
+              что-то проверить — это и пишем, крупно. */}
+          <h3 className="text-2xl sm:text-3xl font-bold text-green-900">
+            Поздравляем!
+          </h3>
+          <p className="text-xl sm:text-2xl font-bold text-green-900 mt-1">
+            ПРОВЕРЬТЕ, ЧТО МЫ НАСТРОИЛИ
+          </p>
+          <p className="text-base text-green-900/90 mt-3">
+            Всё прописано в кабинете. Вот что у вас теперь есть:
           </p>
 
           {/* ⚠️ ИТОГ СПИСКОМ СО ССЫЛКАМИ, а не одной фразой «всё готово».
@@ -1378,80 +1530,38 @@ export default function AutoSetupTab() {
                       editHref="/dashboard/mini-app?tab=products" />
           </ol>
 
-          <div className="mt-4 rounded-lg bg-white border border-green-200 px-4 py-3 text-sm text-gray-700">
-            <b>Ещё один шаг, если нужен:</b> добавьте бота в свой канал —
-            тогда сможете рассылать и туда. Права можно отключить все,
-            кроме «Публикация сообщений». Как добавите — мы увидим это сами
-            и подключим канал.
-          </div>
-
-          {/* ⚠️⚠️ ПРО ПОЛИТИКУ ГОВОРИМ В ИТОГЕ — В ОБОИХ СЛУЧАЯХ.
-              Опубликовали → честно предупреждаем, что текст УНИВЕРСАЛЬНЫЙ: это
-              юридический документ с ИНН клиента, и он вправе знать, что текст
-              типовой и его можно поправить. Пропустил → пишем прямо, что по
-              152-ФЗ политику надо настроить самому, иначе человек уходит с
-              мыслью, что у него всё закрыто. */}
-          {order.steps?.policy_published && (
-            <div className="mt-3 rounded-lg bg-white border border-green-200 px-4 py-3 text-sm text-gray-700">
-              <b>Политика конфиденциальности опубликована.</b> Текст
-              универсальный — если хотите адаптировать под себя, поправьте его
-              в{' '}
-              <Link href="/dashboard/settings?tab=legal" className="underline font-medium">
-                «Настройки → Юридические данные»
-              </Link>.
+          {/* ⚠️⚠️ ПОЛИТИКА — ОТДЕЛЬНЫМ БЛОКОМ В РЕЗУЛЬТАТАХ (правило владельца).
+              Опубликована → говорим, что текст универсальный и где его править:
+              это юридический документ с ИНН клиента, он вправе знать, что текст
+              типовой. Не настроена → ПЕРСИКОВЫМ как незакрытый хвост, а не
+              зелёным: собирать регистрации и анкеты без неё нельзя. */}
+          {order.steps?.policy_published ? (
+            <div className="mt-4 rounded-lg bg-white border border-green-200 px-4 py-3.5">
+              <p className="text-base font-semibold text-gray-900">
+                Политика обработки персональных данных — опубликована
+              </p>
+              <p className="text-sm text-gray-700 mt-1">
+                Текст универсальный. Можете изменить его тут:{' '}
+                <Link href="/dashboard/settings?tab=legal" className="underline font-medium">
+                  «Настройки → Юридические данные»
+                </Link>.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-lg border-2 px-4 py-3.5"
+                 style={{ borderColor: '#FFCFA4', background: 'rgba(255, 207, 164, 0.18)' }}>
+              <p className="text-base font-bold text-gray-900">
+                Юридические данные — не настроены
+              </p>
+              <p className="text-sm text-gray-800 mt-1 leading-relaxed">
+                Без политики обработки персональных данных нельзя регистрировать
+                людей на эфиры и собирать анкеты. Заполнить:{' '}
+                <Link href="/dashboard/settings?tab=legal" className="underline font-medium">
+                  «Настройки → Юридические данные»
+                </Link>.
+              </p>
             </div>
           )}
-          {order.steps?.policy_skipped && !order.steps?.policy_published && (
-            <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
-              <b>Политику конфиденциальности настройте самостоятельно.</b> Она
-              нужна по 152-ФЗ, если вы собираете контакты. Заполнить:{' '}
-              <Link href="/dashboard/settings?tab=legal" className="underline font-medium">
-                «Настройки → Юридические данные»
-              </Link>.
-            </div>
-          )}
-
-          {/* ⚠️⚠️ ПОЛИТИКУ МОЖНО ЗАПОЛНИТЬ И ПОСЛЕ ЗАВЕРШЕНИЯ (16.09.2026).
-              Шаг показывался ТОЛЬКО пока заказ ждал действий клиента. Настройка
-              успевает закончиться за 2-3 минуты — и человек, не дошедший до
-              этого шага, терял его совсем: в итоге ни формы, ни упоминания.
-              Ровно так и вышло у владельца на заказе 10. Здесь заказ уже
-              `done`, но политика не нужна «в срок» — её можно оформить когда
-              угодно, и форма обязана остаться доступной. */}
-          {!order.steps?.policy_published && !order.steps?.policy_skipped && (
-            <div className="mt-3">
-              <PolicyStep published={false} skipped={false}
-                          onDone={() => load(true)} />
-            </div>
-          )}
-
-          {/* ⚠️⚠️ «ЧТО ДАЛЬШЕ» — КРУПНО И ПОСЛЕДНИМ БЛОКОМ. Бот настроен, но
-              сам по себе он ничего не продаёт: человек дочитал итог и не
-              знает, за что взяться. Показываем два узнаваемых сценария и
-              ведём в каталог решений — оттуда воронка ставится кнопкой. */}
-          <div className="mt-5 rounded-lg bg-white border border-green-200 px-4 py-4">
-            <p className="text-base font-bold text-gray-900">
-              Что дальше?
-            </p>
-            <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-              Хотите провести бесплатный эфир и собрать людей руками аудитории?
-              Или упаковать свой продукт и открывать доступ к материалам?
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              {hasSolutions && (
-                <Link href="/dashboard/autosetup?tab=solutions"
-                      className="btn-gold px-4 py-2 text-sm font-semibold">
-                  Посмотреть каталог готовых решений
-                </Link>
-              )}
-              <Link href="/dashboard/help"
-                    className={hasSolutions
-                      ? 'text-sm font-medium text-[#25455D] underline'
-                      : 'btn-gold px-4 py-2 text-sm font-semibold'}>
-                {hasSolutions ? 'или напишите нам — поможем' : 'Напишите нам — поможем'}
-              </Link>
-            </div>
-          </div>
 
           <p className="mt-4 text-sm text-gray-600">
             По всем вопросам — <Link href="/dashboard/help"
@@ -1471,6 +1581,36 @@ export default function AutoSetupTab() {
                     className="text-sm font-medium text-[#25455D] underline">
               Настроить ещё одного бота
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ⚠️⚠️ «ЧТО ДАЛЬШЕ» — ВНЕ ЗЕЛЁНОГО БЛОКА (решение владельца 16.09.2026).
+          Зелёный блок — это РЕЗУЛЬТАТЫ настройки, а каталог готовых решений к
+          результатам не относится: это следующий шаг работы, а не то, что мы
+          настроили. Внутри он читался как ещё один пункт итога. */}
+      {showDone && order && (
+        <div className="rounded-xl border border-gray-200 bg-white px-5 py-5 mb-5">
+          <p className="text-xl font-bold text-gray-900">
+            Что дальше?
+          </p>
+          <p className="text-base text-gray-700 mt-2 leading-relaxed">
+            Хотите провести бесплатный эфир и собрать людей руками аудитории?
+            Или упаковать свой продукт и открывать доступ к материалам?
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            {hasSolutions && (
+              <Link href="/dashboard/autosetup?tab=solutions"
+                    className="btn-gold px-5 py-2.5 text-base font-semibold">
+                Посмотреть каталог готовых решений
+              </Link>
+            )}
+            <Link href="/dashboard/help"
+                  className={hasSolutions
+                    ? 'text-base font-medium text-[#25455D] underline'
+                    : 'btn-gold px-5 py-2.5 text-base font-semibold'}>
+              {hasSolutions ? 'или напишите нам — поможем' : 'Напишите нам — поможем'}
+            </Link>
           </div>
         </div>
       )}
@@ -1977,13 +2117,15 @@ function PolicyStep({ published, skipped, onDone }: {
           <Sparkles size={15} />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-gray-900">
-            Настроим политику конфиденциальности
+          {/* ⚠️ Название и пояснение — по требованию владельца: человек должен
+              видеть, ЗАЧЕМ это, а не «дайте ИНН непонятно почему». */}
+          <div className="text-base font-semibold text-gray-900">
+            Настроим юридические данные
           </div>
-          <div className="text-sm text-gray-600 mt-0.5">
+          <div className="text-sm text-gray-700 mt-1 leading-relaxed">
             {skipped
-              ? 'Шаг пропущен — настройте её сами в «Настройки → Юридические данные»'
-              : 'Нужна по закону 152-ФЗ, если собираете контакты. Составим и опубликуем за вас'}
+              ? 'Шаг пропущен — настроите сами в «Настройки → Юридические данные»'
+              : 'Чтобы регистрировать людей на эфиры и собирать анкеты, нужна политика обработки персональных данных — этого требует закон. Заполните ИНН и название, остальное сделаем сами.'}
           </div>
         </div>
         {!open && (
