@@ -93,6 +93,32 @@ async def list_speakers_for_login(event_slug: str, db: asyncpg.Connection = Depe
     )
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    # ⚠️ Тема и логотип нужны ДО входа: экран авторизации открывается по ссылке
+    # от организатора и на ЕГО домене, а красился фирменными цветами ПЛЮСОНа —
+    # человек попадал на чужой по виду сайт и не понимал, туда ли пришёл.
+    # Поля те же, что кабинет берёт после входа (`/me`), чтобы вид не менялся
+    # на глазах при входе.
+    #
+    # ⚠️ Владелец события — через `event_owners` (у `events` своего client_id
+    # нет). Сбой чтения темы не должен ронять сам вход: список фамилий важнее
+    # оформления, поэтому всё в try.
+    brand: dict = {}
+    try:
+        own = await db.fetchrow(
+            """SELECT cl.brand_logo_url, cl.brand_logo_light_url,
+                      COALESCE(NULLIF(cl.brand_name,''), cl.name) AS brand_name,
+                      cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle,
+                      cl.lp_color_heading, cl.lp_color_body
+                 FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
+                WHERE eo.event_id = $1 AND eo.status = 'accepted'
+                ORDER BY eo.id LIMIT 1""",
+            ev["id"],
+        )
+        if own:
+            brand = dict(own)
+    except Exception:  # noqa: BLE001
+        brand = {}
     rows = await db.fetch(
         f"""SELECT cse.id AS speaker_event_id, c.id AS collaborator_id,
                   c.name, c.last_name
@@ -118,6 +144,7 @@ async def list_speakers_for_login(event_slug: str, db: asyncpg.Connection = Depe
         "event_title": ev["title"],
         "person_wording": ev["person_wording"] or "speaker",
         "speakers": items,
+        **brand,
     }
 
 

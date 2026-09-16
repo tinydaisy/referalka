@@ -306,6 +306,10 @@ export default function SpeakerCabinetPage() {
   const [token, setToken] = useState<string | null>(null)
   const [list, setList] = useState<SpeakerListItem[] | null>(null)
   const [eventTitle, setEventTitle] = useState<string>('')
+  // Брендинг экрана ВХОДА (до авторизации). Приходит тем же запросом, что
+  // список фамилий: ссылку даёт организатор и открывается она на ЕГО домене —
+  // фирменные цвета ПЛЮСОНа тут выглядят чужим сайтом.
+  const [loginBrand, setLoginBrand] = useState<any>(null)
   // Как называть человека: спикер / номинант / участник. Нужно ДО входа —
   // заголовок экрана авторизации тоже обязан совпадать со словом события.
   const [loginWording, setLoginWording] = useState<string>('speaker')
@@ -354,6 +358,7 @@ export default function SpeakerCabinetPage() {
         setList(d.speakers || [])
         setEventTitle(d.event_title || '')
         setLoginWording(d.person_wording || 'speaker')
+        setLoginBrand(d)
       })
       .catch((e) => setError(String(e.message || e)))
   }, [slug, token])
@@ -625,9 +630,40 @@ export default function SpeakerCabinetPage() {
 
   // ─── UI: экран авторизации ─────────────────────────────────────────────
   if (!token || !me) {
+    // Фон и логотип — ИЗ ТЕМЫ ОРГАНИЗАТОРА, как и внутри кабинета. Раньше
+    // здесь был жёстко зашит фирменный градиент ПЛЮСОНа: человек открывал
+    // ссылку на домене организатора и видел чужой по виду сайт без логотипа.
+    const lb = loginBrand || {}
+    const lc1 = lb.lp_bg_color || DARK
+    const lc2 = lb.lp_bg_color_2 || '#0a1520'
+    // Светлый фон или тёмный — от этого зависит, какой логотип читается:
+    // `brand_logo_url` белый (под тёмный фон), `brand_logo_light_url` тёмный.
+    const lHex = String(lc1).replace('#', '')
+    const lN = parseInt(lHex.length === 3 ? lHex.split('').map(x => x + x).join('') : lHex, 16)
+    const lDark = Number.isNaN(lN)
+      ? true
+      : (0.299 * ((lN >> 16) & 255) + 0.587 * ((lN >> 8) & 255) + 0.114 * (lN & 255)) / 255 < 0.6
+    const lLogo = (lDark
+      ? (lb.brand_logo_url || lb.brand_logo_light_url)
+      : (lb.brand_logo_light_url || lb.brand_logo_url)) || null
+
     return (
-      <div style={{ minHeight: '100vh', background: `linear-gradient(45deg, ${DARK}, #0a1520)`, padding: 20, fontFamily: 'Roboto, sans-serif' }}>
-        <div style={{ maxWidth: 480, margin: '40px auto', background: '#fff', borderRadius: 16, padding: 28, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+      <div style={{ minHeight: '100vh', background: `linear-gradient(${lb.lp_bg_angle ?? 45}deg, ${lc1}, ${lc2})`, padding: 20, fontFamily: 'Roboto, sans-serif' }}>
+        {/* Логотип и название организатора — над формой: человек должен сразу
+            видеть, чьё это событие, ещё до входа. */}
+        {(lLogo || lb.brand_name) && (
+          <div style={{ maxWidth: 480, margin: '32px auto 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            {lLogo && (
+              <img src={lLogo} alt={lb.brand_name || ''} style={{ maxHeight: 64, maxWidth: 220, objectFit: 'contain' }} />
+            )}
+            {lb.brand_name && (
+              <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: lb.lp_color_heading || '#FFCFA4', textAlign: 'center' }}>
+                {lb.brand_name}
+              </div>
+            )}
+          </div>
+        )}
+        <div style={{ maxWidth: 480, margin: (lLogo || lb.brand_name) ? '20px auto 40px' : '40px auto', background: '#fff', borderRadius: 16, padding: 28, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, marginBottom: 8 }}>Кабинет {personWording(loginWording).gen}</h1>
           {eventTitle && <div style={{ fontSize: 15, color: '#5c7589', marginBottom: 20 }}>«{eventTitle}»</div>}
 
