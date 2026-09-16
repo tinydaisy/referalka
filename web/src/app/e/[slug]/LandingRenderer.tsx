@@ -2729,17 +2729,6 @@ function giftSettings(block: any, page: any) {
 }
 
 /**
- * Выравнивание ВНУТРИ карточки: имя с должностью и регалии — РАЗДЕЛЬНО.
- *
- * ⚠️ Раньше на весь блок действовала одна настройка «Выравнивание текста
- * секции», а у партнёров вдобавок стоял жёсткий `text-center` — и регалии
- * вставали по центру, даже когда в секции выбрано «Слева». Клиенту нужно как
- * раз разное: должность под логотипом по центру, перечень регалий — слева.
- *
- * ⚠️ Пусто = прежний вид (`fallback`), чтобы уже собранные лендинги не
- * изменились сами: у спикеров всё было слева, у партнёров — по центру.
- */
-/**
  * Оформление ТЕКСТА в карточке: размеры, регистр, подчёркивание имени.
  *
  * ⚠️ Одна точка на спикеров и партнёров — иначе карточки разъедутся по виду.
@@ -2750,28 +2739,41 @@ function giftSettings(block: any, page: any) {
  * масштабируется настройкой `body_size`, и пиксель выпал бы из этого масштаба.
  */
 function cardTextStyle(block: any, page: any) {
-  const em = (v: any, def: number) => `${(Number(v) > 0 ? Number(v) : def) / 100}em`
-  const underline = block.card_name_underline === true
-  return {
-    name: {
-      fontSize: em(block.card_name_size, 115),
-      textTransform: (block.card_name_case === 'none' ? 'none' : 'uppercase') as any,
-      ...(underline ? {
-        textDecoration: 'underline',
-        // Цвет подчёркивания задаётся отдельно: линия под заголовком часто
-        // нужна акцентной, а не в цвет самого текста.
-        textDecorationColor: block.card_name_underline_color || page.color_heading || '#FFCFA4',
-        textUnderlineOffset: '.18em',
-      } : {}),
-    } as React.CSSProperties,
-    position: {
-      fontSize: em(block.card_position_size, 90),
-      textTransform: (block.card_position_case === 'upper' ? 'uppercase' : 'none') as any,
-    } as React.CSSProperties,
-    text: { fontSize: em(block.card_text_size, 85) } as React.CSSProperties,
+  const em = (v: any, def: number) => {
+    const n = Number(v) > 0 ? Number(v) : def
+    return String(n / 100) + 'em'
   }
+  const nameStyle: React.CSSProperties = {
+    fontSize: em(block.card_name_size, 115),
+    textTransform: block.card_name_case === 'none' ? 'none' : 'uppercase',
+  }
+  if (block.card_name_underline === true) {
+    nameStyle.textDecoration = 'underline'
+    // Цвет линии задаётся отдельно: подчёркивание под именем часто нужно
+    // акцентным, а не в цвет самого текста.
+    nameStyle.textDecorationColor =
+      block.card_name_underline_color || page.color_heading || '#FFCFA4'
+    nameStyle.textUnderlineOffset = '.18em'
+  }
+  const positionStyle: React.CSSProperties = {
+    fontSize: em(block.card_position_size, 90),
+    textTransform: block.card_position_case === 'upper' ? 'uppercase' : 'none',
+  }
+  const textStyle: React.CSSProperties = { fontSize: em(block.card_text_size, 85) }
+  return { name: nameStyle, position: positionStyle, text: textStyle }
 }
 
+/**
+ * Выравнивание ВНУТРИ карточки: имя с должностью и регалии — РАЗДЕЛЬНО.
+ *
+ * ⚠️ Раньше на весь блок действовала одна настройка «Выравнивание текста
+ * секции», а у партнёров вдобавок стоял жёсткий `text-center` — и регалии
+ * вставали по центру, даже когда в секции выбрано «Слева». Клиенту нужно как
+ * раз разное: должность под логотипом по центру, перечень регалий — слева.
+ *
+ * ⚠️ Пусто = прежний вид (`fallback`), чтобы уже собранные лендинги не
+ * изменились сами: у спикеров всё было слева, у партнёров — по центру.
+ */
 function cardAligns(block: any, fallback: 'left' | 'center') {
   const ok = (v: any) => (v === 'left' || v === 'center' || v === 'right' ? v : null)
   return {
@@ -2870,11 +2872,10 @@ function PartnerCard({
   // ⚠️ NULL (галочка не задана) = прежнее поведение по фамилии: у карточек,
   // заведённых до миграции и не попавших в бэкфилл, вид не должен измениться
   // сам по себе.
-  // ⚠️ Без вложенного тернарника: сборка Next на нём падала «Expression
-  // expected». Обычное ветвление читается яснее и не зависит от парсера.
-  let isPerson = Boolean(p.last_name && String(p.last_name).trim())
-  if (p.is_company === true) isPerson = false
-  else if (p.is_company === false) isPerson = true
+  // Галочка задана — берём её; не задана — прежнее правило по фамилии.
+  const isPerson: boolean = typeof p.is_company === 'boolean'
+    ? !p.is_company
+    : Boolean(p.last_name && String(p.last_name).trim())
 
   const inner = (
     <>
