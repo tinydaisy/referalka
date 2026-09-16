@@ -148,6 +148,17 @@ async def _send_event_organizer_notification(
     ]
     if came_link:
         parts.append(f"<b>Ссылка:</b> {came_link}")
+    # ⚠️⚠️ У ПРИШЕДШЕГО ИЗ MAX — кликабельное УПОМИНАНИЕ ИМЕНЕМ, как в
+    # `#user_message` (max_webhook.py). Строка «Ссылка: max://user/…» остаётся
+    # рядом — она нужна Telegram и VK, где схема max:// не кликается, — но в
+    # самом MAX человек открывает диалог одним касанием по имени.
+    # Без этой строки уведомление про пришедшего из MAX показывало только
+    # сырую схему, и написать ему было нечем (поймано 16.09.2026).
+    if platform_slug == "max":
+        from .profile_links import max_mention_html
+        _m = max_mention_html(c_puid, (contact["name"] if contact else None))
+        if _m:
+            parts.append(f"<b>Профиль в MAX:</b> {_m}")
     parts += [
         f"<b>Источник (utm_source):</b> {(contact['utm_source'] if contact else None) or '—'}",
         f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={contact_id}",
