@@ -387,17 +387,45 @@ export default function AutoSetupTab() {
 
   /** Передать права немедленно — кнопка в конце списка действий. */
   const [transferring, setTransferring] = useState(false)
+  /**
+   * ⚠️⚠️ ОТВЕТ НА НАЖАТИЕ — ПРЯМО ПОД КНОПКОЙ, И КНОПКА НЕ «ОТЖИМАЕТСЯ».
+   *
+   * Ручка `transfer-now` только БУДИТ фоновую задачу и отвечает мгновенно —
+   * сама передача идёт в Telegram 20-30 секунд. Раньше `transferring`
+   * сбрасывался сразу после ответа: кнопка моргала и возвращалась в прежний
+   * вид, ничего не писалось. Человек не понимал, нажалась она вообще или нет
+   * («она отжатая, ничего не пишется, не стала бледной»).
+   *
+   * Теперь: нажали → кнопка остаётся заблокированной с подписью «Передаём…»,
+   * под ней появляется строка о том, что идёт и сколько ждать. Снимаем блок
+   * только когда права реально переданы (это видит опрос) или при ошибке.
+   */
+  const [transferNote, setTransferNote] = useState<string | null>(null)
   const transferNow = async () => {
     setTransferring(true)
+    setTransferNote('Запустили передачу — обычно занимает до полуминуты. '
+      + 'Не закрывайте страницу, статус обновится сам.')
     try {
       await api.tgAutosetup.transferNow()
       await load(true)
     } catch (e: any) {
-      alert(e?.message || 'Не удалось запустить передачу')
-    } finally {
       setTransferring(false)
+      setTransferNote(null)
+      alert(e?.message || 'Не удалось запустить передачу')
     }
+    // ⚠️ `finally` НЕТ намеренно: блок с кнопки снимает опрос, когда увидит
+    // `bot_transferred`. Сбросить здесь — вернуть ту же неясность.
   }
+
+  // ⚠️ Снимаем блок с кнопки передачи, когда права РЕАЛЬНО переданы — это
+  // видит опрос. Без этого кнопка осталась бы «Передаём…» навсегда: сама
+  // ручка отвечает мгновенно и о результате ничего не знает.
+  useEffect(() => {
+    if (state?.order?.steps?.bot_transferred) {
+      setTransferring(false)
+      setTransferNote(null)
+    }
+  }, [state?.order?.steps?.bot_transferred])
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1350,10 +1378,17 @@ export default function AutoSetupTab() {
                   </div>
                 </div>
               )}
-              {transferring && (
-                <p className="mt-3 text-sm text-gray-500">
-                  Идёт передача — это занимает до полминуты, не закрывайте страницу.
-                </p>
+              {/* ⚠️ Ответ на нажатие — ЗДЕСЬ ЖЕ, под кнопкой, а не наверху
+                  страницы: человек смотрит в это место и наверх не листает. */}
+              {transferNote && !order.steps?.bot_transferred && (
+                <div className="mt-3 flex items-start gap-2 rounded-lg px-3 py-2.5"
+                     style={{ background: 'rgba(255, 207, 164, 0.3)' }}>
+                  <Loader2 size={16} className="animate-spin shrink-0 mt-0.5"
+                           style={{ color: '#25455D' }} />
+                  <div className="text-sm font-medium text-gray-900">
+                    {transferNote}
+                  </div>
+                </div>
               )}
             </div>
           )}
