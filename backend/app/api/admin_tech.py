@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Optional
 
@@ -18,6 +19,8 @@ from pydantic import BaseModel
 from app.auth import get_current_admin, hash_password
 from app.database import get_db
 from app.services.tech_accruals import assign_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/tech", tags=["Админ: тех-специалисты"])
 
@@ -228,23 +231,36 @@ async def get_rates(
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    rows = await db.fetch("SELECT * FROM tech_rates ORDER BY id")
-    # ⚠️ Вилки отдаём ВМЕСТЕ со ставками: фикс и премия — тоже ставки, просто
-    # ступенчатые. Отдельным запросом их бы забыли показать.
-    fix = await db.fetch("SELECT * FROM tech_fix_tiers ORDER BY clients_from")
-    settings = await db.fetch("SELECT * FROM tech_settings ORDER BY key")
-    # ⚠️ Квалификация и фонд — тоже ставки, просто ступенчатые: отдаём вместе,
-    # иначе их пришлось бы искать в другом разделе.
-    qual = await db.fetch(
+    # ⚠️⚠️ КАЖДЫЙ СПРАВОЧНИК ЧИТАЕТСЯ ОТДЕЛЬНО И ПАДЕНИЕ ОДНОГО НЕ УНОСИТ
+    # ОСТАЛЬНЫЕ. Иначе выходит так: код выкатили, миграцию ещё не накатили —
+    # `SELECT` по отсутствующей таблице роняет ВЕСЬ эндпоинт, и в админке
+    # пропадают не только новые вилки, но и ставки с фиксом, которые есть.
+    # Экран настроек должен показывать то, что уже работает, а не гаснуть
+    # целиком из-за того, чего пока нет.
+    # ⚠️ Каждый справочник — в СВОЁМ вложенном блоке (SAVEPOINT). Без него
+    # первая же ошибка переводит транзакцию в состояние aborted, и следующие
+    # запросы падают с «current transaction is aborted» — даже по таблицам,
+    # которые существуют и права на которые есть.
+    async def _safe(sql: str) -> list:
+        try:
+            async with db.transaction():
+                return [dict(r) for r in await db.fetch(sql)]
+        except asyncpg.PostgresError as e:          # нет таблицы / нет прав
+            logger.warning("admin_tech: справочник недоступен (%s): %s", sql, e)
+            return []
+
+    rows = await _safe("SELECT * FROM tech_rates ORDER BY id")
+    fix = await _safe("SELECT * FROM tech_fix_tiers ORDER BY clients_from")
+    settings = await _safe("SELECT * FROM tech_settings ORDER BY key")
+    qual = await _safe(
         "SELECT * FROM tech_qualification_tiers ORDER BY turnover_from")
-    fund = await db.fetch(
-        "SELECT * FROM tech_fund_tiers ORDER BY profit_from")
+    fund = await _safe("SELECT * FROM tech_fund_tiers ORDER BY profit_from")
     return {
-        "rates": [dict(r) for r in rows],
-        "fix_tiers": [dict(r) for r in fix],
-        "qualification_tiers": [dict(r) for r in qual],
-        "fund_tiers": [dict(r) for r in fund],
-        "settings": [dict(r) for r in settings],
+        "rates": rows,
+        "fix_tiers": fix,
+        "qualification_tiers": qual,
+        "fund_tiers": fund,
+        "settings": settings,
     }
 
 
