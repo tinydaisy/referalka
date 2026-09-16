@@ -17,10 +17,13 @@ from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File,
 from pydantic import BaseModel
 from typing import Optional, List
 import re
+import logging
 import asyncpg
 import jwt
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.services import r2_storage
 from app.services.image_processor import process_image, is_image
@@ -763,6 +766,13 @@ async def patch_me(
     # ⚠️ Одиночный подарок → В СПИСОК (колонок gift_after_speech_* больше нет).
     if "gift_after_speech_title" in sent_fields or "gift_after_speech_url" in sent_fields:
         from app.api.modules.conference import _save_single_gift_to_list
+        # ⚠️ Временный лог: разбираем жалобу «ручной подарок не сохраняется».
+        # Пишем, ЧТО пришло и для какой карточки — по ответу 200 этого не видно.
+        logger.info(
+            "GIFT SAVE ec=%s title=%r url=%r sent=%s",
+            se_id, data.gift_after_speech_title, data.gift_after_speech_url,
+            sorted(sent_fields & {"gift_after_speech_title", "gift_after_speech_url"}),
+        )
         await _save_single_gift_to_list(
             db, se_id, data.gift_after_speech_title, data.gift_after_speech_url)
     for f in ("gift_raffle_title", "gift_raffle_url",
