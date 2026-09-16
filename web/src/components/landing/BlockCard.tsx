@@ -747,56 +747,6 @@ export default function BlockCard({
                 </Field>
               )}
 
-              {/* Выравнивание ВНУТРИ карточек — отдельно от заголовка секции.
-                  ⚠️ Раньше всем управляла одна настройка «Выравнивание текста
-                  секции», а у партнёров поверх стоял жёсткий центр: регалии
-                  вставали по центру, даже когда выбрано «Слева». */}
-              {['speakers', 'partners'].includes(block.kind) && (
-                <div className="rounded-lg border border-gray-200 p-3">
-                  <div className="mb-2 text-sm font-medium text-gray-700">
-                    Выравнивание внутри карточек
-                  </div>
-                  <p className="mb-3 text-xs text-gray-500">
-                    Отдельно от заголовка секции. Обычно должность ставят по
-                    центру, а регалии — по левому краю, так их удобнее читать.
-                  </p>
-                  {([
-                    ['card_name_align', 'Имя и должность'],
-                    ['card_text_align', 'Регалии'],
-                  ] as const).map(([field, label]) => (
-                    <Field key={field} label={label}>
-                      <div className="flex flex-wrap gap-2">
-                        {([
-                          ['left', 'Слева'],
-                          ['center', 'По центру'],
-                          ['right', 'Справа'],
-                        ] as const).map(([val, lbl]) => (
-                          <button
-                            key={val}
-                            onClick={() => onPatch({ [field]: val })}
-                            className={`rounded-lg border px-3 py-1.5 text-sm ${
-                              block[field] === val
-                                ? 'border-brand bg-brand/5 font-medium text-brand'
-                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            {lbl}
-                          </button>
-                        ))}
-                        {block[field] && (
-                          <button
-                            onClick={() => onPatch({ [field]: null })}
-                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
-                          >
-                            Как было
-                          </button>
-                        )}
-                      </div>
-                    </Field>
-                  ))}
-                </div>
-              )}
-
               {/* Подарки в карточках. Выключено по умолчанию: подарок бывает
                   внутренней договорённостью, и выводить его наружу без спроса
                   нельзя. Работает и у спикеров, и у партнёров — партнёр так же
@@ -836,75 +786,10 @@ export default function BlockCard({
                           Оставьте пустым — будет «Подарок участникам:».
                         </p>
                       </Field>
-
-                      <Field label="Где показывать">
-                        <div className="flex flex-wrap gap-2">
-                          {([
-                            ['after', 'После регалий'],
-                            ['before', 'До регалий'],
-                          ] as const).map(([val, label]) => (
-                            <button
-                              key={val}
-                              onClick={() => onPatch({ speaker_gift_position: val })}
-                              className={`rounded-lg border px-3 py-1.5 text-sm ${
-                                (block.speaker_gift_position || 'after') === val
-                                  ? 'border-brand bg-brand/5 font-medium text-brand'
-                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </Field>
-
-                      {/* Цвет и прозрачность — настройки, но по умолчанию берём
-                          те, что клиент задал блокам в стилях: плашка должна
-                          попадать в тему сама, без лишних действий. */}
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={!!block.speaker_gift_bg}
-                          onChange={e => onPatch({
-                            speaker_gift_bg: e.target.checked ? '#0F1E2E' : null,
-                          })}
-                          className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
-                        />
-                        <span className="text-sm font-medium text-gray-700">
-                          Свой цвет плашки (не как у блоков)
-                        </span>
-                      </label>
-                      {block.speaker_gift_bg && (
-                        <ColorField
-                          label="Цвет плашки подарка"
-                          value={block.speaker_gift_bg}
-                          onChange={v => onPatch({ speaker_gift_bg: v })}
-                        />
-                      )}
-
-                      <Field label={`Прозрачность плашки: ${
-                        block.speaker_gift_opacity ?? 'как у блоков'
-                      }${block.speaker_gift_opacity != null ? '%' : ''}`}>
-                        <input
-                          type="range" min={0} max={100} step={5}
-                          value={block.speaker_gift_opacity ?? 55}
-                          onChange={e => onPatch({
-                            speaker_gift_opacity: Number(e.target.value),
-                          })}
-                          className="w-full"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                          100% — плотная заливка, 0% — прозрачная.
-                          {block.speaker_gift_opacity != null && (
-                            <button
-                              onClick={() => onPatch({ speaker_gift_opacity: null })}
-                              className="ml-1 text-brand hover:underline"
-                            >
-                              вернуть «как у блоков»
-                            </button>
-                          )}
-                        </p>
-                      </Field>
+                      <p className="text-xs text-gray-500">
+                        Цвет плашки, прозрачность и место (до или после регалий) —
+                        во вкладке «Оформление».
+                      </p>
                     </div>
                   )}
                 </div>
@@ -1304,6 +1189,135 @@ export default function BlockCard({
                     </p>
                   )}
                 </Field>
+
+                {/* Выравнивание ВНУТРИ карточек — отдельно от заголовка секции.
+                    ⚠️ Раньше всем управляла одна настройка «Выравнивание текста
+                    секции», а у партнёров поверх стоял жёсткий центр: регалии
+                    вставали по центру, даже когда выбрано «Слева». */}
+                {['speakers', 'partners'].includes(block.kind) && (
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <div className="mb-2 text-sm font-medium text-gray-700">
+                      Выравнивание внутри карточек
+                    </div>
+                    <p className="mb-3 text-xs text-gray-500">
+                      Отдельно от заголовка секции. Обычно должность ставят по
+                      центру, а регалии — по левому краю, так их удобнее читать.
+                    </p>
+                    {([
+                      ['card_name_align', 'Имя и должность'],
+                      ['card_text_align', 'Регалии'],
+                    ] as const).map(([field, label]) => (
+                      <Field key={field} label={label}>
+                        <div className="flex flex-wrap gap-2">
+                          {([
+                            ['left', 'Слева'],
+                            ['center', 'По центру'],
+                            ['right', 'Справа'],
+                          ] as const).map(([val, lbl]) => (
+                            <button
+                              key={val}
+                              onClick={() => onPatch({ [field]: val })}
+                              className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                block[field] === val
+                                  ? 'border-brand bg-brand/5 font-medium text-brand'
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {lbl}
+                            </button>
+                          ))}
+                          {block[field] && (
+                            <button
+                              onClick={() => onPatch({ [field]: null })}
+                              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
+                            >
+                              Как было
+                            </button>
+                          )}
+                        </div>
+                      </Field>
+                    ))}
+                  </div>
+                )}
+
+                {/* Оформление плашки подарка — здесь, рядом с остальным
+                    оформлением секции. Сам показ подарков и подпись к ним — во
+                    вкладке «Содержимое»: там решают, ЧТО показывать, здесь —
+                    КАК это выглядит. */}
+                {['speakers', 'partners'].includes(block.kind) && block.show_speaker_gift && (
+                  <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+                    <div className="text-sm font-medium text-gray-700">Плашка подарка</div>
+                    <Field label="Где показывать">
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          ['after', 'После регалий'],
+                          ['before', 'До регалий'],
+                        ] as const).map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => onPatch({ speaker_gift_position: val })}
+                            className={`rounded-lg border px-3 py-1.5 text-sm ${
+                              (block.speaker_gift_position || 'after') === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+
+                    {/* Цвет и прозрачность — настройки, но по умолчанию берём
+                        те, что клиент задал блокам в стилях: плашка должна
+                        попадать в тему сама, без лишних действий. */}
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!block.speaker_gift_bg}
+                        onChange={e => onPatch({
+                          speaker_gift_bg: e.target.checked ? '#0F1E2E' : null,
+                        })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Свой цвет плашки (не как у блоков)
+                      </span>
+                    </label>
+                    {block.speaker_gift_bg && (
+                      <ColorField
+                        label="Цвет плашки подарка"
+                        value={block.speaker_gift_bg}
+                        onChange={v => onPatch({ speaker_gift_bg: v })}
+                      />
+                    )}
+
+                    <Field label={`Прозрачность плашки: ${
+                      block.speaker_gift_opacity ?? 'как у блоков'
+                    }${block.speaker_gift_opacity != null ? '%' : ''}`}>
+                      <input
+                        type="range" min={0} max={100} step={5}
+                        value={block.speaker_gift_opacity ?? 55}
+                        onChange={e => onPatch({
+                          speaker_gift_opacity: Number(e.target.value),
+                        })}
+                        className="w-full"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        100% — плотная заливка, 0% — прозрачная.
+                        {block.speaker_gift_opacity != null && (
+                          <button
+                            onClick={() => onPatch({ speaker_gift_opacity: null })}
+                            className="ml-1 text-brand hover:underline"
+                          >
+                            вернуть «как у блоков»
+                          </button>
+                        )}
+                      </p>
+                    </Field>
+                  </div>
+                )}
+
                 {/* ⚠️ Где стоит колонка и как выровнены строки внутри — разные
                     вещи. Обложка «фото слева, текст справа» ставит колонку у
                     правого края, а строки в ней — по левому: иначе у абзаца
