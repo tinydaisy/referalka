@@ -540,7 +540,12 @@ async def distribute_fund(
 # складываться из старой, и премия за такое была бы платой за прошлое.
 
 class QuarterReqIn(BaseModel):
-    period: str                       # '2026-Q1'
+    period: str                       # ключ: '2026-H2'
+    # ⚠️ Границы — ДАТЫ, а не календарный квартал: рабочие периоды с ним не
+    # совпадают (первый идёт с середины сентября до конца года).
+    starts_on: Optional[str] = None   # '2026-09-15'
+    ends_on: Optional[str] = None     # '2026-12-31'
+    title: Optional[str] = None       # как называем вслух
     base_from_pluson: int             # тип Б: активаций от ПЛЮСОНА в месяц
     network_from_pluson: int          # тип В: от ПЛЮСОНА в месяц
     network_own: int                  # тип В: своих в месяц
@@ -568,17 +573,26 @@ async def set_quarter_req(
     for v in (data.base_from_pluson, data.network_from_pluson, data.network_own):
         if v < 0:
             raise HTTPException(400, "Пороги не могут быть отрицательными")
+    from datetime import date as _date
+    def _d(v):
+        return _date.fromisoformat(v) if v else None
+
     row = await db.fetchrow(
         """INSERT INTO tech_quarter_requirements
-             (period, base_from_pluson, network_from_pluson, network_own, note)
-           VALUES ($1,$2,$3,$4,$5)
+             (period, starts_on, ends_on, title,
+              base_from_pluson, network_from_pluson, network_own, note)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            ON CONFLICT (period) DO UPDATE SET
+             starts_on = EXCLUDED.starts_on,
+             ends_on = EXCLUDED.ends_on,
+             title = EXCLUDED.title,
              base_from_pluson = EXCLUDED.base_from_pluson,
              network_from_pluson = EXCLUDED.network_from_pluson,
              network_own = EXCLUDED.network_own,
              note = EXCLUDED.note
            RETURNING *""",
-        data.period, data.base_from_pluson, data.network_from_pluson,
+        data.period, _d(data.starts_on), _d(data.ends_on), data.title,
+        data.base_from_pluson, data.network_from_pluson,
         data.network_own, data.note,
     )
     return dict(row)

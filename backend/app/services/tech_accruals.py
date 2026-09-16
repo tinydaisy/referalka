@@ -366,13 +366,18 @@ async def accrue_monthly_fix(db: asyncpg.Connection, period: Optional[str] = Non
 
 # ──────────────────── Условия квартала и активации ───────────────────────
 async def quarter_requirements(db, period: str) -> dict:
-    """Условия допуска к премии на квартал.
+    """Условия допуска к премии на период.
+
+    ⚠️ Период задаётся ДАТАМИ (`starts_on`/`ends_on`), а не календарным
+    кварталом: рабочие периоды с ними не совпадают — первый идёт с середины
+    сентября до конца года.
 
     ⚠️ Нет строки на период — берём значения по умолчанию из `tech_settings`:
     работа не должна вставать оттого, что условия забыли задать.
     """
     row = await db.fetchrow(
-        """SELECT base_from_pluson, network_from_pluson, network_own
+        """SELECT base_from_pluson, network_from_pluson, network_own,
+                  starts_on, ends_on, title
              FROM tech_quarter_requirements WHERE period = $1""",
         period,
     )
@@ -382,13 +387,65 @@ async def quarter_requirements(db, period: str) -> dict:
         "base_from_pluson": int(await _setting(db, "network_role_activations", 6)),
         "network_from_pluson": 3,
         "network_own": 5,
+        "starts_on": None, "ends_on": None, "title": None,
     }
+
+
+async def current_period(db) -> Optional[dict]:
+    """Период, идущий СЕЙЧАС — по датам, а не по календарю.
+
+    ⚠️ Если периодов с датами нет вовсе, возвращаем None: вызывающий код
+    откатится на календарный квартал.
+    """
+    row = await db.fetchrow(
+        """SELECT period, starts_on, ends_on, title,
+                  base_from_pluson, network_from_pluson, network_own
+             FROM tech_quarter_requirements
+            WHERE starts_on IS NOT NULL AND ends_on IS NOT NULL
+              AND CURRENT_DATE BETWEEN starts_on AND ends_on
+            ORDER BY starts_on DESC LIMIT 1"""
+    )
+    return dict(row) if row else None
+
+
+def period_months_count(req: dict) -> float:
+    """Сколько МЕСЯЦЕВ в периоде — пороги задаются в месяц, а период произвольный.
+
+    ⚠️ Период «с 15 сентября по 31 декабря» — это 3,5 месяца, а не квартал.
+    Считать его как 3 значило бы занизить требование, как 4 — завысить.
+    """
+    if req.get("starts_on") and req.get("ends_on"):
+        days = (req["ends_on"] - req["starts_on"]).days + 1
+        return round(days / 30.44, 2)
+    return 3.0
 
 
 def _quarter_months(period: str) -> list[str]:
     """['2026-01','2026-02','2026-03'] для '2026-Q1'."""
     year, q = int(period[:4]), int(period[-1])
     return [f"{year}-{m:02d}" for m in range((q - 1) * 3 + 1, q * 3 + 1)]
+
+
+async def activations_by_source_dates(db, spec_id: int, starts_on, ends_on) -> dict:
+    """То же, что `activations_by_source`, но за ПРОИЗВОЛЬНЫЙ отрезок дат.
+
+    ⚠️ Берём `created_at` начисления, а не строку `period`: при границах вроде
+    «с 15 сентября» месяц попадает в период частично, и сравнение по '2026-09'
+    засчитало бы работу, сделанную до старта.
+    """
+    row = await db.fetchrow(
+        """SELECT
+             COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1)
+               AS from_pluson,
+             COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS own
+           FROM tech_accruals a
+           JOIN clients c ON c.id = a.client_id
+          WHERE a.spec_id = $1 AND a.kind = 'activation'
+            AND a.created_at::date BETWEEN $2 AND $3""",
+        spec_id, starts_on, ends_on,
+    )
+    return {"from_pluson": int(row["from_pluson"] or 0) if row else 0,
+            "own": int(row["own"] or 0) if row else 0}
 
 
 async def activations_by_source(db, spec_id: int, periods: list[str]) -> dict:
@@ -414,9 +471,16 @@ async def activations_by_source(db, spec_id: int, periods: list[str]) -> dict:
             "own": int(row["own"] or 0) if row else 0}
 
 
-def meets_requirements(role: str, got: dict, req: dict, months: int = 3) -> bool:
-    """Взял ли человек условия квартала. Пороги заданы В МЕСЯЦ, сверяем за весь
-    квартал — иначе один слабый месяц обнулял бы работу двух сильных."""
+def meets_requirements(role: str, got: dict, req: dict,
+                       months: Optional[float] = None) -> bool:
+    """Взял ли человек условия периода.
+
+    ⚠️ Пороги заданы В МЕСЯЦ, сверяем за ВЕСЬ период — иначе один слабый месяц
+    обнулял бы работу двух сильных. Длина периода берётся из его дат: «с 15
+    сентября по 31 декабря» это 3,5 месяца, а не 3.
+    """
+    if months is None:
+        months = period_months_count(req)
     if role == "implementer_network":
         return (got["from_pluson"] >= req["network_from_pluson"] * months
                 and got["own"] >= req["network_own"] * months)
@@ -466,7 +530,11 @@ async def accrue_quarter_bonus(db: asyncpg.Connection,
     #
     # ⚠️ Не взял условия — доля уходит остальным, а не пропадает.
     req = await quarter_requirements(db, period)
-    q_months = _quarter_months(period)
+    # ⚠️ Период может быть задан ДАТАМИ (например, с 15 сентября по 31 декабря).
+    # Тогда считаем активации по датам начислений, а не по строкам месяцев:
+    # иначе работа, сделанная до старта периода, засчиталась бы в него.
+    by_dates = bool(req.get("starts_on") and req.get("ends_on"))
+    q_months = None if by_dates else _quarter_months(period)
 
     all_rows = await db.fetch(
         """SELECT ts.id AS spec_id, ts.bonus_role AS role,
@@ -478,7 +546,10 @@ async def accrue_quarter_bonus(db: asyncpg.Connection,
 
     rows, skipped = [], []
     for r in all_rows:
-        got = await activations_by_source(db, r["spec_id"], q_months)
+        got = (await activations_by_source_dates(
+                   db, r["spec_id"], req["starts_on"], req["ends_on"])
+               if by_dates
+               else await activations_by_source(db, r["spec_id"], q_months))
         if meets_requirements(r["role"], got, req):
             rows.append({**dict(r), **got})
         else:

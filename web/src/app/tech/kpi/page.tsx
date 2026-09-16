@@ -100,7 +100,7 @@ export default function TechKpiPage() {
           <div className="mb-6 rounded-xl bg-white p-4 shadow-sm">
             <div className="mb-1 flex items-center justify-between gap-3">
               <h2 className="text-base font-bold text-gray-900">
-                Условия премии · {b.period}
+                Условия премии · {b.title || b.period}
               </h2>
               <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
                 b.meets ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
@@ -108,8 +108,12 @@ export default function TechKpiPage() {
               </span>
             </div>
             <p className="mb-3 text-xs text-gray-500">
-              Премия за квартал начисляется, если сделаны активации. Считаются
-              клиенты, доведённые до второй оплаты.
+              {b.starts_on && b.ends_on ? (
+                <>Период: {new Date(b.starts_on).toLocaleDateString('ru-RU')} — {' '}
+                {new Date(b.ends_on).toLocaleDateString('ru-RU')}. </>
+              ) : null}
+              Премия начисляется, если сделаны активации. Считаются клиенты,
+              доведённые до второй оплаты.
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="rounded-lg bg-gray-50 p-3">
@@ -117,7 +121,7 @@ export default function TechKpiPage() {
                 <div className="text-lg font-bold" style={{ color: DARK }}>
                   {b.got_from_pluson}
                   <span className="text-sm font-normal text-gray-400">
-                    {' '}из {b.need_from_pluson_quarter} за квартал
+                    {' '}из {b.need_from_pluson_quarter} за период
                   </span>
                 </div>
                 <div className="text-xs text-gray-400">
@@ -130,7 +134,7 @@ export default function TechKpiPage() {
                   <div className="text-lg font-bold" style={{ color: DARK }}>
                     {b.got_own}
                     <span className="text-sm font-normal text-gray-400">
-                      {' '}из {b.need_own_quarter} за квартал
+                      {' '}из {b.need_own_quarter} за период
                     </span>
                   </div>
                   <div className="text-xs text-gray-400">

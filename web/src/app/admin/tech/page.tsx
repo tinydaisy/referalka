@@ -531,6 +531,9 @@ function AssignTab({ specs, onChange }: any) {
 function QuarterReqBlock() {
   const [reqs, setReqs] = useState<any[]>([])
   const [period, setPeriod] = useState('')
+  const [title, setTitle] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [base, setBase] = useState('6')
   const [netPl, setNetPl] = useState('3')
   const [netOwn, setNetOwn] = useState('5')
@@ -541,24 +544,55 @@ function QuarterReqBlock() {
       .then((r: any) => setReqs(r.requirements || [])).catch(() => {})
   }, [tick])
 
+  // ⚠️ По умолчанию — текущий календарный квартал, но даты можно поправить:
+  // рабочие периоды с календарём не совпадают (первый идёт с середины
+  // сентября до конца года).
   useEffect(() => {
     if (period) return
     const d = new Date()
-    setPeriod(`${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`)
+    const q = Math.floor(d.getMonth() / 3)
+    setPeriod(`${d.getFullYear()}-Q${q + 1}`)
+    const s = new Date(d.getFullYear(), q * 3, 1)
+    const e = new Date(d.getFullYear(), q * 3 + 3, 0)
+    const iso = (x: Date) => x.toISOString().slice(0, 10)
+    setFrom(iso(s)); setTo(iso(e))
   }, [period])
+
+  const months = from && to
+    ? Math.round(((new Date(to).getTime() - new Date(from).getTime())
+        / 86400000 + 1) / 30.44 * 10) / 10
+    : 3
 
   return (
     <div className="rounded-xl bg-white p-4 shadow-sm">
       <h3 className="mb-1 text-sm font-semibold text-gray-900">Условия премии на квартал</h3>
       <p className="mb-3 text-xs text-gray-500">
-        Активаций в месяц. Тип Б — только клиенты ПЛЮСОНА. Тип В — и от ПЛЮСОНА,
-        и свои приведённые. Не выполнил — в дележе фонда не участвует.
+        Активаций <b>в месяц</b>. Тип Б — только клиенты ПЛЮСОНА. Тип В — и от
+        ПЛЮСОНА, и свои приведённые. Не выполнил — в дележе фонда не участвует.
+        {from && to && (
+          <> В этом периоде <b>{months} мес.</b> — значит за весь период нужно{' '}
+          <b>{Math.round(Number(base) * months)}</b> (тип Б) и{' '}
+          <b>{Math.round(Number(netPl) * months)} + {Math.round(Number(netOwn) * months)}</b> (тип В).</>
+        )}
       </p>
 
       <div className="mb-4 flex flex-wrap items-end gap-2">
-        <label className="text-xs text-gray-500">Квартал<br />
+        <label className="text-xs text-gray-500">Ключ периода<br />
           <input value={period} onChange={e => setPeriod(e.target.value)}
-                 className="mt-1 w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                 className="mt-1 w-28 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">Название<br />
+          <input value={title} onChange={e => setTitle(e.target.value)}
+                 placeholder="До Нового года"
+                 className="mt-1 w-40 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">С<br />
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+                 className="mt-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">По<br />
+          <input type="date" value={to} onChange={e => setTo(e.target.value)}
+                 className="mt-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
         </label>
         <label className="text-xs text-gray-500">Тип Б: от ПЛЮСОНА<br />
           <input value={base} onChange={e => setBase(e.target.value)} inputMode="numeric"
@@ -576,7 +610,8 @@ function QuarterReqBlock() {
           onClick={async () => {
             try {
               await api.adminTech.setQuarterReq({
-                period,
+                period, title: title || undefined,
+                starts_on: from || undefined, ends_on: to || undefined,
                 base_from_pluson: Number(base) || 0,
                 network_from_pluson: Number(netPl) || 0,
                 network_own: Number(netOwn) || 0,
@@ -598,7 +633,8 @@ function QuarterReqBlock() {
       <table className="w-full text-sm">
         <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
           <tr>
-            <th className="py-2">Квартал</th>
+            <th className="py-2">Период</th>
+            <th className="py-2">Даты</th>
             <th className="py-2">Тип Б</th>
             <th className="py-2">Тип В</th>
           </tr>
@@ -606,7 +642,15 @@ function QuarterReqBlock() {
         <tbody>
           {reqs.map((r: any) => (
             <tr key={r.period} className="border-b border-gray-50">
-              <td className="py-2 font-medium text-gray-900">{r.period}</td>
+              <td className="py-2 font-medium text-gray-900">
+                {r.title || r.period}
+                {r.title && <div className="text-xs text-gray-400">{r.period}</div>}
+              </td>
+              <td className="py-2 text-gray-600">
+                {r.starts_on && r.ends_on
+                  ? `${new Date(r.starts_on).toLocaleDateString('ru-RU')} — ${new Date(r.ends_on).toLocaleDateString('ru-RU')}`
+                  : 'календарный квартал'}
+              </td>
               <td className="py-2">{r.base_from_pluson} от ПЛЮСОНА</td>
               <td className="py-2">
                 {r.network_from_pluson} от ПЛЮСОНА + {r.network_own} своих
@@ -614,7 +658,7 @@ function QuarterReqBlock() {
             </tr>
           ))}
           {!reqs.length && (
-            <tr><td colSpan={3} className="py-3 text-gray-400">Условия не заданы</td></tr>
+            <tr><td colSpan={4} className="py-3 text-gray-400">Условия не заданы</td></tr>
           )}
         </tbody>
       </table>

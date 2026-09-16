@@ -1492,7 +1492,8 @@ export const api = {
     deleteTier: (kind: 'fix' | 'qualification' | 'fund', id: number) =>
       request(`/api/v1/admin/tech/tiers/${kind}/${id}`, { method: 'DELETE' }),
     quarterReqs: () => request('/api/v1/admin/tech/quarter-requirements'),
-    setQuarterReq: (v: { period: string; base_from_pluson: number;
+    setQuarterReq: (v: { period: string; starts_on?: string; ends_on?: string;
+                         title?: string; base_from_pluson: number;
                          network_from_pluson: number; network_own: number;
                          note?: string }) =>
       request('/api/v1/admin/tech/quarter-requirements',
