@@ -73,6 +73,19 @@ type State = {
 const POLL_ACTIVE_MS = 5000
 const POLL_IDLE_MS = 30000
 
+/**
+ * Отметка «приветствие уже показывали» — С НОМЕРОМ ВЕРСИИ В КЛЮЧЕ.
+ *
+ * ⚠️⚠️ ВЕРСИЯ ОБЯЗАТЕЛЬНА. Без неё человек, однажды нажавший «Начать», НИКОГДА
+ * больше не увидит приветствие — даже переписанное заново. Поймано сразу:
+ * владелец нажала «Начать» на первой редакции текста, и новый текст ей бы уже
+ * не показался, хотя правился он именно по её замечанию.
+ *
+ * ⚠️ Переписали текст приветствия — ПОДНИМИТЕ ЦИФРУ. Тогда экран покажется
+ * заново всем, кто видел прежнюю редакцию.
+ */
+const WELCOME_KEY = 'plusson_autosetup_welcome_v2'
+
 export default function AutoSetupTab() {
   const [state, setState] = useState<State | null>(null)
   const [loading, setLoading] = useState(true)
@@ -271,14 +284,14 @@ export default function AutoSetupTab() {
   const [welcomeDone, setWelcomeDone] = useState<boolean | null>(null)
   useEffect(() => {
     try {
-      setWelcomeDone(localStorage.getItem('plusson_autosetup_welcome') === '1')
+      setWelcomeDone(localStorage.getItem(WELCOME_KEY) === '1')
     } catch {
       // Приватный режим / запрет хранилища — приветствие просто не запомнится.
       setWelcomeDone(false)
     }
   }, [])
   const startWelcome = () => {
-    try { localStorage.setItem('plusson_autosetup_welcome', '1') } catch { /* см. выше */ }
+    try { localStorage.setItem(WELCOME_KEY, '1') } catch { /* см. выше */ }
     setWelcomeDone(true)
   }
 
