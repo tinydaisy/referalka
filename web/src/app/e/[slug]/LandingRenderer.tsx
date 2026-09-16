@@ -2836,7 +2836,7 @@ function PartnerCard({
   // поставить должность по центру, а регалии слева, как просит вёрстка
   // карточки: должность это подпись под логотипом, регалии — перечень.
   const position = p.title ? String(p.title) : ''
-  const ach: string[] = Array.isArray(p.achievements)
+  const ach = Array.isArray(p.achievements)
     ? p.achievements
         .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
         .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
@@ -2851,7 +2851,7 @@ function PartnerCard({
   // Подарки партнёра — та же плашка и те же настройки, что у спикеров:
   // партнёр так же дарит что-то участникам, и разводить это на две разные
   // вёрстки значило бы чинить их по отдельности.
-  const gifts: string[] = gift?.show && Array.isArray(p.gifts)
+  const gifts = gift?.show && Array.isArray(p.gifts)
     ? p.gifts.map((g: any) => String(g || '').trim()).filter(Boolean)
     : []
   const url = p.partner_url || p.website_url
@@ -2909,10 +2909,12 @@ function PartnerCard({
           {p.name}
         </div>
         {/* Должность — своим выравниванием: это подпись под логотипом. */}
+        {/* ⚠️ Так же, как у спикеров: позиционирование — ЖИРНЫМ. Раньше у
+            партнёров оно шло обычным тонким текстом и сливалось с регалиями,
+            хотя это подпись под названием, а не часть перечня.
+            ⚠️ Комментарий ВЫШЕ условия: сразу после «&& (» JSX ждёт элемент,
+            и комментарий там роняет сборку. */}
         {!!position && (
-          {/* ⚠️ Так же, как у спикеров: позиционирование — ЖИРНЫМ. Раньше у
-              партнёров оно шло обычным тонким текстом и сливалось с регалиями,
-              хотя это подпись под названием, а не часть перечня. */}
           <SafeHtml html={position} style={ts?.position}
                     className="font-semibold leading-snug opacity-90" />
         )}
@@ -2964,7 +2966,7 @@ function SpeakerCard({
   s, page, cardStyle, iconColor, open, onToggle, className = '', gift,
   nameAlign = 'left', textAlign = 'left', ts,
 }: any) {
-  const ach: string[] = Array.isArray(s.achievements)
+  const ach = Array.isArray(s.achievements)
     ? s.achievements
         .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
         // Часть регалий заведена с дефисом в начале — маркер свой.
@@ -2975,7 +2977,7 @@ function SpeakerCard({
   const visible = open ? ach : ach.slice(0, 2)
 
   // Подарки — общая плашка со спикерами и партнёрами (см. GiftBox).
-  const gifts: string[] = gift?.show && Array.isArray(s.gifts)
+  const gifts = gift?.show && Array.isArray(s.gifts)
     ? s.gifts.map((g: any) => String(g || '').trim()).filter(Boolean)
     : []
   const giftBlock = <GiftBox gifts={gifts} gift={gift} />
