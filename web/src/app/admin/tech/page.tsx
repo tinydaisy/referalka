@@ -24,8 +24,7 @@ const KIND: Record<string, string> = {
   referral2: 'Процент 2-го уровня',
   referral3: 'Процент 3-го уровня',
   setup_pluson: 'Настройки: клиент из базы ПЛЮСОН',
-  setup_own: 'Настройки: ваш клиент через кассу',
-  setup_direct: 'Настройки: ваш клиент мимо кассы',
+  setup_own: 'Настройки: ваш клиент',
   ticket_simple: 'Тикет простой',
   ticket_hard: 'Тикет сложный (домены, почта, платежи)',
   fix: 'Фикс за обслуживание',
@@ -39,7 +38,7 @@ const HIDDEN_RATES = ['fix', 'quarter_bonus', 'bonus']
 
 const ORDER = ['activation', 'retention', 'revival',
                'referral', 'referral2', 'referral3',
-               'setup_pluson', 'setup_own', 'setup_direct',
+               'setup_pluson', 'setup_own',
                'ticket_simple', 'ticket_hard']
 
 const sortRates = (rates: any[]) =>
@@ -238,7 +237,7 @@ function BonusTab({ fundTiers, onChange }: any) {
       <QuarterReqBlock />
 
       {/* ⚠️ Ступени фонда — процент от ПРИБЫЛИ компании за квартал. */}
-      <TierEditor kind="fund" tiers={fundTiers}
+      <TierEditor kind="fund" tiers={fundTiers} rangeInKopecks
                   title="Премиальный фонд — процент от прибыли компании"
                   fromLabel="Прибыль за квартал, ₽" unit="%"
                   hint="Владелец вводит прибыль за квартал — платформа сама берёт ступень и считает фонд."
@@ -256,11 +255,20 @@ function BonusTab({ fundTiers, onChange }: any) {
  * ⚠️ Вилки правятся здесь, а не миграцией: лист «2. Ставки и KPI» — единственное
  * место, где меняются цифры, и правка не должна требовать выкатки.
  */
-function TierEditor({ kind, tiers, title, hint, fromLabel, unit, money, onChange }: any) {
+function TierEditor({ kind, tiers, title, hint, fromLabel, unit, money,
+                     rangeInKopecks, onChange }: any) {
   const [rows, setRows] = useState<any[]>([])
   useEffect(() => { setRows(tiers || []) }, [tiers])
 
-  const fmt = (v: number) => money ? rub(v) : `${Number(v)} ${unit}`
+  // ⚠️⚠️ ГРАНИЦЫ КВАЛИФИКАЦИИ И ФОНДА ЛЕЖАТ В БАЗЕ В КОПЕЙКАХ. Показывать их
+  // как есть — значит выводить «10000000» вместо «100 000 ₽»: два лишних нуля,
+  // цифры нечитаемы. Делим при показе, умножаем при сохранении.
+  const toView = (v: any) => rangeInKopecks ? Math.round(Number(v || 0) / 100) : Number(v || 0)
+  const toDb = (v: any) => rangeInKopecks ? Math.round(Number(v || 0) * 100) : Number(v || 0)
+
+  // ⚠️ Разделители разрядов: без них нули сливаются и ошибиться на порядок
+  // проще простого.
+  const group = (v: any) => Number(v || 0).toLocaleString('ru-RU')
 
   return (
     <div className="rounded-xl bg-white p-4 shadow-sm">
@@ -279,29 +287,41 @@ function TierEditor({ kind, tiers, title, hint, fromLabel, unit, money, onChange
           {rows.map((t: any) => (
             <tr key={t.id} className="border-b border-gray-50 last:border-0">
               <td className="py-1.5">
-                <input defaultValue={t.range_from ?? t.clients_from ?? t.turnover_from ?? t.profit_from}
+                <input defaultValue={toView(t.clients_from ?? t.turnover_from ?? t.profit_from)}
                        type="number"
                        onBlur={e => { t._from = Number(e.target.value) }}
-                       className="w-28 rounded border border-gray-200 px-2 py-1 text-sm" />
+                       className="w-32 rounded border border-gray-200 px-2 py-1 text-sm" />
+                {rangeInKopecks && (
+                  <div className="mt-0.5 text-[11px] text-gray-400">
+                    {group(toView(t.clients_from ?? t.turnover_from ?? t.profit_from))} ₽
+                  </div>
+                )}
               </td>
               <td className="py-1.5">
-                <input defaultValue={t.range_to ?? t.clients_to ?? t.turnover_to ?? t.profit_to}
+                <input defaultValue={toView(t.clients_to ?? t.turnover_to ?? t.profit_to)}
                        type="number"
                        onBlur={e => { t._to = Number(e.target.value) }}
-                       className="w-28 rounded border border-gray-200 px-2 py-1 text-sm" />
+                       className="w-32 rounded border border-gray-200 px-2 py-1 text-sm" />
+                {rangeInKopecks && (
+                  <div className="mt-0.5 text-[11px] text-gray-400">
+                    {group(toView(t.clients_to ?? t.turnover_to ?? t.profit_to))} ₽
+                  </div>
+                )}
               </td>
               <td className="py-1.5">
                 <input defaultValue={money ? Math.round((t.amount_kopecks || 0) / 100) : Number(t.percent)}
                        type="number" step={money ? 1 : 0.5}
                        onBlur={async e => {
                          const v = Number(e.target.value)
-                         await api.adminTech.setTier(kind, {
-                           id: t.id,
-                           range_from: t._from ?? t.clients_from ?? t.turnover_from ?? t.profit_from,
-                           range_to: t._to ?? t.clients_to ?? t.turnover_to ?? t.profit_to,
-                           value: v,
-                         })
-                         onChange?.()
+                         try {
+                           await api.adminTech.setTier(kind, {
+                             id: t.id,
+                             range_from: toDb(t._from ?? toView(t.clients_from ?? t.turnover_from ?? t.profit_from)),
+                             range_to: toDb(t._to ?? toView(t.clients_to ?? t.turnover_to ?? t.profit_to)),
+                             value: v,
+                           })
+                           onChange?.()
+                         } catch (err: any) { alert(err?.message || 'Не удалось сохранить') }
                        }}
                        className="w-28 rounded border border-gray-200 px-2 py-1 text-sm" />
               </td>
@@ -323,11 +343,73 @@ function TierEditor({ kind, tiers, title, hint, fromLabel, unit, money, onChange
         onClick={async () => {
           const last = rows[rows.length - 1]
           const from = last
-            ? Number(last.clients_to ?? last.turnover_to ?? last.profit_to) + 1 : 0
-          await api.adminTech.setTier(kind, { range_from: from, range_to: from + 1, value: 0 })
+            ? Number(last.clients_to ?? last.turnover_to ?? last.profit_to) + (rangeInKopecks ? 100 : 1)
+            : 0
+          await api.adminTech.setTier(kind, {
+            range_from: from, range_to: from + (rangeInKopecks ? 100 : 1), value: 0 })
           onChange?.()
         }}
         className="mt-2 text-xs text-gray-500 hover:text-gray-800">+ ступень</button>
+    </div>
+  )
+}
+
+/** Одна ставка: поле + кнопка «Сохранить».
+ *
+ * ⚠️⚠️ БЫЛО СОХРАНЕНИЕ ПО onBlur БЕЗ ОТКЛИКА — и выглядело как «не работает»:
+ * человек менял цифру, уходил с поля, никакого подтверждения не появлялось, а
+ * ошибка (например, отказ прав) глоталась молча. Теперь явная кнопка, видимый
+ * результат и перечитывание списка после записи.
+ */
+function RateRow({ rate, onChange }: any) {
+  const isPercent = rate.of_tariff || String(rate.kind).startsWith('setup')
+  const initial = isPercent
+    ? String(Number(rate.percent))
+    : String(Math.round((rate.amount_kopecks || 0) / 100))
+  const [val, setVal] = useState(initial)
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  useEffect(() => { setVal(initial); setState('idle') }, [initial])
+
+  const dirty = val !== initial
+
+  async function save() {
+    setState('saving')
+    try {
+      await api.adminTech.setRate(rate.kind,
+        isPercent ? { percent: Number(val) }
+                  : { amount_kopecks: Math.round(Number(val) * 100) })
+      setState('saved')
+      onChange?.()
+    } catch (e: any) {
+      setState('error')
+      alert(e?.message || 'Не удалось сохранить ставку')
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="min-w-[300px] text-sm text-gray-700">
+        {KIND[rate.kind] || rate.kind}
+      </span>
+      <input value={val} onChange={e => { setVal(e.target.value); setState('idle') }}
+             type="number" step={isPercent ? '0.5' : '1'}
+             onKeyDown={e => { if (e.key === 'Enter' && dirty) save() }}
+             className="w-28 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+      <span className="text-sm text-gray-500">
+        {isPercent
+          ? (String(rate.kind).startsWith('setup') ? '% от чека настройки' : '% от тарифа клиента')
+          : '₽'}
+      </span>
+      {dirty && (
+        <button onClick={save} disabled={state === 'saving'}
+                className="btn-gold px-3 py-1 text-xs disabled:opacity-50">
+          {state === 'saving' ? 'Сохраняю…' : 'Сохранить'}
+        </button>
+      )}
+      {state === 'saved' && !dirty && (
+        <span className="text-xs text-green-600">сохранено</span>
+      )}
     </div>
   )
 }
@@ -338,30 +420,12 @@ function RatesTab({ rates, fixTiers, qualTiers, onChange }: any) {
       <div className="rounded-xl bg-white p-4 shadow-sm">
         <div className="mb-1 text-sm font-semibold text-gray-800">Ставки</div>
         <p className="mb-3 text-xs text-gray-500">
-          Новая ставка действует вперёд — уже начисленное не пересчитывается.
+          Поменяйте цифру и нажмите «Сохранить» (или Enter). Новая ставка
+          действует вперёд — уже начисленное не пересчитывается.
         </p>
         <div className="space-y-2">
           {sortRates(rates).map((r: any) => (
-            <div key={r.kind} className="flex flex-wrap items-center gap-2">
-              <span className="min-w-[300px] text-sm text-gray-700">{KIND[r.kind] || r.kind}</span>
-              {r.of_tariff || String(r.kind).startsWith('setup') ? (
-                <>
-                  <input defaultValue={r.percent} type="number" step="0.5"
-                         onBlur={e => api.adminTech.setRate(r.kind, { percent: Number(e.target.value) })}
-                         className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-                  <span className="text-sm text-gray-500">
-                    {String(r.kind).startsWith('setup') ? '% от чека настройки' : '% от тарифа клиента'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <input defaultValue={Math.round((r.amount_kopecks || 0) / 100)} type="number"
-                         onBlur={e => api.adminTech.setRate(r.kind, { amount_kopecks: Number(e.target.value) * 100 })}
-                         className="w-28 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-                  <span className="text-sm text-gray-500">₽</span>
-                </>
-              )}
-            </div>
+            <RateRow key={r.kind} rate={r} onChange={onChange} />
           ))}
         </div>
       </div>
@@ -376,7 +440,7 @@ function RatesTab({ rates, fixTiers, qualTiers, onChange }: any) {
 
       {/* ⚠️ КВАЛИФИКАЦИЯ: процент 1-го уровня растёт от оборота сети. Оборот
           сети — ВСЕ действующие клиенты внедренца, и выданные, и приведённые. */}
-      <TierEditor kind="qualification" tiers={qualTiers}
+      <TierEditor kind="qualification" tiers={qualTiers} rangeInKopecks
                   title="Квалификация — процент 1-го уровня от оборота сети"
                   fromLabel="Оборот в месяц, ₽" unit="%"
                   hint="Сеть — все действующие клиенты внедренца: из базы ПЛЮСОН и приведённые им. Чем больше оборот, тем выше его процент."
