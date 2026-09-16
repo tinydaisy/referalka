@@ -401,6 +401,34 @@ export default function AutoSetupTab() {
    * только когда права реально переданы (это видит опрос) или при ошибке.
    */
   const [transferNote, setTransferNote] = useState<string | null>(null)
+
+  /**
+   * Правка ника канала ПРЯМО НА ШАГЕ «добавьте бота в канал».
+   *
+   * ⚠️⚠️ На живом заказе 12 в профиле стоял `margoforbs_bot` вместо
+   * `margoforbs_business`: бот был админом настоящего канала, а проверка
+   * искала его в несуществующем — и отказ повторялся по кругу. Поправить было
+   * негде: поле жило в другом разделе кабинета. Теперь оно здесь же.
+   */
+  const [chanFix, setChanFix] = useState<string | null>(null)
+  const [savingChan, setSavingChan] = useState(false)
+  const [chanFixNote, setChanFixNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const saveChanFix = async () => {
+    const nick = (chanFix ?? '').trim().replace(/^@/, '')
+    if (!nick) return
+    setSavingChan(true); setChanFixNote(null)
+    try {
+      await api.tgAutosetup.saveChannel(nick)
+      setChanFixNote({ ok: true, text: `Сохранили: @${nick}. Теперь нажмите «Добавил — проверьте».` })
+      setChanFix(null)
+      await load(true)
+    } catch (e: any) {
+      // Бэкенд проверяет, что канал существует и что это канал, — текст оттуда.
+      setChanFixNote({ ok: false, text: e?.message || 'Не удалось сохранить ник' })
+    } finally {
+      setSavingChan(false)
+    }
+  }
   const transferNow = async () => {
     setTransferring(true)
     setTransferNote('Запустили передачу — обычно занимает до полуминуты. '
@@ -1450,6 +1478,7 @@ export default function AutoSetupTab() {
               published={!!order.steps?.policy_published}
               skipped={!!order.steps?.policy_skipped}
               onDone={() => load(true)}
+              defaultEmail={state.email}
             />
           </div>
 
@@ -1476,9 +1505,49 @@ export default function AutoSetupTab() {
                       Без этого воронка не проверит подписку и подарок
                       не выдастся — материал просто не придёт человеку.
                     </div>
+
+                    {/* ⚠️⚠️ ПОЛЕ КАНАЛА — ПРЯМО ЗДЕСЬ (требование владельца
+                        16.09.2026). Человек видит, КАКОЙ ник у нас записан, и
+                        может тут же его исправить. На живом заказе 12 в
+                        профиле стоял `margoforbs_bot` вместо
+                        `margoforbs_business` — бот был админом настоящего
+                        канала, а проверка искала его в несуществующем, и
+                        отказ повторялся по кругу. Поправить было негде: поле
+                        жило в другом разделе кабинета. */}
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium text-gray-800 mb-1.5">
+                        Ваш канал — ник, куда добавляли бота
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        <div className="flex-1 min-w-[200px] flex items-center rounded-lg border border-gray-300 bg-white px-3">
+                          <span className="text-gray-400 select-none">@</span>
+                          <input
+                            value={chanFix ?? (state.channel_username || '')}
+                            onChange={e => setChanFix(e.target.value.trim().replace(/^@/, ''))}
+                            placeholder="ваш_канал"
+                            className="flex-1 py-2.5 px-1 outline-none text-sm bg-transparent"
+                          />
+                        </div>
+                        <button onClick={saveChanFix}
+                                disabled={savingChan || !(chanFix ?? '').trim()}
+                                className="btn-primary px-4 py-2.5 text-sm disabled:opacity-40">
+                          {savingChan ? 'Сохраняем…' : 'Сохранить ник'}
+                        </button>
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1.5">
+                        Это ник КАНАЛА (как в адресе t.me/ваш_канал), а не бота.
+                      </p>
+                      {chanFixNote && (
+                        <p className={`text-sm mt-2 ${
+                          chanFixNote.ok ? 'text-green-700' : 'text-red-600'}`}>
+                          {chanFixNote.text}
+                        </p>
+                      )}
+                    </div>
+
                     <button onClick={() => confirmStep('channel')}
                             disabled={confirming === 'channel'}
-                            className="btn-primary mt-3 px-5 py-2.5 text-sm disabled:opacity-50">
+                            className="btn-gold mt-4 px-6 py-3 text-base font-semibold disabled:opacity-50">
                       {confirming === 'channel' ? 'Проверяем…' : 'Добавил — проверьте'}
                     </button>
                     {stepNote?.step === 'channel' && (
@@ -2110,15 +2179,27 @@ function LockedRow({ label, value, where }: {
  * рукой, и упираться в них посреди настройки бота человек не должен. Пропуск
  * запоминается, и итог честно скажет «настройте самостоятельно».
  */
-function PolicyStep({ published, skipped, onDone }: {
+function PolicyStep({ published, skipped, onDone, defaultEmail }: {
   published: boolean; skipped: boolean; onDone: () => void
+  /** Почта кабинета — подставляем в поле оператора, чтобы не вводить заново. */
+  defaultEmail?: string | null
 }) {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState('ip')
   const [name, setName] = useState('')
   const [inn, setInn] = useState('')
   const [address, setAddress] = useState('')
-  const [email, setEmail] = useState('')
+  // ⚠️ Почта ПО УМОЛЧАНИЮ — из кабинета (решение владельца 16.09.2026):
+  // человек её только что подтверждал, второй раз спрашивать незачем.
+  // Поле остаётся правимым: у части клиентов для обращений по 152-ФЗ
+  // отдельный адрес.
+  const [email, setEmail] = useState(defaultEmail || '')
+  // Почта приходит асинхронно — подставляем, когда она появилась и человек
+  // поле ещё не трогал (иначе затёрли бы его ввод).
+  const touchedEmail = useRef(false)
+  useEffect(() => {
+    if (!touchedEmail.current && defaultEmail && !email) setEmail(defaultEmail)
+  }, [defaultEmail]) // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -2235,9 +2316,13 @@ function PolicyStep({ published, skipped, onDone }: {
               <label className="block text-sm font-medium text-gray-800 mb-1.5">
                 Email для обращений
               </label>
-              <input value={email} onChange={e => setEmail(e.target.value)}
+              <input value={email}
+                     onChange={e => { touchedEmail.current = true; setEmail(e.target.value) }}
                      placeholder="mail@example.ru"
                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400" />
+              <p className="mt-1 text-sm text-gray-500">
+                Подставили почту кабинета — можете поправить.
+              </p>
             </div>
           </div>
 

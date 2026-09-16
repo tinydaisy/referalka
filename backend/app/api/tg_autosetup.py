@@ -923,6 +923,29 @@ async def save_channel(data: SaveChannelIn, user=Depends(get_current_client),
     return {"ok": True, "channel": nick}
 
 
+async def _founder_channel_nick(db, client_id: int) -> str:
+    """Ник первого канала основателя из профиля клиента (без «@»).
+
+    ⚠️ Нужен, чтобы говорить в ошибках КОНКРЕТНО: «не видим бота в канале
+    @такой-то», а не «в канале». Человек должен видеть, какой именно ник у нас
+    записан, — именно там и была ошибка на заказе 12.
+    """
+    try:
+        from app.services.social_links import get_founder_tg_channels
+        social = await db.fetchval(
+            "SELECT social_links FROM clients WHERE id=$1", client_id)
+        if isinstance(social, str):
+            social = json.loads(social or "{}")
+        for ch in get_founder_tg_channels(social or {}):
+            nick = (ch.get("url") or "").rstrip("/").split("/")[-1].lstrip("@")
+            if nick and not nick.startswith("+"):
+                return nick
+    except Exception as e:  # noqa: BLE001 — без ника просто скажем общими словами
+        logger.warning("tg_setup: ник канала клиента %s не прочитан: %s",
+                       client_id, e)
+    return ""
+
+
 async def _check_channel_exists(db, client_id: int, nick: str) -> Optional[str]:
     """Существует ли такой публичный канал. Возвращает текст ошибки или None.
 
@@ -988,7 +1011,8 @@ async def confirm_channel(user=Depends(get_current_client), db=Depends(get_db)):
     await _assert_feature(db, client_id)
 
     order = await db.fetchrow(
-        """SELECT id, bot_token, channel_linked_at FROM service_orders
+        """SELECT id, bot_token, bot_username, channel_linked_at
+             FROM service_orders
             WHERE client_id = $1 AND setup_state IN ('awaiting_user', 'done')
             ORDER BY id DESC LIMIT 1""",
         client_id,
@@ -1003,12 +1027,28 @@ async def confirm_channel(user=Depends(get_current_client), db=Depends(get_db)):
     if not found:
         # ⚠️ Отметку НЕ ставим: иначе шаг выглядел бы выполненным, а рассылки в
         # канал молча не работали бы. Честный ответ лучше зелёной галочки.
+        #
+        # ⚠️⚠️ ГОВОРИМ КОНКРЕТНО: КАКОЙ БОТ, В КАКОЙ КАНАЛ (16.09.2026).
+        # Общее «бот не в админах канала» не помогает вовсе: у человека
+        # несколько ботов и каналов, и он не понимает, что именно проверять.
+        # На живом заказе 12 в профиле вообще стоял НЕ ТОТ ник — а сообщение
+        # об этом молчало, и человек по кругу добавлял бота в правильный
+        # канал, получая один и тот же отказ.
+        bot = (order["bot_username"] or "ваш бот").lstrip("@")
+        chan = await _founder_channel_nick(db, client_id)
+        where = f"в канал @{chan}" if chan else "в ваш канал"
         return {
             "ok": False,
             "verified": False,
-            "message": "Не удалось подтвердить, что бот в админах канала. "
-                       "Проверьте, что добавили его администратором с правом "
-                       "«Публикация сообщений», и нажмите ещё раз.",
+            # Ник канала отдаём отдельно — экран покажет его в поле для правки.
+            "channel": chan or "",
+            "message": (
+                f"Не видим бота @{bot} среди администраторов {where}. "
+                f"Проверьте два момента: 1) правильно ли указан канал — "
+                f"{'сейчас записан @' + chan if chan else 'он не указан'}; "
+                f"2) добавлен ли @{bot} администратором с правом «Публикация "
+                f"сообщений». Ник канала можно поправить прямо здесь."
+            ),
         }
 
     await db.execute(

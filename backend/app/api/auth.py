@@ -270,9 +270,18 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
                                  referral_rate_percent, referral_accrual_until,
                                  offer_accepted_at, offer_accepted_version,
                                  privacy_consent_at, privacy_consent_version,
-                                 acceptance_ip, work_tg_username, is_tech_test)
+                                 acceptance_ip, work_tg_username, is_tech_test,
+                                 -- ⚠️ Почта оператора персданных = почта
+                                 -- кабинета (решение владельца 16.09.2026).
+                                 -- Это обязательное поле для публикации
+                                 -- политики по 152-ФЗ, и спрашивать его
+                                 -- второй раз незачем: человек только что
+                                 -- ввёл этот адрес и подтвердит его письмом.
+                                 -- Поле остаётся правимым в «Настройки →
+                                 -- Юридические данные».
+                                 legal_operator_email)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                    NOW(), $13, NOW(), $14, $15, $16, $17)
+                    NOW(), $13, NOW(), $14, $15, $16, $17, $3)
             RETURNING id, name, last_name, email
             """,
             data.name, data.last_name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
