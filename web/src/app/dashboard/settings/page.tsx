@@ -927,13 +927,13 @@ function SettingsPageInner() {
               step={100}
               value={form.speaker_achievements_limit}
               onChange={set('speaker_achievements_limit')}
-              placeholder="1100"
+              placeholder="1530"
               className="w-28 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
             />
             <span className="text-sm text-gray-500">символов</span>
           </div>
           <div className="mt-3 text-xs text-gray-500 space-y-0.5">
-            <p>• Оставьте пустым — будет <b>1100</b>, как сейчас.</p>
+            <p>• Оставьте пустым — будет <b>1530</b>.</p>
             <p>• Допустимо от <b>200</b> до <b>6000</b>.</p>
             <p>
               • Помните, ради чего ограничение: в карточке спикера и на лендинге
