@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from datetime import datetime, timezone
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -316,7 +318,41 @@ async def my_kpi(
         """SELECT kind, amount_kopecks, percent, of_tariff
              FROM tech_rates WHERE is_active ORDER BY kind""")
 
+    # ── Условия квартала и свои активации по источникам ──────────────────
+    # ⚠️⚠️ Показываем ИМЕННО активации, а не оборот: оборот — экономика
+    # владельца, внедренцу её видеть незачем. Ему нужно понимать, выполняет ли
+    # он условия премии, а условия — в активациях.
+    #
+    # ⚠️ Разделены по источнику: «от ПЛЮСОНА» (клиента выдали) и «свои»
+    # (привёл сам). Условия для этих видов работы разные.
+    from app.services.tech_accruals import (
+        quarter_requirements, _quarter_months, activations_by_source,
+        meets_requirements,
+    )
+    q_period = f"{datetime.now(timezone.utc).year}-Q{(datetime.now(timezone.utc).month - 1) // 3 + 1}"
+    req = await quarter_requirements(db, q_period)
+    got = await activations_by_source(db, spec_id, _quarter_months(q_period))
+    role = await db.fetchval(
+        "SELECT bonus_role FROM tech_specialists WHERE id = $1", spec_id)
+
     return {
+        "bonus_conditions": {
+            "period": q_period,
+            "role": role,
+            # Пороги заданы В МЕСЯЦ — отдаём и месячные, и квартальные, чтобы
+            # человек видел, сколько осталось, а не пересчитывал сам.
+            "need_from_pluson": (req["network_from_pluson"] if role == "implementer_network"
+                                 else req["base_from_pluson"]),
+            "need_own": req["network_own"] if role == "implementer_network" else 0,
+            "need_from_pluson_quarter": (req["network_from_pluson"] * 3
+                                         if role == "implementer_network"
+                                         else req["base_from_pluson"] * 3),
+            "need_own_quarter": (req["network_own"] * 3
+                                 if role == "implementer_network" else 0),
+            "got_from_pluson": got["from_pluson"],
+            "got_own": got["own"],
+            "meets": meets_requirements(role, got, req),
+        },
         "clients": {
             "total": int(base["total"] or 0),
             "paying": int(base["paying"] or 0),

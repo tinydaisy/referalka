@@ -433,6 +433,56 @@ async def distribute_fund(
     return {"ok": True, "accrued": n}
 
 
+# ── Условия премии на квартал ────────────────────────────────────────────
+# ⚠️⚠️ Задаются НА КАЖДЫЙ КВАРТАЛ: условия зависят от плана на период, а не
+# фиксируются раз навсегда. Требуют СВЕЖЕЙ работы — оборот внедренца может
+# складываться из старой, и премия за такое была бы платой за прошлое.
+
+class QuarterReqIn(BaseModel):
+    period: str                       # '2026-Q1'
+    base_from_pluson: int             # тип Б: активаций от ПЛЮСОНА в месяц
+    network_from_pluson: int          # тип В: от ПЛЮСОНА в месяц
+    network_own: int                  # тип В: своих в месяц
+    note: Optional[str] = None
+
+
+@router.get("/quarter-requirements", summary="Условия премии по кварталам")
+async def quarter_reqs(
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    rows = await db.fetch(
+        "SELECT * FROM tech_quarter_requirements ORDER BY period DESC LIMIT 8")
+    return {"requirements": [dict(r) for r in rows]}
+
+
+@router.post("/quarter-requirements", summary="Задать условия на квартал")
+async def set_quarter_req(
+    data: QuarterReqIn,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️ Правка условий уже РОЗДАННОГО квартала ничего не пересчитывает:
+    премия начислена по тем условиям, что действовали при раздаче."""
+    for v in (data.base_from_pluson, data.network_from_pluson, data.network_own):
+        if v < 0:
+            raise HTTPException(400, "Пороги не могут быть отрицательными")
+    row = await db.fetchrow(
+        """INSERT INTO tech_quarter_requirements
+             (period, base_from_pluson, network_from_pluson, network_own, note)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (period) DO UPDATE SET
+             base_from_pluson = EXCLUDED.base_from_pluson,
+             network_from_pluson = EXCLUDED.network_from_pluson,
+             network_own = EXCLUDED.network_own,
+             note = EXCLUDED.note
+           RETURNING *""",
+        data.period, data.base_from_pluson, data.network_from_pluson,
+        data.network_own, data.note,
+    )
+    return dict(row)
+
+
 # ── Диалоги из @pluson_bot ───────────────────────────────────────────────
 # ⚠️ Распределяются ОТДЕЛЬНО от клиентов: в бот пишут и те, кто клиентом ещё не
 # стал, — их в списке клиентов платформы попросту нет.

@@ -1463,6 +1463,14 @@ export const api = {
     // main.py). Из-за `req('/admin/tech/...')` сборка падала «Cannot find name
     // 'req'» и блокировала выкатку всему проекту. Образец рядом:
     // `specialists: () => request('/api/v1/admin/tech/specialists')`.
+    // ⚠️ Условия премии задаются на КАЖДЫЙ квартал: они зависят от плана на
+    // период. Требуют свежей работы — оборот может идти со старых клиентов.
+    quarterReqs: () => request('/api/v1/admin/tech/quarter-requirements'),
+    setQuarterReq: (v: { period: string; base_from_pluson: number;
+                         network_from_pluson: number; network_own: number;
+                         note?: string }) =>
+      request('/api/v1/admin/tech/quarter-requirements',
+              { method: 'POST', body: JSON.stringify(v) }),
     bonusFunds: () => request('/api/v1/admin/tech/bonus-funds'),
     setBonusFund: (period: string, amount_kopecks: number, note?: string) =>
       request('/api/v1/admin/tech/bonus-funds', {

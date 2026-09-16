@@ -89,6 +89,56 @@ export default function TechKpiPage() {
       </div>
 
       {/* ── Клиенты ────────────────────────────────────────────────────── */}
+      {kpi?.bonus_conditions && (() => {
+        const b = kpi.bonus_conditions
+        const own = b.need_own_quarter > 0
+        return (
+          <div className="mb-6 rounded-xl bg-white p-4 shadow-sm">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <h2 className="text-base font-bold text-gray-900">
+                Условия премии · {b.period}
+              </h2>
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                b.meets ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                {b.meets ? 'условия выполнены' : 'условия не выполнены'}
+              </span>
+            </div>
+            <p className="mb-3 text-xs text-gray-500">
+              Премия за квартал начисляется, если сделаны активации. Считаются
+              клиенты, доведённые до второй оплаты.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg bg-gray-50 p-3">
+                <div className="text-xs text-gray-500">Клиенты от ПЛЮСОНА</div>
+                <div className="text-lg font-bold" style={{ color: DARK }}>
+                  {b.got_from_pluson}
+                  <span className="text-sm font-normal text-gray-400">
+                    {' '}из {b.need_from_pluson_quarter} за квартал
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400">
+                  это {b.need_from_pluson} в месяц
+                </div>
+              </div>
+              {own && (
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <div className="text-xs text-gray-500">Приведённые вами</div>
+                  <div className="text-lg font-bold" style={{ color: DARK }}>
+                    {b.got_own}
+                    <span className="text-sm font-normal text-gray-400">
+                      {' '}из {b.need_own_quarter} за квартал
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    это {b.need_own} в месяц
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
         Клиенты
       </h2>

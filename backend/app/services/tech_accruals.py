@@ -324,6 +324,65 @@ async def accrue_monthly_fix(db: asyncpg.Connection, period: Optional[str] = Non
     return done
 
 
+# ──────────────────── Условия квартала и активации ───────────────────────
+async def quarter_requirements(db, period: str) -> dict:
+    """Условия допуска к премии на квартал.
+
+    ⚠️ Нет строки на период — берём значения по умолчанию из `tech_settings`:
+    работа не должна вставать оттого, что условия забыли задать.
+    """
+    row = await db.fetchrow(
+        """SELECT base_from_pluson, network_from_pluson, network_own
+             FROM tech_quarter_requirements WHERE period = $1""",
+        period,
+    )
+    if row:
+        return dict(row)
+    return {
+        "base_from_pluson": int(await _setting(db, "network_role_activations", 6)),
+        "network_from_pluson": 3,
+        "network_own": 5,
+    }
+
+
+def _quarter_months(period: str) -> list[str]:
+    """['2026-01','2026-02','2026-03'] для '2026-Q1'."""
+    year, q = int(period[:4]), int(period[-1])
+    return [f"{year}-{m:02d}" for m in range((q - 1) * 3 + 1, q * 3 + 1)]
+
+
+async def activations_by_source(db, spec_id: int, periods: list[str]) -> dict:
+    """Активации внедренца за период, РАЗДЕЛЁННЫЕ по источнику клиента.
+
+    ⚠️⚠️ Источник решает всё: «от ПЛЮСОНА» — клиент, которого выдали, «свой» —
+    которого внедренец привёл сам (`clients.referred_by_tech_id`). Условия
+    премии разные для этих двух видов работы, поэтому считать их одной цифрой
+    нельзя.
+    """
+    row = await db.fetchrow(
+        """SELECT
+             COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1)
+               AS from_pluson,
+             COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS own
+           FROM tech_accruals a
+           JOIN clients c ON c.id = a.client_id
+          WHERE a.spec_id = $1 AND a.kind = 'activation'
+            AND a.period = ANY($2::text[])""",
+        spec_id, periods,
+    )
+    return {"from_pluson": int(row["from_pluson"] or 0) if row else 0,
+            "own": int(row["own"] or 0) if row else 0}
+
+
+def meets_requirements(role: str, got: dict, req: dict, months: int = 3) -> bool:
+    """Взял ли человек условия квартала. Пороги заданы В МЕСЯЦ, сверяем за весь
+    квартал — иначе один слабый месяц обнулял бы работу двух сильных."""
+    if role == "implementer_network":
+        return (got["from_pluson"] >= req["network_from_pluson"] * months
+                and got["own"] >= req["network_own"] * months)
+    return got["from_pluson"] >= req["base_from_pluson"] * months
+
+
 # ────────────────────── Квартальная премия ───────────────────────────────
 async def accrue_quarter_bonus(db: asyncpg.Connection,
                                quarter: Optional[str] = None) -> int:
@@ -360,34 +419,34 @@ async def accrue_quarter_bonus(db: asyncpg.Connection,
     total = int(fund["amount_kopecks"])
 
     # ── Кто допущен до дележа ───────────────────────────────────────────
-    # ⚠️ Порог активаций за квартал нужен ОБОИМ типам: без него премию получил
-    # бы и тот, кто квартал ничего не делал — вес есть у каждого работающего.
-    # Не взял порог — доля уходит остальным, а не пропадает.
+    # ⚠️⚠️ Условия требуют СВЕЖЕЙ работы за квартал и РАЗНОЙ по источнику:
+    # оборот может складываться из старой работы — клиенты платят, платформа
+    # нравится, а новых обращений человек не ведёт. Премия за такое была бы
+    # платой за прошлое.
     #
-    # ⚠️ Считаются активации ЛЮБЫХ клиентов, а не только своих: у типа Б своих
-    # может не быть вовсе, он работает с базой ПЛЮСОНА — и это его нормальная
-    # работа, за которую премия и полагается.
-    need = int(await _setting(db, "bonus_min_activations", 3))
-    year, q = int(period[:4]), int(period[-1])
-    q_months = [f"{year}-{m:02d}" for m in range((q - 1) * 3 + 1, q * 3 + 1)]
+    # ⚠️ Не взял условия — доля уходит остальным, а не пропадает.
+    req = await quarter_requirements(db, period)
+    q_months = _quarter_months(period)
 
-    rows = await db.fetch(
-        """SELECT ts.id AS spec_id, COALESCE(w.weight, 0) AS weight,
-                  (SELECT COUNT(*) FROM tech_accruals a
-                    WHERE a.spec_id = ts.id AND a.kind = 'activation'
-                      AND a.period = ANY($1::text[])) AS activations
+    all_rows = await db.fetch(
+        """SELECT ts.id AS spec_id, ts.bonus_role AS role,
+                  COALESCE(w.weight, 0) AS weight
              FROM tech_specialists ts
              LEFT JOIN tech_bonus_weights w ON w.role = ts.bonus_role
-            WHERE ts.is_active""",
-        q_months,
+            WHERE ts.is_active"""
     )
-    skipped = [r["spec_id"] for r in rows if int(r["activations"] or 0) < need]
+
+    rows, skipped = [], []
+    for r in all_rows:
+        got = await activations_by_source(db, r["spec_id"], q_months)
+        if meets_requirements(r["role"], got, req):
+            rows.append({**dict(r), **got})
+        else:
+            skipped.append((r["spec_id"], got))
     if skipped:
-        logger.info("tech: премия за %s — не допущены (меньше %s активаций): %s",
-                    period, need, skipped)
-    rows = [r for r in rows if int(r["activations"] or 0) >= need]
+        logger.info("tech: премия за %s — не допущены по условиям: %s", period, skipped)
     if not rows:
-        logger.warning("tech: премия за %s не роздана — никто не взял порог", period)
+        logger.warning("tech: премия за %s не роздана — условия не взял никто", period)
         return 0
     weights = sum(float(r["weight"] or 0) for r in rows)
     if weights <= 0:
@@ -403,7 +462,8 @@ async def accrue_quarter_bonus(db: asyncpg.Connection,
         if amount and await _add(
                 db, spec_id=r["spec_id"], client_id=None, kind="quarter_bonus",
                 amount=amount, period=period,
-                note=f"доля {w:g} из {weights:g}, активаций {r['activations']}"):
+                note=(f"доля {w:g} из {weights:g}; активаций: "
+                      f"от ПЛЮСОНА {r['from_pluson']}, своих {r['own']}")):
             done += 1
 
     await db.execute(
@@ -436,7 +496,10 @@ async def refresh_bonus_roles(db: asyncpg.Connection,
     """
     now = datetime.now(timezone.utc)
     period = period or now.strftime("%Y-%m")
-    need = int(await _setting(db, "network_role_activations", 6))
+    # ⚠️ Порог берём из условий ТЕКУЩЕГО квартала: два разных числа для одного
+    # и того же расходились бы при каждой правке.
+    q_period = f"{now.year}-Q{(now.month - 1) // 3 + 1}"
+    need = int((await quarter_requirements(db, q_period))["network_own"])
 
     rows = await db.fetch(
         """SELECT ts.id AS spec_id, ts.bonus_role,

@@ -346,6 +346,98 @@ function AssignTab({ specs, onChange }: any) {
  * сюда одним числом. Платформа прибыль не знает и знать не должна: в кабинете
  * внедренца её показывать нельзя.
  */
+/** Условия допуска к премии на квартал.
+ *
+ * ⚠️ Задаются на КАЖДЫЙ квартал: условия зависят от плана на период. Требуют
+ * свежей работы — оборот внедренца может складываться из старых клиентов,
+ * и премия за такое была бы платой за прошлое.
+ */
+function QuarterReqBlock() {
+  const [reqs, setReqs] = useState<any[]>([])
+  const [period, setPeriod] = useState('')
+  const [base, setBase] = useState('6')
+  const [netPl, setNetPl] = useState('3')
+  const [netOwn, setNetOwn] = useState('5')
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    api.adminTech.quarterReqs()
+      .then((r: any) => setReqs(r.requirements || [])).catch(() => {})
+  }, [tick])
+
+  useEffect(() => {
+    if (period) return
+    const d = new Date()
+    setPeriod(`${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`)
+  }, [period])
+
+  return (
+    <div className="rounded-xl bg-white p-4 shadow-sm">
+      <h3 className="mb-1 text-sm font-semibold text-gray-900">Условия премии на квартал</h3>
+      <p className="mb-3 text-xs text-gray-500">
+        Активаций в месяц. Тип Б — только клиенты ПЛЮСОНА. Тип В — и от ПЛЮСОНА,
+        и свои приведённые. Не выполнил — в дележе фонда не участвует.
+      </p>
+
+      <div className="mb-4 flex flex-wrap items-end gap-2">
+        <label className="text-xs text-gray-500">Квартал<br />
+          <input value={period} onChange={e => setPeriod(e.target.value)}
+                 className="mt-1 w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">Тип Б: от ПЛЮСОНА<br />
+          <input value={base} onChange={e => setBase(e.target.value)} inputMode="numeric"
+                 className="mt-1 w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">Тип В: от ПЛЮСОНА<br />
+          <input value={netPl} onChange={e => setNetPl(e.target.value)} inputMode="numeric"
+                 className="mt-1 w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">Тип В: своих<br />
+          <input value={netOwn} onChange={e => setNetOwn(e.target.value)} inputMode="numeric"
+                 className="mt-1 w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <button
+          onClick={async () => {
+            try {
+              await api.adminTech.setQuarterReq({
+                period,
+                base_from_pluson: Number(base) || 0,
+                network_from_pluson: Number(netPl) || 0,
+                network_own: Number(netOwn) || 0,
+              })
+              setTick(t => t + 1)
+            } catch (e: any) { alert(e?.message || 'Не вышло') }
+          }}
+          className="btn-primary px-4 py-1.5 text-sm">Сохранить</button>
+      </div>
+
+      <table className="w-full text-sm">
+        <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
+          <tr>
+            <th className="py-2">Квартал</th>
+            <th className="py-2">Тип Б</th>
+            <th className="py-2">Тип В</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reqs.map((r: any) => (
+            <tr key={r.period} className="border-b border-gray-50">
+              <td className="py-2 font-medium text-gray-900">{r.period}</td>
+              <td className="py-2">{r.base_from_pluson} от ПЛЮСОНА</td>
+              <td className="py-2">
+                {r.network_from_pluson} от ПЛЮСОНА + {r.network_own} своих
+              </td>
+            </tr>
+          ))}
+          {!reqs.length && (
+            <tr><td colSpan={3} className="py-3 text-gray-400">Условия не заданы</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function BonusFundBlock() {
   const [funds, setFunds] = useState<any[]>([])
   const [weights, setWeights] = useState<any[]>([])
@@ -464,6 +556,7 @@ function MoneyTab({ specs }: any) {
 
   return (
     <div className="space-y-4">
+      <QuarterReqBlock />
       <BonusFundBlock />
 
       <div className="flex flex-wrap items-center gap-3">
