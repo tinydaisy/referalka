@@ -2569,28 +2569,15 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
   const cols = Math.max(1, Math.min(6, block.columns || 3))
   const scroll = block.display_mode === 'scroll'
 
-  // Плашка подарка: цвет и прозрачность — НАСТРОЙКИ блока, пусто = как у
-  // блоков темы (card_bg / card_bg_opacity). Захардкоженный оттенок выбивался
-  // бы из фирменных цветов у каждого второго клиента.
-  const giftBg = block.speaker_gift_bg || page.card_bg || '#0F1E2E'
-  const giftOpacity = block.speaker_gift_opacity ?? page.card_bg_opacity ?? 55
-  const gift = {
-    show: !!block.show_speaker_gift,
-    // Пустая подпись = умолчание. Держать текст в одном месте нельзя (он ещё
-    // и в конструкторе подсказкой), но дефолт тут единственный на показ.
-    label: (block.speaker_gift_label || '').trim() || 'Подарок участникам:',
-    position: block.speaker_gift_position === 'before' ? 'before' : 'after',
-    style: {
-      background: hexToRgba(giftBg, Math.max(0, Math.min(100, giftOpacity)) / 100),
-      // Тонкая рамка тем же цветом, что у карточек: без неё полупрозрачная
-      // плашка на похожем фоне читается как пятно, а не как отдельный блок.
-      border: `1px solid ${hexToRgba(page.border_color || '#FFCFA4', 0.35)}`,
-    } as React.CSSProperties,
-  }
+  const gift = giftSettings(block, page)
+  // Выравнивание внутри карточки. Пусто = как было до разделения: у спикеров
+  // всё слева, у партнёров всё по центру (см. cardAligns).
+  const { nameAlign, textAlign } = cardAligns(block, 'left')
 
   const cards = list.map((s: any) => (
     <SpeakerCard key={s.id} s={s} page={page} cardStyle={cardStyle}
                  iconColor={iconColor} open={open} gift={gift}
+                 nameAlign={nameAlign} textAlign={textAlign}
                  onToggle={() => setOpen(o => !o)}
                  className={scroll ? 'w-[min(280px,75vw)] shrink-0 snap-start' : ''} />
   ))
@@ -2645,6 +2632,12 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
   const scroll = (block.display_mode || 'scroll') === 'scroll'
   const cardW = block.media_size || 260
 
+  // Подарки и выравнивание — те же настройки, что у спикеров: партнёр так же
+  // дарит участникам. Запасной вид у партнёров ЦЕНТР — так карточки выглядели
+  // до разделения, и уже собранные лендинги не должны поехать сами.
+  const gift = giftSettings(block, page)
+  const { nameAlign, textAlign } = cardAligns(block, 'center')
+
   const scrollBy = (dir: 1 | -1) => {
     scroller.current?.scrollBy({ left: dir * (cardW + 20), behavior: 'smooth' })
   }
@@ -2653,6 +2646,7 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
     <PartnerCard
       key={p.id} p={p} page={page} cardStyle={cardStyle} iconColor={iconColor}
       open={open} onToggle={() => setOpen(o => !o)}
+      gift={gift} nameAlign={nameAlign} textAlign={textAlign}
       className={scroll ? 'shrink-0 snap-start' : ''}
       width={scroll ? cardW : undefined}
     />
@@ -2682,21 +2676,141 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
   )
 }
 
+/**
+ * Пометка старшей роли в карточке: «Генеральный партнёр», «Хедлайнер».
+ *
+ * ⚠️ Только для СТАРШИХ ролей. У обычных партнёров и спикеров бейджа нет
+ * намеренно: если подписать каждого, пометка перестаёт что-либо выделять —
+ * а смысл её в том, чтобы старший статус был виден сразу.
+ *
+ * ⚠️ Цвета — из темы клиента (акцент + фон страницы), а не захардкожены:
+ * плашка обязана попадать в фирменные цвета, как и всё остальное на странице.
+ */
+const ROLE_BADGE: Record<string, string> = {
+  general_partner: 'Генеральный партнёр',
+  headliner: 'Хедлайнер',
+}
+
+/**
+ * Плашка подарков в карточке — ОБЩАЯ для спикеров и партнёров.
+ *
+ * ⚠️ Одна реализация на оба блока: партнёр дарит участникам так же, как
+ * спикер, и две копии вёрстки разъехались бы при первой же правке.
+ *
+ * ⚠️ Подарков бывает НЕСКОЛЬКО — перечисляем все нумерованным списком, каждый
+ * отдельной строкой. Показать только первый значит молча спрятать остальные.
+ * У единственного нумерации нет: «1.» у одного пункта читается как обрывок.
+ *
+ * ⚠️ Ссылок нет намеренно: на лендинге это анонс («что вы получите»), сам
+ * подарок выдаётся после эфира — ссылка раздала бы материалы всем подряд.
+ */
+/**
+ * Настройки плашки подарка — ОДНА точка на блоки «Спикеры» и «Партнёры».
+ *
+ * ⚠️ Цвет и прозрачность пусты = берём от блоков темы (card_bg /
+ * card_bg_opacity): плашка обязана попадать в фирменные цвета сама.
+ */
+function giftSettings(block: any, page: any) {
+  const bg = block.speaker_gift_bg || page.card_bg || '#0F1E2E'
+  const opacity = block.speaker_gift_opacity ?? page.card_bg_opacity ?? 55
+  return {
+    show: !!block.show_speaker_gift,
+    label: (block.speaker_gift_label || '').trim() || 'Подарок участникам:',
+    position: block.speaker_gift_position === 'before' ? 'before' : 'after',
+    style: {
+      background: hexToRgba(bg, Math.max(0, Math.min(100, opacity)) / 100),
+      // Тонкая рамка цветом карточек: без неё полупрозрачная плашка на похожем
+      // фоне читается как пятно, а не как отдельный блок.
+      border: `1px solid ${hexToRgba(page.border_color || '#FFCFA4', 0.35)}`,
+    } as React.CSSProperties,
+  }
+}
+
+/**
+ * Выравнивание ВНУТРИ карточки: имя с должностью и регалии — РАЗДЕЛЬНО.
+ *
+ * ⚠️ Раньше на весь блок действовала одна настройка «Выравнивание текста
+ * секции», а у партнёров вдобавок стоял жёсткий `text-center` — и регалии
+ * вставали по центру, даже когда в секции выбрано «Слева». Клиенту нужно как
+ * раз разное: должность под логотипом по центру, перечень регалий — слева.
+ *
+ * ⚠️ Пусто = прежний вид (`fallback`), чтобы уже собранные лендинги не
+ * изменились сами: у спикеров всё было слева, у партнёров — по центру.
+ */
+function cardAligns(block: any, fallback: 'left' | 'center') {
+  const ok = (v: any) => (v === 'left' || v === 'center' || v === 'right' ? v : null)
+  return {
+    nameAlign: ok(block.card_name_align) || fallback,
+    textAlign: ok(block.card_text_align) || fallback,
+  }
+}
+
+function GiftBox({ gifts, gift }: { gifts: string[]; gift: any }) {
+  if (!gifts?.length) return null
+  return (
+    <div className="rounded-xl px-3 py-2 text-left" style={gift.style}>
+      <div className="text-[.75em] font-bold uppercase tracking-wide opacity-90">
+        {gift.label}
+      </div>
+      {gifts.length === 1 ? (
+        <div className="mt-1 text-[.85em] font-semibold leading-snug">{gifts[0]}</div>
+      ) : (
+        <ol className="mt-1 list-none space-y-1 p-0 text-[.85em] font-semibold leading-snug">
+          {gifts.map((g, i) => (
+            <li key={i} className="flex gap-1.5">
+              <span className="shrink-0 opacity-70">{i + 1}.</span>
+              <span className="flex-1">{g}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+function RoleBadge({ role, page }: { role?: string; page: any }) {
+  const label = role ? ROLE_BADGE[role] : null
+  if (!label) return null
+  return (
+    <div
+      className="self-start rounded-full px-2.5 py-1 text-[.65em] font-bold uppercase tracking-wide"
+      style={{
+        background: page.color_heading || '#FFCFA4',
+        color: page.bg_color || '#25455D',
+      }}
+    >
+      {label}
+    </div>
+  )
+}
+
 function PartnerCard({
   p, page, cardStyle, iconColor, open, onToggle, className = '', width,
+  nameAlign = 'center', textAlign = 'center', gift,
 }: any) {
-  // Описание партнёра: и должность/подпись, и регалии — всё, что он о себе
-  // рассказал. Первые две строки видны сразу, остальное — по стрелке.
-  const lines: string[] = [
-    ...(p.title ? [String(p.title)] : []),
-    ...(Array.isArray(p.achievements)
-      ? p.achievements
-          .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
-          .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
-          .filter(Boolean)
-      : []),
-  ]
-  const visible = open ? lines : lines.slice(0, 2)
+  // ⚠️ Должность и регалии РАЗДЕЛЕНЫ (16.09.2026). Раньше они склеивались в
+  // один список `lines` и выравнивались одинаково — из-за этого нельзя было
+  // поставить должность по центру, а регалии слева, как просит вёрстка
+  // карточки: должность это подпись под логотипом, регалии — перечень.
+  const position = p.title ? String(p.title) : ''
+  const ach: string[] = Array.isArray(p.achievements)
+    ? p.achievements
+        .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
+        .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
+        .filter(Boolean)
+    : []
+  // Свёрнутая карточка показывает первые две строки описания — считаем их
+  // вместе с должностью, чтобы стрелка появлялась по тому же правилу, что и
+  // раньше (иначе у партнёра с должностью и одной регалией она пропадёт).
+  const lines = [...(position ? [position] : []), ...ach]
+  const visibleAch = open ? ach : ach.slice(0, position ? 1 : 2)
+
+  // Подарки партнёра — та же плашка и те же настройки, что у спикеров:
+  // партнёр так же дарит что-то участникам, и разводить это на две разные
+  // вёрстки значило бы чинить их по отдельности.
+  const gifts: string[] = gift?.show && Array.isArray(p.gifts)
+    ? p.gifts.map((g: any) => String(g || '').trim()).filter(Boolean)
+    : []
   const url = p.partner_url || p.website_url
 
   // ⚠️ Партнёром бывает и КОМПАНИЯ, и ЧЕЛОВЕК — вид карточки разный.
@@ -2728,16 +2842,31 @@ function PartnerCard({
                className="max-h-[90px] w-full object-contain" />
         </div>
       )}
-      <div className="flex flex-1 flex-col gap-2 p-4 text-center">
+      {/* ⚠️ Выравнивание РАЗДЕЛЕНО (16.09.2026): здесь стоял жёсткий
+          text-center на всю карточку, и регалии вставали по центру, даже когда
+          в секции выбрано «Слева» — настройка на них не действовала вовсе.
+          Имя/должность и регалии — РАЗНЫЕ настройки: должность обычно по
+          центру под логотипом, а перечень регалий читается только слева. */}
+      <div className="flex flex-1 flex-col gap-2 p-4"
+           style={{ textAlign: nameAlign }}>
+        <RoleBadge role={p.role} page={page} />
         <div className="font-bold uppercase leading-tight"
              style={{ color: page.color_heading || '#FFCFA4' }}>
           {p.name}
         </div>
-        {!!visible.length && (
-          <div className="space-y-1.5 text-[.85em] leading-relaxed opacity-85">
-            {visible.map((t, i) => <SafeHtml key={i} html={t} />)}
+        {/* Должность — своим выравниванием: это подпись под логотипом. */}
+        {!!position && (
+          <SafeHtml html={position}
+                    className="text-[.85em] leading-relaxed opacity-85" />
+        )}
+        {/* Регалии — своим: перечень читается только по левому краю. */}
+        {!!visibleAch.length && (
+          <div className="space-y-1.5 text-[.85em] leading-relaxed opacity-85"
+               style={{ textAlign }}>
+            {visibleAch.map((t, i) => <SafeHtml key={i} html={t} />)}
           </div>
         )}
+        {gift?.position === 'before' && <GiftBox gifts={gifts} gift={gift} />}
         {lines.length > 2 && (
           <button
             type="button"
@@ -2754,6 +2883,7 @@ function PartnerCard({
             </svg>
           </button>
         )}
+        {gift?.position !== 'before' && <GiftBox gifts={gifts} gift={gift} />}
       </div>
     </>
   )
@@ -2775,6 +2905,7 @@ function PartnerCard({
  */
 function SpeakerCard({
   s, page, cardStyle, iconColor, open, onToggle, className = '', gift,
+  nameAlign = 'left', textAlign = 'left',
 }: any) {
   const ach: string[] = Array.isArray(s.achievements)
     ? s.achievements
@@ -2786,36 +2917,11 @@ function SpeakerCard({
   // Свёрнутая карточка показывает первые две регалии, остальные — по стрелке.
   const visible = open ? ach : ach.slice(0, 2)
 
-  // ⚠️ Подарков у спикера может быть НЕСКОЛЬКО — показываем все нумерованным
-  // списком, каждый отдельной строкой. Первый попавшийся был бы молчаливой
-  // потерей остальных.
-  //
-  // ⚠️ Ссылок нет намеренно: на лендинге это анонс («что получите»), сам
-  // подарок выдаётся после эфира. Ссылка раздала бы материалы всем подряд.
+  // Подарки — общая плашка со спикерами и партнёрами (см. GiftBox).
   const gifts: string[] = gift?.show && Array.isArray(s.gifts)
     ? s.gifts.map((g: any) => String(g || '').trim()).filter(Boolean)
     : []
-  const giftBlock = gifts.length ? (
-    <div className="rounded-xl px-3 py-2" style={gift.style}>
-      <div className="text-[.75em] font-bold uppercase tracking-wide opacity-90">
-        {gift.label}
-      </div>
-      {/* Один подарок — просто строка: нумерация «1.» у единственного пункта
-          выглядит как обрывок списка. */}
-      {gifts.length === 1 ? (
-        <div className="mt-1 text-[.85em] font-semibold leading-snug">{gifts[0]}</div>
-      ) : (
-        <ol className="mt-1 list-none space-y-1 p-0 text-[.85em] font-semibold leading-snug">
-          {gifts.map((g, i) => (
-            <li key={i} className="flex gap-1.5">
-              <span className="shrink-0 opacity-70">{i + 1}.</span>
-              <span className="flex-1">{g}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  ) : null
+  const giftBlock = <GiftBox gifts={gifts} gift={gift} />
 
   return (
     <div className={`flex flex-col overflow-hidden ${className}`} style={cardStyle}>
@@ -2828,7 +2934,12 @@ function SpeakerCard({
           style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }}
         />
       )}
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      {/* ⚠️ Имя с должностью и регалии выравниваются РАЗНЫМИ настройками
+          (16.09.2026): должность часто ставят по центру, а перечень регалий
+          читается только по левому краю. */}
+      <div className="flex flex-1 flex-col gap-2 p-4"
+           style={{ textAlign: nameAlign }}>
+        <RoleBadge role={s.role} page={page} />
         <div className="text-[1.15em] font-bold uppercase leading-tight tracking-wide"
              style={{ color: page.color_heading || '#FFCFA4' }}>
           {s.name}
@@ -2840,7 +2951,8 @@ function SpeakerCard({
         {gift?.position === 'before' && giftBlock}
 
         {!!visible.length && (
-          <ul className="mt-1 list-none space-y-1.5 p-0 text-[.85em] font-light leading-relaxed opacity-80">
+          <ul className="mt-1 list-none space-y-1.5 p-0 text-[.85em] font-light leading-relaxed opacity-80"
+              style={{ textAlign }}>
             {visible.map((a, i) => (
               <li key={i} className="flex gap-2">
                 <span className="mt-[.55em] h-1 w-1 shrink-0 rounded-full"

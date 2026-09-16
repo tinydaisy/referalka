@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, Pencil, Instagram, AlertTriangle, X, Loader2, Check, Users, BarChart3 } from 'lucide-react'
 import { api } from '@/lib/api'
+import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 
 interface Funnel {
   id: number
@@ -631,23 +632,41 @@ function FunnelModal({ initial, accounts, magnets, packages, products, events, o
                 </button>
               ))}
             </div>
-            <select
-              value={f.lead_magnet_id || f.package_id || f.product_id || f.event_id || ''}
-              onChange={e => {
-                const v = e.target.value ? +e.target.value : null
-                set('lead_magnet_id', giftKind === 'm' ? v : null)
-                set('package_id', giftKind === 'p' ? v : null)
-                set('product_id', giftKind === 'pr' ? v : null)
-                set('event_id', giftKind === 'ev' ? v : null)
-              }}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg">
-              <option value="">— выберите —</option>
-              {(giftKind === 'm' ? magnets : giftKind === 'p' ? packages
-                : giftKind === 'ev' ? events : products)
-                .map((it: any) => (
+            {/* ⚠️ У магнитов и пакетов — общий пикер с ПОИСКОМ: их у клиента
+                десятки. Продукты и события остаются обычным списком: их
+                единицы, и пикер магнитов про них ничего не знает. */}
+            {giftKind === 'm' || giftKind === 'p' ? (
+              <LeadMagnetPicker
+                placeholder="— выберите —"
+                value={f.lead_magnet_id ? { kind: 'magnet', id: f.lead_magnet_id }
+                     : f.package_id ? { kind: 'package', id: f.package_id } : null}
+                onPick={v => {
+                  // Выбранный вид может отличаться от кнопки выше — ведём
+                  // кнопку за выбором, иначе в базе окажется не то поле.
+                  set('lead_magnet_id', v?.kind === 'magnet' ? v.id : null)
+                  set('package_id', v?.kind === 'package' ? v.id : null)
+                  set('product_id', null)
+                  set('event_id', null)
+                  if (v) setGiftKind(v.kind === 'package' ? 'p' : 'm')
+                }}
+              />
+            ) : (
+              <select
+                value={f.product_id || f.event_id || ''}
+                onChange={e => {
+                  const v = e.target.value ? +e.target.value : null
+                  set('lead_magnet_id', null)
+                  set('package_id', null)
+                  set('product_id', giftKind === 'pr' ? v : null)
+                  set('event_id', giftKind === 'ev' ? v : null)
+                }}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg">
+                <option value="">— выберите —</option>
+                {(giftKind === 'ev' ? events : products).map((it: any) => (
                   <option key={it.id} value={it.id}>{it.name || it.title}</option>
                 ))}
-            </select>
+              </select>
+            )}
             {/* ⚠️⚠️ Предупреждение обязательно: у продукта и события в директ
                 уходит ВЕБ-ссылка, а не Mini App — сообщение открывают внутри
                 Instagram, где ни телеграмного, ни вэкашного приложения нет.

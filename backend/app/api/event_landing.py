@@ -228,6 +228,10 @@ def normalize_block_gift(field: str, val):
         return max(0, min(100, int(val)))
     if field in ("speaker_gift_label", "speaker_gift_bg") and val is not None:
         return (val or "").strip() or None
+    if field in ("card_name_align", "card_text_align") and val is not None:
+        # Пустая строка = «как было», то есть NULL: иначе вернуть прежний вид
+        # блока стало бы нечем.
+        return val if val in ("left", "center", "right") else None
     return val
 
 
@@ -262,9 +266,11 @@ BLOCK_PATCH_FIELDS: tuple = (
         "btn_width", "btn_align",
         # Блок «Анкета»: какая анкета и как показана (списком / по шагам).
         "survey_id", "survey_view",
-        # Блок «Спикеры»: показывать ли подарки спикера и как оформить плашку.
+        # Блоки «Спикеры» и «Партнёры»: подарки и оформление плашки.
         "show_speaker_gift", "speaker_gift_label", "speaker_gift_bg",
         "speaker_gift_opacity", "speaker_gift_position",
+        # Выравнивание ВНУТРИ карточки: имя+должность и регалии — раздельно.
+        "card_name_align", "card_text_align",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -427,6 +433,10 @@ class BlockPatch(BaseModel):
     speaker_gift_bg: Optional[str] = None
     speaker_gift_opacity: Optional[int] = None
     speaker_gift_position: Optional[str] = None
+    # Выравнивание внутри карточки. Пусто = прежний вид блока: у спикеров
+    # слева, у партнёров по центру — собранные лендинги не должны поехать.
+    card_name_align: Optional[str] = None
+    card_text_align: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None

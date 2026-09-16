@@ -11,6 +11,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import AnswersTable from '@/components/surveys/AnswersTable'
 import DashboardView from '@/components/analytics/DashboardView'
 import { useMe } from '@/hooks/useMe'
@@ -496,13 +497,15 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
         <span className="mb-1 block text-sm text-gray-600">
           Выдать подарок за заполнение
         </span>
-        <select className="input bg-white" value={giftId} disabled={readOnly}
-                onChange={e => setGiftId(e.target.value ? Number(e.target.value) : '')}>
-          <option value="">Не выдавать</option>
-          {magnets.map((m: any) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
+        {/* ⚠️ Общий пикер с поиском по названию: магнитов у клиента десятки.
+            Пакеты здесь не показываем — анкета выдаёт один материал. */}
+        <LeadMagnetPicker
+          withPackages={false}
+          disabled={readOnly}
+          placeholder="Не выдавать"
+          value={giftId ? { kind: 'magnet', id: Number(giftId) } : null}
+          onPick={v => setGiftId(v ? v.id : '')}
+        />
         <span className="mt-1 block text-xs text-gray-500">
           {giftId
             ? 'Придёт сразу после отправки — ссылкой на странице и сообщением в бот.'

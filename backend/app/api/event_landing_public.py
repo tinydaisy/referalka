@@ -319,7 +319,23 @@ async def get_public_landing(
                       -- показывает фото как у спикера, а не вписывает его в
                       -- белое поле под логотип компании.
                       c.last_name,
-                      c.tg_channel_url, c.vk_url, c.max_url, c.website_url
+                      c.tg_channel_url, c.vk_url, c.max_url, c.website_url,
+                      -- Подарки партнёра — тем же подзапросом, что у спикеров:
+                      -- партнёр так же дарит что-то участникам, и плашка на
+                      -- лендинге у них общая.
+                      (SELECT array_agg(
+                                COALESCE(NULLIF(btrim(g1.manual_title), ''),
+                                         NULLIF(btrim(l1.name), ''),
+                                         NULLIF(btrim(p1.name), ''))
+                                ORDER BY g1.sort_order, g1.id)
+                         FROM event_collaborator_lead_magnets g1
+                         LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id
+                         LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id
+                        WHERE g1.ec_id = cse.id
+                          AND COALESCE(NULLIF(btrim(g1.manual_title), ''),
+                                       NULLIF(btrim(l1.name), ''),
+                                       NULLIF(btrim(p1.name), '')) IS NOT NULL
+                      ) AS gifts
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cse.event_id = $1
@@ -329,7 +345,12 @@ async def get_public_landing(
         )
         # Регалии — JSONB, из asyncpg приходят строкой (см. _jsonb).
         data["partners"] = [
-            {**dict(r), "achievements": _jsonb(r["achievements"])} for r in rows
+            {
+                **dict(r),
+                "achievements": _jsonb(r["achievements"]),
+                "gifts": list(r["gifts"] or []),
+            }
+            for r in rows
         ]
 
     # ── Организатор ───────────────────────────────────────────────────────

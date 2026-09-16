@@ -130,12 +130,25 @@ def referrals_count_sql(tbl: str = "cse") -> str:
 
 # Жёсткий порядок ГРУПП (2026-07-04): организатор → жюри → партнёры → спикеры.
 # Меньше = выше. Внутри группы — referrals DESC → priority ASC → id ASC.
+#
+# ⚠️⚠️ ГЕНЕРАЛЬНЫЙ ПАРТНЁР ВЫШЕ ОБЫЧНОГО, ХЕДЛАЙНЕР ВЫШЕ СПИКЕРА (16.09.2026).
+# Раньше роли были слиты по паре в одну группу (`IN ('general_partner',
+# 'partner')`), и внутри неё порядок решало число приведённых людей — то есть
+# старшая роль не значила ничего. На проде это выглядело так: генеральный
+# партнёр события (ПЛЮСОН) оказался ТРЕТЬИМ после двух обычных, потому что те
+# привели больше людей. «Генеральный» — это статус, купленный отдельно, и он
+# обязан стоять впереди независимо от приведённых.
+#
+# ⚠️ Порядок САМИХ групп (организатор → жюри → партнёры → спикеры) не меняется:
+# правка 2026-07-04 остаётся в силе, разделение идёт ВНУТРИ своей пары.
 _ROLE_GROUP: Final[str] = """CASE
   WHEN {tbl}.role = 'organizer'                          THEN 1
   WHEN {tbl}.role = 'jury'                               THEN 2
-  WHEN {tbl}.role IN ('general_partner', 'partner')      THEN 3
-  WHEN {tbl}.role IN ('headliner', 'speaker')            THEN 4
-  ELSE 5
+  WHEN {tbl}.role = 'general_partner'                    THEN 3
+  WHEN {tbl}.role = 'partner'                            THEN 4
+  WHEN {tbl}.role = 'headliner'                          THEN 5
+  WHEN {tbl}.role = 'speaker'                            THEN 6
+  ELSE 7
 END"""
 
 

@@ -21,6 +21,7 @@ import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/Founder
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
 import SpeakerPhotosField from '@/components/SpeakerPhotosField'
 import { api } from '@/lib/api'
+import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab } from '@/hooks/useUrlTab'
 
@@ -1010,28 +1011,21 @@ function MiniAppSettings() {
             ) : (profile.start_mode || 'greeting') === 'lead_magnet' ? (
               <div>
                 <label className="block text-sm text-gray-700 mb-1">Лид-магнит, воронка которого запустится при /start</label>
-                <select
-                  value={profile.start_lead_magnet_id ? `m${profile.start_lead_magnet_id}` : profile.start_package_id ? `p${profile.start_package_id}` : ''}
-                  onChange={e => {
-                    const v = e.target.value
-                    if (!v) { update('start_lead_magnet_id', null); update('start_package_id', null) }
-                    else if (v.startsWith('m')) { update('start_lead_magnet_id', Number(v.slice(1))); update('start_package_id', null) }
-                    else { update('start_package_id', Number(v.slice(1))); update('start_lead_magnet_id', null) }
+                {/* ⚠️ Общий пикер с поиском: магнитов у клиента десятки. */}
+                <LeadMagnetPicker
+                  placeholder="— выберите лид-магнит —"
+                  value={profile.start_lead_magnet_id
+                    ? { kind: 'magnet', id: profile.start_lead_magnet_id }
+                    : profile.start_package_id
+                      ? { kind: 'package', id: profile.start_package_id }
+                      : null}
+                  onPick={v => {
+                    // Магнит ИЛИ пакет — второе поле всегда зануляем, иначе
+                    // в базе останутся оба и непонятно, что запускать.
+                    update('start_lead_magnet_id', v?.kind === 'magnet' ? v.id : null)
+                    update('start_package_id', v?.kind === 'package' ? v.id : null)
                   }}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400 bg-white"
-                >
-                  <option value="">— выберите лид-магнит —</option>
-                  {leadMagnets.length > 0 && (
-                    <optgroup label="Лид-магниты">
-                      {leadMagnets.map(lm => <option key={`m${lm.id}`} value={`m${lm.id}`}>{lm.name}</option>)}
-                    </optgroup>
-                  )}
-                  {leadPackages.length > 0 && (
-                    <optgroup label="Пакеты">
-                      {leadPackages.map(p => <option key={`p${p.id}`} value={`p${p.id}`}>{p.name}</option>)}
-                    </optgroup>
-                  )}
-                </select>
+                />
                 <p className="text-xs text-gray-400 mt-1">
                   При /start у бота человек сразу попадёт в воронку: приветствие → проверка подписки → выдача материалов.
                 </p>

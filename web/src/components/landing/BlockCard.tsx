@@ -747,10 +747,61 @@ export default function BlockCard({
                 </Field>
               )}
 
-              {/* Подарки спикера на лендинге. Выключено по умолчанию: подарок
-                  бывает внутренней договорённостью, и выводить его наружу без
-                  спроса нельзя. */}
-              {block.kind === 'speakers' && (
+              {/* Выравнивание ВНУТРИ карточек — отдельно от заголовка секции.
+                  ⚠️ Раньше всем управляла одна настройка «Выравнивание текста
+                  секции», а у партнёров поверх стоял жёсткий центр: регалии
+                  вставали по центру, даже когда выбрано «Слева». */}
+              {['speakers', 'partners'].includes(block.kind) && (
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <div className="mb-2 text-sm font-medium text-gray-700">
+                    Выравнивание внутри карточек
+                  </div>
+                  <p className="mb-3 text-xs text-gray-500">
+                    Отдельно от заголовка секции. Обычно должность ставят по
+                    центру, а регалии — по левому краю, так их удобнее читать.
+                  </p>
+                  {([
+                    ['card_name_align', 'Имя и должность'],
+                    ['card_text_align', 'Регалии'],
+                  ] as const).map(([field, label]) => (
+                    <Field key={field} label={label}>
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          ['left', 'Слева'],
+                          ['center', 'По центру'],
+                          ['right', 'Справа'],
+                        ] as const).map(([val, lbl]) => (
+                          <button
+                            key={val}
+                            onClick={() => onPatch({ [field]: val })}
+                            className={`rounded-lg border px-3 py-1.5 text-sm ${
+                              block[field] === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {lbl}
+                          </button>
+                        ))}
+                        {block[field] && (
+                          <button
+                            onClick={() => onPatch({ [field]: null })}
+                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
+                          >
+                            Как было
+                          </button>
+                        )}
+                      </div>
+                    </Field>
+                  ))}
+                </div>
+              )}
+
+              {/* Подарки в карточках. Выключено по умолчанию: подарок бывает
+                  внутренней договорённостью, и выводить его наружу без спроса
+                  нельзя. Работает и у спикеров, и у партнёров — партнёр так же
+                  дарит что-то участникам. */}
+              {['speakers', 'partners'].includes(block.kind) && (
                 <div className="rounded-lg border border-gray-200 p-3">
                   <label className="flex cursor-pointer items-center gap-2">
                     <input
@@ -760,7 +811,9 @@ export default function BlockCard({
                       className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
                     />
                     <span className="text-sm font-medium text-gray-700">
-                      Показывать подарки спикеров
+                      {block.kind === 'partners'
+                        ? 'Показывать подарки партнёров'
+                        : 'Показывать подарки спикеров'}
                     </span>
                   </label>
                   <p className="mt-1 text-xs text-gray-500">
@@ -1467,8 +1520,11 @@ export default function BlockCard({
               </div>
 
               <div>
+                {/* ⚠️ Название уточнено: настройка про КОЛОНКИ (где стоит
+                    заголовок относительно текста), а не про выравнивание —
+                    их путали с «Выравниванием текста секции» выше. */}
                 <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Расположение заголовка
+                  Расположение заголовка относительно текста
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {([

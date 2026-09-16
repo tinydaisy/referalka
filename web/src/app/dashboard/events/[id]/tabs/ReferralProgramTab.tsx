@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Gift, Plus, Trash2, ImageIcon, Type, ExternalLink, Download, X, Save, ChevronUp, ChevronDown, BarChart2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import FileUploader from '@/components/FileUploader'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import ReferralReportSection from './ReferralReportSection'
@@ -630,14 +631,14 @@ function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any)
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Лид-магнит</label>
-            <select value={leadMagnetId || ''}
-                    onChange={e => setLeadMagnetId(e.target.value ? Number(e.target.value) : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg">
-              <option value="">— не выбран —</option>
-              {leadMagnets.map((lm: any) => (
-                <option key={lm.id} value={lm.id}>{lm.name}</option>
-              ))}
-            </select>
+            {/* ⚠️ Общий пикер с ПОИСКОМ по названию: у клиента магнитов
+                десятки, в обычном списке нужный не найти. Пакеты здесь не
+                показываем — порог выдаёт один материал. */}
+            <LeadMagnetPicker
+              withPackages={false}
+              value={leadMagnetId ? { kind: 'magnet', id: leadMagnetId } : null}
+              onPick={v => setLeadMagnetId(v ? v.id : null)}
+            />
             {leadMagnets.length === 0 && (
               <p className="text-xs text-gray-400 mt-1">
                 <a href="/dashboard/lead-magnets" className="underline">Добавить лид-магнит →</a>

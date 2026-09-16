@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Save, Check } from 'lucide-react'
 import { api } from '@/lib/api'
+import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -482,21 +483,22 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           </div>
           {form.end_action === 'gift' && (
             <div className="mt-2 pl-6">
-              <select value={form.end_gift}
-                onChange={e => setForm(f => ({ ...f, end_gift: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
-                <option value="">— выберите подарок —</option>
-                {leadMagnets.length > 0 && (
-                  <optgroup label="Лид-магниты">
-                    {leadMagnets.map(m => <option key={`m${m.id}`} value={`m:${m.id}`}>{m.name}</option>)}
-                  </optgroup>
-                )}
-                {leadPackages.length > 0 && (
-                  <optgroup label="Пакеты">
-                    {leadPackages.map(p => <option key={`p${p.id}`} value={`p:${p.id}`}>{p.name}</option>)}
-                  </optgroup>
-                )}
-              </select>
+              {/* ⚠️ Общий пикер с поиском. Значение здесь хранится строкой
+                  «m:5» / «p:5» — формат сохранения не трогаем, переводим
+                  только в пикер и обратно. */}
+              <LeadMagnetPicker
+                placeholder="— выберите подарок —"
+                value={(() => {
+                  const v = form.end_gift || ''
+                  if (v.startsWith('m:')) return { kind: 'magnet' as const, id: Number(v.slice(2)) }
+                  if (v.startsWith('p:')) return { kind: 'package' as const, id: Number(v.slice(2)) }
+                  return null
+                })()}
+                onPick={v => setForm(f => ({
+                  ...f,
+                  end_gift: v ? `${v.kind === 'package' ? 'p' : 'm'}:${v.id}` : '',
+                }))}
+              />
               {leadMagnets.length === 0 && leadPackages.length === 0 && (
                 <p className="text-xs text-gray-400 mt-1">
                   Нет лид-магнитов. Создайте их в разделе «Лид-магниты».
