@@ -145,6 +145,18 @@ export default function AutoSetupTab() {
   // упрётся в пустую вкладку — хуже, чем если бы кнопки не было вовсе.
   const { me } = useMe()
   const hasSolutions = (me?.features || []).includes('ready_solutions')
+  /**
+   * Имя для приветствия — ТОЛЬКО первое слово.
+   *
+   * ⚠️ `me.name` приходит склеенным с фамилией (миграция 381). «Маргарита
+   * Форбс! Добрейшего-богатейшего…» звучит как обращение из налоговой —
+   * в живом приветствии нужно одно имя.
+   *
+   * ⚠️ Имени может не быть вовсе (кабинет заведён по почте): тогда строка
+   * начинается сразу с «Добрейшего-богатейшего», без пустого обращения
+   * и без висящего восклицательного знака.
+   */
+  const firstName = (me?.name || '').trim().split(/\s+/)[0] || ''
 
   /** Итоговое значение поля: черновик, если трогали, иначе — из настроек. */
   const effNick    = (nick        ?? (state?.telegram_username || '')).trim().replace(/^@/, '')
@@ -620,24 +632,56 @@ export default function AutoSetupTab() {
           третьем заходе только мешает. Отметка живёт в localStorage, потому
           что это вопрос удобства экрана, а не данные кабинета. */}
       {showWelcome && (
-        <div className="rounded-2xl p-6 sm:p-8 mb-5 text-white"
+        <div className="rounded-2xl p-7 sm:p-10 mb-5 text-white"
              style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-          <h2 className="text-2xl sm:text-3xl font-bold">
-            Добро пожаловать в ПЛЮСОН
+          {/* ⚠️⚠️ ТЕКСТ ВЛАДЕЛЬЦА — ДОСЛОВНО, НЕ ПЕРЕПИСЫВАТЬ.
+              Первая версия была «причёсана» мной в связную речь: смысл тот же,
+              слова мои. Владелец на это прямо указала — «я другой текст тебе
+              присылала». Тон здесь и есть ценность: живой, на «ты с задачей»,
+              со смайликом и тройным восклицательным. Правки — только от
+              владельца, не «для стройности». */}
+          {/* ⚠️ КРУПНО И С ВОЗДУХОМ. Мелкий плотный текст владелец физически
+              не читает («всё, что мелко, я вообще не смогла прочитать»).
+              Здесь: заголовок 30–40px, абзацы 18–20px, между абзацами —
+              двойной отступ (mt-7), а не слипшиеся строки. */}
+          <h2 className="text-3xl sm:text-4xl font-bold leading-tight">
+            {firstName ? `${firstName}! ` : ''}Добрейшего-богатейшего
+            и добро-пожаловать в ПЛЮСОН от iViSiON!!!
           </h2>
-          <p className="text-base sm:text-lg text-white/90 mt-4 leading-relaxed max-w-2xl">
-            Заполните несколько полей — и мы создадим вашего бота, передадим вам
-            права и включим воронки. Это сэкономит вам полтора часа настроек.
+
+          <p className="text-xl sm:text-2xl font-bold mt-7"
+             style={{ color: '#FFCFA4' }}>
+            Это сервис автонастройки!
           </p>
-          <p className="text-base sm:text-lg text-white/90 mt-3 leading-relaxed max-w-2xl">
-            Мы делаем всё, чтобы вы автоматизировали до 90% технических задач
-            без лишней возни.
+
+          <p className="text-lg sm:text-xl text-white mt-7 leading-relaxed max-w-2xl">
+            Если вы из тех, кто не любит ничего технического — но хочет, чтобы
+            всё заработало САМО, — вам сюда.
           </p>
-          <p className="text-xl font-bold mt-4" style={{ color: '#FFCFA4' }}>
-            Бесплатно.
+
+          <p className="text-lg sm:text-xl text-white/95 mt-7 leading-relaxed max-w-2xl">
+            Мы тоже хотим, чтобы вы сэкономили время и нервы. И уже сегодня
+            у вас заработали и чат-боты, и воронки. И вы могли максимально
+            комфортно автоматизировать до 90% технических задач для привлечения
+            клиентов.
+          </p>
+
+          <p className="text-lg sm:text-xl text-white/95 mt-7 leading-relaxed max-w-2xl">
+            Просто заполните несколько полей про себя — мы разложим это всё
+            по нужным настройкам. И создадим для вас бот, канал уведомлений
+            и сделаем всё то, что у вас обычно вызывает сопротивление :)
+          </p>
+
+          <p className="text-2xl sm:text-3xl font-bold mt-7"
+             style={{ color: '#FFCFA4' }}>
+            Это бесплатно.
+          </p>
+
+          <p className="text-lg sm:text-xl text-white mt-7">
+            Нажмите на кнопку «Начать»
           </p>
           <button onClick={startWelcome}
-                  className="btn-gold mt-6 px-10 py-3 text-base font-semibold">
+                  className="btn-gold mt-7 px-12 py-4 text-lg font-bold">
             Начать
           </button>
         </div>
