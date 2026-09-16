@@ -2573,11 +2573,12 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
   // Выравнивание внутри карточки. Пусто = как было до разделения: у спикеров
   // всё слева, у партнёров всё по центру (см. cardAligns).
   const { nameAlign, textAlign } = cardAligns(block, 'left')
+  const ts = cardTextStyle(block, page)
 
   const cards = list.map((s: any) => (
     <SpeakerCard key={s.id} s={s} page={page} cardStyle={cardStyle}
                  iconColor={iconColor} open={open} gift={gift}
-                 nameAlign={nameAlign} textAlign={textAlign}
+                 nameAlign={nameAlign} textAlign={textAlign} ts={ts}
                  onToggle={() => setOpen(o => !o)}
                  className={scroll ? 'w-[min(280px,75vw)] shrink-0 snap-start' : ''} />
   ))
@@ -2637,6 +2638,7 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
   // до разделения, и уже собранные лендинги не должны поехать сами.
   const gift = giftSettings(block, page)
   const { nameAlign, textAlign } = cardAligns(block, 'center')
+  const ts = cardTextStyle(block, page)
 
   const scrollBy = (dir: 1 | -1) => {
     scroller.current?.scrollBy({ left: dir * (cardW + 20), behavior: 'smooth' })
@@ -2646,7 +2648,7 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
     <PartnerCard
       key={p.id} p={p} page={page} cardStyle={cardStyle} iconColor={iconColor}
       open={open} onToggle={() => setOpen(o => !o)}
-      gift={gift} nameAlign={nameAlign} textAlign={textAlign}
+      gift={gift} nameAlign={nameAlign} textAlign={textAlign} ts={ts}
       className={scroll ? 'shrink-0 snap-start' : ''}
       width={scroll ? cardW : undefined}
     />
@@ -2737,6 +2739,39 @@ function giftSettings(block: any, page: any) {
  * ⚠️ Пусто = прежний вид (`fallback`), чтобы уже собранные лендинги не
  * изменились сами: у спикеров всё было слева, у партнёров — по центру.
  */
+/**
+ * Оформление ТЕКСТА в карточке: размеры, регистр, подчёркивание имени.
+ *
+ * ⚠️ Одна точка на спикеров и партнёров — иначе карточки разъедутся по виду.
+ * Всё пусто = прежние захардкоженные значения, чтобы собранные лендинги не
+ * изменились сами (те же умолчания, что стояли в вёрстке).
+ *
+ * ⚠️ Размеры в ПРОЦЕНТАХ от текста страницы, не в пикселях: страница целиком
+ * масштабируется настройкой `body_size`, и пиксель выпал бы из этого масштаба.
+ */
+function cardTextStyle(block: any, page: any) {
+  const em = (v: any, def: number) => `${(Number(v) > 0 ? Number(v) : def) / 100}em`
+  const underline = block.card_name_underline === true
+  return {
+    name: {
+      fontSize: em(block.card_name_size, 115),
+      textTransform: (block.card_name_case === 'none' ? 'none' : 'uppercase') as any,
+      ...(underline ? {
+        textDecoration: 'underline',
+        // Цвет подчёркивания задаётся отдельно: линия под заголовком часто
+        // нужна акцентной, а не в цвет самого текста.
+        textDecorationColor: block.card_name_underline_color || page.color_heading || '#FFCFA4',
+        textUnderlineOffset: '.18em',
+      } : {}),
+    } as React.CSSProperties,
+    position: {
+      fontSize: em(block.card_position_size, 90),
+      textTransform: (block.card_position_case === 'upper' ? 'uppercase' : 'none') as any,
+    } as React.CSSProperties,
+    text: { fontSize: em(block.card_text_size, 85) } as React.CSSProperties,
+  }
+}
+
 function cardAligns(block: any, fallback: 'left' | 'center') {
   const ok = (v: any) => (v === 'left' || v === 'center' || v === 'right' ? v : null)
   return {
@@ -2768,25 +2803,31 @@ function GiftBox({ gifts, gift }: { gifts: string[]; gift: any }) {
   )
 }
 
-function RoleBadge({ role, page }: { role?: string; page: any }) {
+function RoleBadge({ role, page, align = 'left' }: { role?: string; page: any; align?: string }) {
   const label = role ? ROLE_BADGE[role] : null
   if (!label) return null
+  // ⚠️ Бейдж встаёт ПО ТОМУ ЖЕ краю, что имя и должность. Раньше стоял жёсткий
+  // `self-start`: имя по центру, а пометка прижата влево — выглядело съехавшим.
+  // Обёртка нужна потому, что карточка — flex-колонка: `text-align` на самом
+  // бейдже не двигает его, двигает выравнивание внутри строки-обёртки.
   return (
-    <div
-      className="self-start rounded-full px-2.5 py-1 text-[.65em] font-bold uppercase tracking-wide"
-      style={{
-        background: page.color_heading || '#FFCFA4',
-        color: page.bg_color || '#25455D',
-      }}
-    >
-      {label}
+    <div style={{ textAlign: align as any }}>
+      <span
+        className="inline-block rounded-full px-2.5 py-1 text-[.65em] font-bold uppercase tracking-wide"
+        style={{
+          background: page.color_heading || '#FFCFA4',
+          color: page.bg_color || '#25455D',
+        }}
+      >
+        {label}
+      </span>
     </div>
   )
 }
 
 function PartnerCard({
   p, page, cardStyle, iconColor, open, onToggle, className = '', width,
-  nameAlign = 'center', textAlign = 'center', gift,
+  nameAlign = 'center', textAlign = 'center', gift, ts,
 }: any) {
   // ⚠️ Должность и регалии РАЗДЕЛЕНЫ (16.09.2026). Раньше они склеивались в
   // один список `lines` и выравнивались одинаково — из-за этого нельзя было
@@ -2857,20 +2898,23 @@ function PartnerCard({
           центру под логотипом, а перечень регалий читается только слева. */}
       <div className="flex flex-1 flex-col gap-2 p-4"
            style={{ textAlign: nameAlign }}>
-        <RoleBadge role={p.role} page={page} />
-        <div className="font-bold uppercase leading-tight"
-             style={{ color: page.color_heading || '#FFCFA4' }}>
+        <RoleBadge role={p.role} page={page} align={nameAlign} />
+        <div className="font-bold leading-tight"
+             style={{ color: page.color_heading || '#FFCFA4', ...(ts?.name || {}) }}>
           {p.name}
         </div>
         {/* Должность — своим выравниванием: это подпись под логотипом. */}
         {!!position && (
-          <SafeHtml html={position}
-                    className="text-[.85em] leading-relaxed opacity-85" />
+          {/* ⚠️ Так же, как у спикеров: позиционирование — ЖИРНЫМ. Раньше у
+              партнёров оно шло обычным тонким текстом и сливалось с регалиями,
+              хотя это подпись под названием, а не часть перечня. */}
+          <SafeHtml html={position} style={ts?.position}
+                    className="font-semibold leading-snug opacity-90" />
         )}
         {/* Регалии — своим: перечень читается только по левому краю. */}
         {!!visibleAch.length && (
-          <div className="space-y-1.5 text-[.85em] leading-relaxed opacity-85"
-               style={{ textAlign }}>
+          <div className="space-y-1.5 leading-relaxed opacity-85"
+               style={{ textAlign, ...(ts?.text || {}) }}>
             {visibleAch.map((t, i) => <SafeHtml key={i} html={t} />)}
           </div>
         )}
@@ -2913,7 +2957,7 @@ function PartnerCard({
  */
 function SpeakerCard({
   s, page, cardStyle, iconColor, open, onToggle, className = '', gift,
-  nameAlign = 'left', textAlign = 'left',
+  nameAlign = 'left', textAlign = 'left', ts,
 }: any) {
   const ach: string[] = Array.isArray(s.achievements)
     ? s.achievements
@@ -2947,20 +2991,21 @@ function SpeakerCard({
           читается только по левому краю. */}
       <div className="flex flex-1 flex-col gap-2 p-4"
            style={{ textAlign: nameAlign }}>
-        <RoleBadge role={s.role} page={page} />
-        <div className="text-[1.15em] font-bold uppercase leading-tight tracking-wide"
-             style={{ color: page.color_heading || '#FFCFA4' }}>
+        <RoleBadge role={s.role} page={page} align={nameAlign} />
+        <div className="font-bold leading-tight tracking-wide"
+             style={{ color: page.color_heading || '#FFCFA4', ...(ts?.name || {}) }}>
           {s.name}
         </div>
         {s.title && (
-          <SafeHtml html={s.title} className="text-[.9em] font-semibold leading-snug opacity-90" />
+          <SafeHtml html={s.title} style={ts?.position}
+                    className="font-semibold leading-snug opacity-90" />
         )}
 
         {gift?.position === 'before' && giftBlock}
 
         {!!visible.length && (
-          <ul className="mt-1 list-none space-y-1.5 p-0 text-[.85em] font-light leading-relaxed opacity-80"
-              style={{ textAlign }}>
+          <ul className="mt-1 list-none space-y-1.5 p-0 font-light leading-relaxed opacity-80"
+              style={{ textAlign, ...(ts?.text || {}) }}>
             {visible.map((a, i) => (
               <li key={i} className="flex gap-2">
                 <span className="mt-[.55em] h-1 w-1 shrink-0 rounded-full"

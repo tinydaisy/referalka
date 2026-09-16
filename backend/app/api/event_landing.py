@@ -228,6 +228,15 @@ def normalize_block_gift(field: str, val):
         return max(0, min(100, int(val)))
     if field in ("speaker_gift_label", "speaker_gift_bg") and val is not None:
         return (val or "").strip() or None
+    if field in ("card_name_case", "card_position_case") and val is not None:
+        # 'upper' — ЗАГЛАВНЫМИ, 'none' — как ввели. Мусор → прежний вид (NULL).
+        return val if val in ("upper", "none") else None
+    if field in ("card_name_size", "card_position_size", "card_text_size") and val is not None:
+        # Проценты от основного текста. Границы: мельче 60% нечитаемо, крупнее
+        # 250% имя перестаёт помещаться в карточку.
+        return max(60, min(250, int(val)))
+    if field == "card_name_underline_color" and val is not None:
+        return (val or "").strip() or None
     if field in ("card_name_align", "card_text_align") and val is not None:
         # Пустая строка = «как было», то есть NULL: иначе вернуть прежний вид
         # блока стало бы нечем.
@@ -271,6 +280,10 @@ BLOCK_PATCH_FIELDS: tuple = (
         "speaker_gift_opacity", "speaker_gift_position",
         # Выравнивание ВНУТРИ карточки: имя+должность и регалии — раздельно.
         "card_name_align", "card_text_align",
+        # Оформление текста карточки: размеры, регистр, подчёркивание имени.
+        "card_name_size", "card_position_size", "card_text_size",
+        "card_name_case", "card_position_case",
+        "card_name_underline", "card_name_underline_color",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -437,6 +450,14 @@ class BlockPatch(BaseModel):
     # слева, у партнёров по центру — собранные лендинги не должны поехать.
     card_name_align: Optional[str] = None
     card_text_align: Optional[str] = None
+    # Оформление текста карточки. Пусто = прежний вид блока.
+    card_name_size: Optional[int] = None
+    card_position_size: Optional[int] = None
+    card_text_size: Optional[int] = None
+    card_name_case: Optional[str] = None
+    card_position_case: Optional[str] = None
+    card_name_underline: Optional[bool] = None
+    card_name_underline_color: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None

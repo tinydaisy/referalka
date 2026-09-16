@@ -1240,6 +1240,100 @@ export default function BlockCard({
                   </div>
                 )}
 
+                {/* Оформление ТЕКСТА в карточках: размеры, регистр,
+                    подчёркивание имени. Клиент жаловался, что карточки
+                    выглядят блёкло, — а поправить было нечем: всё было
+                    захардкожено в вёрстке. */}
+                {['speakers', 'partners'].includes(block.kind) && (
+                  <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+                    <div className="text-sm font-medium text-gray-700">Текст в карточках</div>
+
+                    <Field label={`Размер имени: ${block.card_name_size || 115}%`}>
+                      <input type="range" min={60} max={250} step={5}
+                        value={block.card_name_size || 115}
+                        onChange={e => onPatch({ card_name_size: Number(e.target.value) })}
+                        className="w-full" />
+                      <p className="mt-1 text-xs text-gray-500">
+                        В процентах от основного текста страницы.
+                      </p>
+                    </Field>
+
+                    <Field label="Имя — регистр">
+                      <div className="flex flex-wrap gap-2">
+                        {([['upper', 'БОЛЬШИМИ БУКВАМИ'], ['none', 'Как ввели']] as const).map(
+                          ([val, label]) => (
+                            <button key={val}
+                              onClick={() => onPatch({ card_name_case: val })}
+                              className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                (block.card_name_case || 'upper') === val
+                                  ? 'border-brand bg-brand/5 font-medium text-brand'
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                              {label}
+                            </button>
+                          ))}
+                      </div>
+                    </Field>
+
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input type="checkbox"
+                        checked={!!block.card_name_underline}
+                        onChange={e => onPatch({ card_name_underline: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand" />
+                      <span className="text-sm font-medium text-gray-700">Подчёркивать имя</span>
+                    </label>
+                    {block.card_name_underline && (
+                      <>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input type="checkbox"
+                            checked={!!block.card_name_underline_color}
+                            onChange={e => onPatch({
+                              card_name_underline_color: e.target.checked ? '#FFCFA4' : null,
+                            })}
+                            className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand" />
+                          <span className="text-sm text-gray-700">Свой цвет линии</span>
+                        </label>
+                        {block.card_name_underline_color && (
+                          <ColorField
+                            label="Цвет подчёркивания"
+                            value={block.card_name_underline_color}
+                            onChange={v => onPatch({ card_name_underline_color: v })}
+                          />
+                        )}
+                      </>
+                    )}
+
+                    <Field label={`Размер позиционирования: ${block.card_position_size || 90}%`}>
+                      <input type="range" min={60} max={250} step={5}
+                        value={block.card_position_size || 90}
+                        onChange={e => onPatch({ card_position_size: Number(e.target.value) })}
+                        className="w-full" />
+                    </Field>
+
+                    <Field label="Позиционирование — регистр">
+                      <div className="flex flex-wrap gap-2">
+                        {([['none', 'Как ввели'], ['upper', 'БОЛЬШИМИ БУКВАМИ']] as const).map(
+                          ([val, label]) => (
+                            <button key={val}
+                              onClick={() => onPatch({ card_position_case: val })}
+                              className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                (block.card_position_case || 'none') === val
+                                  ? 'border-brand bg-brand/5 font-medium text-brand'
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                              {label}
+                            </button>
+                          ))}
+                      </div>
+                    </Field>
+
+                    <Field label={`Размер регалий: ${block.card_text_size || 85}%`}>
+                      <input type="range" min={60} max={250} step={5}
+                        value={block.card_text_size || 85}
+                        onChange={e => onPatch({ card_text_size: Number(e.target.value) })}
+                        className="w-full" />
+                    </Field>
+                  </div>
+                )}
+
                 {/* Оформление плашки подарка — здесь, рядом с остальным
                     оформлением секции. Сам показ подарков и подпись к ним — во
                     вкладке «Содержимое»: там решают, ЧТО показывать, здесь —
