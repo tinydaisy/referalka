@@ -700,6 +700,9 @@ async def get_order(
                   cl.lp_bg_color, cl.lp_bg_color_2, cl.lp_bg_angle, cl.lp_bg_gradient,
                   cl.lp_color_heading, cl.lp_color_body,
                   cl.lp_btn_color, cl.lp_btn_text_color, cl.lp_btn_radius,
+                  cl.lp_btn_color_2, cl.lp_btn_angle, cl.lp_btn_metallic,
+                  cl.lp_btn_border_color, cl.lp_btn_border_width,
+                  cl.lp_btn_border_metallic,
                   cl.lp_font_heading, cl.lp_font_body
              FROM event_owners eo JOIN clients cl ON cl.id = eo.client_id
             WHERE eo.event_id = $1 AND eo.status = 'accepted'
@@ -725,9 +728,20 @@ async def get_order(
             "bg_css": theme["bg_css"],
             "color_heading": cl["lp_color_heading"] or None,
             "color_body": cl["lp_color_body"] or None,
+            # ⚠️ Кнопка — это НЕ один цвет. У клиента она собирается из
+            # градиента (два цвета + угол), металлического перелива и рамки со
+            # своим цветом, толщиной и переливом. Отдать только `btn_color`
+            # значило бы нарисовать плоскую заливку вместо его кнопки — именно
+            # так и вышло в первой версии (16.09.2026).
             "btn_color": cl["lp_btn_color"] or None,
             "btn_text_color": cl["lp_btn_text_color"] or None,
             "btn_radius": cl["lp_btn_radius"],
+            "btn_color_2": cl["lp_btn_color_2"] or None,
+            "btn_angle": cl["lp_btn_angle"],
+            "btn_metallic": cl["lp_btn_metallic"],
+            "btn_border_color": cl["lp_btn_border_color"] or None,
+            "btn_border_width": cl["lp_btn_border_width"],
+            "btn_border_metallic": cl["lp_btn_border_metallic"],
             "font_heading_css": theme["font_heading_css"],
             "font_body_css": theme["font_body_css"],
         }

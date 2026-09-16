@@ -9,6 +9,8 @@
  * адрес уже без номера заказа. Человек видел общий текст вместо чатов.
  */
 import { useEffect, useState } from 'react'
+// ⚠️ Формула металла — общая с лендингом и обложками: своя копия разъехалась бы.
+import { shade } from '@/lib/brandStyle'
 
 const SUPPORT_LABEL: Record<string, string> = {
   telegram: 'Telegram',
@@ -63,11 +65,47 @@ export default function ThanksContent({
   const bgCss: string = brand.bg_css || 'linear-gradient(135deg, #25455D, #0a1520)'
   const cHead: string = brand.color_heading || '#FFCFA4'
   const cBody: string = brand.color_body || '#FFFFFF'
-  const btnBg: string = brand.btn_color || '#FFCFA4'
   const btnFg: string = brand.btn_text_color || '#0a1520'
   const btnRadius: number = brand.btn_radius ?? 10
   const fHead: string | undefined = brand.font_heading_css || undefined
   const fBody: string | undefined = brand.font_body_css || undefined
+
+  // ⚠️⚠️ Кнопка собирается ТОЧНО ТАК ЖЕ, как на лендинге
+  // (см. LandingRenderer, btnStyle): градиент из двух цветов под своим углом,
+  // либо металлический перелив, либо сплошной цвет; сверху — рамка своей
+  // толщины и цвета, тоже с переливом. Первая версия брала один `btn_color` и
+  // рисовала плоскую заливку — у клиента с градиентом и золотой рамкой кнопка
+  // выходила «тупо красной». Формула металла берётся из общего brandStyle,
+  // своей копии заводить нельзя: разъедется с лендингом.
+  const btnBase: string = brand.btn_color || '#FFCFA4'
+  const metallicButton = (c: string) =>
+    `linear-gradient(180deg, ${shade(c, -4)}, ${c} 18%, ${shade(c, 75)} 48%, ` +
+    `${shade(c, 75)} 56%, ${c} 82%, ${shade(c, -4)})`
+  const btnFill: string = brand.btn_color_2
+    ? `linear-gradient(${brand.btn_angle ?? 180}deg, ${btnBase}, ${brand.btn_color_2})`
+    : brand.btn_metallic ? metallicButton(btnBase) : btnBase
+  // Для padding-box слой обязан быть картинкой: сплошной цвет заворачиваем.
+  const asLayer = (v: string) =>
+    v.startsWith('linear-gradient') ? v : `linear-gradient(${v}, ${v})`
+  const borderColor: string = brand.btn_border_color || '#FFCFA4'
+  const btnStyle: React.CSSProperties = {
+    color: btnFg,
+    borderRadius: btnRadius,
+    fontFamily: fBody,
+    letterSpacing: '.04em',
+    boxShadow: (brand.btn_metallic || brand.btn_color_2)
+      ? 'inset 0 1px 0 rgba(255,255,255,.45), 0 6px 18px rgba(0,0,0,.35)'
+      : undefined,
+    ...(brand.btn_border_width
+      ? {
+          border: `${brand.btn_border_width}px solid transparent`,
+          background: brand.btn_border_metallic
+            ? `${asLayer(btnFill)} padding-box, ${metallicButton(borderColor)} border-box`
+            : `${asLayer(btnFill)} padding-box, `
+              + `linear-gradient(${borderColor}, ${borderColor}) border-box`,
+        }
+      : { background: btnFill }),
+  }
 
   // Обёртка страницы: фон, шрифт и центрирование — здесь, потому что цвета
   // известны только после загрузки заказа.
@@ -110,7 +148,7 @@ export default function ThanksContent({
         {order?.event_slug && (
           <a href={`/e/${order.event_slug}`}
              className="mt-6 inline-block px-7 py-3.5 font-bold uppercase"
-             style={{ background: btnBg, color: btnFg, borderRadius: btnRadius }}>
+             style={btnStyle}>
             Вернуться к тарифам
           </a>
         )}
@@ -159,7 +197,7 @@ export default function ThanksContent({
               {order.chats.map((c: any) => (
                 <a key={c.platform} href={c.url} target="_blank" rel="noreferrer"
                    className="px-6 py-3.5 font-bold uppercase transition-transform hover:scale-[1.02]"
-                   style={{ background: btnBg, color: btnFg, borderRadius: btnRadius }}>
+                   style={btnStyle}>
                   {CHAT_LABEL[c.platform] || 'Чат события'}
                 </a>
               ))}
@@ -186,7 +224,7 @@ export default function ThanksContent({
               {order.bots.map((b: any) => (
                 <a key={b.platform} href={b.url} target="_blank" rel="noreferrer"
                    className="px-6 py-3.5 font-bold uppercase transition-transform hover:scale-[1.02]"
-                   style={{ background: btnBg, color: btnFg, borderRadius: btnRadius }}>
+                   style={btnStyle}>
                   {BOT_LABEL[b.platform] || 'Бот'}
                 </a>
               ))}
