@@ -328,8 +328,12 @@ export default function CollabOrganizerCardPage() {
                 пакеты группами и даёт поиск по названию — их у клиента
                 десятки, и двумя списками без поиска нужный не найти.
                 ⚠️ Комментарий — ВЫШЕ условия: сразу после `&& (` JSX ждёт
-                элемент, и `{/* */}` там роняет сборку («Unexpected token
-                div. Expected jsx identifier»). */}
+                элемент, а JSX-комментарий там роняет сборку («Unexpected
+                token div. Expected jsx identifier»).
+                ⚠️⚠️ И НЕ ПИСАТЬ здесь звёздочку со слэшем: она закрывает
+                ЭТОТ комментарий раньше времени, остаток строки уезжает в
+                разметку и сборка падает снова — ровно так и вышло 16.09.2026,
+                когда пояснение к этой ловушке само её и устроило. */}
             {canEdit && gifts.length < 4 && (
               <div className="pt-3 border-t border-gray-100">
                 <label className="block text-xs text-gray-500 mb-1">
