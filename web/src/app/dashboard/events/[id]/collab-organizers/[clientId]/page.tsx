@@ -4,6 +4,7 @@ import { useUrlTab } from '@/hooks/useUrlTab'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Users, Star, Save, Plus, X, Gift, Image as ImageIcon } from 'lucide-react'
 import { api } from '@/lib/api'
+import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import RefLinkInline from '@/components/RefLinkInline'
 import FileUploader from '@/components/FileUploader'
 import CabinetPreviewBlock from '@/components/CabinetPreviewBlock'
@@ -324,31 +325,24 @@ export default function CollabOrganizerCardPage() {
             )}
 
             {canEdit && gifts.length < 4 && (
-              <div className="grid sm:grid-cols-2 gap-3 pt-3 border-t border-gray-100">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Добавить лид-магнит</label>
-                  <select value="" onChange={e => {
-                      const id = Number(e.target.value)
-                      const m = magnets.find((x: any) => x.id === id)
-                      if (m) addGift('magnet', m.id, m.name)
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
-                    <option value="">— выбрать —</option>
-                    {magnets.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Добавить пакет</label>
-                  <select value="" onChange={e => {
-                      const id = Number(e.target.value)
-                      const p = packages.find((x: any) => x.id === id)
-                      if (p) addGift('package', p.id, p.name)
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white">
-                    <option value="">— выбрать —</option>
-                    {packages.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
+              {/* ⚠️ ОДИН пикер вместо двух списков: он сам делит магниты и
+                  пакеты группами и даёт поиск по названию — их у клиента
+                  десятки, и двумя списками без поиска нужный не найти. */}
+              <div className="pt-3 border-t border-gray-100">
+                <label className="block text-xs text-gray-500 mb-1">
+                  Добавить лид-магнит или пакет
+                </label>
+                <LeadMagnetPicker
+                  allowEmpty={false}
+                  placeholder="— выбрать —"
+                  value={null}
+                  onPick={v => {
+                    if (!v) return
+                    const src = v.kind === 'package' ? packages : magnets
+                    const it = src.find((x: any) => x.id === v.id)
+                    if (it) addGift(v.kind, it.id, it.name)
+                  }}
+                />
               </div>
             )}
           </div>
