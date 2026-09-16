@@ -1556,16 +1556,10 @@ function OfferingModal({
   // потому что у магнита ссылка РАЗНАЯ на каждой площадке: человек из MAX
   // должен уйти в MAX-бота, а не в Telegram. Одним полем адреса это не
   // выразить, поэтому выбор — отдельным списком.
+  // ⚠️ Список магнитов грузит сам LeadMagnetPicker (с поиском и общим кешем
+  // на страницу) — своей загрузки здесь больше нет: она дублировала запрос и
+  // рисовала список без поиска.
   const [lmId, setLmId] = useState<number>(initial?.lead_magnet_id || 0)
-  const [magnets, setMagnets] = useState<{ id: number; name: string }[]>([])
-
-  useEffect(() => {
-    // Список грузим один раз при открытии формы — магнитов у клиента
-    // обычно единицы, отдельный поиск тут не нужен.
-    api.leadMagnets.list()
-      .then((r: any) => setMagnets((r.items || r || []).map((m: any) => ({ id: m.id, name: m.name }))))
-      .catch(() => setMagnets([]))
-  }, [])
 
   function isDirty(): boolean {
     if (!initial) {
@@ -1646,13 +1640,15 @@ function OfferingModal({
               на Telegram. Нет площадки зрителя — предложит выбрать. */}
           <div>
             <label className="label">Или выдать лид-магнит</label>
-            <select value={lmId} onChange={e => setLmId(Number(e.target.value))}
-                    className="input">
-              <option value={0}>— не выдавать, вести по ссылке выше —</option>
-              {magnets.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
+            {/* ⚠️ Общий пикер с ПОИСКОМ по названию: магнитов у клиента
+                десятки (у первого — 36), в простом списке нужный не найти.
+                Пакеты здесь не показываем — карточка выдаёт один материал. */}
+            <LeadMagnetPicker
+              withPackages={false}
+              placeholder="— не выдавать, вести по ссылке выше —"
+              value={lmId ? { kind: 'magnet', id: lmId } : null}
+              onPick={v => setLmId(v ? v.id : 0)}
+            />
             <p className="mt-1 text-xs text-gray-500">
               {lmId
                 ? 'Кнопка приведёт человека в вашего бота на его площадке — там он подпишется и получит материал. Ссылка выше при этом не используется.'
