@@ -128,6 +128,17 @@ export default function OrderForm({
       ? metallicButton(page.btn_color || '#FFCFA4')
       : (page.btn_color || '#FFCFA4')
 
+  // ⚠️ Подсказка организатора — ПОЛУПРОЗРАЧНАЯ плашка в акцентном цвете темы
+  // (тот же, что у границ карточек и иконок). Сплошная красная заливка читалась
+  // как вторая кнопка и спорила с настоящей.
+  const hintBg = (() => {
+    const hex = page.border_color || page.color_heading || '#FFCFA4'
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex)
+    if (!m) return 'rgba(255,255,255,.08)'
+    const n = parseInt(m[1], 16)
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, .14)`
+  })()
+
   const btnStyle: React.CSSProperties = {
     color: page.btn_text_color || '#0a1520',
     borderRadius: page.btn_radius ?? page.radius ?? 5,
@@ -370,13 +381,6 @@ export default function OrderForm({
           </div>
         </div>
 
-        {/* Предупреждение от организатора: белым по красному, потому что это
-            именно предупреждение — цвет намеренно не из темы. */}
-        {tariff.order_hint && (
-          <div className="mb-5 rounded-xl bg-[#C62828] px-5 py-4 text-center text-[.85em] font-bold uppercase leading-snug text-white">
-            {tariff.order_hint}
-          </div>
-        )}
 
         {/* Форма */}
         <div
@@ -463,6 +467,22 @@ export default function OrderForm({
           {error && (
             <div className="rounded-lg bg-red-500/20 p-3 text-[.9em] text-red-100">
               {error}
+            </div>
+          )}
+
+          {/* ⚠️ Подсказка организатора стоит НАД КНОПКОЙ, а не в шапке формы:
+              её читают перед самым нажатием, наверху страницы её пролистывают.
+              ⚠️ Оформлена полупрозрачной плашкой в акцентном цвете темы, а НЕ
+              красной заливкой: сплошная плашка над формой читалась как вторая
+              кнопка и спорила с настоящей. */}
+          {tariff.order_hint && (
+            <div className="mb-4 px-5 py-3.5 text-center text-[.85em] font-semibold leading-snug"
+                 style={{
+                   background: hintBg,
+                   color: page.color_heading || '#FFCFA4',
+                   borderRadius: page.btn_radius ?? page.radius ?? 12,
+                 }}>
+              {tariff.order_hint}
             </div>
           )}
 
