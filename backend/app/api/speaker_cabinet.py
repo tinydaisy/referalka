@@ -766,13 +766,6 @@ async def patch_me(
     # ⚠️ Одиночный подарок → В СПИСОК (колонок gift_after_speech_* больше нет).
     if "gift_after_speech_title" in sent_fields or "gift_after_speech_url" in sent_fields:
         from app.api.modules.conference import _save_single_gift_to_list
-        # ⚠️ Временный лог: разбираем жалобу «ручной подарок не сохраняется».
-        # Пишем, ЧТО пришло и для какой карточки — по ответу 200 этого не видно.
-        logger.info(
-            "GIFT SAVE ec=%s title=%r url=%r sent=%s",
-            se_id, data.gift_after_speech_title, data.gift_after_speech_url,
-            sorted(sent_fields & {"gift_after_speech_title", "gift_after_speech_url"}),
-        )
         await _save_single_gift_to_list(
             db, se_id, data.gift_after_speech_title, data.gift_after_speech_url)
     for f in ("gift_raffle_title", "gift_raffle_url",
@@ -829,9 +822,27 @@ async def patch_me(
     # 5c. Список до 4 подарков (миграция 200 + 219: magnet/package/manual).
     # Приоритетнее legacy. Единый хелпер — тот же, что использует дашборд.
     if "gift_lead_magnets" in sent_fields:
+        # ⚠️⚠️ ПУСТОЙ СПИСОК НЕ СТИРАЕТ РУЧНОЙ ПОДАРОК, записанный шагом выше.
+        # `save_ec_gifts` переписывает список ЦЕЛИКОМ. Фронт при ручном подарке
+        # шлёт `gift_lead_magnets: []` («снять плюсоновские») — и затирал только
+        # что вставленный ручной: спикер видел «сохранено», а поле оставалось
+        # пустым и после обновления страницы (жалоба 16.09.2026).
+        #
+        # ⚠️ Ручной подарок и плюсоновские могут жить ВМЕСТЕ — таблица это
+        # позволяет, и спикеру так и нужно. Поэтому при пустом списке чистим
+        # только ПЛЮСОН-строки, ручные не трогаем.
         linked = await db.fetchval("SELECT linked_client_id FROM collaborators WHERE id = $1", c_id)
-        from app.api.modules.conference import save_ec_gifts
-        await save_ec_gifts(db, se_id, data.gift_lead_magnets or [], linked)
+        if data.gift_lead_magnets:
+            from app.api.modules.conference import save_ec_gifts
+            await save_ec_gifts(db, se_id, data.gift_lead_magnets, linked)
+        else:
+            await db.execute(
+                "DELETE FROM event_collaborator_lead_magnets "
+                " WHERE ec_id = $1 AND manual_title IS NULL", se_id)
+            await db.execute(
+                "UPDATE event_collaborators "
+                "   SET gift_lead_magnet_id = NULL, gift_package_id = NULL "
+                " WHERE id = $1", se_id)
 
     return await get_me(session, db)
 

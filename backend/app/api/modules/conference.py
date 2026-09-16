@@ -984,8 +984,12 @@ async def save_ec_gifts(db, ec_id: int, items: list, linked_client_id: int | Non
         if kind == "manual":
             title = ((it or {}).get("title") or "").strip()
             url = ((it or {}).get("url") or "").strip()
-            if not title or not url:
-                raise HTTPException(status_code=400, detail="У ручного подарка обязательны и название, и ссылка")
+            # ⚠️ ХВАТАЕТ НАЗВАНИЯ. Ссылка обязательной быть не может: подарок
+            # часто отдают руками после эфира, а в карточке и рассылке нужно
+            # только название. Прежнее правило «оба поля» молча отбивало
+            # сохранение (жалоба 16.09.2026).
+            if not title and not url:
+                raise HTTPException(status_code=400, detail="У ручного подарка нужно хотя бы название")
             clean.append(("manual", None, title, url))
             continue
         try:
