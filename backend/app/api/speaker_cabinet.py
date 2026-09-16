@@ -47,7 +47,11 @@ GIFT_URL_LIMIT = 140
 # медиана позиционирования 50 символов, регалий 465. В поля писали офферы и
 # целые лендинги (у одного клиента 5922 символа с кейсами и призывами).
 POSITIONING_LIMIT = 140
-ACHIEVEMENTS_LIMIT = 1100
+# ⚠️ Лимит регалий — НАСТРОЙКА КЛИЕНТА (миграция 420), а не константа: читаем
+# его через общий хелпер. Прежнее число осталось умолчанием платформы.
+from app.services.field_limits import (  # noqa: E402
+    ACHIEVEMENTS_LIMIT_DEFAULT, achievements_limit,
+)
 
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])
 
@@ -276,6 +280,10 @@ async def get_me(
                   -- Для ссылок «посмотреть себя» в шапке профиля (см. ниже).
                   e.landing_url,
                   own.default_link_mode,
+                  -- Сколько символов клиент разрешил в регалиях (миграция 420).
+                  -- ⚠️ Отдаём спикеру, чтобы счётчик в поле показывал ровно то,
+                  -- по чему потом откажет сохранение.
+                  own.speaker_achievements_limit,
                   (SELECT ch.handle FROM client_channels ccx
                      JOIN channels ch ON ch.id = ccx.channel_id
                     WHERE ccx.client_id = own.id AND ch.platform_slug = 'telegram'
@@ -292,7 +300,7 @@ async def get_me(
                -- надо добавлять и сюда, иначе «column own.X does not exist».
                SELECT cl.id, cl.default_link_mode,
                       cl.brand_logo_url, cl.brand_logo_light_url,
-                      cl.brand_name, cl.name,
+                      cl.brand_name, cl.name, cl.speaker_achievements_limit,
                       -- Тема кабинета: те же цвета, что клиент задал в
                       -- «Стилях лендингов». Без них кабинет у всех выглядел
                       -- одинаково — в фирменных цветах ПЛЮСОНа, а не клиента.
@@ -321,6 +329,12 @@ async def get_me(
         se_id
     )
     d = dict(row)
+    # Пусто в настройке клиента = умолчание платформы. Подставляем ЗДЕСЬ, чтобы
+    # фронт всегда получал число и не держал свою копию дефолта: разъедутся —
+    # счётчик покажет одно, а сохранение откажет по другому правилу.
+    d["achievements_limit"] = (
+        int(d.pop("speaker_achievements_limit", None) or 0) or ACHIEVEMENTS_LIMIT_DEFAULT
+    )
     # В кабинете темы — плоский список строк (индекс = позиция). Пустые заглушки
     # не показываем, поэтому индекс привязанной темы считаем ПО ЭТОМУ ЖЕ списку.
     visible = [t for t in topics if t["topic"]]
@@ -571,9 +585,15 @@ async def patch_me(
     if data.title and len(data.title) > POSITIONING_LIMIT:
         _too_long.append(f"позиционирование (не больше {POSITIONING_LIMIT})")
     if data.achievements is not None:
+        # ⚠️ Лимит регалий берём У ВЛАДЕЛЬЦА карточки — это его настройка, и
+        # она обязана совпадать со счётчиком, который спикер видит в поле.
+        _ach_limit = await achievements_limit(db, await db.fetchval(
+            "SELECT created_by_client_id FROM collaborators WHERE id = $1",
+            int(session["c_id"]),
+        ))
         _ach_len = len("\n".join(a for a in data.achievements if a))
-        if _ach_len > ACHIEVEMENTS_LIMIT:
-            _too_long.append(f"регалии (не больше {ACHIEVEMENTS_LIMIT} символов)")
+        if _ach_len > _ach_limit:
+            _too_long.append(f"регалии (не больше {_ach_limit} символов)")
     if _too_long:
         raise HTTPException(422, "Слишком длинно: " + ", ".join(_too_long))
 

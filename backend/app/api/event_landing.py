@@ -210,6 +210,27 @@ def normalize_block_survey(field: str, val):
     return val
 
 
+def normalize_block_gift(field: str, val):
+    """Настройки подарка спикера в блоке «Спикеры» — событие и продукт.
+
+    ⚠️ Как у кнопки и анкеты: сверяем в коде, а не CHECK-ом в БД — новое
+    положение плашки добавится кодом, без миграции. Мусор приводим к дефолту,
+    а не роняем запрос: оформление не повод отдать клиенту ошибку.
+
+    ⚠️ Пустая подпись — это NULL («вернуть умолчание»), а не пустая строка:
+    иначе над подарком осталась бы пустая строка, и клиент не смог бы вернуть
+    текст по умолчанию, только придумать новый.
+    """
+    if field == "speaker_gift_position" and val is not None:
+        return val if val in ("before", "after") else "after"
+    if field == "speaker_gift_opacity" and val is not None:
+        # Проценты непрозрачности, как card_bg_opacity. Мусор → края диапазона.
+        return max(0, min(100, int(val)))
+    if field in ("speaker_gift_label", "speaker_gift_bg") and val is not None:
+        return (val or "").strip() or None
+    return val
+
+
 async def assert_survey_owned(db, client_id: int, survey_id: int | None) -> None:
     """Анкета блока обязана принадлежать этому кабинету.
 
@@ -241,6 +262,9 @@ BLOCK_PATCH_FIELDS: tuple = (
         "btn_width", "btn_align",
         # Блок «Анкета»: какая анкета и как показана (списком / по шагам).
         "survey_id", "survey_view",
+        # Блок «Спикеры»: показывать ли подарки спикера и как оформить плашку.
+        "show_speaker_gift", "speaker_gift_label", "speaker_gift_bg",
+        "speaker_gift_opacity", "speaker_gift_position",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -396,6 +420,13 @@ class BlockPatch(BaseModel):
     # Блок «Анкета»: какую анкету показываем и каким видом.
     survey_id: Optional[int] = None
     survey_view: Optional[str] = None
+    # Блок «Спикеры»: подарки спикера. Цвет и прозрачность плашки — настройки,
+    # пусто = берём цвет блоков темы (card_bg / card_bg_opacity).
+    show_speaker_gift: Optional[bool] = None
+    speaker_gift_label: Optional[str] = None
+    speaker_gift_bg: Optional[str] = None
+    speaker_gift_opacity: Optional[int] = None
+    speaker_gift_position: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
@@ -960,6 +991,7 @@ async def patch_block(
             val = max(0, min(90, int(val)))
         val = normalize_block_button(field, val)
         val = normalize_block_survey(field, val)
+        val = normalize_block_gift(field, val)
         if field == "icon_size" and val is not None:
             val = max(24, min(200, int(val)))
         if field in ("card_img_radius_x", "card_img_radius_y") and val is not None:

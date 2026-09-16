@@ -95,14 +95,22 @@ _SOCIAL_LINK_FIELDS = {
 # ⚠️ Держать в синхроне: разъедутся — счётчик покажет одно, сохранение
 # откажет по другому правилу. Числа подобраны по реальным данным 22.08.2026.
 POSITIONING_LIMIT = 140
-ACHIEVEMENTS_LIMIT = 1100
+# ⚠️ Лимит регалий — НАСТРОЙКА КЛИЕНТА (миграция 420). Прежнее число 1100
+# осталось умолчанием платформы и живёт теперь в одном месте.
+from app.services.field_limits import (  # noqa: E402
+    ACHIEVEMENTS_LIMIT_DEFAULT, achievements_limit,
+)
 
 
-def _validate_field_limits(data) -> None:
+async def _validate_field_limits(data, db=None, client_id: int | None = None) -> None:
     """Позиционирование и регалии: не пускаем полотна.
 
     В эти поля писали офферы и целые лендинги — на карточке спикера и на
     лендинге место рассчитано на название, а не на абзац.
+
+    ⚠️ Длину регалий решает КЛИЕНТ (у премии список достижений длиннее, чем у
+    короткого эфира), поэтому лимит читаем из его настройки. Без `db` берётся
+    умолчание платформы — так ведут себя вызовы, где клиент неизвестен.
     """
     bad: list[str] = []
     title = getattr(data, "title", None)
@@ -110,8 +118,10 @@ def _validate_field_limits(data) -> None:
         bad.append(f"позиционирование (не больше {POSITIONING_LIMIT} символов)")
     ach = getattr(data, "achievements", None)
     if ach is not None:
-        if len("\n".join(a for a in ach if a)) > ACHIEVEMENTS_LIMIT:
-            bad.append(f"регалии (не больше {ACHIEVEMENTS_LIMIT} символов)")
+        limit = (await achievements_limit(db, client_id)
+                 if db is not None else ACHIEVEMENTS_LIMIT_DEFAULT)
+        if len("\n".join(a for a in ach if a)) > limit:
+            bad.append(f"регалии (не больше {limit} символов)")
     if bad:
         raise HTTPException(422, "Слишком длинно: " + ", ".join(bad))
 
@@ -755,7 +765,7 @@ async def update_collaborator(
 ):
     client_id = int(client["sub"])
     _validate_social_links(data)
-    _validate_field_limits(data)
+    await _validate_field_limits(data, db, client_id)
     updates_full = {k: v for k, v in data.model_dump().items() if v is not None}
     # ⚠️ last_name должна уметь ОЧИЩАТЬСЯ: у компаний и партнёров-организаций
     # фамилии нет. Фильтр `v is not None` выше пустое значение выбрасывает,

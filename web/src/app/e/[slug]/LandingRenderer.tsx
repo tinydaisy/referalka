@@ -2569,9 +2569,28 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
   const cols = Math.max(1, Math.min(6, block.columns || 3))
   const scroll = block.display_mode === 'scroll'
 
+  // Плашка подарка: цвет и прозрачность — НАСТРОЙКИ блока, пусто = как у
+  // блоков темы (card_bg / card_bg_opacity). Захардкоженный оттенок выбивался
+  // бы из фирменных цветов у каждого второго клиента.
+  const giftBg = block.speaker_gift_bg || page.card_bg || '#0F1E2E'
+  const giftOpacity = block.speaker_gift_opacity ?? page.card_bg_opacity ?? 55
+  const gift = {
+    show: !!block.show_speaker_gift,
+    // Пустая подпись = умолчание. Держать текст в одном месте нельзя (он ещё
+    // и в конструкторе подсказкой), но дефолт тут единственный на показ.
+    label: (block.speaker_gift_label || '').trim() || 'Подарок участникам:',
+    position: block.speaker_gift_position === 'before' ? 'before' : 'after',
+    style: {
+      background: hexToRgba(giftBg, Math.max(0, Math.min(100, giftOpacity)) / 100),
+      // Тонкая рамка тем же цветом, что у карточек: без неё полупрозрачная
+      // плашка на похожем фоне читается как пятно, а не как отдельный блок.
+      border: `1px solid ${hexToRgba(page.border_color || '#FFCFA4', 0.35)}`,
+    } as React.CSSProperties,
+  }
+
   const cards = list.map((s: any) => (
     <SpeakerCard key={s.id} s={s} page={page} cardStyle={cardStyle}
-                 iconColor={iconColor} open={open}
+                 iconColor={iconColor} open={open} gift={gift}
                  onToggle={() => setOpen(o => !o)}
                  className={scroll ? 'w-[min(280px,75vw)] shrink-0 snap-start' : ''} />
   ))
@@ -2755,7 +2774,7 @@ function PartnerCard({
  * (проп `open` общий на секцию) — иначе соседние карточки выглядят пустыми.
  */
 function SpeakerCard({
-  s, page, cardStyle, iconColor, open, onToggle, className = '',
+  s, page, cardStyle, iconColor, open, onToggle, className = '', gift,
 }: any) {
   const ach: string[] = Array.isArray(s.achievements)
     ? s.achievements
@@ -2766,6 +2785,37 @@ function SpeakerCard({
     : []
   // Свёрнутая карточка показывает первые две регалии, остальные — по стрелке.
   const visible = open ? ach : ach.slice(0, 2)
+
+  // ⚠️ Подарков у спикера может быть НЕСКОЛЬКО — показываем все нумерованным
+  // списком, каждый отдельной строкой. Первый попавшийся был бы молчаливой
+  // потерей остальных.
+  //
+  // ⚠️ Ссылок нет намеренно: на лендинге это анонс («что получите»), сам
+  // подарок выдаётся после эфира. Ссылка раздала бы материалы всем подряд.
+  const gifts: string[] = gift?.show && Array.isArray(s.gifts)
+    ? s.gifts.map((g: any) => String(g || '').trim()).filter(Boolean)
+    : []
+  const giftBlock = gifts.length ? (
+    <div className="rounded-xl px-3 py-2" style={gift.style}>
+      <div className="text-[.75em] font-bold uppercase tracking-wide opacity-90">
+        {gift.label}
+      </div>
+      {/* Один подарок — просто строка: нумерация «1.» у единственного пункта
+          выглядит как обрывок списка. */}
+      {gifts.length === 1 ? (
+        <div className="mt-1 text-[.85em] font-semibold leading-snug">{gifts[0]}</div>
+      ) : (
+        <ol className="mt-1 list-none space-y-1 p-0 text-[.85em] font-semibold leading-snug">
+          {gifts.map((g, i) => (
+            <li key={i} className="flex gap-1.5">
+              <span className="shrink-0 opacity-70">{i + 1}.</span>
+              <span className="flex-1">{g}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  ) : null
 
   return (
     <div className={`flex flex-col overflow-hidden ${className}`} style={cardStyle}>
@@ -2787,6 +2837,8 @@ function SpeakerCard({
           <SafeHtml html={s.title} className="text-[.9em] font-semibold leading-snug opacity-90" />
         )}
 
+        {gift?.position === 'before' && giftBlock}
+
         {!!visible.length && (
           <ul className="mt-1 list-none space-y-1.5 p-0 text-[.85em] font-light leading-relaxed opacity-80">
             {visible.map((a, i) => (
@@ -2801,6 +2853,8 @@ function SpeakerCard({
             ))}
           </ul>
         )}
+
+        {gift?.position !== 'before' && giftBlock}
 
         {ach.length > 2 && (
           <button

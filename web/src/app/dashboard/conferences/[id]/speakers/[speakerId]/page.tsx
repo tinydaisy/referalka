@@ -16,7 +16,7 @@ import CabinetPreviewBlock from '@/components/CabinetPreviewBlock'
 import CopyAllLinksButton, { countLinks, type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
 import SpeakerGiftStats from '@/components/SpeakerGiftStats'
-import { CharCount, overClass, POSITIONING_LIMIT, ACHIEVEMENTS_LIMIT } from '@/components/FieldLimits'
+import { CharCount, overClass, POSITIONING_LIMIT, useAchLimit } from '@/components/FieldLimits'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 
 // Поля профиля, которые обязательно нужны
@@ -210,6 +210,9 @@ export default function ConferenceSpeakerPage() {
   // Домен клиента: кабинет спикера открывает сам спикер, ссылку он получает
   // от организатора — она должна быть на домене организатора, а не на нашем.
   const { publicHost } = useMe()
+  // ⚠️ Лимит регалий — настройка КЛИЕНТА (миграция 420): счётчик под полем
+  // обязан совпадать с тем, по чему откажет сохранение.
+  const ACHIEVEMENTS_LIMIT = useAchLimit()
   const router = useRouter()
   const pathname = usePathname()
   const { id, speakerId } = useParams()

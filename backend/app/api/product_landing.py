@@ -362,7 +362,7 @@ async def update_block(
 
     from app.api.event_landing import (
         BLOCK_PATCH_FIELDS, normalize_block_button, normalize_block_survey,
-        assert_survey_owned,
+        normalize_block_gift, assert_survey_owned,
     )
 
     fs = data.model_fields_set
@@ -378,7 +378,8 @@ async def update_block(
             # ⚠️ Та же проверка значений, что у события: своя ветка UPDATE без
             # неё приняла бы любую строку в настройки оформления.
             val = normalize_block_button(field, getattr(data, field))
-            vals.append(normalize_block_survey(field, val))
+            val = normalize_block_survey(field, val)
+            vals.append(normalize_block_gift(field, val))
             sets.append(f"{field} = ${len(vals)}")
 
     # ⚠️ `items` НЕТ в BLOCK_PATCH_FIELDS (там только скалярные настройки) —

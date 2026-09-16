@@ -240,9 +240,37 @@ async def get_public_landing(
             #
             # ⚠️ Связь с карточкой коллаба — `event_collaborators.speaker_id`
             # (не collaborator_id), тема — `speaker_topic`. Проверено по схеме.
+            # ⚠️ Подарки спикера — СПИСКОМ, а не одним названием: у человека их
+            # бывает несколько (несколько лид-магнитов), и показать только
+            # первый значит молча спрятать остальные. Берём те же названия, что
+            # в Mini App: своё название («Без ссылок, только название» —
+            # manual_title) либо имя лид-магнита/пакета.
+            #
+            # ⚠️ Ссылки НЕ отдаём вовсе: на лендинге подарок — это анонс
+            # («вот что вы получите»), выдаётся он после эфира. Ссылка здесь
+            # раздала бы материалы всем, кто открыл страницу.
             f"""SELECT cse.id, cse.role, cse.speaker_topic AS topic,
                       btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.achievements, c.photo_url,
-                      c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
+                      c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
+                      -- ⚠️ Названия собираем ОДНИМ уровнем вложенности: ссылка
+                      -- на внешний cse.id из подзапроса второго уровня — то
+                      -- место, где такие запросы обычно и ломаются.
+                      -- Пустых значений в массиве не будет: неназванные
+                      -- подарки отсекает WHERE, а `array_agg` по пустой
+                      -- выборке даёт NULL — его разбирает уже Python.
+                      (SELECT array_agg(
+                                COALESCE(NULLIF(btrim(g1.manual_title), ''),
+                                         NULLIF(btrim(l1.name), ''),
+                                         NULLIF(btrim(p1.name), ''))
+                                ORDER BY g1.sort_order, g1.id)
+                         FROM event_collaborator_lead_magnets g1
+                         LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id
+                         LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id
+                        WHERE g1.ec_id = cse.id
+                          AND COALESCE(NULLIF(btrim(g1.manual_title), ''),
+                                       NULLIF(btrim(l1.name), ''),
+                                       NULLIF(btrim(p1.name), '')) IS NOT NULL
+                      ) AS gifts
                  FROM event_collaborators cse
                  JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cse.event_id = $1
@@ -251,7 +279,12 @@ async def get_public_landing(
             event["id"],
         )
         data["speakers"] = [
-            {**dict(r), "achievements": _jsonb(r["achievements"])} for r in rows
+            {
+                **dict(r),
+                "achievements": _jsonb(r["achievements"]),
+                "gifts": list(r["gifts"] or []),
+            }
+            for r in rows
         ]
 
     # ── Галереи из базы отзывов ───────────────────────────────────────────

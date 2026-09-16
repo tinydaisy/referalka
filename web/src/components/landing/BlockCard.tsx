@@ -747,6 +747,116 @@ export default function BlockCard({
                 </Field>
               )}
 
+              {/* Подарки спикера на лендинге. Выключено по умолчанию: подарок
+                  бывает внутренней договорённостью, и выводить его наружу без
+                  спроса нельзя. */}
+              {block.kind === 'speakers' && (
+                <div className="rounded-lg border border-gray-200 p-3">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!block.show_speaker_gift}
+                      onChange={e => onPatch({ show_speaker_gift: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      Показывать подарки спикеров
+                    </span>
+                  </label>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Берутся из карточки человека в разделе «Люди». Если подарков
+                    несколько — покажем списком, только названия, без ссылок.
+                    У кого подарка нет — плашки не будет.
+                  </p>
+
+                  {block.show_speaker_gift && (
+                    <div className="mt-3 space-y-3">
+                      <Field label="Подпись над подарком">
+                        <input
+                          type="text"
+                          value={block.speaker_gift_label || ''}
+                          onChange={e => onPatch({ speaker_gift_label: e.target.value })}
+                          placeholder="Подарок участникам:"
+                          className="input"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          Оставьте пустым — будет «Подарок участникам:».
+                        </p>
+                      </Field>
+
+                      <Field label="Где показывать">
+                        <div className="flex flex-wrap gap-2">
+                          {([
+                            ['after', 'После регалий'],
+                            ['before', 'До регалий'],
+                          ] as const).map(([val, label]) => (
+                            <button
+                              key={val}
+                              onClick={() => onPatch({ speaker_gift_position: val })}
+                              className={`rounded-lg border px-3 py-1.5 text-sm ${
+                                (block.speaker_gift_position || 'after') === val
+                                  ? 'border-brand bg-brand/5 font-medium text-brand'
+                                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </Field>
+
+                      {/* Цвет и прозрачность — настройки, но по умолчанию берём
+                          те, что клиент задал блокам в стилях: плашка должна
+                          попадать в тему сама, без лишних действий. */}
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={!!block.speaker_gift_bg}
+                          onChange={e => onPatch({
+                            speaker_gift_bg: e.target.checked ? '#0F1E2E' : null,
+                          })}
+                          className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                        />
+                        <span className="text-sm font-medium text-gray-700">
+                          Свой цвет плашки (не как у блоков)
+                        </span>
+                      </label>
+                      {block.speaker_gift_bg && (
+                        <ColorField
+                          label="Цвет плашки подарка"
+                          value={block.speaker_gift_bg}
+                          onChange={v => onPatch({ speaker_gift_bg: v })}
+                        />
+                      )}
+
+                      <Field label={`Прозрачность плашки: ${
+                        block.speaker_gift_opacity ?? 'как у блоков'
+                      }${block.speaker_gift_opacity != null ? '%' : ''}`}>
+                        <input
+                          type="range" min={0} max={100} step={5}
+                          value={block.speaker_gift_opacity ?? 55}
+                          onChange={e => onPatch({
+                            speaker_gift_opacity: Number(e.target.value),
+                          })}
+                          className="w-full"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          100% — плотная заливка, 0% — прозрачная.
+                          {block.speaker_gift_opacity != null && (
+                            <button
+                              onClick={() => onPatch({ speaker_gift_opacity: null })}
+                              className="ml-1 text-brand hover:underline"
+                            >
+                              вернуть «как у блоков»
+                            </button>
+                          )}
+                        </p>
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ⚠️ audience обязателен в списке: внутри лежат настройки фото
                   карточек «Для кого». Без него весь блок не рисовался, и
                   размер фото было негде задать. */}

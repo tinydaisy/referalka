@@ -78,7 +78,7 @@ function SettingsPageInner() {
       window.location.replace('/dashboard/subscription')
     }
   }, [])
-  const [form, setForm] = useState({ name: '', last_name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_telegram_invite_link: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
+  const [form, setForm] = useState({ name: '', last_name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_telegram_invite_link: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '', speaker_achievements_limit: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
   const [notifyTab, setNotifyTab] = useState<'telegram' | 'max' | 'vk'>('telegram')
   // Тестовые рассылки — площадки вкладками, как в «Каналах уведомлений»:
@@ -121,6 +121,10 @@ function SettingsPageInner() {
         work_vk: c.work_vk || '',
         work_max: c.work_max || '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
+        // Пусто = умолчание платформы. Не подставляем 1100 в поле: иначе не
+        // отличить «клиент так решил» от «не трогал», и вернуть умолчание было
+        // бы нечем.
+        speaker_achievements_limit: c.speaker_achievements_limit ? String(c.speaker_achievements_limit) : '',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
         notifications_telegram_invite_link: c.notifications_telegram_invite_link || '',
         notifications_max_chat_id: c.notifications_max_chat_id ? String(c.notifications_max_chat_id) : '',
@@ -207,6 +211,9 @@ function SettingsPageInner() {
         partner_landing_url: form.partner_landing_url.trim() || null,
         partner_dashboard_url: form.partner_dashboard_url.trim() || null,
         partner_visible_roles: partnerVisibleRoles,
+        // Пустое поле = вернуть умолчание платформы (сервер запишет NULL).
+        speaker_achievements_limit: form.speaker_achievements_limit.trim()
+          ? Number(form.speaker_achievements_limit) : null,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -892,6 +899,47 @@ function SettingsPageInner() {
             <p>• <b>10–20</b> — медленно и безопасно (точно без флуда)</p>
             <p>• <b>30</b> — рекомендуем (быстро + почти без ограничений Telegram)</p>
             <p>• <b>50+</b> — рискованно: на больших базах появляются массовые «Too Many Requests»</p>
+          </div>
+        </div>
+
+        {/* Длина регалий спикера (миграция 420). Раньше 1100 было жёстко
+            зашито в код: клиенту, которому нужно иначе, поменять было нечем. */}
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <UserIcon size={18} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-800">Длина регалий спикера</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Сколько символов можно написать в регалиях — и вам в карточке
+                человека, и самому спикеру в его кабинете. Решайте сами: на
+                премии список достижений номинанта длиннее, чем на коротком
+                эфире.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={200}
+              max={6000}
+              step={100}
+              value={form.speaker_achievements_limit}
+              onChange={set('speaker_achievements_limit')}
+              placeholder="1100"
+              className="w-28 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+            />
+            <span className="text-sm text-gray-500">символов</span>
+          </div>
+          <div className="mt-3 text-xs text-gray-500 space-y-0.5">
+            <p>• Оставьте пустым — будет <b>1100</b>, как сейчас.</p>
+            <p>• Допустимо от <b>200</b> до <b>6000</b>.</p>
+            <p>
+              • Помните, ради чего ограничение: в карточке спикера и на лендинге
+              место рассчитано на перечень, а не на абзац — в это поле вставляли
+              целые лендинги.
+            </p>
           </div>
         </div>
 

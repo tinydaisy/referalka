@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
-import { CharCount, overClass, POSITIONING_LIMIT, ACHIEVEMENTS_LIMIT } from '@/components/FieldLimits'
+import { CharCount, overClass, POSITIONING_LIMIT, useAchLimit } from '@/components/FieldLimits'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, Mail, Phone, User as UserIcon } from 'lucide-react'
@@ -71,6 +71,9 @@ export default function CollaborationPage({ params }: { params: { id: string } }
   const router = useRouter()
   const { t } = useLang()
   const collaboratorId = parseInt(params.id)
+  // ⚠️ Лимит регалий — настройка КЛИЕНТА (миграция 420), а не константа:
+  // счётчик обязан показывать то, по чему потом откажет сохранение.
+  const ACHIEVEMENTS_LIMIT = useAchLimit()
   const [form, setForm] = useState<any>(null)
   const [achievementsText, setAchievementsText] = useState('')
   const [loading, setLoading] = useState(true)

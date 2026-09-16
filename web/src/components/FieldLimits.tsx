@@ -1,5 +1,7 @@
 'use client'
 
+import { useMe } from '@/hooks/useMe'
+
 /**
  * Лимиты длины полей спикера/коллаба — ОДНО место на все экраны.
  *
@@ -17,7 +19,19 @@
  */
 
 export const POSITIONING_LIMIT = 140
-export const ACHIEVEMENTS_LIMIT = 1100
+
+/**
+ * Регалии: 1100 — УМОЛЧАНИЕ ПЛАТФОРМЫ, а не жёсткий предел (миграция 420).
+ *
+ * ⚠️ Длину решает КЛИЕНТ (`clients.speaker_achievements_limit`): у премии
+ * список достижений номинанта длиннее, чем у короткого эфира, и одно число на
+ * всех не годится. На экранах кабинета лимит брать через `useAchLimit()`, а не
+ * эту константу напрямую — иначе счётчик покажет одно, а сохранение откажет по
+ * настройке клиента.
+ */
+export const ACHIEVEMENTS_LIMIT_DEFAULT = 1100
+export const ACHIEVEMENTS_LIMIT_MIN = 200
+export const ACHIEVEMENTS_LIMIT_MAX = 6000
 
 /**
  * Регалии ОСНОВАТЕЛЯ и БРЕНДА устроены иначе — это пары «цифра + подпись»
@@ -48,6 +62,18 @@ export const BIO_LIMIT = 1500
  * символов, самая длинная 54.
  */
 export const BUTTON_LABEL_LIMIT = 40
+
+/**
+ * Сколько символов разрешено в регалиях спикера У ЭТОГО КЛИЕНТА.
+ *
+ * ⚠️ Одна точка на все экраны кабинета: карточка коллаба, карточка спикера в
+ * конференции. Своя копия дефолта на экране разъедется с настройкой, и человек
+ * упрётся в разный лимит в разных местах.
+ */
+export function useAchLimit(): number {
+  const { me } = useMe()
+  return Number(me?.speaker_achievements_limit) || ACHIEVEMENTS_LIMIT_DEFAULT
+}
 
 /** Счётчик под полем: сколько осталось, при переборе — на сколько сократить. */
 export function CharCount({ value, limit }: { value: string; limit: number }) {

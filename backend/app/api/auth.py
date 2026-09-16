@@ -651,6 +651,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 c.notifications_telegram_chat_id, c.notifications_telegram_invite_link, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
                   c.payments_telegram_chat_id, c.payments_max_chat_id, c.payments_vk_peer_id,
                 c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
+                c.speaker_achievements_limit,
                 c.integration_token, c.default_link_mode,
                 c.start_mode, c.start_event_id,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
@@ -848,6 +849,10 @@ class ProfileUpdate(BaseModel):
     partner_landing_url: Optional[str] = None
     partner_dashboard_url: Optional[str] = None
     partner_visible_roles: Optional[list[str]] = None
+    # Сколько символов разрешено в регалиях спикера (миграция 420).
+    # Пусто → умолчание платформы: у премии список достижений номинанта длиннее,
+    # чем у короткого эфира, и одно число на всех клиентов не годится.
+    speaker_achievements_limit: Optional[int] = None
 
 
 @router.patch("/me", summary="Обновить профиль клиента")
@@ -869,7 +874,8 @@ async def update_me(
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id, c.notifications_telegram_invite_link, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
                   c.payments_telegram_chat_id, c.payments_max_chat_id, c.payments_vk_peer_id,
-                  c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
+                  c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
+                  c.speaker_achievements_limit
            FROM clients c WHERE c.id = $1""",
             client_id
         )
@@ -880,6 +886,13 @@ async def update_me(
         if bc < 1 or bc > 100:
             raise HTTPException(status_code=400, detail="Скорость рассылки: допустимый диапазон 1..100")
         updates["broadcast_concurrency"] = bc
+
+    # Лимит регалий: приводим к допустимым границам одной общей функцией.
+    # ⚠️ Пусто = вернуть умолчание платформы, а не «ноль символов».
+    if "speaker_achievements_limit" in updates:
+        from app.services.field_limits import normalize_achievements_limit
+        updates["speaker_achievements_limit"] = normalize_achievements_limit(
+            updates["speaker_achievements_limit"])
 
     # Нормализуем partner_visible_roles — только допустимые ключи ролей.
     if "partner_visible_roles" in updates:
@@ -904,7 +917,8 @@ async def update_me(
                   c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id, c.notifications_telegram_invite_link, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
                   c.payments_telegram_chat_id, c.payments_max_chat_id, c.payments_vk_peer_id,
-                  c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
+                  c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
+                  c.speaker_achievements_limit
              FROM clients c WHERE c.id = $1""",
         client_id
     )

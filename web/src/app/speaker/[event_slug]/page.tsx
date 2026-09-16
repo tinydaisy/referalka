@@ -38,9 +38,13 @@ const TOPIC_DESC_LIMIT = 400
 const GIFT_TITLE_LIMIT = 380
 const GIFT_URL_LIMIT = 140
 // Регалии — ОДНО текстовое поле, строки режутся по переносам при сохранении.
-// 1100 (решение владельца): 90% нынешних укладываются, а полотна отсекаются —
-// у Нурии Карычевой в это поле был вставлен весь лендинг на 5922 символа.
-const ACHIEVEMENTS_LIMIT = 1100
+//
+// ⚠️ Сколько символов можно — решает ОРГАНИЗАТОР (миграция 420): у премии
+// список достижений номинанта длиннее, чем у короткого эфира. Число приходит
+// с сервера полем `achievements_limit`, здесь только запасное значение на
+// случай старого ответа — иначе счётчик под полем покажет одно, а сохранение
+// откажет по настройке клиента.
+const ACHIEVEMENTS_LIMIT_DEFAULT = 1100
 // Позиционирование — 140 ВЕЗДЕ: столько же стоит в профиле основателя, где
 // лимит был изначально. Поле отвечает на вопрос «КТО ВЫ», а не «что даёте» —
 // туда писали офферы («увеличиваю доход…»).
@@ -735,6 +739,10 @@ export default function SpeakerCabinetPage() {
     }
   })()
 
+  // Сколько символов разрешил организатор в регалиях. Пусто (старый ответ
+  // сервера) → умолчание платформы.
+  const achLimit = Number(me.achievements_limit) || ACHIEVEMENTS_LIMIT_DEFAULT
+
   // Что мешает сохранить: собираем словами, чтобы человек сразу видел причину,
   // а не упирался в погасшую кнопку без объяснения.
   const tooLong = (() => {
@@ -746,7 +754,7 @@ export default function SpeakerCabinetPage() {
     if ((me.gift_after_speech_title || '').length > GIFT_TITLE_LIMIT) bad.push('название подарка слишком длинное')
     if ((me.gift_after_speech_url || '').length > GIFT_URL_LIMIT) bad.push('ссылка на подарок слишком длинная')
     if ((me.title || '').length > POSITIONING_LIMIT) bad.push('позиционирование слишком длинное')
-    if (achText.length > ACHIEVEMENTS_LIMIT) bad.push('регалии слишком длинные')
+    if (achText.length > achLimit) bad.push('регалии слишком длинные')
     return bad.join(', ')
   })()
 
@@ -1150,7 +1158,7 @@ export default function SpeakerCabinetPage() {
             onChange={(e) => setAchText(e.target.value)}
             placeholder={'Спикер ТЕД\nЧемпион мира по дебатам\nАвтор 3 книг…'}
           />
-          <CharCounter value={achText} limit={ACHIEVEMENTS_LIMIT} />
+          <CharCounter value={achText} limit={achLimit} />
           <div style={{ fontSize: 11, color: '#9ab', marginTop: 4, lineHeight: 1.5 }}>
             Маркеры (•, *, —) можно не ставить — мы их сами уберём при сохранении.
             <br />
