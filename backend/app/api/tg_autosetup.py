@@ -1127,6 +1127,36 @@ async def _find_bot_channel(db, client_id: int, bot_token: str) -> dict | None:
             (r["chat_id"], r["title"] or "") for r in rows
         ]
 
+        # ⚠️⚠️ КАНАЛ ОСНОВАТЕЛЯ — ПЕРВЫЙ И САМЫЙ ПРЯМОЙ КАНДИДАТ (16.09.2026).
+        #
+        # Раньше искали только в базе рассылок и в очереди апдейтов. Но апдейт
+        # `my_chat_member` приходит ОДИН раз и только пока его кто-то читает:
+        # бот услуги в поллинг `plusson-bot` не попадает, а нашу очередь мог
+        # вычитать предыдущий вызов проверки. В итоге бот РЕАЛЬНО админ канала,
+        # а проверка отвечает «не удалось подтвердить» — поймано на живом
+        # заказе 11: getChatMember вручную вернул `administrator` +
+        # `can_post_messages: true`, при этом кнопка отбивала.
+        #
+        # Канал основателя записан у клиента в профиле (его спрашивают на
+        # первом шаге услуги) — по нему можно спросить Telegram НАПРЯМУЮ, без
+        # всяких апдейтов. Это и делаем, первым делом.
+        try:
+            from app.services.social_links import get_founder_tg_channels
+            social = await db.fetchval(
+                "SELECT social_links FROM clients WHERE id=$1", client_id)
+            if isinstance(social, str):
+                social = json.loads(social or "{}")
+            for ch in get_founder_tg_channels(social or {}):
+                nick = (ch.get("url") or "").rstrip("/").split("/")[-1].lstrip("@")
+                cid = ch.get("chat_id")
+                # Числовой id знаем — берём его; иначе спросим по нику.
+                if cid:
+                    candidates.insert(0, (str(cid), ch.get("name") or ""))
+                elif nick and not nick.startswith("+"):
+                    candidates.insert(0, (f"@{nick}", ch.get("name") or ""))
+        except Exception as e:  # noqa: BLE001 — не нашли, идём прежним путём
+            logger.warning("tg_setup: канал основателя не прочитан: %s", e)
+
         async with httpx.AsyncClient(timeout=20) as http:
             if not candidates:
                 # ⚠️ БЕЗ `offset` — получение не подтверждаем, апдейты остаются
@@ -1163,8 +1193,31 @@ async def _find_bot_channel(db, client_id: int, bot_token: str) -> dict | None:
                 # У канала право публикации отдельным тумблером; у создателя оно есть всегда.
                 if status != "creator" and res.get("can_post_messages") is False:
                     continue
-                # ⚠️ Найденный через очередь канал записываем в базу рассылок —
-                # иначе он потеряется: поллер этот апдейт уже не обработает.
+
+                # ⚠️⚠️ В БАЗУ — ТОЛЬКО ЧИСЛОВОЙ id. Кандидат мог прийти ником
+                # (`@channel`) из каналов основателя: по нику рассылка не
+                # уйдёт — `client_broadcast_chats.chat_id` читают отправщики,
+                # которым нужен id. Спрашиваем его у Telegram тем же запросом.
+                real_id, real_title = str(chat_id), title
+                if str(chat_id).startswith("@"):
+                    try:
+                        g = await http.get(
+                            f"https://api.telegram.org/bot{bot_token}/getChat",
+                            params={"chat_id": chat_id},
+                        )
+                        gr = (g.json() or {}).get("result") or {}
+                        if gr.get("id"):
+                            real_id = str(gr["id"])
+                            real_title = real_title or gr.get("title") or ""
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("tg_setup: id канала %s не получен: %s",
+                                       chat_id, e)
+                    # Числовой id не узнали — записывать ник нельзя.
+                    if real_id.startswith("@"):
+                        continue
+
+                # ⚠️ Найденный канал записываем в базу рассылок — иначе он
+                # потеряется: поллер этот апдейт уже не обработает.
                 await db.execute(
                     """INSERT INTO client_broadcast_chats
                            (client_id, platform, chat_id, title, added_via,
@@ -1172,9 +1225,9 @@ async def _find_bot_channel(db, client_id: int, bot_token: str) -> dict | None:
                        VALUES ($1, 'telegram', $2, $3, 'manual', TRUE, TRUE)
                        ON CONFLICT (client_id, platform, chat_id) DO UPDATE
                            SET is_active = TRUE, updated_at = NOW()""",
-                    client_id, str(chat_id), title or None,
+                    client_id, real_id, real_title or None,
                 )
-                return {"chat_id": chat_id, "title": title}
+                return {"chat_id": real_id, "title": real_title}
     except Exception as e:  # noqa: BLE001
         logger.warning("tg_setup: проверка канала клиента %s не удалась: %s",
                        client_id, e)
