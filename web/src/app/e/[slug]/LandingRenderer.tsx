@@ -2873,9 +2873,11 @@ function PartnerCard({
   // заведённых до миграции и не попавших в бэкфилл, вид не должен измениться
   // сам по себе.
   // Галочка задана — берём её; не задана — прежнее правило по фамилии.
-  const isPerson: boolean = typeof p.is_company === 'boolean'
-    ? !p.is_company
-    : Boolean(p.last_name && String(p.last_name).trim())
+  // ⚠️ БЕЗ аннотации типа и БЕЗ переноса перед «?»: на такой записи парсер
+  // Next падал «Expression expected», показывая ошибку строкой ниже — на JSX.
+  const hasFlag = typeof p.is_company === 'boolean'
+  const byName = Boolean(p.last_name && String(p.last_name).trim())
+  const isPerson = hasFlag ? !p.is_company : byName
 
   const inner = (
     <>
