@@ -23,6 +23,12 @@ export default function ContestPage() {
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useUrlTab<TabKey>('tab', 'overview')
+  // ⚠️⚠️ ХУК ЗДЕСЬ, ВЫШЕ ранних return (правило проекта). Стоял ниже — после
+  // `if (loading) return` и `if (!event) return null`: при первой отрисовке
+  // компонент выходил раньше и хук не вызывался, а на второй вызывался. React
+  // падал ошибкой #310 «Rendered more hooks than during the previous render»,
+  // и ВСЯ страница конкурса открывалась Application error.
+  const { me } = useMe()
 
   async function reload() {
     const e = await api.events.get(eventId)
@@ -53,8 +59,6 @@ export default function ContestPage() {
 
   // Группировка вкладок: Настройки / Люди / Отслеживания / Рассылки.
   type GroupKey = 'settings_grp' | 'people' | 'tracking'
-  // Конструктор лендинга — по фиче event_landing (миграция 240).
-  const { me } = useMe()
   const hasLanding = (me?.features || []).includes('event_landing')
 
   const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
