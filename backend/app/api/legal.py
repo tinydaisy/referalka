@@ -62,6 +62,14 @@ async def get_legal_and_policy(
     missing = [f for f in required if not (data.get(f) or "").strip()]
     data["legal_data_complete"] = not missing
     data["missing_legal_fields"] = missing
+    # ⚠️⚠️ ГОТОВЫЙ ТЕКСТ ШАБЛОНА — С СЕРВЕРА, А НЕ ИЗ ФРОНТА (16.09.2026).
+    # Раньше шаблон жил только в `LegalTab.tsx`, а автонастройка публикует
+    # политику сама, на сервере. Две копии текста неизбежно разошлись бы, и у
+    # клиентов оказались бы РАЗНЫЕ политики в зависимости от того, каким путём
+    # документ создан. Источник один — `services/privacy_policy.py`.
+    from app.services.privacy_policy import build_policy_text, hosting_from_settings
+    data["policy_template"] = build_policy_text(
+        dict(row), hosting=await hosting_from_settings(db))
     return data
 
 

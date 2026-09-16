@@ -188,7 +188,20 @@ def _order_out(row, service=None) -> dict:
             "bot_transferred": bool(row["bot_transferred_at"]),
             "group_transferred": bool(row["group_transferred_at"]),
             "channel_linked": bool(row["channel_linked_at"]),
+            # Шаг 3 услуги: политика опубликована или осознанно пропущена.
+            # ⚠️ Через `in row` — это asyncpg.Record, метода `.get()` у него нет,
+            # а колонки появились поздней миграцией (421): на не накатанной базе
+            # обращение по имени бросило бы KeyError и уронило весь экран.
+            "policy_published": bool(
+                row["policy_published_at"] if "policy_published_at" in row else None),
+            "policy_skipped": bool(
+                row["policy_skipped_at"] if "policy_skipped_at" in row else None),
         },
+        # ⚠️ Поля формы больше НЕ правятся, когда процесс пошёл: данные уже
+        # ушли в работу, и правка в форме ничего не изменит — только создаст
+        # ложное ощущение, что изменит. Считаем ОДИН раз здесь, чтобы экран и
+        # сервер одинаково понимали, что значит «уже поздно».
+        "locked": row["setup_state"] in ("queued", "running", "awaiting_user", "done"),
         "created_at": row["created_at"],
     }
 
@@ -200,10 +213,21 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
     await _assert_feature(db, client_id)
 
     svc = await _service(db)
+    # ⚠️⚠️ ЗАВЕРШЁННЫЙ ЗАКАЗ ТОЖЕ ОТДАЁМ — РАНЬШЕ ЭКРАН ОБНУЛЯЛСЯ.
+    #
+    # Здесь стояло `setup_state NOT IN ('done')`. Как только настройка
+    # заканчивалась и права уходили клиенту, ручка переставала отдавать заказ:
+    # фронт получал пустоту и рисовал ЧИСТУЮ ФОРМУ с нуля. Человек видел ровно
+    # то, что видел до запуска, — как будто ничего не происходило и вся работа
+    # пропала. Поймано на живом заказе 16.09.2026 (клиент 192, заказ 9): бот
+    # создан, группа заведена, права переданы, в логе «Бот теперь ваш» — а на
+    # экране пустые поля и предложение начать заново.
+    #
+    # Теперь отдаём последний заказ ЛЮБОГО состояния, включая `done`: итог
+    # виден, пока человек сам не запустит новую настройку.
     order = await db.fetchrow(
         """SELECT * FROM service_orders
             WHERE client_id=$1 AND service_id=$2
-              AND setup_state NOT IN ('done')
             ORDER BY id DESC LIMIT 1""",
         client_id, svc["id"],
     )
@@ -451,33 +475,93 @@ class StartRequest(BaseModel):
     support_username: Optional[str] = None    # служба заботы (clients.work_tg_username)
 
 
+class ConfirmStartedIn(BaseModel):
+    """Ответ на расхождение ников: чей аккаунт считать правильным.
+
+    `take_entered` = «вошёл не тем» → человек выбрал «передать права на тот
+    аккаунт, которым я вошёл». Пусто — обычное нажатие, расхождение только
+    показываем и ничего не решаем за человека.
+    """
+    accept_entered: bool = False
+
+
+async def _who_started_bot(bot_token: str, exclude_ids: set[int]) -> list[dict]:
+    """Кто реально написал боту — читаем очередь апдейтов Telegram.
+
+    ⚠️⚠️ ЗАЧЕМ ВООБЩЕ СПРАШИВАТЬ. Раньше нажатие «Сделано» просто ставило
+    отметку `client_started_bot_at = NOW()` — на слово. На живом заказе
+    16.09.2026 (клиент 192) человек НЕ нажимал «Старт» в боте, нажал «Сделано»,
+    и система молча зачла шаг: `client_tg_user_id` остался пустым. А ведь весь
+    смысл этого шага — поймать числовой id, узнать его больше неоткуда.
+
+    ⚠️ БЕЗ `offset` — получение НЕ подтверждаем: апдейты должны остаться в
+    очереди для `plusson-bot`, когда бот попадёт в его поллинг (Telegram отдаёт
+    их одному получателю). Тот же приём, что в `_find_bot_channel`.
+
+    ⚠️ Отсекаем сервисные аккаунты платформы (`exclude_ids`): бота создавал наш
+    аккаунт, он же в нём первый «подписчик», и принять его за клиента нельзя.
+    """
+    if not bot_token:
+        return []
+    out: list[dict] = []
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{bot_token}/getUpdates",
+                params={"allowed_updates": '["message"]', "limit": 100},
+            )
+            seen: set[int] = set()
+            for upd in reversed((r.json() or {}).get("result") or []):
+                frm = (upd.get("message") or {}).get("from") or {}
+                uid = frm.get("id")
+                if not uid or frm.get("is_bot") or int(uid) in seen:
+                    continue
+                if int(uid) in exclude_ids:
+                    continue
+                seen.add(int(uid))
+                out.append({
+                    "id": int(uid),
+                    "username": (frm.get("username") or "").lstrip("@"),
+                    "name": " ".join(filter(None, [frm.get("first_name"),
+                                                   frm.get("last_name")])).strip(),
+                })
+    except Exception as e:  # noqa: BLE001 — сеть подвела: решает вызывающий
+        logger.warning("tg_setup: не прочитал апдейты бота: %s", e)
+    return out
+
+
 @router.post("/confirm-started-bot", summary="Клиент подтверждает, что зашёл в бота")
-async def confirm_started_bot(user=Depends(get_current_client), db=Depends(get_db)):
-    """Отметка «я зашёл в бота» — РУКАМИ КЛИЕНТА, кнопкой в кабинете.
+async def confirm_started_bot(data: ConfirmStartedIn | None = None,
+                              user=Depends(get_current_client), db=Depends(get_db)):
+    """Отметка «я зашёл в бота» — С РЕАЛЬНОЙ ПРОВЕРКОЙ, а не на слово.
 
-    ⚠️⚠️ ЗАЧЕМ РУЧНАЯ ОТМЕТКА, ЕСЛИ ЕСТЬ АВТОМАТИЧЕСКАЯ.
-    Автоматическая (`on_client_started_bot`) ловит момент, когда человек пишет
-    боту, и работает — но ТОЛЬКО если бот уже слушается процессом `plusson-bot`.
-    Список ботов там читается ОДИН РАЗ при старте (`bot/main.py:_load_vip_tokens`),
-    а бот услуги создаётся позже — и до ближайшего перезапуска сервиса его
-    сообщения до нас не доходят. Поймано на живом заказе: клиент нажал
-    «Запустить», а отметки не появилось, и настройка встала намертво.
-    Перезапустить сервис из Celery нельзя — задача идёт под www-data, systemctl
-    требует root.
+    ⚠️⚠️ НА СЛОВО НЕ ВЕРИМ (правило владельца 16.09.2026). Раньше нажатие
+    просто ставило отметку. Человек, не нажавший «Старт» в боте, нажимал
+    «Сделано» — и система зачитывала шаг, хотя числового id у неё не появлялось
+    и передавать бота было, по сути, некому. Теперь спрашиваем у Telegram, кто
+    боту действительно написал, и отвечаем честно.
 
-    Поэтому отметка ещё и ручная: человек видит бота у себя и подтверждает сам.
-    Автоматическая при этом остаётся — если сработает раньше, кнопка просто не
-    понадобится.
+    ⚠️⚠️ ЮЗЕРНЕЙМ ОБЯЗАТЕЛЕН. BotFather принимает ТОЛЬКО @username — по
+    числовому id передать владение нельзя. Поэтому аккаунт без юзернейма
+    получить права не может в принципе, и мы говорим об этом прямо, а не
+    отмечаем шаг «сделанным».
 
-    ⚠️ Права на бота передаёт та же фоновая задача, что и раньше: она сверяет
-    `client_started_bot_at` и вызывает Transfer Ownership. Здесь мы только
-    ставим отметку — своей передачи не заводим, иначе логика раздвоится.
+    Четыре исхода (решение владельца):
+      * никто не писал боту → «не видим вас среди подписчиков»;
+      * вошёл, ник совпал → отмечаем, идём дальше;
+      * вошёл, ник ДРУГОЙ → показываем выбор, за человека не решаем;
+      * вошёл без юзернейма → передать нельзя, просим войти нужным аккаунтом.
+
+    ⚠️ Права передаёт та же фоновая задача (`_finish_setup`) — здесь только
+    отметка и пойманный id. Своей передачи не заводим, иначе логика раздвоится.
     """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
 
     order = await db.fetchrow(
-        """SELECT id, bot_username, bot_created_at, client_started_bot_at
+        """SELECT id, bot_username, bot_token, bot_created_at,
+                  client_started_bot_at
              FROM service_orders
             WHERE client_id = $1 AND setup_state = 'awaiting_user'
             ORDER BY id DESC LIMIT 1""",
@@ -490,16 +574,102 @@ async def confirm_started_bot(user=Depends(get_current_client), db=Depends(get_d
     if not order["bot_created_at"]:
         raise HTTPException(400, "Бот ещё создаётся — подождите немного")
     if order["client_started_bot_at"]:
-        return {"ok": True, "already": True}
+        return {"ok": True, "already": True, "verified": True}
+
+    want = ((await db.fetchval(
+        "SELECT telegram_username FROM clients WHERE id=$1", client_id
+    )) or "").strip().lstrip("@").rstrip("/").split("/")[-1].lower()
+
+    # Сервисные аккаунты платформы — не клиенты, их в подписчиках не считаем.
+    service_ids = {
+        int(r["tg_user_id"]) for r in await db.fetch(
+            "SELECT tg_user_id FROM tg_setup_accounts WHERE tg_user_id IS NOT NULL")
+        if r["tg_user_id"]
+    }
+    people = await _who_started_bot(order["bot_token"] or "", service_ids)
+
+    if not people:
+        return {
+            "ok": False, "verified": False,
+            "message": "Не видим вас среди подписчиков бота. Вы точно нажали "
+                       "«Старт»? Откройте бота кнопкой выше, нажмите «Старт» "
+                       "и вернитесь сюда — затем нажмите «Сделано» ещё раз.",
+        }
+
+    match = next((p for p in people if p["username"].lower() == want and want), None)
+    chosen = match
+
+    if not chosen:
+        # ⚠️ Вошли не тем аккаунтом. За человека не решаем — спрашиваем
+        # (решение владельца: показать выбор, а не молча подменить ник).
+        other = people[0]
+        if not other["username"]:
+            # ⚠️ Без юзернейма BotFather передать владение не может ВООБЩЕ.
+            return {
+                "ok": False, "verified": False,
+                "message": (
+                    f"Вы вошли аккаунтом без юзернейма"
+                    f"{' (' + other['name'] + ')' if other['name'] else ''} — "
+                    "на такой аккаунт Telegram передать права не даёт. Войдите "
+                    f"тем аккаунтом, что указали (@{want}), и нажмите «Сделано»."
+                    if want else
+                    "Вы вошли аккаунтом без юзернейма — на такой аккаунт "
+                    "Telegram передать права не даёт. Заведите имя пользователя "
+                    "(Telegram → Настройки → «Имя пользователя») и нажмите «Сделано»."
+                ),
+            }
+        if not (data and data.accept_entered):
+            return {
+                "ok": False, "verified": False, "mismatch": True,
+                "entered_username": other["username"],
+                "expected_username": want,
+                "message": (
+                    f"Вы указали @{want}, а в бота вошли как @{other['username']}. "
+                    f"Передать права на @{other['username']} или войдёте другим "
+                    "аккаунтом?"
+                ),
+            }
+        # Человек выбрал «передать на вошедший» — берём его и правим профиль,
+        # иначе передача пойдёт по старому нику и уйдёт не туда.
+        chosen = other
+        await db.execute(
+            "UPDATE clients SET telegram_username = $2 WHERE id = $1",
+            client_id, chosen["username"],
+        )
 
     await db.execute(
-        "UPDATE service_orders SET client_started_bot_at = NOW(), updated_at = NOW() "
-        " WHERE id = $1",
-        order["id"],
+        """UPDATE service_orders
+              SET client_started_bot_at = NOW(), client_tg_user_id = $2,
+                  updated_at = NOW()
+            WHERE id = $1""",
+        order["id"], chosen["id"],
     )
-    logger.info("tg_setup: клиент %s подтвердил заход в бота @%s вручную",
-                client_id, order["bot_username"])
-    return {"ok": True, "already": False}
+    # Тот же побочный эффект, что у автоматической ловли: id идёт в тестовые
+    # рассылки и в карточку клиента. Общие функции, своих копий не заводим.
+    try:
+        from app.services.tg_setup_events import (
+            _remember_client_tg_id, _link_client_identity,
+        )
+        await _remember_client_tg_id(db, client_id, chosen["id"])
+        await _link_client_identity(db, client_id, chosen["id"],
+                                    chosen["username"])
+    except Exception as e:  # noqa: BLE001 — главное (id заказа) уже записано
+        logger.warning("tg_setup: побочная запись id клиента %s: %s", client_id, e)
+
+    try:
+        from app.tasks.tg_setup import _log_step
+        await _log_step(db, order["id"], "bot",
+                        f"Вы вошли в бота как @{chosen['username']} — "
+                        "проверили и записали ваш Telegram "
+                        "(Настройки → «Техническое»)")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("tg_setup: не записал шаг захода в бота: %s", e)
+
+    logger.info("tg_setup: клиент %s подтверждён в боте @%s как @%s (tg_id=%s)",
+                client_id, order["bot_username"], chosen["username"], chosen["id"])
+    return {"ok": True, "already": False, "verified": True,
+            "username": chosen["username"],
+            "message": f"Подтвердили: вы вошли как @{chosen['username']}"}
 
 
 @router.post("/confirm-joined-group", summary="Клиент подтверждает, что вступил в группу")
@@ -542,6 +712,153 @@ async def confirm_joined_group(user=Depends(get_current_client), db=Depends(get_
     )
     logger.info("tg_setup: клиент %s подтвердил вступление в группу вручную", client_id)
     return {"ok": True, "already": False}
+
+
+class PolicyIn(BaseModel):
+    """Юр-данные для шага «политика конфиденциальности» автонастройки."""
+    legal_form: str = ""        # individual | ip | ooo | other
+    legal_name: str = ""
+    legal_inn: str = ""
+    legal_address: str = ""
+    legal_operator_email: str = ""
+    legal_ogrn: str = ""
+    legal_operator_phone: str = ""
+
+
+@router.post("/policy", summary="Шаг 3: заполнить юр-данные и опубликовать политику")
+async def setup_policy(data: PolicyIn, user=Depends(get_current_client),
+                       db=Depends(get_db)):
+    """Записывает юр-данные клиента и ПУБЛИКУЕТ политику за него.
+
+    ⚠️⚠️ ПОЧЕМУ ЭТО ЧАСТЬ УСЛУГИ (решение владельца 16.09.2026). Политика
+    обработки персональных данных нужна по 152-ФЗ любому, кто собирает контакты
+    через бота и лендинг, — то есть каждому клиенту платформы. Раздел для неё в
+    кабинете есть, но пустой: на 16.09.2026 из клиентов её не заполнил НИКТО
+    (проверено по базе прода). Настройка «под ключ» ровно эту возню и убирает.
+
+    ⚠️ ОПЕРАТОР — САМ КЛИЕНТ, по введённым им реквизитам. Его база, его
+    ответственность. ПЛЮСОН и провайдер серверов идут отдельным пунктом как
+    привлечённые к обработке по поручению.
+
+    ⚠️ ТЕКСТ БЕРЁМ ОБЩИЙ (`services/privacy_policy.py`) — тот же, что вставляет
+    кнопка в «Юридических данных». Своей версии здесь нет: две копии текста
+    разошлись бы, и у клиентов оказались бы разные политики.
+
+    ⚠️ ПУБЛИКУЕМ ТОЙ ЖЕ ручкой-логикой, что и кабинет: запись версии в
+    `client_policy_versions` + отметка в `clients`. Иначе история версий, на
+    которую ссылаются согласия контактов, поехала бы.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    form = (data.legal_form or "").strip()
+    if form not in ("individual", "ip", "ooo", "other"):
+        raise HTTPException(400, "Выберите форму: самозанятый, ИП, ООО или другая")
+    name = (data.legal_name or "").strip()
+    inn = (data.legal_inn or "").strip()
+    address = (data.legal_address or "").strip()
+    email = (data.legal_operator_email or "").strip()
+    if not name:
+        raise HTTPException(400, "Укажите название — например «ИП Пупкин Василий Иванович»")
+    if not inn:
+        raise HTTPException(400, "Укажите ИНН — он обязателен в политике")
+    if not address:
+        raise HTTPException(400, "Укажите адрес — он указывается в реквизитах оператора")
+    if not email:
+        raise HTTPException(400, "Укажите email оператора — на него люди шлют отзыв согласия")
+
+    # Юр-данные — в тот же раздел кабинета, что и всегда.
+    await db.execute(
+        """UPDATE clients
+              SET legal_form = $2, legal_name = $3, legal_inn = $4,
+                  legal_address = $5, legal_operator_email = $6,
+                  legal_ogrn = COALESCE(NULLIF($7, ''), legal_ogrn),
+                  legal_operator_phone = COALESCE(NULLIF($8, ''), legal_operator_phone)
+            WHERE id = $1""",
+        client_id, form, name, inn, address, email,
+        (data.legal_ogrn or "").strip(), (data.legal_operator_phone or "").strip(),
+    )
+
+    from app.services.privacy_policy import build_policy_text, hosting_from_settings
+
+    row = await db.fetchrow(
+        """SELECT legal_form, legal_name, legal_inn, legal_inn_label, legal_ogrn,
+                  legal_address, legal_operator_email, legal_operator_phone,
+                  privacy_policy_version
+             FROM clients WHERE id = $1""",
+        client_id,
+    )
+    text = build_policy_text(dict(row), hosting=await hosting_from_settings(db))
+    version = (row["privacy_policy_version"] or 0) + 1
+
+    async with db.transaction():
+        await db.execute(
+            "UPDATE clients SET privacy_policy_text = $2, "
+            "       privacy_policy_version = $3, privacy_policy_published_at = NOW() "
+            " WHERE id = $1",
+            client_id, text, version,
+        )
+        await db.execute(
+            """INSERT INTO client_policy_versions (client_id, version, text)
+                    VALUES ($1, $2, $3)
+               ON CONFLICT DO NOTHING""",
+            client_id, version, text,
+        )
+
+    order_id = await db.fetchval(
+        """SELECT id FROM service_orders
+            WHERE client_id = $1 ORDER BY id DESC LIMIT 1""",
+        client_id,
+    )
+    if order_id:
+        await db.execute(
+            "UPDATE service_orders SET policy_published_at = NOW(), "
+            "       policy_skipped_at = NULL WHERE id = $1",
+            order_id,
+        )
+        try:
+            from app.tasks.tg_setup import _log_step
+            await _log_step(db, order_id, "policy",
+                            f"Политика конфиденциальности опубликована "
+                            f"(версия {version}) — оператор: {name}. "
+                            "Проверить: Настройки → «Юридические данные»")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("tg_setup: не записал шаг политики: %s", e)
+
+    logger.info("tg_setup: политика клиента %s опубликована, версия %s",
+                client_id, version)
+    return {"ok": True, "version": version,
+            "message": "Политика опубликована"}
+
+
+@router.post("/policy/skip", summary="Пропустить шаг с политикой")
+async def skip_policy(user=Depends(get_current_client), db=Depends(get_db)):
+    """Человек решил заполнить политику сам — не настаиваем, но помним.
+
+    ⚠️ Отметку ставим, чтобы ИТОГ услуги сказал честно: «политику настройте
+    самостоятельно». Без неё «пропустил» и «ещё не дошёл» выглядят одинаково, и
+    человек уходит с мыслью, что у него всё готово по 152-ФЗ, — а это не так.
+    """
+    client_id = int(user["sub"])
+    await _assert_feature(db, client_id)
+
+    order_id = await db.fetchval(
+        "SELECT id FROM service_orders WHERE client_id = $1 ORDER BY id DESC LIMIT 1",
+        client_id,
+    )
+    if not order_id:
+        raise HTTPException(404, "Нет настройки")
+    await db.execute(
+        "UPDATE service_orders SET policy_skipped_at = NOW() WHERE id = $1", order_id
+    )
+    try:
+        from app.tasks.tg_setup import _log_step
+        await _log_step(db, order_id, "policy",
+                        "Шаг с политикой пропущен — настройте её сами: "
+                        "Настройки → «Юридические данные»")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("tg_setup: не записал пропуск политики: %s", e)
+    return {"ok": True, "skipped": True}
 
 
 class SaveChannelIn(BaseModel):
@@ -958,6 +1275,18 @@ async def start_setup(data: StartRequest,
             "Укажите свой ник в Telegram — без него мы не сможем передать "
             "вам права на бота и группу",
         )
+    # ⚠️ В базе ник мог осесть со «собакой» или ссылкой (`t.me/ник`) — чистим
+    # ОДИН раз здесь, иначе он так и уходит в лог и в BotFather.
+    tg_nick = str(tg_nick).strip().lstrip("@").rstrip("/").split("/")[-1]
+
+    # ⚠️⚠️ ЮЗЕРНЕЙМ ПРОВЕРЯЕМ НА ВХОДЕ, А НЕ НА ПРЕДПОСЛЕДНЕМ ШАГЕ.
+    # BotFather принимает только @username, поэтому без публичного ника услуга
+    # невыполнима целиком. Раньше это выяснялось в самом конце — после оплаты,
+    # создания бота и группы: человек проходил половину пути и упирался в
+    # стену, которую было видно с первой секунды.
+    nick_err = tgs.validate_owner_username(tg_nick)
+    if nick_err:
+        raise HTTPException(400, nick_err)
 
     # ⚠️⚠️ ПОЧТА ДОЛЖНА БЫТЬ ПОДТВЕРЖДЕНА ДО ЗАПУСКА (решение владельца).
     # Через пару минут настройка упрётся в шаг, который делает сам человек:

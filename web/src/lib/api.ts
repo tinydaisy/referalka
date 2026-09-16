@@ -857,8 +857,13 @@ export const api = {
     // ненадёжно: бот услуги не слушается процессом до его перезапуска, а
     // вступление в группу вообще может пройти мимо нас, если аккаунт уже вышел.
     // По этим отметкам фоновая задача передаёт права.
-    confirmStartedBot: () =>
-      request('/api/v1/clients/me/tg-autosetup/confirm-started-bot', { method: 'POST' }),
+    // ⚠️ Заход в бота ПРОВЕРЯЕТСЯ по-настоящему (не на слово): бэкенд смотрит,
+    // кто реально написал боту. `acceptEntered` — ответ на расхождение ников:
+    // «передать права на тот аккаунт, которым я вошёл».
+    confirmStartedBot: (acceptEntered = false) =>
+      request('/api/v1/clients/me/tg-autosetup/confirm-started-bot', {
+        method: 'POST', body: JSON.stringify({ accept_entered: acceptEntered }),
+      }),
     confirmJoinedGroup: () =>
       request('/api/v1/clients/me/tg-autosetup/confirm-joined-group', { method: 'POST' }),
     confirmChannel: () =>
@@ -871,6 +876,18 @@ export const api = {
     // Передать права немедленно, не дожидаясь фоновой задачи (она раз в минуту).
     transferNow: () =>
       request('/api/v1/clients/me/tg-autosetup/transfer-now', { method: 'POST' }),
+    // Шаг 3: юр-данные → политика конфиденциальности (152-ФЗ). Публикуется в
+    // тот же раздел кабинета, что и вручную, — «Настройки → Юридические данные».
+    savePolicy: (data: {
+      legal_form: string; legal_name: string; legal_inn: string
+      legal_address: string; legal_operator_email: string
+      legal_ogrn?: string; legal_operator_phone?: string
+    }) =>
+      request('/api/v1/clients/me/tg-autosetup/policy', {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    skipPolicy: () =>
+      request('/api/v1/clients/me/tg-autosetup/policy/skip', { method: 'POST' }),
   },
 
   // Админская панель автонастройки — сервисные аккаунты и заказы.

@@ -35,6 +35,8 @@ type Order = {
   group_invite_link?: string | null
   claim_deadline?: string | null
   steps?: Record<string, boolean>
+  /** Процесс пошёл — поля формы больше не редактируются (см. `locked` на бэке). */
+  locked?: boolean
 }
 type State = {
   service: {
@@ -215,14 +217,37 @@ export default function AutoSetupTab() {
     { step: string; ok: boolean; text: string } | null
   >(null)
 
-  const confirmStep = async (step: 'bot' | 'group' | 'channel') => {
+  /**
+   * Расхождение ников: вписан один аккаунт, а в бота вошли другим.
+   *
+   * ⚠️ За человека НЕ решаем (решение владельца 16.09.2026): показываем выбор —
+   * «передать на тот, которым вошёл» или «войду другим». Молчаливая подмена
+   * ника означала бы, что бот уходит не на тот аккаунт, который человек указал,
+   * и он об этом не узнает.
+   */
+  const [mismatch, setMismatch] = useState<
+    { entered: string; expected: string; text: string } | null
+  >(null)
+
+  const confirmStep = async (step: 'bot' | 'group' | 'channel',
+                             acceptEntered = false) => {
     setConfirming(step)
     setStepNote(null)
     try {
       let res: any
-      if (step === 'bot') res = await api.tgAutosetup.confirmStartedBot()
+      if (step === 'bot') res = await api.tgAutosetup.confirmStartedBot(acceptEntered)
       else if (step === 'group') res = await api.tgAutosetup.confirmJoinedGroup()
       else res = await api.tgAutosetup.confirmChannel()
+      // Вошли не тем аккаунтом — спрашиваем, а не отмечаем шаг молча.
+      if (res?.mismatch) {
+        setMismatch({
+          entered: res.entered_username || '',
+          expected: res.expected_username || '',
+          text: res.message || '',
+        })
+        return
+      }
+      setMismatch(null)
       // Бэкенд отвечает `verified:false` + текстом, когда подтвердить не вышло.
       if (res?.message) {
         setStepNote({ step, ok: res.verified !== false, text: res.message })
@@ -232,6 +257,27 @@ export default function AutoSetupTab() {
       setStepNote({ step, ok: false, text: e?.message || 'Не удалось отметить шаг' })
     } finally {
       setConfirming(null)
+    }
+  }
+
+  /**
+   * Повторная отправка письма подтверждения — ПРЯМО ЗДЕСЬ.
+   *
+   * ⚠️ Раньше плашка отправляла человека «в плашку вверху кабинета»: лишний
+   * поиск ради одного нажатия, посреди запуска услуги. Ручка общая
+   * (`auth.resendVerifyEmail`), своей не заводим.
+   */
+  const [resending, setResending] = useState(false)
+  const [resent, setResent] = useState(false)
+  const resendEmail = async () => {
+    setResending(true)
+    try {
+      await api.auth.resendVerifyEmail()
+      setResent(true)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось отправить письмо')
+    } finally {
+      setResending(false)
     }
   }
 
@@ -440,6 +486,14 @@ export default function AutoSetupTab() {
   const waitingUser = st === 'awaiting_user' || failedTransfer
   const finished = st === 'done'
   const expired = st === 'expired'
+  /**
+   * Форма закрыта на правку — процесс уже пошёл.
+   *
+   * ⚠️ Признак считает БЭКЕНД (`_order_out.locked`): экран и сервер должны
+   * одинаково понимать, что значит «уже поздно менять». Здесь только
+   * подстраховка на случай старого ответа без поля.
+   */
+  const locked = order?.locked ?? (inProgress || waitingUser)
 
   /**
    * Сколько действий реально осталось человеку — ровно столько карточек ниже.
@@ -541,23 +595,49 @@ export default function AutoSetupTab() {
         писал и знать её не обязан. В базе служба заботы хранится ссылкой —
         преобразуем на входе и выходе.
       */}
-      {!finished && (
+      {/* ⚠️⚠️ ПОСЛЕ ПОСТАНОВКИ В ОЧЕРЕДЬ ПОЛЯ НЕ РЕДАКТИРУЮТСЯ (16.09.2026).
+          Раньше форма оставалась живой: написано «Сохранено», задача пошла в
+          работу — а поля по-прежнему правились. Человек их менял, ничего не
+          происходило (данные уже ушли в прогон), и выходило, что интерфейс
+          соврал. Теперь идёт работа → показываем ЧТО записано, без полей. */}
+      {!finished && locked && (
+        <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 mb-5">
+          <p className="text-base font-semibold text-gray-900">Данные записаны</p>
+          <p className="text-sm text-gray-600 mt-1">
+            Задача уже в работе — правки в этих полях ничего не изменят.
+            Поменять можно в настройках кабинета.
+          </p>
+          <div className="mt-3 space-y-2">
+            <LockedRow label="Ваш Telegram" value={effNick}
+                       where="Настройки → «Профиль»" />
+            <LockedRow label="Telegram службы заботы" value={effSupport}
+                       where="Настройки → «Профиль»" />
+            <LockedRow label="Telegram-канал" value={effChannel}
+                       where="Mini App → «Основатель»" />
+          </div>
+        </div>
+      )}
+
+      {!finished && !locked && (
         <div className={`rounded-xl border px-5 py-4 mb-5 ${
           allFilled ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
           <div className="flex gap-3">
             {!allFilled && (
-              <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
             )}
             <div className="flex-1 min-w-0">
-              <p className={`text-sm font-medium ${
-                allFilled ? 'text-gray-800' : 'text-amber-900'}`}>
+              {/* ⚠️ КРУПНЕЕ, ЧЕМ БЫЛО. Подписи на 12px («text-xs») клиент
+                  физически не прочитал — «всё, что мелко, я вообще не смогла
+                  прочитать, хотя сижу в 20 сантиметрах от компа». Базовый
+                  размер здесь 14px и выше, серого мелкого текста нет. */}
+              <p className={`text-base font-semibold ${
+                allFilled ? 'text-gray-900' : 'text-amber-900'}`}>
                 Введите или скорректируйте данные
               </p>
-              <p className={`text-xs mt-0.5 ${
-                allFilled ? 'text-gray-500' : 'text-amber-800'}`}>
-                Проставим их в настройках вашего кабинета, когда поставите
-                задачу в очередь. Все три обязательны — без них услуга не
-                сможет закончить настройку.
+              <p className={`text-sm mt-1 ${
+                allFilled ? 'text-gray-600' : 'text-amber-900'}`}>
+                Проставим их в настройках кабинета, когда поставите задачу
+                в очередь. Все три обязательны.
               </p>
 
               {/* ⚠️ Первые два поля — в ДВЕ КОЛОНКИ: это пара «кому передать
@@ -706,18 +786,37 @@ export default function AutoSetupTab() {
               только письмом — в боте его ещё нет, а кабинет он обычно уже
               закрыл. Тот же отказ продублирован на сервере: кнопку легко
               обойти запросом мимо интерфейса. */}
+          {/* ⚠️⚠️ КРУПНО И С КНОПКОЙ (16.09.2026). Плашка была набрана 12-м
+              кеглем серым по жёлтому — клиент её физически не прочитал. И
+              отправляла «в плашку вверху кабинета» за действием, которое можно
+              сделать прямо здесь: ручка `resendVerifyEmail` уже есть, своей не
+              заводим. Про «Спам» — отдельной заметной строкой: письмо чаще
+              всего именно там. */}
           {state.email_verified === false && (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <p className="text-sm font-medium text-amber-900">
+            <div className="mt-4 rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
+              <p className="text-lg font-bold text-amber-900">
                 Сначала подтвердите почту
               </p>
-              <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                Мы напишем на неё, когда бот будет готов, — там будет ссылка,
-                чтобы зайти в бота и принять права владельца. Письмо со
-                ссылкой подтверждения уже отправлено
-                {state.email ? <> на <b>{state.email}</b></> : null}; если не
-                нашли — отправьте заново в плашке вверху кабинета.
+              <p className="text-base text-amber-900 mt-1.5 leading-relaxed">
+                Письмо со ссылкой уже отправлено
+                {state.email ? <> на <b>{state.email}</b></> : null}. Без
+                подтверждения запуск закрыт: на эту почту придёт ссылка, чтобы
+                принять права на бота.
               </p>
+              <p className="text-base font-bold text-amber-900 mt-2.5">
+                Не нашли письмо? Проверьте папку «Спам».
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button onClick={resendEmail} disabled={resending}
+                        className="btn-gold px-5 py-2.5 text-sm disabled:opacity-50">
+                  {resending ? 'Отправляем…' : 'Отправить письмо повторно'}
+                </button>
+                {resent && (
+                  <span className="text-base font-medium text-green-700 flex items-center gap-1.5">
+                    <Check size={17} /> Отправили — проверьте почту и «Спам»
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
@@ -911,7 +1010,7 @@ export default function AutoSetupTab() {
                 <ActionRow
                   done={!!order.steps?.client_started_bot}
                   title="Зайдите в своего бота и нажмите «Запустить»"
-                  hint="После этого мы автоматически передадим вам права владельца"
+                  hint="Проверим, что вы вошли, и передадим вам права владельца"
                   doneHint="Сделано — передаём вам права на бота"
                   href={`https://telegram.me/${order.bot_username}`}
                   label={`@${order.bot_username}`}
@@ -919,6 +1018,34 @@ export default function AutoSetupTab() {
                   onConfirm={() => confirmStep('bot')}
                   confirming={confirming === 'bot'}
                   note={stepNote?.step === 'bot' ? stepNote : null}
+                  extra={mismatch ? (
+                    /* ⚠️ Вошли не тем аккаунтом — спрашиваем, а не решаем
+                       за человека: бот уйдёт НАВСЕГДА на тот ник, который
+                       выберут здесь. */
+                    <div className="mt-3 ml-10 rounded-lg border-2 px-4 py-3"
+                         style={{ borderColor: '#FFCFA4' }}>
+                      <p className="text-sm text-gray-900 font-medium">
+                        {mismatch.text}
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <button
+                          onClick={() => confirmStep('bot', true)}
+                          disabled={confirming === 'bot'}
+                          className="btn-gold px-4 py-2 text-sm disabled:opacity-50">
+                          Передать на @{mismatch.entered}
+                        </button>
+                        <button
+                          onClick={() => setMismatch(null)}
+                          className="btn-primary px-4 py-2 text-sm">
+                          Войду другим
+                        </button>
+                      </div>
+                      <p className="text-sm text-gray-600 mt-2.5">
+                        Выбрали «войду другим»? Нажмите кнопку перехода в бота
+                        выше, войдите нужным аккаунтом и нажмите «Сделано».
+                      </p>
+                    </div>
+                  ) : null}
                 />
               )}
 
@@ -961,6 +1088,16 @@ export default function AutoSetupTab() {
                   note={stepNote?.step === 'channel' ? stepNote : null}
                 />
               )}
+
+              {/* ─── Шаг: политика конфиденциальности (152-ФЗ) ─── */}
+              <PolicyStep
+                published={!!order.steps?.policy_published}
+                skipped={!!order.steps?.policy_skipped}
+                onDone={() => load(true)}
+              />
+
+              {/* ⚠️ Плашка поддержки — там, где человек застревает. */}
+              <SupportBlock />
             </>
           )}
 
@@ -1110,6 +1247,32 @@ export default function AutoSetupTab() {
             кроме «Публикация сообщений». Как добавите — мы увидим это сами
             и подключим канал.
           </div>
+
+          {/* ⚠️⚠️ ПРО ПОЛИТИКУ ГОВОРИМ В ИТОГЕ — В ОБОИХ СЛУЧАЯХ.
+              Опубликовали → честно предупреждаем, что текст УНИВЕРСАЛЬНЫЙ: это
+              юридический документ с ИНН клиента, и он вправе знать, что текст
+              типовой и его можно поправить. Пропустил → пишем прямо, что по
+              152-ФЗ политику надо настроить самому, иначе человек уходит с
+              мыслью, что у него всё закрыто. */}
+          {order.steps?.policy_published && (
+            <div className="mt-3 rounded-lg bg-white border border-green-200 px-4 py-3 text-sm text-gray-700">
+              <b>Политика конфиденциальности опубликована.</b> Текст
+              универсальный — если хотите адаптировать под себя, поправьте его
+              в{' '}
+              <Link href="/dashboard/settings?tab=legal" className="underline font-medium">
+                «Настройки → Юридические данные»
+              </Link>.
+            </div>
+          )}
+          {order.steps?.policy_skipped && !order.steps?.policy_published && (
+            <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
+              <b>Политику конфиденциальности настройте самостоятельно.</b> Она
+              нужна по 152-ФЗ, если вы собираете контакты. Заполнить:{' '}
+              <Link href="/dashboard/settings?tab=legal" className="underline font-medium">
+                «Настройки → Юридические данные»
+              </Link>.
+            </div>
+          )}
 
           {/* ⚠️⚠️ «ЧТО ДАЛЬШЕ» — КРУПНО И ПОСЛЕДНИМ БЛОКОМ. Бот настроен, но
               сам по себе он ничего не продаёт: человек дочитал итог и не
@@ -1450,7 +1613,7 @@ function ServiceChecklist({ steps, botUsername, groupLink, supportFilled,
  * Автоматика остаётся: сработала раньше — галочка уже стоит.
  */
 function ActionRow({ done, title, hint, doneHint, href, label, icon,
-                     onConfirm, confirming, note }: {
+                     onConfirm, confirming, note, extra }: {
   done: boolean; title: string; hint: string
   /** Что написать, когда шаг уже сделан. Пусто → «Сделано». */
   doneHint?: string
@@ -1459,13 +1622,15 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
   onConfirm?: () => void
   confirming?: boolean
   /**
-   * Ответ на нажатие «Сделала» — прямо под шагом.
+   * Ответ на нажатие «Сделано» — прямо под шагом.
    *
-   * ⚠️ Нужен там, где мы ПРОВЕРЯЕМ, а не верим на слово (бот в админах канала):
-   * человек должен видеть «подтвердили» или «подтвердить не удалось» там же,
-   * где нажимал. Раньше ответ уходил в alert и не оставлял следа.
+   * ⚠️ Нужен там, где мы ПРОВЕРЯЕМ, а не верим на слово (заход в бота, бот в
+   * админах канала): человек должен видеть «подтвердили» или «подтвердить не
+   * удалось» там же, где нажимал. Раньше ответ уходил в alert и не оставлял следа.
    */
   note?: { ok: boolean; text: string } | null
+  /** Дополнительный блок под шагом — например выбор при расхождении ников. */
+  extra?: React.ReactNode
 }) {
   return (
     <div className={`rounded-lg border px-4 py-3 mb-2.5 ${
@@ -1476,10 +1641,12 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
           {done ? <Check size={15} /> : icon}
         </div>
         <div className="flex-1 min-w-0">
-          <div className={`text-sm font-medium ${done ? 'text-green-900' : 'text-gray-900'}`}>
+          {/* ⚠️ Подписи КРУПНЕЕ (14px вместо 12px): мелкий серый текст клиент
+              не прочитал вовсе — см. правило в шапке файла. */}
+          <div className={`text-sm font-semibold ${done ? 'text-green-900' : 'text-gray-900'}`}>
             {title}
           </div>
-          <div className="text-xs text-gray-500 mt-0.5">
+          <div className="text-sm text-gray-600 mt-0.5">
             {done ? (doneHint || 'Сделано') : hint}
           </div>
         </div>
@@ -1497,14 +1664,16 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
         )}
       </div>
 
-      {/* Галочка «я это сделал» — под строкой, чтобы не тесниться с кнопкой. */}
+      {/* Отметка «я это сделал» — под строкой, чтобы не тесниться с кнопкой.
+          ⚠️ «СДЕЛАНО», а не «Сделала»: кнопку видят все клиенты, и женский род
+          подходит не каждому. Безличная форма годится всем. */}
       {!done && onConfirm && (
-        <label className="flex items-center gap-2 mt-3 pl-10 cursor-pointer select-none">
+        <label className="flex items-center gap-2.5 mt-3 pl-10 cursor-pointer select-none">
           <input type="checkbox" checked={false} disabled={confirming}
-                 onChange={onConfirm}
-                 className="w-4 h-4 rounded border-gray-300 cursor-pointer" />
-          <span className="text-sm text-gray-700">
-            {confirming ? 'Проверяем…' : 'Сделала'}
+                 onChange={() => onConfirm()}
+                 className="w-5 h-5 rounded border-gray-300 cursor-pointer" />
+          <span className="text-sm font-medium text-gray-800">
+            {confirming ? 'Проверяем…' : 'Сделано'}
           </span>
         </label>
       )}
@@ -1528,6 +1697,233 @@ function ActionRow({ done, title, hint, doneHint, href, label, icon,
           </div>
         </div>
       )}
+
+      {/* Доп. блок под шагом — выбор при расхождении ников. */}
+      {extra}
+    </div>
+  )
+}
+
+
+/**
+ * Записанное значение поля, когда правка уже невозможна.
+ *
+ * ⚠️ Показываем ЧТО записано и ГДЕ это поменять — вместо живого поля, которое
+ * принимает ввод, но ни на что не влияет: задача уже ушла в работу.
+ */
+function LockedRow({ label, value, where }: {
+  label: string; value: string; where: string
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2.5">
+      <span className="text-sm text-gray-500">{label}:</span>
+      <span className="text-sm font-semibold text-gray-900">
+        {value ? `@${value}` : '—'}
+      </span>
+      <span className="text-sm text-gray-400 ml-auto">{where}</span>
+    </div>
+  )
+}
+
+
+/**
+ * Шаг 3 услуги: юр-данные → политика конфиденциальности.
+ *
+ * ⚠️⚠️ ЗАЧЕМ ЭТО В АВТОНАСТРОЙКЕ (решение владельца 16.09.2026). Политика
+ * обработки персональных данных обязательна по 152-ФЗ каждому, кто собирает
+ * контакты через бота и лендинг. Раздел в кабинете для неё есть, но на
+ * 16.09.2026 его не заполнил НИ ОДИН клиент — значит сам собой он не
+ * заполняется. Услуга «под ключ» закрывает и это: человек вводит ИНН и
+ * название, остальное платформа делает сама.
+ *
+ * ⚠️ ШАГ НЕОБЯЗАТЕЛЬНЫЙ — есть «Пропустить». Данные юрлица есть не у всех под
+ * рукой, и упираться в них посреди настройки бота человек не должен. Пропуск
+ * запоминается, и итог честно скажет «настройте самостоятельно».
+ */
+function PolicyStep({ published, skipped, onDone }: {
+  published: boolean; skipped: boolean; onDone: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState('ip')
+  const [name, setName] = useState('')
+  const [inn, setInn] = useState('')
+  const [address, setAddress] = useState('')
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  if (published) {
+    return (
+      <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 mb-2.5">
+        <div className="flex items-center gap-3">
+          <div className="w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center shrink-0">
+            <Check size={15} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-green-900">
+              Политика конфиденциальности опубликована
+            </div>
+            <div className="text-sm text-green-800 mt-0.5">
+              Текст универсальный. Хотите под себя — поправьте в «Настройки →
+              Юридические данные».
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const save = async () => {
+    setBusy(true); setErr(null)
+    try {
+      await api.tgAutosetup.savePolicy({
+        legal_form: form, legal_name: name.trim(), legal_inn: inn.trim(),
+        legal_address: address.trim(), legal_operator_email: email.trim(),
+      })
+      onDone()
+    } catch (e: any) {
+      setErr(e?.message || 'Не удалось опубликовать политику')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const skip = async () => {
+    setBusy(true)
+    try { await api.tgAutosetup.skipPolicy(); onDone() }
+    catch (e: any) { setErr(e?.message || 'Не получилось') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 mb-2.5">
+      <div className="flex items-center gap-3">
+        <div className="w-7 h-7 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center shrink-0">
+          <Sparkles size={15} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-900">
+            Настроим политику конфиденциальности
+          </div>
+          <div className="text-sm text-gray-600 mt-0.5">
+            {skipped
+              ? 'Шаг пропущен — настройте её сами в «Настройки → Юридические данные»'
+              : 'Нужна по закону 152-ФЗ, если собираете контакты. Составим и опубликуем за вас'}
+          </div>
+        </div>
+        {!open && (
+          <button onClick={() => setOpen(true)}
+                  className="btn-primary px-4 py-2 text-sm whitespace-nowrap">
+            {skipped ? 'Всё же настроить' : 'Настроить'}
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-800 mb-1.5">
+              Кто вы по документам
+            </label>
+            <select value={form} onChange={e => setForm(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400">
+              <option value="ip">Индивидуальный предприниматель</option>
+              <option value="individual">Самозанятый (НПД)</option>
+              <option value="ooo">Юридическое лицо (ООО / АО)</option>
+              <option value="other">Другая форма</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-800 mb-1.5">
+              Название полностью
+            </label>
+            <input value={name} onChange={e => setName(e.target.value)}
+                   placeholder={form === 'ooo' ? 'ООО «Ромашка»'
+                     : form === 'individual' ? 'Пупкин Василий Иванович'
+                     : 'ИП Пупкин Василий Иванович'}
+                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400" />
+            <p className="mt-1 text-sm text-gray-500">
+              {form === 'ooo' ? 'Например: ООО «Ромашка»'
+                : form === 'individual' ? 'Самозанятые пишут ФИО: Пупкин Василий Иванович'
+                : 'Например: ИП Пупкин Василий Иванович'}
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-800 mb-1.5">
+                ИНН
+              </label>
+              <input value={inn} onChange={e => setInn(e.target.value)}
+                     placeholder="770123456789"
+                     className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-800 mb-1.5">
+                Email для обращений
+              </label>
+              <input value={email} onChange={e => setEmail(e.target.value)}
+                     placeholder="mail@example.ru"
+                     className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-800 mb-1.5">
+              Адрес
+            </label>
+            <input value={address} onChange={e => setAddress(e.target.value)}
+                   placeholder="г. Москва, ул. Примерная, д. 1"
+                   className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-400" />
+          </div>
+
+          {err && (
+            <p className="text-sm text-red-600 flex items-start gap-1.5">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5" /> {err}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button onClick={save} disabled={busy}
+                    className="btn-gold px-5 py-2.5 text-sm disabled:opacity-50">
+              {busy ? 'Публикуем…' : 'Опубликовать политику'}
+            </button>
+            {/* ⚠️ «Пропустить» — равноправная кнопка, а не мелкая ссылка:
+                данных юрлица может не быть под рукой, и человек не должен
+                застревать здесь посреди настройки бота. */}
+            <button onClick={skip} disabled={busy}
+                    className="btn-primary px-5 py-2.5 text-sm disabled:opacity-50">
+              Пропустить шаг
+            </button>
+          </div>
+          <p className="text-sm text-gray-500">
+            Пропустите — настроите сами в «Настройки → Юридические данные».
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+/**
+ * Плашка «не получается — напишите в поддержку».
+ *
+ * ⚠️⚠️ ЗАМЕТНАЯ, А НЕ МЕЛКАЯ ССЫЛКА (решение владельца 16.09.2026). Стоит на
+ * шаге, где человек застревает: он сделал всё, что просили, а система его не
+ * видит. Мелкая серая строчка здесь бесполезна — её просто не читают.
+ */
+function SupportBlock() {
+  return (
+    <div className="mt-4 rounded-xl px-4 py-3.5 flex flex-wrap items-center gap-3"
+         style={{ background: 'rgba(255, 207, 164, 0.35)' }}>
+      <p className="text-sm font-medium text-gray-900 flex-1 min-w-[200px]">
+        Что-то не получается? Напишите нам в техподдержку — поможем
+      </p>
+      <Link href={SUPPORT_URL} className="btn-primary px-4 py-2 text-sm whitespace-nowrap">
+        Написать в поддержку
+      </Link>
     </div>
   )
 }
