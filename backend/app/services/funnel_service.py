@@ -1073,18 +1073,18 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
         f"<b>Платформа:</b> {(run['platform_slug'] or '—').title()}",
         f"<b>ID в платформе:</b> {run['platform_user_id'] or '—'}",
     ]
-    if came_link:
-        parts.append(f"<b>Ссылка:</b> {came_link}")
-    # ⚠️⚠️ У пришедшего из MAX — кликабельное УПОМИНАНИЕ ИМЕНЕМ (то же, что в
-    # `#user_message`). Строка «Ссылка: max://user/…» остаётся для Telegram и
-    # VK, где схема max:// не кликается, а внутри MAX диалог открывается одним
-    # касанием по имени. Без этого уведомление о пришедшем из MAX показывало
-    # только сырую схему — написать человеку было нечем.
+    # ⚠️⚠️ У пришедшего из MAX — ТОЛЬКО кликабельное упоминание именем.
+    # Сырую схему max://user/… не показываем: она не кликается нигде, и рядом
+    # с ней вторая строка «Профиль в MAX» читалась непонятно. Название
+    # «Ссылка на профиль» прямо говорит, что нажимать надо на имя.
+    _max_mention = None
     if _plat == "max":
         from .profile_links import max_mention_html
-        _m = max_mention_html(run["platform_user_id"], run["contact_name"])
-        if _m:
-            parts.append(f"<b>Профиль в MAX:</b> {_m}")
+        _max_mention = max_mention_html(run["platform_user_id"], run["contact_name"])
+    if _max_mention:
+        parts.append(f"<b>Ссылка на профиль:</b> {_max_mention}")
+    elif came_link:
+        parts.append(f"<b>Ссылка:</b> {came_link}")
 
     src = utm.get("utm_source") if isinstance(utm, dict) else None
     parts.append(f"<b>Источник (utm_source):</b> {src or '—'}")
