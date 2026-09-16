@@ -229,6 +229,16 @@ export default function AutoSetupTab() {
     { entered: string; expected: string; text: string } | null
   >(null)
 
+  /**
+   * «Настроить ещё одного бота» — открывает форму поверх завершённого заказа.
+   *
+   * ⚠️ Нужно потому, что завершённый заказ теперь НЕ пропадает с экрана: итог
+   * виден всегда, а значит форма сама не откроется. Раньше её «открывало»
+   * исчезновение заказа — то есть ровно тот баг, из-за которого казалось,
+   * что настройка сбросилась.
+   */
+  const [startAnother, setStartAnother] = useState(false)
+
   const confirmStep = async (step: 'bot' | 'group' | 'channel',
                              acceptEntered = false) => {
     setConfirming(step)
@@ -600,7 +610,7 @@ export default function AutoSetupTab() {
           работу — а поля по-прежнему правились. Человек их менял, ничего не
           происходило (данные уже ушли в прогон), и выходило, что интерфейс
           соврал. Теперь идёт работа → показываем ЧТО записано, без полей. */}
-      {!finished && locked && (
+      {!finished && !startAnother && locked && (
         <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 mb-5">
           <p className="text-base font-semibold text-gray-900">Данные записаны</p>
           <p className="text-sm text-gray-600 mt-1">
@@ -618,7 +628,7 @@ export default function AutoSetupTab() {
         </div>
       )}
 
-      {!finished && !locked && (
+      {(startAnother || (!finished && !locked)) && (
         <div className={`rounded-xl border px-5 py-4 mb-5 ${
           allFilled ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
           <div className="flex gap-3">
@@ -693,7 +703,7 @@ export default function AutoSetupTab() {
         `paid`, `setup_state='new'` — то есть человеку остаётся только назвать
         бота. Условие `!order` прятало форму, и запустить настройку было нечем.
       */}
-      {(!order || (paid && !order.bot_username && !inProgress
+      {(!order || startAnother || (paid && !order.bot_username && !inProgress
                    && !waitingUser && !finished)) && (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h3 className="font-semibold text-gray-900 mb-1">Как назвать бота</h3>
@@ -1308,6 +1318,19 @@ export default function AutoSetupTab() {
               наша техподдержка
             </Link>.
           </p>
+
+          {/* ⚠️⚠️ КНОПКА «НАСТРОИТЬ ЕЩЁ ОДНОГО» — ОБЯЗАТЕЛЬНА С 16.09.2026.
+              Раньше завершённый заказ ПРОПАДАЛ с экрана (ручка его не
+              отдавала) — и форма запуска открывалась сама собой. Это и была
+              та самая поломка «всё сбросилось»: человек видел чистую форму
+              вместо итога. Теперь итог остаётся на месте, а запуск новой
+              настройки — явное действие, а не побочный эффект исчезновения. */}
+          <div className="mt-4 pt-4 border-t border-green-200">
+            <button onClick={() => setStartAnother(true)}
+                    className="text-sm font-medium text-[#25455D] underline">
+              Настроить ещё одного бота
+            </button>
+          </div>
         </div>
       )}
 
