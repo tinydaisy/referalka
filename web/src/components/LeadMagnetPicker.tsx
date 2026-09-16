@@ -51,14 +51,20 @@ async function loadAll() {
     // ⚠️ Пакеты не роняют выбор, если их нет или раздел закрыт тарифом:
     // магниты важнее, и из-за пакетов список не должен остаться пустым.
     const [m, p] = await Promise.all([
-      api.leadMagnets.list().catch(() => []),
-      api.leadMagnetPackages.list().catch(() => []),
+      api.leadMagnets.list().catch(() => null),
+      api.leadMagnetPackages.list().catch(() => null),
     ])
+    // ⚠️⚠️ ОБА эндпоинта отдают `{items: [...]}`, а НЕ голый массив. Из-за
+    // этого список выходил пустым («Пока нет лид-магнитов») при десятках
+    // магнитов в кабинете. Массив на входе тоже принимаем — на случай, если
+    // формат где-то отличается.
+    const arr = (r: any): any[] =>
+      Array.isArray(r) ? r : Array.isArray(r?.items) ? r.items : []
     _cache = {
-      magnets: (Array.isArray(m) ? m : []).map((x: any) => ({
+      magnets: arr(m).map((x: any) => ({
         id: x.id, name: x.name || 'Без названия', kind: 'magnet' as const,
       })),
-      packages: (Array.isArray(p) ? p : []).map((x: any) => ({
+      packages: arr(p).map((x: any) => ({
         id: x.id, name: x.name || 'Без названия', kind: 'package' as const,
       })),
     }
@@ -186,9 +192,10 @@ export default function LeadMagnetPicker({
             )}
           </div>
 
-          {/* ⚠️ Высота ОГРАНИЧЕНА: список на весь экран перекрывал бы форму,
-              в которой человек стоит, — не видно ни поля, ни «Сохранить». */}
-          <div className="max-h-64 overflow-y-auto">
+          {/* ⚠️ Высота ФИКСИРОВАННАЯ, а не «до 64»: с `max-h` список схлопывался
+              в пару строк, когда записей мало, и выглядел обрезанным. Теперь
+              видно сразу несколько позиций и понятно, что список листается. */}
+          <div className="h-64 overflow-y-auto">
             {allowEmpty && !q && (
               <button type="button" onClick={() => pick(null)}
                       className="w-full px-3 py-2 text-left text-sm text-gray-500 hover:bg-gray-50">
@@ -206,11 +213,14 @@ export default function LeadMagnetPicker({
               </div>
             )}
 
+            {/* ⚠️ Заголовки групп показываем ВСЕГДА (когда пакеты вообще
+                включены): магнит и пакет — разные сущности, и человек должен
+                видеть, что он выбирает, даже если группа сейчас одна. */}
             {!!magnets.length && (
               <>
-                {withPackages && !!packages.length && (
-                  <div className="bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                    Лид-магниты
+                {withPackages && (
+                  <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                    Лид-магниты · {magnets.length}
                   </div>
                 )}
                 {magnets.map(row)}
@@ -219,8 +229,8 @@ export default function LeadMagnetPicker({
 
             {withPackages && !!packages.length && (
               <>
-                <div className="bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                  Пакеты
+                <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  Пакеты · {packages.length}
                 </div>
                 {packages.map(row)}
               </>
