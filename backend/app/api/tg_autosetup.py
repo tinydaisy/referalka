@@ -904,8 +904,64 @@ async def save_channel(data: SaveChannelIn, user=Depends(get_current_client),
     nick = (data.channel or "").strip().lstrip("@").rstrip("/").split("/")[-1]
     if not nick:
         raise HTTPException(400, "Укажите ник канала")
+
+    # ⚠️⚠️ ПРОВЕРЯЕМ, ЧТО ТАКОЙ КАНАЛ ВООБЩЕ СУЩЕСТВУЕТ И ЧТО ЭТО КАНАЛ.
+    #
+    # Поле принимало ЛЮБУЮ строку. На живом заказе 12 (клиент 196) человек
+    # вписал `margoforbs_bot` вместо `margoforbs_business` — то есть ник БОТА
+    # вместо канала, причём несуществующий (`chat not found`). Система молча
+    # это сохранила, а потом шаг «добавьте бота в канал» отбивал раз за разом:
+    # бот был админом настоящего канала, но искали его в том, которого нет.
+    #
+    # Ошибку надо ловить здесь, на вводе, а не через полчаса непонятными
+    # отказами на другом шаге.
+    err = await _check_channel_exists(db, client_id, nick)
+    if err:
+        raise HTTPException(400, err)
+
     await _save_founder_channel(db, client_id, nick)
     return {"ok": True, "channel": nick}
+
+
+async def _check_channel_exists(db, client_id: int, nick: str) -> Optional[str]:
+    """Существует ли такой публичный канал. Возвращает текст ошибки или None.
+
+    ⚠️ Fail-safe: нет токена бота или Telegram не ответил — НЕ мешаем сохранить.
+    Лучше пропустить сомнительный ник, чем заблокировать человека с настоящим
+    каналом из-за нашей сетевой проблемы.
+    """
+    token = await db.fetchval(
+        """SELECT bot_token FROM service_orders
+            WHERE client_id = $1 AND bot_token IS NOT NULL
+            ORDER BY id DESC LIMIT 1""",
+        client_id,
+    )
+    if not token:
+        # Бота ещё нет (канал спрашивают до запуска) — спросить некому.
+        return None
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=15) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{token}/getChat",
+                params={"chat_id": f"@{nick}"},
+            )
+            data = r.json() or {}
+            if not data.get("ok"):
+                return (
+                    f"Канал @{nick} не найден в Telegram. Проверьте ник: он "
+                    "пишется как в адресе канала (t.me/ваш_канал) и без «bot» "
+                    "на конце — это ник КАНАЛА, а не бота."
+                )
+            kind = (data.get("result") or {}).get("type")
+            if kind not in ("channel", "supergroup"):
+                return (
+                    f"@{nick} — это не канал, а {kind or 'другой чат'}. "
+                    "Укажите ник вашего публичного Telegram-канала."
+                )
+    except Exception as e:  # noqa: BLE001 — сеть подвела: не мешаем сохранить
+        logger.warning("tg_setup: не проверил канал @%s: %s", nick, e)
+    return None
 
 
 @router.post("/confirm-channel", summary="Клиент подтверждает, что добавил бота в свой канал")
