@@ -314,15 +314,20 @@ export default function AutoSetupTab() {
   // ⚠️ Ждём `me`: до него неизвестно, ЧЕЙ это кабинет, и можно прочитать
   // чужую отметку. Пока `welcomeDone` равно `null`, на экране нет ни
   // приветствия, ни формы — мигания не будет.
+  //
+  // ⚠️⚠️ НО ЖДЁМ САМ ОТВЕТ, А НЕ ОБЯЗАТЕЛЬНО `id`. При сбое запроса `useMe`
+  // отдаёт объект БЕЗ `id` (см. `.catch` в хуке) — с условием «нет id → выход»
+  // экран завис бы навсегда: ни приветствия, ни полей. Тогда читаем по общему
+  // ключу: хуже, чем по кабинету, но лучше пустого экрана.
   useEffect(() => {
-    if (!me?.id) return
+    if (!me) return
     try {
       setWelcomeDone(localStorage.getItem(welcomeKey(me.id)) === '1')
     } catch {
       // Приватный режим / запрет хранилища — приветствие просто не запомнится.
       setWelcomeDone(false)
     }
-  }, [me?.id])
+  }, [me])
   const startWelcome = () => {
     try { localStorage.setItem(welcomeKey(me?.id), '1') } catch { /* см. выше */ }
     setWelcomeDone(true)
