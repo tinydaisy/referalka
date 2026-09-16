@@ -40,6 +40,35 @@ def accrue_monthly_fix():
         asyncio.set_event_loop(None)
 
 
+@shared_task(name="app.tasks.tech_fix.refresh_bonus_roles")
+def refresh_bonus_roles():
+    """Пересчёт типа внедренца по числу его активаций за месяц.
+
+    ⚠️ Ежедневно, а не раз в месяц: тип влияет на долю в премии, и человек
+    должен видеть в кабинете актуальное состояние, а не узнавать в конце
+    квартала, что порог не взят.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(_run_roles())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+
+async def _run_roles() -> dict:
+    from app.services.tech_accruals import refresh_bonus_roles as _refresh
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        try:
+            n = await _refresh(db)
+        except Exception as e:                                  # noqa: BLE001
+            logger.exception("tech roles: не пересчитаны: %s", e)
+            return {"ok": False, "error": str(e)}
+    return {"ok": True, "changed": n}
+
+
 @shared_task(name="app.tasks.tech_fix.accrue_quarter_bonus")
 def accrue_quarter_bonus():
     """Раздача премиального фонда внедренцам по весам их ролей.

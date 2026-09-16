@@ -359,13 +359,36 @@ async def accrue_quarter_bonus(db: asyncpg.Connection,
     period = fund["period"]
     total = int(fund["amount_kopecks"])
 
-    # Кто участвует: работающие внедренцы с весом своей роли.
+    # ── Кто допущен до дележа ───────────────────────────────────────────
+    # ⚠️ Порог активаций за квартал нужен ОБОИМ типам: без него премию получил
+    # бы и тот, кто квартал ничего не делал — вес есть у каждого работающего.
+    # Не взял порог — доля уходит остальным, а не пропадает.
+    #
+    # ⚠️ Считаются активации ЛЮБЫХ клиентов, а не только своих: у типа Б своих
+    # может не быть вовсе, он работает с базой ПЛЮСОНА — и это его нормальная
+    # работа, за которую премия и полагается.
+    need = int(await _setting(db, "bonus_min_activations", 3))
+    year, q = int(period[:4]), int(period[-1])
+    q_months = [f"{year}-{m:02d}" for m in range((q - 1) * 3 + 1, q * 3 + 1)]
+
     rows = await db.fetch(
-        """SELECT ts.id AS spec_id, COALESCE(w.weight, 0) AS weight
+        """SELECT ts.id AS spec_id, COALESCE(w.weight, 0) AS weight,
+                  (SELECT COUNT(*) FROM tech_accruals a
+                    WHERE a.spec_id = ts.id AND a.kind = 'activation'
+                      AND a.period = ANY($1::text[])) AS activations
              FROM tech_specialists ts
              LEFT JOIN tech_bonus_weights w ON w.role = ts.bonus_role
-            WHERE ts.is_active"""
+            WHERE ts.is_active""",
+        q_months,
     )
+    skipped = [r["spec_id"] for r in rows if int(r["activations"] or 0) < need]
+    if skipped:
+        logger.info("tech: премия за %s — не допущены (меньше %s активаций): %s",
+                    period, need, skipped)
+    rows = [r for r in rows if int(r["activations"] or 0) >= need]
+    if not rows:
+        logger.warning("tech: премия за %s не роздана — никто не взял порог", period)
+        return 0
     weights = sum(float(r["weight"] or 0) for r in rows)
     if weights <= 0:
         logger.warning("tech: премия за %s не роздана — нет весов", period)
@@ -380,7 +403,7 @@ async def accrue_quarter_bonus(db: asyncpg.Connection,
         if amount and await _add(
                 db, spec_id=r["spec_id"], client_id=None, kind="quarter_bonus",
                 amount=amount, period=period,
-                note=f"доля {w:g} из {weights:g}"):
+                note=f"доля {w:g} из {weights:g}, активаций {r['activations']}"):
             done += 1
 
     await db.execute(
@@ -389,6 +412,67 @@ async def accrue_quarter_bonus(db: asyncpg.Connection,
     )
     logger.info("tech: премия за %s роздана — %s начислений", period, done)
     return done
+
+
+# ──────────────────── Тип внедренца по факту работы ──────────────────────
+async def refresh_bonus_roles(db: asyncpg.Connection,
+                              period: Optional[str] = None) -> int:
+    """Пересчитывает тип внедренца по числу ЕГО активаций за месяц.
+
+    ⚠️⚠️ ПОЧЕМУ НЕ ГАЛОЧКОЙ В АДМИНКЕ. Вес в премии зависит от типа, но
+    проставлять тип руками неверно в обе стороны: внедренец «на базе» может
+    разово кому-то порекомендовать платформу — это случайность, а не работа по
+    привлечению, и повышать за неё вес нельзя; наоборот, человек может месяцами
+    системно приводить людей, а отметку ему забудут поставить.
+
+    ⚠️ Считаем АКТИВАЦИИ, а не приведённых: привести можно и десять человек,
+    которые не дойдут до оплаты. Активация — доведённый до второй оплаты клиент,
+    то есть работа доделана.
+
+    ⚠️ Роль ХРАНИТСЯ, а не вычисляется на лету: премию делят по состоянию на
+    момент раздачи, пересчёт задним числом менял бы уже начисленное.
+
+    ⚠️ `bonus_role_locked` — человека не трогаем: тип закреплён договорённостью.
+    """
+    now = datetime.now(timezone.utc)
+    period = period or now.strftime("%Y-%m")
+    need = int(await _setting(db, "network_role_activations", 6))
+
+    rows = await db.fetch(
+        """SELECT ts.id AS spec_id, ts.bonus_role,
+                  COUNT(a.id) FILTER (
+                      WHERE a.kind = 'activation' AND a.period = $1
+                        AND c.referred_by_tech_id = ts.id) AS own_activations
+             FROM tech_specialists ts
+             LEFT JOIN tech_accruals a ON a.spec_id = ts.id
+             LEFT JOIN clients c ON c.id = a.client_id
+            WHERE ts.is_active AND NOT ts.bonus_role_locked
+            GROUP BY ts.id, ts.bonus_role""",
+        period,
+    )
+
+    changed = 0
+    for r in rows:
+        n = int(r["own_activations"] or 0)
+        role = "implementer_network" if n >= need else "implementer_base"
+        # След пишем всегда — по нему видно, почему тип такой.
+        await db.execute(
+            """INSERT INTO tech_role_history (spec_id, role, period, activations)
+               VALUES ($1,$2,$3,$4)
+               ON CONFLICT (spec_id, period) DO UPDATE
+                 SET role = EXCLUDED.role, activations = EXCLUDED.activations""",
+            r["spec_id"], role, period, n,
+        )
+        if role != r["bonus_role"]:
+            await db.execute(
+                "UPDATE tech_specialists SET bonus_role = $1 WHERE id = $2",
+                role, r["spec_id"])
+            changed += 1
+            logger.info("tech: спец %s → %s (%s своих активаций за %s)",
+                        r["spec_id"], role, n, period)
+
+    logger.info("tech: роли за %s пересчитаны, изменено %s", period, changed)
+    return changed
 
 
 async def assign_client(db: asyncpg.Connection, *, client_id: int,

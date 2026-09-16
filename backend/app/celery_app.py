@@ -136,6 +136,13 @@ celery.conf.update(
         "task": "app.tasks.tech_fix.accrue_quarter_bonus",
         "schedule": 86400.0,
     },
+    # Тип внедренца по числу его активаций за месяц. ⚠️ Ежедневно: тип влияет
+    # на долю в премии, человек должен видеть актуальное состояние в кабинете,
+    # а не узнавать в конце квартала, что порог не взят.
+    "tech-refresh-bonus-roles": {
+        "task": "app.tasks.tech_fix.refresh_bonus_roles",
+        "schedule": 86400.0,
+    },
     "notify-expiring-addons": {
             "task": "app.tasks.addon_expiry.notify_expiring_addons",
             "schedule": 3600.0,
