@@ -441,7 +441,10 @@ export default function AutoSetupTab() {
    */
   if (noAccess) {
     return (
-      <div className="max-w-3xl">
+      /* ⚠️ БЕЗ `max-w-*`: ширину и поля задаёт DashboardLayout
+         (`max-w-6xl mx-auto px-4 …`). Своё ограничение поверх неё не
+         «выравнивает», а РЕЖЕТ страницу ещё уже — у клиента полэкрана пустует. */
+      <div>
         <div className="rounded-2xl p-6 text-white"
              style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
           <div className="flex items-start gap-3">
@@ -616,7 +619,12 @@ export default function AutoSetupTab() {
    */
 
   return (
-    <div className="max-w-3xl">
+    /* ⚠️⚠️ БЕЗ `max-w-*` НА КОРНЕ (правило владельца). Ширину и поля задаёт
+       обёртка кабинета DashboardLayout: `max-w-6xl mx-auto px-4 sm:px-6 lg:px-8`.
+       Здесь стоял `max-w-3xl` — это ~768px внутри 1152px обёртки, то есть треть
+       экрана пустовала. Эталон — events/page.tsx и broadcasts/page.tsx: корень
+       без ограничений ширины. */
+    <div>
       {/*
         ⚠️ ТЁМНОЙ ВИТРИНЫ ЗДЕСЬ НЕТ НАМЕРЕННО.
 
@@ -674,19 +682,19 @@ export default function AutoSetupTab() {
             Это сервис автонастройки!
           </p>
 
-          <p className="text-lg sm:text-xl text-white mt-7 leading-relaxed max-w-2xl">
+          <p className="text-lg sm:text-xl text-white mt-7 leading-relaxed">
             Если вы из тех, кто не любит ничего технического — но хочет, чтобы
             всё заработало САМО, — вам сюда.
           </p>
 
-          <p className="text-lg sm:text-xl text-white/95 mt-7 leading-relaxed max-w-2xl">
+          <p className="text-lg sm:text-xl text-white/95 mt-7 leading-relaxed">
             Мы тоже хотим, чтобы вы сэкономили время и нервы. И уже сегодня
             у вас заработали и чат-боты, и воронки. И вы могли максимально
             комфортно автоматизировать до 90% технических задач для привлечения
             клиентов.
           </p>
 
-          <p className="text-lg sm:text-xl text-white/95 mt-7 leading-relaxed max-w-2xl">
+          <p className="text-lg sm:text-xl text-white/95 mt-7 leading-relaxed">
             Просто заполните несколько полей про себя — мы разложим это всё
             по нужным настройкам. И создадим для вас бот, канал уведомлений
             и сделаем всё то, что у вас обычно вызывает сопротивление :)
@@ -700,8 +708,10 @@ export default function AutoSetupTab() {
           <p className="text-lg sm:text-xl text-white mt-7">
             Нажмите на кнопку «Начать»
           </p>
+          {/* ⚠️ Главное действие экрана — крупно и капсом: это единственное,
+              что человек должен здесь нажать. */}
           <button onClick={startWelcome}
-                  className="btn-gold mt-7 px-12 py-4 text-lg font-bold">
+                  className="btn-gold mt-8 px-16 py-5 text-2xl font-bold uppercase tracking-wide">
             Начать
           </button>
         </div>
