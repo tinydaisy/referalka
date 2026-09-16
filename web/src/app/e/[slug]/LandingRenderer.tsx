@@ -2836,12 +2836,11 @@ function PartnerCard({
   // поставить должность по центру, а регалии слева, как просит вёрстка
   // карточки: должность это подпись под логотипом, регалии — перечень.
   const position = p.title ? String(p.title) : ''
-  const ach = Array.isArray(p.achievements)
-    ? p.achievements
-        .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
-        .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
-        .filter(Boolean)
-    : []
+  const achRaw: any[] = Array.isArray(p.achievements) ? p.achievements : []
+  const ach: string[] = achRaw
+    .map((a: any) => (typeof a === 'string' ? a : (a?.label || '')))
+    .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
+    .filter(Boolean)
   // Свёрнутая карточка показывает первые две строки описания — считаем их
   // вместе с должностью, чтобы стрелка появлялась по тому же правилу, что и
   // раньше (иначе у партнёра с должностью и одной регалией она пропадёт).
@@ -2851,9 +2850,8 @@ function PartnerCard({
   // Подарки партнёра — та же плашка и те же настройки, что у спикеров:
   // партнёр так же дарит что-то участникам, и разводить это на две разные
   // вёрстки значило бы чинить их по отдельности.
-  const gifts = gift?.show && Array.isArray(p.gifts)
-    ? p.gifts.map((g: any) => String(g || '').trim()).filter(Boolean)
-    : []
+  const giftsRaw: any[] = gift?.show && Array.isArray(p.gifts) ? p.gifts : []
+  const gifts: string[] = giftsRaw.map((g: any) => String(g || '').trim()).filter(Boolean)
   const url = p.partner_url || p.website_url
 
   // ⚠️ Партнёром бывает и КОМПАНИЯ, и ЧЕЛОВЕК — вид карточки разный:
@@ -2966,20 +2964,18 @@ function SpeakerCard({
   s, page, cardStyle, iconColor, open, onToggle, className = '', gift,
   nameAlign = 'left', textAlign = 'left', ts,
 }: any) {
-  const ach = Array.isArray(s.achievements)
-    ? s.achievements
-        .map((a: any) => typeof a === 'string' ? a : (a?.label || ''))
-        // Часть регалий заведена с дефисом в начале — маркер свой.
-        .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
-        .filter(Boolean)
-    : []
+  const achRaw: any[] = Array.isArray(s.achievements) ? s.achievements : []
+  const ach: string[] = achRaw
+    .map((a: any) => (typeof a === 'string' ? a : (a?.label || '')))
+    // Часть регалий заведена с дефисом в начале — маркер свой.
+    .map((a: string) => a.replace(/^[-–—•\s]+/, '').trim())
+    .filter(Boolean)
   // Свёрнутая карточка показывает первые две регалии, остальные — по стрелке.
   const visible = open ? ach : ach.slice(0, 2)
 
   // Подарки — общая плашка со спикерами и партнёрами (см. GiftBox).
-  const gifts = gift?.show && Array.isArray(s.gifts)
-    ? s.gifts.map((g: any) => String(g || '').trim()).filter(Boolean)
-    : []
+  const giftsRaw: any[] = gift?.show && Array.isArray(s.gifts) ? s.gifts : []
+  const gifts: string[] = giftsRaw.map((g: any) => String(g || '').trim()).filter(Boolean)
   const giftBlock = <GiftBox gifts={gifts} gift={gift} />
 
   return (
