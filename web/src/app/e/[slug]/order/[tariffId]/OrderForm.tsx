@@ -59,6 +59,9 @@ export default function OrderForm({
   const [offer, setOffer] = useState(false)
   const [mkt, setMkt] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Адрес оплаты, когда уже уходим на платёжную систему. Пока он не пуст —
+  // показываем экран перехода вместо формы (см. ниже, «ЭКРАН ПЕРЕХОДА»).
+  const [redirecting, setRedirecting] = useState<string | null>(null)
   // Замок отправки. Не состояние: оно применяется к следующей перерисовке, а
   // защита нужна прямо сейчас — между двумя нажатиями подряд.
   const sending = useRef(false)
@@ -304,6 +307,13 @@ export default function OrderForm({
         // страница благодарности возьмёт номер отсюда и всё равно покажет
         // нужное событие и его чаты.
         try { localStorage.setItem('lastOrderId', String(data.order_id)) } catch {}
+        // ⚠️ ЭКРАН ПЕРЕХОДА, а не голый redirect (17.09.2026). Платёжная
+        // система может отвечать долго или лежать вовсе (в тот день
+        // `prodamus.online` не отвечал по 15 с и терял все пакеты). Человек
+        // жал «Перейти к оплате» и смотрел в мёртвую белую страницу без
+        // единого признака жизни: «висит без колесика — плохо».
+        // Показываем, что происходит, и даём ссылку открыть оплату вручную.
+        setRedirecting(data.payment_url)
         location.href = data.payment_url
         return
       }
@@ -313,6 +323,49 @@ export default function OrderForm({
       setBusy(false)
       unlock()
     }
+  }
+
+  /* ⚠️ ЭКРАН ПЕРЕХОДА НА ОПЛАТУ (17.09.2026).
+     Платёжная система может отвечать долго или не отвечать вовсе, а браузер
+     в это время показывает пустую страницу — человек не понимает, живо ли
+     ещё что-нибудь, и уходит. Поэтому: крутящееся колесо, что именно
+     происходит, и ссылка открыть оплату руками, если переход не случился. */
+  if (redirecting) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-5 py-10"
+           style={{
+             background: page.bg_css_screen || page.bg_css || '#25455D',
+             color: page.color_body || '#FFFFFF',
+             fontFamily: page.font_body_css,
+           }}>
+        <div className="w-full max-w-md text-center">
+          <div
+            className="mx-auto h-12 w-12 animate-spin rounded-full"
+            style={{
+              border: `3px solid ${page.color_heading || '#FFCFA4'}33`,
+              borderTopColor: page.color_heading || '#FFCFA4',
+            }}
+          />
+          <h1 className="mt-6 text-[1.25em] font-bold"
+              style={{ fontFamily: page.font_heading_css, color: page.color_heading || '#FFCFA4' }}>
+            Заказ создан, открываем оплату
+          </h1>
+          <p className="mt-3 text-[.9em] opacity-80">
+            Сейчас вы перейдёте на защищённую страницу платёжной системы.
+            Иногда она открывается не сразу — подождите несколько секунд.
+          </p>
+          <a href={redirecting}
+             className="mt-6 inline-block underline"
+             style={{ color: page.color_link || '#FFCFA4' }}>
+            Не открылась? Нажмите, чтобы перейти к оплате
+          </a>
+          <p className="mt-6 text-[.8em] opacity-60">
+            Заказ уже сохранён — если оплата не открылась, вернитесь к нему
+            позже, ничего заполнять заново не придётся.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   if (candidates) {
@@ -610,7 +663,22 @@ export default function OrderForm({
             className="w-full px-6 py-4 text-[1em] font-bold uppercase transition-transform hover:scale-[1.02] disabled:opacity-60"
             style={btnStyle}
           >
-            {busy ? 'Отправляем…' : isFree ? 'Участвовать' : 'Перейти к оплате'}
+            {/* ⚠️ Колесо, а не только текст: «Отправляем…» без движения
+                читается как зависшая страница, особенно когда платёжная
+                система отвечает долго. */}
+            {busy ? (
+              <span className="inline-flex items-center justify-center gap-2">
+                <span
+                  className="inline-block h-4 w-4 animate-spin rounded-full align-[-2px]"
+                  style={{
+                    border: '2px solid currentColor',
+                    borderTopColor: 'transparent',
+                    opacity: 0.7,
+                  }}
+                />
+                Отправляем…
+              </span>
+            ) : isFree ? 'Участвовать' : 'Перейти к оплате'}
           </button>
         </div>
 
