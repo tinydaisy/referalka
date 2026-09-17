@@ -213,27 +213,40 @@ export default function LeadMagnetPicker({
               </div>
             )}
 
-            {/* ⚠️ Заголовки групп показываем ВСЕГДА (когда пакеты вообще
-                включены): магнит и пакет — разные сущности, и человек должен
-                видеть, что он выбирает, даже если группа сейчас одна. */}
+            {/* ⚠️⚠️ ЗАГОЛОВКИ ГРУПП — ВСЕГДА, безусловно. Раньше они зависели
+                от `withPackages`, и на экранах без пакетов (пороги, анкеты,
+                /start) список шёл СПЛОШНОЙ КУЧЕЙ без единой подписи. Магнит и
+                пакет — разные сущности, человек должен видеть, что выбирает. */}
             {!!magnets.length && (
               <>
-                {withPackages && (
-                  <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                    Лид-магниты · {magnets.length}
-                  </div>
-                )}
+                <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  Лид-магниты · {magnets.length}
+                </div>
                 {magnets.map(row)}
               </>
             )}
 
-            {withPackages && !!packages.length && (
-              <>
-                <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Пакеты · {packages.length}
+            {/* ⚠️ Заголовок «Пакеты» виден и когда их НЕТ — с пояснением.
+                Иначе непонятно, почему пакетов не видно: то ли их не бывает,
+                то ли экран их не поддерживает. */}
+            {withPackages && (
+              packages.length ? (
+                <>
+                  <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                    Пакеты · {packages.length}
+                  </div>
+                  {packages.map(row)}
+                </>
+              ) : !q && (
+                <div className="bg-gray-50 px-3 py-1.5 text-[11px] text-gray-400">
+                  Пакеты — пока ни одного
                 </div>
-                {packages.map(row)}
-              </>
+              )
+            )}
+            {!withPackages && !!magnets.length && !q && (
+              <div className="bg-gray-50 px-3 py-1.5 text-[11px] text-gray-400">
+                Пакеты здесь не выдаются — только один материал
+              </div>
             )}
           </div>
         </div>

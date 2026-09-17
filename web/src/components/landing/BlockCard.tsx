@@ -1309,6 +1309,36 @@ export default function BlockCard({
                         className="w-full" />
                     </Field>
 
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input type="checkbox"
+                        checked={!!block.card_position_underline}
+                        onChange={e => onPatch({ card_position_underline: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand" />
+                      <span className="text-sm font-medium text-gray-700">
+                        Подчёркивать позиционирование
+                      </span>
+                    </label>
+                    {block.card_position_underline && (
+                      <>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input type="checkbox"
+                            checked={!!block.card_position_underline_color}
+                            onChange={e => onPatch({
+                              card_position_underline_color: e.target.checked ? '#FFCFA4' : null,
+                            })}
+                            className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand" />
+                          <span className="text-sm text-gray-700">Свой цвет линии</span>
+                        </label>
+                        {block.card_position_underline_color && (
+                          <ColorField
+                            label="Цвет подчёркивания"
+                            value={block.card_position_underline_color}
+                            onChange={v => onPatch({ card_position_underline_color: v })}
+                          />
+                        )}
+                      </>
+                    )}
+
                     <Field label="Позиционирование — регистр">
                       <div className="flex flex-wrap gap-2">
                         {([['none', 'Как ввели'], ['upper', 'БОЛЬШИМИ БУКВАМИ']] as const).map(

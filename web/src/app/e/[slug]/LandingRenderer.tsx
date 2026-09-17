@@ -2759,6 +2759,14 @@ function cardTextStyle(block: any, page: any) {
     fontSize: em(block.card_position_size, 90),
     textTransform: block.card_position_case === 'upper' ? 'uppercase' : 'none',
   }
+  // Подчёркивание позиционирования — своей настройкой, отдельно от имени:
+  // подчеркнуть можно и только должность, и только имя, и оба.
+  if (block.card_position_underline === true) {
+    positionStyle.textDecoration = 'underline'
+    positionStyle.textDecorationColor =
+      block.card_position_underline_color || page.color_heading || '#FFCFA4'
+    positionStyle.textUnderlineOffset = '.18em'
+  }
   const textStyle: React.CSSProperties = { fontSize: em(block.card_text_size, 85) }
   return { name: nameStyle, position: positionStyle, text: textStyle }
 }

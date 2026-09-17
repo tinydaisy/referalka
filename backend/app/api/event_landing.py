@@ -235,7 +235,7 @@ def normalize_block_gift(field: str, val):
         # Проценты от основного текста. Границы: мельче 60% нечитаемо, крупнее
         # 250% имя перестаёт помещаться в карточку.
         return max(60, min(250, int(val)))
-    if field == "card_name_underline_color" and val is not None:
+    if field in ("card_name_underline_color", "card_position_underline_color") and val is not None:
         return (val or "").strip() or None
     if field in ("card_name_align", "card_text_align") and val is not None:
         # Пустая строка = «как было», то есть NULL: иначе вернуть прежний вид
@@ -284,6 +284,7 @@ BLOCK_PATCH_FIELDS: tuple = (
         "card_name_size", "card_position_size", "card_text_size",
         "card_name_case", "card_position_case",
         "card_name_underline", "card_name_underline_color",
+        "card_position_underline", "card_position_underline_color",
         "show_seats", "seats_position",
         "bg_color", "bg_image_url", "bg_overlay", "bg_overlay_opacity",
         "border_color", "border_width", "border_radius",
@@ -458,6 +459,8 @@ class BlockPatch(BaseModel):
     card_position_case: Optional[str] = None
     card_name_underline: Optional[bool] = None
     card_name_underline_color: Optional[str] = None
+    card_position_underline: Optional[bool] = None
+    card_position_underline_color: Optional[str] = None
     seats_position: Optional[str] = None
     bg_color: Optional[str] = None
     bg_image_url: Optional[str] = None
