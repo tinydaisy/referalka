@@ -288,99 +288,16 @@ export default function OverviewTab({
         </div>
       </div>
 
-      {/* 2) НАСТРОЙКА ССЫЛОК */}
+      {/* 2) ЧАТЫ И КАНАЛЫ СОБЫТИЯ — своя секция (раньше чаты прятались
+             внутри «Настройки ссылок», где их не искали).
+             ⚠️ Чата СПИКЕРОВ тут нет намеренно: у мероприятия нет ни спикеров,
+             ни программы по слотам — напоминание «вы следующие» слать нечему. */}
       <div className="bg-white rounded-2xl border card-border p-6">
-        <h2 className="block-title mb-4">Настройка ссылок</h2>
-
-        <div className="space-y-4">
-          {/* ⚠️⚠️ ОФЛАЙН — ЯВНАЯ ГАЛОЧКА, А НЕ ДОГАДКА ПО ЗАПОЛНЕННОМУ АДРЕСУ.
-              Адрес вписывают позже, чем собирают страницу — до этого человек
-              видел бы кнопку эфира, которого нет. А в это же поле исторически
-              кладут ссылку на трансляцию: такое событие сочли бы офлайновым и
-              увели людей на карту по обрывку URL. */}
-          {/* ⚠️ Галочка «Идёт постоянно» переехала ОТСЮДА к полям даты (выше,
-              блок «Основное») — здесь её не находили. Второй копии не заводить. */}
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input type="checkbox" checked={isOffline}
-              onChange={e => setIsOffline(e.target.checked)}
-              className="mt-0.5 accent-[#25455D]" />
-            <span className="text-sm text-gray-700">
-              Офлайн-событие
-              <span className="block text-xs text-gray-400 mt-0.5">
-                Вместо кнопки эфира участник увидит адрес и карту — в боте,
-                в Mini App и на лендинге.
-              </span>
-            </span>
-          </label>
-
-          {isOffline && (
-            <>
-              <Field label="Адрес места проведения"
-                     hint="Начните вводить — подскажем. Номер квартиры указывать не нужно: карте он ничего не даёт, а участники его увидят.">
-                <AddressField value={address} onChange={setAddress}
-                  onGeo={(la, lo) => { setGeoLat(la); setGeoLon(lo) }} />
-              </Field>
-              <Field label="Название кнопки адреса"
-                     hint="Как назвать кнопку в меню бота и в Mini App. Пусто — «Адрес мероприятия».">
-                <input value={addressBtn} onChange={e => setAddressBtn(e.target.value)}
-                       className="input" placeholder="Адрес мероприятия" maxLength={40} />
-              </Field>
-            </>
-          )}
-
-          {/* ⚠️ У ОФЛАЙН-СОБЫТИЯ ПРО ЭФИР НЕ ПИШЕМ ВОВСЕ (решение владельца).
-              Пояснение про вебинарную комнату и галочка «скрыть кнопку стрима»
-              относятся к тому, чего у офлайна нет: человек настраивает адрес, а
-              ему рассказывают про стрим. Трансляция из зала возможна, но её
-              включают в разделе «Вебинары» — там об этом и написано. */}
-          {!isOffline && (
-            <>
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-600">
-                Ссылка на эфир настраивается в разделе «Вебинары» — участник попадёт в вебинарную комнату дня.
-              </div>
-
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input type="checkbox" checked={hideStreamButton}
-                  onChange={e => setHideStreamButton(e.target.checked)}
-                  className="mt-0.5 accent-[#25455D]" />
-                <span className="text-sm text-gray-700">
-                  Скрыть кнопку стрима
-                  <span className="block text-xs text-gray-400 mt-0.5">
-                    Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
-                  </span>
-                </span>
-              </label>
-            </>
-          )}
-
-          {isMedialift && (
-            <Field label="Сколько каналов обязательно подписать" hint="МедиаЛифт: участнику показывается до 7 человек из его ветки, и он обязан подписаться минимум на это число, чтобы войти в систему.">
-              <input type="number" min={1} max={7} value={mlRequiredSubs}
-                onChange={e => setMlRequiredSubs(Math.max(1, Math.min(7, Number(e.target.value) || 1)))}
-                className="input w-24" />
-            </Field>
-          )}
-
-          <EventChatsField value={chats} onChange={setChats} />
-
-          <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App на «Программе» и в «Интро» появится кнопка. Если у участника есть pid (его привёл партнёр) — к ссылке добавится партнёрский параметр коллаборатора, как у стороннего лендинга.">
-            <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}
-                   className="input" placeholder="https://..." />
-          </Field>
-        </div>
+        <h2 className="block-title mb-4">Чаты и каналы события</h2>
+        <EventChatsField value={chats} onChange={setChats} />
       </div>
 
-      {/* Главные кнопки (тексты + акцент) */}
-      <MainButtonsBlock
-        vipLabel={vipButtonLabel}
-        chatLabel={chatButtonLabel}
-        accent={accentButton}
-        onVipLabel={setVipButtonLabel}
-        onChatLabel={setChatButtonLabel}
-        onAccent={setAccentButton}
-      />
-
-      {/* 3) ПРОВЕРКА ПОДПИСКИ НА КАНАЛЫ */}
+      {/* 3) ТРЕБОВАНИЕ ПОДПИСКИ */}
       <div className="bg-white rounded-2xl border card-border p-6">
         <h2 className="block-title mb-1">Проверка подписки на каналы</h2>
         <p className="text-sm text-gray-500 mb-4">
@@ -533,7 +450,97 @@ export default function OverviewTab({
         allowExternal={!event.is_collab}
       />
 
-      {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже.
+      {/* 5) ССЫЛКИ — всё остальное, что раньше лежало в «Описании» */}
+      <div className="bg-white rounded-2xl border card-border p-6">
+        <h2 className="block-title mb-4">Ссылки</h2>
+
+        <div className="space-y-4">
+          {/* ⚠️⚠️ ОФЛАЙН — ЯВНАЯ ГАЛОЧКА, А НЕ ДОГАДКА ПО ЗАПОЛНЕННОМУ АДРЕСУ.
+              Адрес вписывают позже, чем собирают страницу — до этого человек
+              видел бы кнопку эфира, которого нет. А в это же поле исторически
+              кладут ссылку на трансляцию: такое событие сочли бы офлайновым и
+              увели людей на карту по обрывку URL. */}
+          {/* ⚠️ Галочка «Идёт постоянно» переехала ОТСЮДА к полям даты (выше,
+              блок «Основное») — здесь её не находили. Второй копии не заводить. */}
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={isOffline}
+              onChange={e => setIsOffline(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <span className="text-sm text-gray-700">
+              Офлайн-событие
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Вместо кнопки эфира участник увидит адрес и карту — в боте,
+                в Mini App и на лендинге.
+              </span>
+            </span>
+          </label>
+
+          {isOffline && (
+            <>
+              <Field label="Адрес места проведения"
+                     hint="Начните вводить — подскажем. Номер квартиры указывать не нужно: карте он ничего не даёт, а участники его увидят.">
+                <AddressField value={address} onChange={setAddress}
+                  onGeo={(la, lo) => { setGeoLat(la); setGeoLon(lo) }} />
+              </Field>
+              <Field label="Название кнопки адреса"
+                     hint="Как назвать кнопку в меню бота и в Mini App. Пусто — «Адрес мероприятия».">
+                <input value={addressBtn} onChange={e => setAddressBtn(e.target.value)}
+                       className="input" placeholder="Адрес мероприятия" maxLength={40} />
+              </Field>
+            </>
+          )}
+
+          {/* ⚠️ У ОФЛАЙН-СОБЫТИЯ ПРО ЭФИР НЕ ПИШЕМ ВОВСЕ (решение владельца).
+              Пояснение про вебинарную комнату и галочка «скрыть кнопку стрима»
+              относятся к тому, чего у офлайна нет: человек настраивает адрес, а
+              ему рассказывают про стрим. Трансляция из зала возможна, но её
+              включают в разделе «Вебинары» — там об этом и написано. */}
+          {!isOffline && (
+            <>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-sm text-gray-600">
+                Ссылка на эфир настраивается в разделе «Вебинары» — участник попадёт в вебинарную комнату дня.
+              </div>
+
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" checked={hideStreamButton}
+                  onChange={e => setHideStreamButton(e.target.checked)}
+                  className="mt-0.5 accent-[#25455D]" />
+                <span className="text-sm text-gray-700">
+                  Скрыть кнопку стрима
+                  <span className="block text-xs text-gray-400 mt-0.5">
+                    Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
+                  </span>
+                </span>
+              </label>
+            </>
+          )}
+
+          {isMedialift && (
+            <Field label="Сколько каналов обязательно подписать" hint="МедиаЛифт: участнику показывается до 7 человек из его ветки, и он обязан подписаться минимум на это число, чтобы войти в систему.">
+              <input type="number" min={1} max={7} value={mlRequiredSubs}
+                onChange={e => setMlRequiredSubs(Math.max(1, Math.min(7, Number(e.target.value) || 1)))}
+                className="input w-24" />
+            </Field>
+          )}
+
+          <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App на «Программе» и в «Интро» появится кнопка. Если у участника есть pid (его привёл партнёр) — к ссылке добавится партнёрский параметр коллаборатора, как у стороннего лендинга.">
+            <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}
+                   className="input" placeholder="https://..." />
+          </Field>
+        </div>
+      </div>
+
+      {/* Главные кнопки (тексты + акцент) */}
+      <MainButtonsBlock
+        vipLabel={vipButtonLabel}
+        chatLabel={chatButtonLabel}
+        accent={accentButton}
+        onVipLabel={setVipButtonLabel}
+        onChatLabel={setChatButtonLabel}
+        onAccent={setAccentButton}
+      />
+
+      {/* 6) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже.
           Баннер «Каналы не подключены» теперь ВНУТРИ PublicLinks (по реальному
           наличию ссылок, без зависимости от кешированного me).
           ⚠️ У КОЛЛАБ-события общей публичной ссылки НЕТ: у каждого организатора

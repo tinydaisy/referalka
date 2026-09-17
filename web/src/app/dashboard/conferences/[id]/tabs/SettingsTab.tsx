@@ -100,6 +100,17 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     maxChatRef: conf?.max_chat_ref ?? null,
     primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
   })
+  // Чат СПИКЕРОВ (миграция 431) — отдельный закрытый чат команды. Главной
+  // площадки у него нет: сообщение уходит во все заполненные сразу.
+  const [speakersChats, setSpeakersChats] = useState<EventChatsValue>({
+    tgChatRef:  conf?.tg_speakers_chat_ref  ?? null,
+    vkChatRef:  conf?.vk_speakers_chat_ref  ?? null,
+    maxChatRef: conf?.max_speakers_chat_ref ?? null,
+    primary: null,
+  })
+  // У премии/турнира люди — номинанты, у конференции — спикеры.
+  const isTurnir = event?.module_slug === 'turnir'
+  const speakersChatTitle = isTurnir ? 'Чат спикеров/номинантов' : 'Чат спикеров'
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   // Текст ошибки настроек регистрации ('' = всё в порядке) — приходит из
@@ -163,6 +174,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       vkChatRef:  conf?.vk_chat_ref  ?? null,
       maxChatRef: conf?.max_chat_ref ?? null,
       primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
+    })
+    setSpeakersChats({
+      tgChatRef:  conf?.tg_speakers_chat_ref  ?? null,
+      vkChatRef:  conf?.vk_speakers_chat_ref  ?? null,
+      maxChatRef: conf?.max_speakers_chat_ref ?? null,
+      primary: null,
     })
     // ⚠️ event?.skip_contact_form в зависимостях НЕТ намеренно: этот блок
     // пересобирает форму при каждом изменении объекта event, а он меняется
@@ -258,6 +275,13 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (chats.vkChatRef  !== (conf?.vk_chat_ref  ?? null))           confPatch.vk_chat_ref  = chats.vkChatRef
       if (chats.maxChatRef !== (conf?.max_chat_ref ?? null))           confPatch.max_chat_ref = chats.maxChatRef
       if (chats.primary !== initPrimary)                               confPatch.primary_chat_platform = chats.primary || null
+      // Чат спикеров (миграция 431) — те же три ref, без primary.
+      if (speakersChats.tgChatRef  !== (conf?.tg_speakers_chat_ref  ?? null))
+        confPatch.tg_speakers_chat_ref  = speakersChats.tgChatRef
+      if (speakersChats.vkChatRef  !== (conf?.vk_speakers_chat_ref  ?? null))
+        confPatch.vk_speakers_chat_ref  = speakersChats.vkChatRef
+      if (speakersChats.maxChatRef !== (conf?.max_speakers_chat_ref ?? null))
+        confPatch.max_speakers_chat_ref = speakersChats.maxChatRef
 
       if (Object.keys(confPatch).length > 0) {
         const updated = await api.conference.update(eventId, confPatch)
@@ -333,9 +357,125 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         </div>
       </div>
 
-      {/* 2) НАСТРОЙКА ССЫЛОК */}
+      {/* 2) ЧАТЫ И КАНАЛЫ СОБЫТИЯ — своя секция (раньше чаты прятались
+             внутри «Настройки ссылок», где их не искали). */}
       <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
-        <h2 className="block-title">Настройка ссылок</h2>
+        <h2 className="block-title">Чаты и каналы события</h2>
+        <EventChatsField value={chats} onChange={setChats} />
+
+        {/* Чат СПИКЕРОВ — отдельный закрытый чат команды (миграция 431).
+            У мероприятий его нет вовсе: там нет спикеров и программы. */}
+        <EventChatsField
+          value={speakersChats}
+          onChange={setSpeakersChats}
+          noPrimary
+          label={speakersChatTitle}
+          chatLabel={speakersChatTitle}
+          hint={<>
+            Закрытый чат команды — отдельно от чата участников. Бот присылает туда
+            служебные сообщения по программе: за 15 минут до выступления —
+            «вы следующие» с временем, ссылками на эфир и тем, кто готовится следом
+            (шаблон «{isTurnir ? 'Спикеру/номинанту' : 'Спикеру'}: „вы следующие“» в разделе{' '}
+            <a href={`/dashboard/${isTurnir ? 'tournaments' : 'conferences'}/${eventId}?tab=broadcast-templates`}
+               className="text-[#25455D] underline hover:opacity-70">Рассылки → Шаблоны</a>).
+            {' '}Чат берётся из вашей базы: добавьте его один раз в{' '}
+            <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">
+              Каналы → «Группы/Каналы для рассылок»
+            </a>{' '}— ID определится сам, вручную вводить ничего не нужно.
+            {' '}Для Telegram нужно добавить своего бота в чат и сделать его администратором:
+            ниже сразу видно, на месте ли он и может ли писать.
+          </>}
+          emptyHint="Чат спикеров не выбран — напоминания «вы следующие» отправляться не будут."
+        />
+      </div>
+
+      {/* 3) ТРЕБОВАНИЕ ПОДПИСКИ */}
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
+        <h2 className="block-title">{ts.subscription}</h2>
+        <p className="text-sm text-gray-500">{ts.subscriptionHint}</p>
+        {[
+          { value: 'none',         label: ts.subNone,      desc: ts.subNoneDesc },
+          { value: 'organizer',    label: ts.subOrganizer, desc: ts.subOrganizerDesc },
+          { value: 'all_speakers', label: ts.subAll,       desc: ts.subAllDesc },
+        ].map(opt => (
+          <label key={opt.value}
+            className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+              form.subscription_mode === opt.value ? 'border-brand bg-brand/5' : 'border-gray-200 hover:border-gray-300'
+            }`}>
+            <input type="radio" name="sub_mode" value={opt.value}
+              checked={form.subscription_mode === opt.value}
+              onChange={() => setForm(f => ({ ...f, subscription_mode: opt.value }))}
+              className="mt-0.5 accent-brand" />
+            <div>
+              <p className="text-sm font-medium text-gray-900">{opt.label}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {/* Как называть участника. Одно слово на всё событие — иначе в карточке
+          «номинант», а в рассылке тому же человеку приходит «спикер».
+
+          ⚠️ ТОЛЬКО У ТУРНИРОВ И ПРЕМИЙ. Эта страница обслуживает и конференции,
+          и турниры (`/dashboard/tournaments` открывает её же), а настройку
+          показывали всем. На конференции выступают спикеры — выбирать там
+          нечего, и лишний пункт только запутывает. Премия от чемпионата
+          отличается как раз словом, поэтому им настройка и нужна. */}
+      {event?.module_slug === 'turnir' && (
+      <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <label className="label">Как называть участника события</label>
+        <select
+          value={form.person_wording}
+          onChange={e => setForm(f => ({ ...f, person_wording: e.target.value }))}
+          className="w-full sm:w-64 px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-brand"
+        >
+          <option value="speaker">Спикер</option>
+          <option value="nominee">Номинант</option>
+          <option value="member">Участник</option>
+        </select>
+        <p className="text-xs text-gray-400 mt-1.5">
+          Это слово подставляется везде: в карточке человека, в кабинете и в рассылках.
+          У премии обычно «Номинант», у турнира без выступлений — «Участник».
+        </p>
+      </div>
+      )}
+
+      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ — единая секция с переключателем
+             внутренний/сторонний лендинг (общий компонент с мероприятиями). */}
+      <LandingSettingsBlock
+        onValidity={setRegError}
+        // Описание выведено выше, в «Параметрах конференции» — здесь не дублируем.
+        showDescription={false}
+        description={form.description}
+        onDescription={(v) => setForm(f => ({ ...f, description: v }))}
+        landingUrl={form.landing_url}
+        onLandingUrl={(v) => setForm(f => ({ ...f, landing_url: v }))}
+        ctaLabel={form.landing_cta_label}
+        onCtaLabel={(v) => setForm(f => ({ ...f, landing_cta_label: v }))}
+        ctaRepeat={form.landing_cta_repeat}
+        onCtaRepeat={(v) => setForm(f => ({ ...f, landing_cta_repeat: v }))}
+        regClosed={form.registration_closed}
+        onRegClosed={(v) => setForm(f => ({ ...f, registration_closed: v }))}
+        preRegText={form.pre_reg_text}
+        onPreRegText={(v) => setForm(f => ({ ...f, pre_reg_text: v }))}
+        preRegBtnLabel={form.pre_reg_btn_label}
+        onPreRegBtnLabel={(v) => setForm(f => ({ ...f, pre_reg_btn_label: v }))}
+        preRegBtnUrl={form.pre_reg_btn_url}
+        onPreRegBtnUrl={(v) => setForm(f => ({ ...f, pre_reg_btn_url: v }))}
+        registeredCount={registeredCount}
+        skipContactForm={form.skip_contact_form}
+        onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
+        allowExternal={!event?.is_collab}
+        hasLanding={!!event?.landing_published}
+        landingUrlInternal={event?.slug ? `https://${publicHost}/e/${event.slug}` : ''}
+        regMode={form.registration_mode}
+        onRegMode={(v) => setForm(f => ({ ...f, registration_mode: v }))}
+      />
+
+      {/* 5) ССЫЛКИ — всё остальное, что раньше лежало в «Описании» */}
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
+        <h2 className="block-title">Ссылки</h2>
 
         {/* Куда вести человека после оплаты тарифа (миграция 261). */}
         <div className="mb-5 rounded-xl border border-gray-200 p-3">
@@ -431,7 +571,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             </label>
           </div>
         )}
-        <EventChatsField value={chats} onChange={setChats} />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Ссылка на оплату VIP-тарифа
@@ -519,91 +658,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         onAccent={(v) => setForm(f => ({ ...f, accent_button: v }))}
       />
 
-      {/* 3) ПОДПИСКА НА КАНАЛЫ ОРГАНИЗАТОРОВ */}
-      <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-3">
-        <h2 className="block-title">{ts.subscription}</h2>
-        <p className="text-sm text-gray-500">{ts.subscriptionHint}</p>
-        {[
-          { value: 'none',         label: ts.subNone,      desc: ts.subNoneDesc },
-          { value: 'organizer',    label: ts.subOrganizer, desc: ts.subOrganizerDesc },
-          { value: 'all_speakers', label: ts.subAll,       desc: ts.subAllDesc },
-        ].map(opt => (
-          <label key={opt.value}
-            className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-              form.subscription_mode === opt.value ? 'border-brand bg-brand/5' : 'border-gray-200 hover:border-gray-300'
-            }`}>
-            <input type="radio" name="sub_mode" value={opt.value}
-              checked={form.subscription_mode === opt.value}
-              onChange={() => setForm(f => ({ ...f, subscription_mode: opt.value }))}
-              className="mt-0.5 accent-brand" />
-            <div>
-              <p className="text-sm font-medium text-gray-900">{opt.label}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
-            </div>
-          </label>
-        ))}
-      </div>
-
-      {/* Как называть участника. Одно слово на всё событие — иначе в карточке
-          «номинант», а в рассылке тому же человеку приходит «спикер».
-
-          ⚠️ ТОЛЬКО У ТУРНИРОВ И ПРЕМИЙ. Эта страница обслуживает и конференции,
-          и турниры (`/dashboard/tournaments` открывает её же), а настройку
-          показывали всем. На конференции выступают спикеры — выбирать там
-          нечего, и лишний пункт только запутывает. Премия от чемпионата
-          отличается как раз словом, поэтому им настройка и нужна. */}
-      {event?.module_slug === 'turnir' && (
-      <div className="bg-white border border-gray-200 rounded-2xl p-5">
-        <label className="label">Как называть участника события</label>
-        <select
-          value={form.person_wording}
-          onChange={e => setForm(f => ({ ...f, person_wording: e.target.value }))}
-          className="w-full sm:w-64 px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-brand"
-        >
-          <option value="speaker">Спикер</option>
-          <option value="nominee">Номинант</option>
-          <option value="member">Участник</option>
-        </select>
-        <p className="text-xs text-gray-400 mt-1.5">
-          Это слово подставляется везде: в карточке человека, в кабинете и в рассылках.
-          У премии обычно «Номинант», у турнира без выступлений — «Участник».
-        </p>
-      </div>
-      )}
-
-      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ — единая секция с переключателем
-             внутренний/сторонний лендинг (общий компонент с мероприятиями). */}
-      <LandingSettingsBlock
-        onValidity={setRegError}
-        // Описание выведено выше, в «Параметрах конференции» — здесь не дублируем.
-        showDescription={false}
-        description={form.description}
-        onDescription={(v) => setForm(f => ({ ...f, description: v }))}
-        landingUrl={form.landing_url}
-        onLandingUrl={(v) => setForm(f => ({ ...f, landing_url: v }))}
-        ctaLabel={form.landing_cta_label}
-        onCtaLabel={(v) => setForm(f => ({ ...f, landing_cta_label: v }))}
-        ctaRepeat={form.landing_cta_repeat}
-        onCtaRepeat={(v) => setForm(f => ({ ...f, landing_cta_repeat: v }))}
-        regClosed={form.registration_closed}
-        onRegClosed={(v) => setForm(f => ({ ...f, registration_closed: v }))}
-        preRegText={form.pre_reg_text}
-        onPreRegText={(v) => setForm(f => ({ ...f, pre_reg_text: v }))}
-        preRegBtnLabel={form.pre_reg_btn_label}
-        onPreRegBtnLabel={(v) => setForm(f => ({ ...f, pre_reg_btn_label: v }))}
-        preRegBtnUrl={form.pre_reg_btn_url}
-        onPreRegBtnUrl={(v) => setForm(f => ({ ...f, pre_reg_btn_url: v }))}
-        registeredCount={registeredCount}
-        skipContactForm={form.skip_contact_form}
-        onSkipContactForm={(v) => setForm(f => ({ ...f, skip_contact_form: v }))}
-        allowExternal={!event?.is_collab}
-        hasLanding={!!event?.landing_published}
-        landingUrlInternal={event?.slug ? `https://${publicHost}/e/${event.slug}` : ''}
-        regMode={form.registration_mode}
-        onRegMode={(v) => setForm(f => ({ ...f, registration_mode: v }))}
-      />
-
-      {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
+      {/* 6) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
       <PublicLinks
         slug={event?.slug}
         eventId={eventId}

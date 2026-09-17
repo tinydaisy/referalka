@@ -28,7 +28,7 @@ EVENT_ONLY_TYPES = {
     "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
 }
 # Турнир получает в АВТО-СИДЕ (помимо общих).
-TURNIR_AUTOSEED_EXTRA = {"speaker_intro", "5min_before", "day_live"}
+TURNIR_AUTOSEED_EXTRA = {"speaker_intro", "5min_before", "day_live", "speakers_call"}
 # …и дополнительно может добавить вручную из пресетов.
 TURNIR_PRESET_EXTRA = TURNIR_AUTOSEED_EXTRA | {"pre_conf", "gift", "day_end", "expert_day"}
 
@@ -64,8 +64,9 @@ async def main() -> None:
               (type, name, subject, text, text_event, photo_url, button_text, button_url,
                schedule_mode, offset_minutes, audience_include, audience_exclude,
                allow_custom_datetime, for_event, for_conference, for_turnir,
-               autoseed, multi_instance, turnir_name, turnir_text, sort_order)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+               autoseed, multi_instance, turnir_name, turnir_text, sort_order,
+               send_to_speakers_chat)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
             ON CONFLICT (type) DO NOTHING
             RETURNING id
             """,
@@ -88,6 +89,7 @@ async def main() -> None:
             _TURNIR_TEMPLATE_NAMES.get(t),
             _TURNIR_TEMPLATE_TEXTS.get(t),
             i * 10,
+            bool(tpl.get("send_to_speakers_chat", False)),
         )
         if row:
             inserted += 1

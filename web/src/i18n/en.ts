@@ -169,7 +169,7 @@ export const en = {
       organizerNone: '— not selected —',
       organizerNoSpeakers: 'Add speakers first on the Speakers tab',
       subscription: 'Subscription requirement',
-      subscriptionHint: 'Participants must subscribe to channel(s) before accessing the referral game.',
+      subscriptionHint: 'Participants must subscribe to channel(s) before accessing the event chats.',
       subNone: 'No subscription required',
       subNoneDesc: 'Game is accessible immediately',
       subOrganizer: "Organizer's channel only",

@@ -227,7 +227,8 @@ async def _send_broadcast(schedule_id: int):
         tmpl = await conn.fetchrow(
             "SELECT subject, text, photo_url, video_url, media_type, video_file_id, "
             "button_text, button_url, target_channel_ids, speaker_photo_mode, "
-            "send_to_event_chats, send_to_client_chats, send_to_private_chats "
+            "send_to_event_chats, send_to_client_chats, send_to_private_chats, "
+            "send_to_speakers_chat "
             "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
         ) if schedule["template_id"] else None
@@ -245,6 +246,8 @@ async def _send_broadcast(schedule_id: int):
                 schedule = dict(schedule); schedule["send_to_client_chats"] = True
             if not schedule.get("send_to_private_chats") and tmpl["send_to_private_chats"]:
                 schedule = dict(schedule); schedule["send_to_private_chats"] = True
+            if not schedule.get("send_to_speakers_chat") and tmpl["send_to_speakers_chat"]:
+                schedule = dict(schedule); schedule["send_to_speakers_chat"] = True
 
         # Гейт по фиче: отправка в ОБЩИЕ/ЛИЧНЫЕ чаты клиента (база client_broadcast_chats)
         # доступна только с фичей broadcast_chats (Экстра/vip). У Профи и ниже эти флаги
@@ -844,6 +847,15 @@ async def _send_broadcast(schedule_id: int):
                         WHERE e.id = $1""", event_id)
                 if ev_tg and str(ev_tg).strip():
                     tg_chats.append((str(ev_tg).strip(), "event"))
+            if schedule.get("send_to_speakers_chat") and event_id:
+                # Чат СПИКЕРОВ события (миграция 431) — отдельный от чата участников:
+                # служебные сообщения команде («вы следующие» за 15 минут).
+                ev_sp = await conn.fetchval(
+                    """SELECT cbc.chat_id FROM events e
+                         JOIN client_broadcast_chats cbc ON cbc.id = e.tg_speakers_chat_ref
+                        WHERE e.id = $1""", event_id)
+                if ev_sp and str(ev_sp).strip():
+                    tg_chats.append((str(ev_sp).strip(), "event_speakers"))
             if schedule.get("send_to_client_chats"):
                 # ОБЩИЕ чаты: is_private = FALSE
                 rows_cl = await conn.fetch(
@@ -958,6 +970,22 @@ async def _send_broadcast(schedule_id: int):
             except Exception as ex:
                 logger.warning(f"Отправка в чаты события для рассылки {schedule_id} упала: {ex}")
 
+        # === Чат СПИКЕРОВ события (VK/MAX) — по флагу send_to_speakers_chat ===
+        # Отдельный от чата участников закрытый чат команды (миграция 431).
+        # TG-часть ушла в общем TG-блоке выше (с дедупом), здесь только VK/MAX.
+        if schedule.get("send_to_speakers_chat") and event_id and not schedule.get("is_test"):
+            try:
+                sp_sent = await _send_broadcast_to_event_chats(
+                    conn, schedule, event_id, text, photo_url, button_text, button_url,
+                    buttons=buttons, video_url=video_url, media_type=media_type,
+                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst,
+                    chat_kind="event_speakers", speakers=True,
+                )
+                sent += sp_sent
+                logger.info(f"Чат спикеров для рассылки {schedule_id}: отправлено {sp_sent}")
+            except Exception as ex:
+                logger.warning(f"Отправка в чат спикеров для рассылки {schedule_id} упала: {ex}")
+
         # === Общие чаты клиента (доп. слой) — VK/MAX, по флагу send_to_client_chats ===
         # TG-чаты этой базы уже ушли в общем TG-блоке выше (с дедупом).
         # is_private=FALSE — общие чаты.
@@ -1029,18 +1057,24 @@ async def _send_broadcast_to_event_chats(
     video_url: str | None = None, media_type: str | None = None,
     sent_vk: set | None = None, sent_max: set | None = None,
     with_support=None,
+    chat_kind: str = "event", speakers: bool = False,
 ) -> int:
     """Шлёт рассылку в ГРУППОВЫЕ чаты события VK/MAX (по флагу send_to_event_chats):
     events.vk_chat_id (VK-беседа), max_chat_id (MAX-чат).
     Telegram-чаты обрабатываются отдельно выше (с дедупом),
     поэтому ЗДЕСЬ TG НЕ дублируем. Возвращает число успешно отправленных чатов.
     В sent_vk/sent_max (если переданы) регистрирует отправленные chat_id —
-    для дедупа с базой чатов клиента."""
+    для дедупа с базой чатов клиента.
+
+    speakers=True — то же самое, но для ЧАТА СПИКЕРОВ (миграция 431):
+    читаются vk/max_speakers_chat_ref, в лог пишется chat_kind='event_speakers'."""
     # Чаты события VK/MAX — через ref на client_broadcast_chats.
+    _vk_col = "vk_speakers_chat_ref" if speakers else "vk_chat_ref"
+    _max_col = "max_speakers_chat_ref" if speakers else "max_chat_ref"
     ev = await conn.fetchrow(
-        """SELECT (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_id,
-                  (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_id
-             FROM events e WHERE e.id = $1""", event_id
+        f"""SELECT (SELECT chat_id FROM client_broadcast_chats WHERE id = e.{_vk_col}) AS vk_chat_id,
+                   (SELECT chat_id FROM client_broadcast_chats WHERE id = e.{_max_col}) AS max_chat_id
+              FROM events e WHERE e.id = $1""", event_id
     )
     if not ev:
         return 0
@@ -1095,7 +1129,7 @@ async def _send_broadcast_to_event_chats(
                     res = await max_send(chat_id_int, msg, token=max_token, buttons=max_buttons,
                                          recipient_kind="chat", parse_mode="html",
                                          attachments=[attach] if attach else None)
-                    await _log_chat_send(conn, schedule["id"], "event", "max", max_chat, bool(res))
+                    await _log_chat_send(conn, schedule["id"], chat_kind, "max", max_chat, bool(res))
                     if res:
                         sent += 1
                     if sent_max is not None:
@@ -1149,7 +1183,7 @@ async def _send_broadcast_to_event_chats(
                     # Шлём если есть текст ИЛИ вложение (фото без текста — норма).
                     if vk_text or vk_attachment:
                         res = await vk_call("messages.send", params, token=vk_row["bot_token"])
-                        await _log_chat_send(conn, schedule["id"], "event", "vk", vk_chat, bool(res))
+                        await _log_chat_send(conn, schedule["id"], chat_kind, "vk", vk_chat, bool(res))
                         if res:
                             sent += 1
                     if sent_vk is not None:

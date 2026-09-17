@@ -115,7 +115,7 @@ ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр
 DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "day_end",
              "day_before_09_12_unreg", "day_before_09_12_reg",
              "event_live")
-SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before", "expert_day")
+SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before", "expert_day", "speakers_call")
 
 # Плейсхолдеры, которые можно заполнить ТОЛЬКО когда выбран конкретный спикер
 # (спикерские рассылки). В произвольной рассылке (custom) и не-спикерских типах
@@ -127,6 +127,9 @@ _SPEAKER_ONLY_PLACEHOLDERS = (
     "speaker_tg", "speaker_instagram", "speaker_topic_full", "speaker_topic_desc", "speaker_topic", "speaker_achievements",
     "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
     "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
+    # Следующий по программе спикер — есть только там, где известен слот
+    # (speakers_call «вы следующие»). Подробности — _next_speaker_in_program().
+    "next_speaker_name", "next_speaker_tg_username", "next_speaker_time",
     "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
 )
 CONF_TYPES = ("pre_conf",)
@@ -363,6 +366,44 @@ def _build_speaker_slot_strings(slot_start, slot_end, slot_date):
     else:
         dt_str = date_str or time_str
     return time_str, date_str, dt_str
+
+
+async def _next_speaker_in_program(conn, event_id, day, start_time):
+    """Кто выступает СЛЕДУЮЩИМ после слота (event_id, day, start_time).
+
+    Нужен для рассылки «вы следующие» в чат спикеров: строка «Готовится к
+    15:00: Иван Петров (@ivan)» — чтобы следующий заранее знал, что он на
+    очереди, и успел подключиться.
+
+    Ищем в том же дне программы: ближайший по времени слот со спикером, чей
+    старт строго позже текущего. Время — строка "HH:MM" (миграция 048), для
+    одного дня строковое сравнение совпадает с хронологическим.
+
+    Последний слот дня → None (все три плейсхолдера пустые, и строка
+    «Готовится…» убирается из текста целиком). На следующий день намеренно НЕ
+    переходим: «готовится» через сутки — бессмыслица.
+    """
+    if not (event_id and day and start_time):
+        return None
+    return await conn.fetchrow(
+        """
+        SELECT btrim(CASE WHEN COALESCE(btrim(c.last_name),'')=''
+                          THEN COALESCE(c.name,'')
+                          ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name,
+               pu_tg.username AS tg_username,
+               cs.start_time, cs.end_time
+          FROM conf_sessions cs
+          JOIN event_collaborators cse ON cse.id = cs.speaker_id
+          JOIN collaborators c ON c.id = cse.speaker_id
+          LEFT JOIN platform_users pu_tg
+            ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
+         WHERE cs.event_id = $1 AND cs.day = $2
+           AND cs.start_time IS NOT NULL AND cs.start_time > $3
+         ORDER BY cs.start_time, cs.sort_order, cs.id
+         LIMIT 1
+        """,
+        event_id, day, start_time,
+    )
 
 
 # ─── Формирование текста: speaker_intro ─────────────────────────────────────
@@ -680,9 +721,44 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
                             vk_url=None, max_url=None, website_url=None,
                             achievements=None, role=None, bio=None, positioning=None,
                             card_link=None, speaker_notes=None, speaker_topic_desc=None,
-                            speaker_when=None):
+                            speaker_when=None, speaker_time=None, webinar_room_url=None,
+                            next_speaker_name=None, next_speaker_tg=None,
+                            next_speaker_time=None):
     text = tmpl_text or ""
     text = text.replace("{stream_url}", stream_url_val or "")
+    # {webinar_room_url} — НАША комната дня, отдельно от {stream_url} (которая при
+    # внешнем эфире отдаёт Zoom/YouTube). В шаблоне «вы следующие» спикеру нужны
+    # обе ссылки сразу. Пусто → строка убирается целиком.
+    _room_v = (webinar_room_url or "").strip()
+    if not _room_v:
+        text = re.sub(r"^[^\n]*\{webinar_room_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    text = text.replace("{webinar_room_url}", _room_v)
+    # {speaker_time} — «14:30–15:00 МСК». Раньше раскрывался только в
+    # speaker_intro, хотя фронт предлагал его и здесь — плейсхолдер уходил сырым.
+    _stime_v = (speaker_time or "").strip()
+    if not _stime_v:
+        text = re.sub(r"^[^\n]*\{speaker_time\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    text = text.replace("{speaker_time}", _stime_v)
+    # Следующий по программе. Нет следующего (последний слот дня) → строка
+    # «Готовится…» исчезает целиком, а не висит пустым хвостом.
+    _next_name = (next_speaker_name or "").strip()
+    _next_tg_raw = (next_speaker_tg or "").strip().lstrip("@")
+    _next_tg = f"@{_next_tg_raw}" if _next_tg_raw else ""
+    _next_time = (next_speaker_time or "").strip()
+    if not _next_name:
+        # Следующего нет вовсе → убираем всю строку «Готовится…» (по любому из
+        # трёх токенов: клиент мог оставить в шаблоне не все).
+        for _tok in ("{next_speaker_name}", "{next_speaker_tg_username}", "{next_speaker_time}"):
+            text = re.sub(r"^[^\n]*" + re.escape(_tok) + r"[^\n]*\n?", "", text, flags=re.MULTILINE)
+    else:
+        # Следующий есть, но без тега/времени → вырезаем ТОЛЬКО сам токен, строку
+        # оставляем: имя в ней уже значимо. Скобки вокруг пустого тега убираем,
+        # иначе останется висящее «Иван Петров ()».
+        if not _next_tg:
+            text = text.replace(" ({next_speaker_tg_username})", "")
+        text = (text.replace("{next_speaker_name}", _next_name)
+                    .replace("{next_speaker_tg_username}", _next_tg)
+                    .replace("{next_speaker_time}", _next_time))
     # Полный набор спикер-плейсхолдеров (те же, что в speaker_intro), чтобы
     # «за 5 минут до выступления» тоже мог показывать соцсети/био/ссылку и т.п.
     socials_block = build_speaker_socials(tg_channel_url, vk_url, max_url,
@@ -710,6 +786,13 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
     text = text.replace("{speaker_achievements}", ach_text)
     personal_mention = f"@{(personal_tg or '').strip().lstrip('@')}" if (personal_tg or '').strip() else ""
     if not personal_mention:
+        # ⚠️ Строку целиком убираем, ТОЛЬКО если кроме тега в ней ничего значимого.
+        # В шаблоне «вы следующие» заголовок выглядит как
+        # «{speaker_name} ({speaker_tg_username}) — вы следующие»: у спикера без
+        # тега прежнее правило стирало весь заголовок. Есть соседний
+        # {speaker_name} → убираем только скобки с тегом.
+        if "{speaker_name}" in text:
+            text = text.replace(" ({speaker_tg_username})", "")
         text = re.sub(r"^[^\n]*\{speaker_tg_username\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     text = text.replace("{speaker_tg_username}", personal_mention)
     text = text.replace("{speaker_personal_tg}", socials_block)
@@ -1703,7 +1786,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                            .replace("{speaker_card_link}", card_link or "")
                            .replace("{speaker_tg_username}", _pmention))
 
-    elif tpl_type in ("5min_before", "gift"):
+    elif tpl_type in ("5min_before", "gift", "speakers_call"):
+        # speakers_call («вы следующие» в чат спикеров) собирается тем же
+        # запросом по слоту, что и 5min_before — данные нужны те же самые.
         session_data = {}
         if session_id:
             session = await conn.fetchrow(
@@ -1811,14 +1896,21 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if not photo:
             # 5min_before уважает режим speaker_photo_mode (афиша/просто фото);
             # gift оставляем на афише (poster) как прежде.
-            if tpl_type == "5min_before" and speaker_photo_mode == "photo":
+            # speakers_call — служебное сообщение в чат спикеров, фото не нужно.
+            if tpl_type == "speakers_call":
+                pass
+            elif tpl_type == "5min_before" and speaker_photo_mode == "photo":
                 photo = session_data.get("speaker_photo") or session_data.get("speaker_poster")
             else:
                 photo = session_data.get("speaker_poster") or session_data.get("speaker_photo")
         # Ссылка эфира = вебинарная комната ДНЯ этого слота.
+        # ⚠️ У speakers_call получатель — ЧАТ, а не человек: подставлять
+        # персональный ?c={contact_id} некому и незачем (ссылка одна на всех).
         from app.services.webinar_service import day_stream_url as _day_stream_url
-        stream_url = await _day_stream_url(
-            conn, session_data.get("session_event_id") or event_id, session_data.get("session_day"), "__CT__")
+        _slot_event_id = session_data.get("session_event_id") or event_id
+        _slot_day = session_data.get("session_day")
+        _ct = None if tpl_type == "speakers_call" else "__CT__"
+        stream_url = await _day_stream_url(conn, _slot_event_id, _slot_day, _ct)
         speaker_material = build_speaker_material(
             session_data.get("knowledge_base_title"), session_data.get("knowledge_base_url"))
         _pre_when = ""   # {speaker_when}; заполняется веткой 5min_before
@@ -1843,7 +1935,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 is_package=_is_pkg,
             )
             text = apply_speaker_material(text, speaker_material)
-        else:  # 5min_before
+        else:  # 5min_before | speakers_call
+            _pre_date = None
             if session_data.get("start_time"):
                 _pre_date = await conn.fetchval(
                     "SELECT day_date FROM conf_days WHERE event_id=$1 AND day_number=$2",
@@ -1852,6 +1945,24 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 )
                 _pre_when = relative_when(_pre_date, session_data["start_time"],
                                           _msk_ref_date(fire_at))
+            # {speaker_time} — «14:30–15:00 МСК» для обоих типов.
+            _pre_time, _, _ = _build_speaker_slot_strings(
+                session_data.get("start_time"), session_data.get("end_time"), _pre_date)
+            # Следующий по программе + наша комната дня — только для «вы следующие».
+            _room_url = ""
+            _nx_name = _nx_tg = _nx_time = ""
+            if tpl_type == "speakers_call":
+                from app.services.webinar_service import day_room_url as _day_room_url
+                _room_url = await _day_room_url(conn, _slot_event_id, _slot_day, None)
+                _nx = await _next_speaker_in_program(
+                    conn, _slot_event_id,
+                    session_data.get("day") or _slot_day,
+                    session_data.get("start_time"))
+                if _nx:
+                    _nx_name = _nx["name"] or ""
+                    _nx_tg = _nx["tg_username"] or ""
+                    _nx_time, _, _ = _build_speaker_slot_strings(
+                        _nx["start_time"], _nx["end_time"], _pre_date)
             card_link = speaker_card_link(session_data.get("event_slug"), session_data.get("ec_id"),
                                           session_data.get("default_link_mode"), session_data.get("bot_handle"),
                                           base_url=_pub_base)
@@ -1874,6 +1985,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 speaker_notes=session_data.get("speaker_notes"),
                 speaker_topic_desc=session_data.get("speaker_topic_desc"),
                 speaker_when=_pre_when,
+                speaker_time=_pre_time,
+                webinar_room_url=_room_url,
+                next_speaker_name=_nx_name,
+                next_speaker_tg=_nx_tg,
+                next_speaker_time=_nx_time,
             )
             text = apply_speaker_material(text, speaker_material)
         btn_url = btn_url.replace("{stream_url}", stream_url)
@@ -2157,6 +2273,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "speaker_tg", "speaker_instagram", "speaker_topic_full", "speaker_topic_desc", "speaker_topic", "speaker_achievements",
         "speaker_bio", "speaker_positioning", "speaker_card_link", "speaker_material",
         "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
+        # Рассылка «вы следующие» в чат спикеров (speakers_call).
+        "next_speaker_name", "next_speaker_tg_username", "next_speaker_time",
+        "webinar_room_url",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
         "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",

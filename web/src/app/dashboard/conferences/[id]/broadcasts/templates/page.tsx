@@ -51,6 +51,13 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     showPhoto: true,
   },
   {
+    type: 'speakers_call',
+    title: 'Спикеру: «вы следующие» (в чат спикеров)',
+    hint: 'Уходит В ЧАТ СПИКЕРОВ (не участникам) за 15 минут до выступления по программе — на каждого спикера отдельно. Кто выступает, во сколько, ссылки на эфир и кто готовится следом. Чат спикеров задаётся в «Описании» события, раздел «Чаты и каналы события».',
+    variables: ['{speaker_name}', '{speaker_tg_username}', '{speaker_time}', '{speaker_topic}', '{speaker_when}', '{stream_url}', '{webinar_room_url}', '{next_speaker_name}', '{next_speaker_tg_username}', '{next_speaker_time}'],
+    hasSpeaker: true,
+  },
+  {
     type: 'event_live',
     title: 'За 5 минут до старта мероприятия',
     hint: 'Только для мероприятия. Отправляется за 5 минут до старта эфира мероприятия. Фото — афиша события.',
@@ -158,7 +165,11 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
   { name: '{gift_url}', desc: 'Ссылка на подарок' },
-  { name: '{stream_url}', desc: 'Ссылка на эфир (вебинарная комната дня)' },
+  { name: '{stream_url}', desc: 'Ссылка на эфир (вебинарная комната дня). Если эфир идёт во внешнем сервисе (Zoom/YouTube) — его ссылка' },
+  { name: '{webinar_room_url}', desc: 'Ссылка на НАШУ вебинарную комнату дня — даже когда эфир идёт во внешнем сервисе. Нужна, чтобы дать спикеру обе ссылки сразу. Комнаты нет — строка убирается' },
+  { name: '{next_speaker_name}', desc: 'Имя следующего по программе спикера (кто выступает после текущего в этот же день). Следующего нет — строка убирается' },
+  { name: '{next_speaker_tg_username}', desc: 'Ник следующего спикера в Telegram (@username). Пусто — убирается только сам ник, строка остаётся' },
+  { name: '{next_speaker_time}', desc: 'Время выступления следующего спикера («15:00–15:30 МСК»)' },
   { name: '{landing_url}', desc: 'Ссылка на лендинг регистрации' },
   { name: '{brand_name}', desc: 'Бренд клиента (из настроек; работает в любом типе рассылки)' },
   { name: '{conf_title}', desc: 'Название конференции' },
@@ -269,6 +280,7 @@ const emptyForm = {
   send_to_event_chats: false,
   send_to_client_chats: false,
   send_to_private_chats: false,
+  send_to_speakers_chat: false,
   speaker_photo_mode: 'poster',
   custom_day_ref: '', custom_time: '12:00',
   // Привязка кастомного шаблона: 'day' — день программы (как было),
@@ -720,6 +732,8 @@ export default function TemplatesPage() {
         audience_exclude: f.audience_exclude || 'none',
         ...bindingPayload(f),
         send_to_event_chats: !!f.send_to_event_chats,
+        // Чат спикеров — доступен всем, как и чат события (это чат ЭТОГО события).
+        send_to_speakers_chat: !!(f as any).send_to_speakers_chat,
         // Общие/личные чаты — только с фичей broadcast_chats.
         send_to_client_chats: hasChatsFeature ? !!f.send_to_client_chats : false,
         send_to_private_chats: hasChatsFeature ? !!f.send_to_private_chats : false,
@@ -790,6 +804,7 @@ export default function TemplatesPage() {
       send_to_event_chats: !!t.send_to_event_chats,
       send_to_client_chats: !!t.send_to_client_chats,
       send_to_private_chats: !!t.send_to_private_chats,
+      send_to_speakers_chat: !!t.send_to_speakers_chat,
       speaker_photo_mode: t.speaker_photo_mode || 'poster',
       custom_bind_kind: t.custom_bind_kind || 'day',
       custom_day_ref: t.custom_day_ref || '',
@@ -1965,6 +1980,21 @@ export default function TemplatesPage() {
                   <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
                   <span className="block text-[11px] text-gray-500 mt-0.5">
                     В групповые чаты этого события (заданы в настройках события).
+                  </span>
+                </span>
+              </label>
+              {/* Чат СПИКЕРОВ — отдельный от чата участников (миграция 431).
+                  Доступен всем, как и чат события: это чат ЭТОГО события. */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_speakers_chat}
+                  onChange={e => setForm({ ...form, send_to_speakers_chat: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чат спикеров</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    В закрытый чат команды — задаётся в «Описании» события, раздел
+                    «Чаты и каналы события». Участникам такое сообщение не уходит.
                   </span>
                 </span>
               </label>

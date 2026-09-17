@@ -120,19 +120,7 @@ export default function ContestOverviewTab({
         </div>
       </div>
 
-      {/* 2) НАСТРОЙКА ССЫЛОК */}
-      <div className="bg-white rounded-2xl border card-border p-6">
-        <h2 className="block-title mb-4">Настройка ссылок</h2>
-
-        <div className="space-y-4">
-          <Field label="Ссылка на голосование" hint="Появится плиткой «Перейти к голосованию» в Mini App.">
-            <input value={votingUrl} onChange={e => setVotingUrl(e.target.value)}
-                   className="input" placeholder="https://forbes.ru/vote/..." />
-          </Field>
-        </div>
-      </div>
-
-      {/* 3) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
+      {/* 2) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
       <div className="bg-white rounded-2xl border card-border p-6 space-y-5">
         <h2 className="block-title">Настройки страницы регистрации</h2>
 
@@ -187,6 +175,18 @@ export default function ContestOverviewTab({
             </p>
           </div>
         </label>
+      </div>
+
+      {/* 3) ССЫЛКИ — всё остальное, что раньше лежало в «Описании» */}
+      <div className="bg-white rounded-2xl border card-border p-6">
+        <h2 className="block-title mb-4">Ссылки</h2>
+
+        <div className="space-y-4">
+          <Field label="Ссылка на голосование" hint="Появится плиткой «Перейти к голосованию» в Mini App.">
+            <input value={votingUrl} onChange={e => setVotingUrl(e.target.value)}
+                   className="input" placeholder="https://forbes.ru/vote/..." />
+          </Field>
+        </div>
       </div>
 
       {/* 4) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}

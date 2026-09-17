@@ -169,6 +169,8 @@ class TemplateCreate(BaseModel):
     send_to_client_chats: Optional[bool] = None
     # Слать ещё и в личные каналы клиента (client_broadcast_chats, is_private=TRUE).
     send_to_private_chats: Optional[bool] = None
+    # Слать в ЧАТ СПИКЕРОВ события (миграция 431) — отдельный от чата участников.
+    send_to_speakers_chat: Optional[bool] = None
     # Источник фото для speaker_intro/5min_before/expert_day: 'poster' (афиша) | 'photo' (фото коллаба).
     speaker_photo_mode: Optional[str] = None
 
@@ -201,6 +203,7 @@ class TemplateUpdate(BaseModel):
     send_to_event_chats: Optional[bool] = None
     send_to_client_chats: Optional[bool] = None
     send_to_private_chats: Optional[bool] = None
+    send_to_speakers_chat: Optional[bool] = None
     # Роли коллабораторов для speaker_intro (NULL = все). Пустой массив [] = никто.
     intro_roles: Optional[List[str]] = None
     # Источник фото: 'poster' (афиша) | 'photo' (фото коллаба).
@@ -247,6 +250,33 @@ DEFAULT_TEMPLATES = [
         "audience_include": "all_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
+    },
+    {
+        # «Вы следующие» — служебное сообщение В ЧАТ СПИКЕРОВ за 15 минут до
+        # выступления по программе. Участникам НЕ уходит: audience_exclude
+        # обнуляет список получателей, а доставка идёт по send_to_speakers_chat.
+        "name": "Спикеру: «вы следующие» (в чат спикеров)",
+        "type": "speakers_call",
+        "text": (
+            "<b>{speaker_name} ({speaker_tg_username}) — вы следующие</b>\n\n"
+            "Через 5 минут ждём: {speaker_name}\n"
+            "Ваше выступление в {speaker_time}\n\n"
+            "Ссылка на Зум: {stream_url}\n\n"
+            "Ссылка на вебинарную комнату: {webinar_room_url}\n\n"
+            "—————\n\n"
+            "Готовится к {next_speaker_time}: {next_speaker_name} ({next_speaker_tg_username})\n\n"
+            "—————\n\n"
+            "Поставьте реакцию — что вы на связи."
+        ),
+        "photo_url": None,
+        "button_text": None,
+        "button_url": None,
+        "schedule_mode": "fixed_offset",
+        "offset_minutes": 15,
+        "audience_include": "all_event",
+        "audience_exclude": "all_event",   # ← участникам не шлём, только в чат
+        "allow_custom_datetime": False,
+        "send_to_speakers_chat": True,
     },
     {
         "name": "За 30 минут до старта",
@@ -529,6 +559,7 @@ DEFAULT_TEMPLATES = [
 # авто-сид (list_templates) и пресеты (_allowed_preset_types_for_event).
 _TURNIR_TEMPLATE_NAMES = {
     "speaker_intro": "Знакомство со спикерами и жюри",
+    "speakers_call": "Спикеру/номинанту: «вы следующие» (в чат)",
     "day_end": "День события (итоги дня + подарки)",
 }
 
@@ -577,7 +608,8 @@ async def list_templates(
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
                custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
-               target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats, intro_roles,
+               target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
+               send_to_speakers_chat, intro_roles,
                speaker_photo_mode,
                created_at
         FROM broadcast_templates
@@ -601,14 +633,16 @@ async def list_templates(
                 """
                 INSERT INTO broadcast_templates
                   (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
-                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+                   send_to_speakers_chat)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 """,
                 client_id, event_id, tpl["name"], tpl["type"], tpl.get("subject"),
                 tpl["text"], tpl.get("photo_url"), tpl.get("button_text"), tpl.get("button_url"),
                 tpl.get("schedule_mode", "fixed_offset"), tpl.get("offset_minutes", 0),
                 tpl.get("audience_include", "all_event"), tpl.get("audience_exclude", "none"),
                 bool(tpl.get("allow_custom_datetime", False)),
+                bool(tpl.get("send_to_speakers_chat", False)),
             )
         rows = await db.fetch(
             """
@@ -717,19 +751,19 @@ async def create_template(
            audience_include, audience_exclude, custom_day_ref, custom_time,
            schedule_mode, allow_custom_datetime, target_channel_ids,
            video_url, media_type, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-           speaker_photo_mode,
+           send_to_speakers_chat, speaker_photo_mode,
            custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                 COALESCE($10, 'all_event'), COALESCE($11, 'none'),
                 $12, $13,
                 COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16,
                 $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE), COALESCE($21, FALSE),
-                COALESCE($22, 'poster'),
+                COALESCE($27, FALSE), COALESCE($22, 'poster'),
                 $23, $24, $25, $26)
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, send_to_client_chats,
-                  send_to_private_chats, speaker_photo_mode,
+                  send_to_private_chats, send_to_speakers_chat, speaker_photo_mode,
                   custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                   created_at
         """,
@@ -743,6 +777,7 @@ async def create_template(
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats,
         data.speaker_photo_mode,
         bind["bind_kind"], bind["slot_session_id"], bind["slot_offset_min"], bind["fire_at"],
+        data.send_to_speakers_chat,
     )
     return dict(row)
 
@@ -760,7 +795,8 @@ async def load_default_templates(db) -> list[dict]:
                    schedule_mode, offset_minutes, audience_include, audience_exclude,
                    allow_custom_datetime, for_event, for_conference, for_turnir,
                    for_collab,
-                   autoseed, multi_instance, turnir_name, turnir_text
+                   autoseed, multi_instance, turnir_name, turnir_text,
+                   send_to_speakers_chat
               FROM default_broadcast_templates
              WHERE is_active
              ORDER BY sort_order, id
@@ -780,10 +816,12 @@ def _fallback_flags(t: str, for_presets: bool) -> dict:
         "30min_before", "2h_before_unreg", "2h_before_reg",
         "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
     }
-    TURNIR_EXTRA = {"speaker_intro", "5min_before", "day_live"}
+    TURNIR_EXTRA = {"speaker_intro", "5min_before", "day_live", "speakers_call"}
     if for_presets:
         TURNIR_EXTRA = TURNIR_EXTRA | {"pre_conf", "gift", "day_end", "expert_day"}
     return {
+        # speakers_call («вы следующие» в чат спикеров) — только там, где есть
+        # программа по слотам: у мероприятия спикеров нет вовсе.
         "for_event": t in EVENT_ONLY,
         "for_conference": t != "event_live",
         "for_turnir": (t in EVENT_ONLY or t in TURNIR_EXTRA) and t != "event_live",
@@ -994,6 +1032,7 @@ async def update_template(
             intro_roles = COALESCE($24::text[], intro_roles),
             send_to_client_chats = COALESCE($25, send_to_client_chats),
             send_to_private_chats = COALESCE($26, send_to_private_chats),
+            send_to_speakers_chat = COALESCE($34, send_to_speakers_chat),
             speaker_photo_mode = COALESCE($27, speaker_photo_mode),
             custom_bind_kind       = CASE WHEN $28 THEN $29 ELSE custom_bind_kind END,
             custom_slot_session_id = CASE WHEN $28 THEN $30 ELSE custom_slot_session_id END,
@@ -1005,7 +1044,8 @@ async def update_template(
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats,
-                  send_to_client_chats, send_to_private_chats, intro_roles, speaker_photo_mode,
+                  send_to_client_chats, send_to_private_chats, send_to_speakers_chat,
+                  intro_roles, speaker_photo_mode,
                   custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at
         """,
         data.name, data.type, data.subject, new_text,
@@ -1028,6 +1068,7 @@ async def update_template(
         bind["slot_offset_min"] if bind else None,
         bind["fire_at"] if bind else None,
         _time_clear,
+        data.send_to_speakers_chat,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -1077,7 +1118,7 @@ async def duplicate_template(
            custom_day_ref, custom_time,
            custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
            target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-           speaker_photo_mode)
+           send_to_speakers_chat, speaker_photo_mode)
         SELECT client_id, event_id, $3, type, subject, text, photo_url, video_url, media_type,
                button_text, button_url, schedule_mode, offset_minutes,
                audience_include, audience_exclude, allow_custom_datetime,
@@ -1085,7 +1126,7 @@ async def duplicate_template(
                custom_day_ref, custom_time,
                custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-               speaker_photo_mode
+               send_to_speakers_chat, speaker_photo_mode
           FROM broadcast_templates WHERE id=$1 AND event_id=$2
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type,
                   button_text, button_url, schedule_mode, offset_minutes,
@@ -1094,7 +1135,7 @@ async def duplicate_template(
                   custom_day_ref, custom_time,
                   custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                   target_channel_ids, send_to_event_chats, send_to_client_chats,
-                  send_to_private_chats, speaker_photo_mode, created_at
+                  send_to_private_chats, send_to_speakers_chat, speaker_photo_mode, created_at
         """,
         template_id, event_id, f"{src['name']} (копия)",
     )
@@ -1187,7 +1228,8 @@ async def list_schedules(
                -- рассылок не показывалась (snapshot_subject у них пуст).
                COALESCE(NULLIF(bs.snapshot_subject, ''), bt.subject) AS eff_subject,
                bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
-               bs.send_to_client_chats, bs.send_to_private_chats, bs.target_channel_ids,
+               bs.send_to_client_chats, bs.send_to_private_chats, bs.send_to_speakers_chat,
+               bs.target_channel_ids,
                bs.chats_overridden,
                -- Эффективные каналы/флаги: schedule → иначе значения шаблона (как при отправке).
                -- ⚠️ Если chats_overridden=TRUE — берём СТРОГО из рассылки (шаблон не
@@ -1195,7 +1237,8 @@ async def list_schedules(
                COALESCE(bs.target_channel_ids, bt.target_channel_ids) AS eff_target_channel_ids,
                (bs.send_to_event_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_event_chats, FALSE))) AS eff_send_to_event_chats,
                (bs.send_to_client_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_client_chats, FALSE))) AS eff_send_to_client_chats,
-               (bs.send_to_private_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_private_chats, FALSE))) AS eff_send_to_private_chats
+               (bs.send_to_private_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_private_chats, FALSE))) AS eff_send_to_private_chats,
+               (bs.send_to_speakers_chat OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_speakers_chat, FALSE))) AS eff_send_to_speakers_chat
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         -- speaker_intro/expert_day/custom: session_id = event_collaborators.id (спикер),
@@ -1424,7 +1467,8 @@ async def generate_schedules(
                custom_day_ref, custom_time,
                custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                text, photo_url, button_text, button_url,
-               name, send_to_event_chats, send_to_client_chats, send_to_private_chats, intro_roles
+               name, send_to_event_chats, send_to_client_chats, send_to_private_chats,
+               send_to_speakers_chat, intro_roles
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
@@ -1747,6 +1791,13 @@ async def generate_schedules(
             offset = tmpl["offset_minutes"] or 5
             await add_schedule(tmpl, s_end_utc - timedelta(minutes=offset), s["id"], "gift")
 
+        # «Вы следующие» — в ЧАТ СПИКЕРОВ за 15 минут до выступления (миграция 432).
+        # Отдельная запись на каждый слот: у каждого спикера свой сигнал.
+        if "speakers_call" in tmpl_map and s_start_utc:
+            tmpl = tmpl_map["speakers_call"]
+            offset = tmpl["offset_minutes"] or 15
+            await add_schedule(tmpl, s_start_utc - timedelta(minutes=offset), s["id"], "speakers_call")
+
     # ── Дневные рассылки — на КАЖДЫЙ день программы (конференция/турнир) ──
     # Точка отсчёта дня = первая сессия этого дня. Номер дня пишем явно (day=),
     # чтобы в сообщение попала программа именно этого дня.
@@ -2027,7 +2078,9 @@ async def generate_schedules(
 #
 # Сдвигаются только рассылки, которые ещё не ушли: draft / pending.
 # ─────────────────────────────────────────
-SHIFTABLE_TYPES = ("5min_before", "gift")
+# speakers_call («вы следующие» в чат спикеров) тоже привязан к старту слота —
+# сдвигаем вместе с ним, иначе спикера позовут в старое время.
+SHIFTABLE_TYPES = ("5min_before", "gift", "speakers_call")
 
 
 async def _shiftable_sessions(db, event_id: int, day_number: int):

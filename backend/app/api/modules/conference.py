@@ -307,6 +307,11 @@ class ConferenceUpdate(BaseModel):
     tg_chat_ref: Optional[int] = None
     vk_chat_ref: Optional[int] = None
     max_chat_ref: Optional[int] = None
+    # Чат СПИКЕРОВ (миграция 431) — закрытый чат команды, отдельный от чата
+    # участников: туда уходит «вы следующие» за 15 минут до выступления.
+    tg_speakers_chat_ref: Optional[int] = None
+    vk_speakers_chat_ref: Optional[int] = None
+    max_speakers_chat_ref: Optional[int] = None
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
@@ -404,6 +409,7 @@ async def get_conference(
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+               e.tg_speakers_chat_ref, e.vk_speakers_chat_ref, e.max_speakers_chat_ref,
                e.thanks_destination AS event_thanks_destination,
                e.registration_mode AS event_registration_mode,
                e.skip_contact_form AS event_skip_contact_form,
@@ -517,6 +523,7 @@ async def update_conference(
         "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)
         "tg_chat_ref", "vk_chat_ref", "max_chat_ref",
+        "tg_speakers_chat_ref", "vk_speakers_chat_ref", "max_speakers_chat_ref",
         "chat_greeting_enabled", "chat_greeting_keyword", "chat_greeting_exact",
     )
     sent = data.model_dump(exclude_unset=True)
@@ -635,6 +642,7 @@ async def update_conference(
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+               e.tg_speakers_chat_ref, e.vk_speakers_chat_ref, e.max_speakers_chat_ref,
                e.end_action AS event_end_action,
                e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
                e.end_gift_package_id AS event_end_gift_package_id

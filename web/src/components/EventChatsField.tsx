@@ -10,7 +10,7 @@
  *
  * Родитель хранит value/onChange, сам собирает diff и шлёт PATCH (tg_chat_ref и т.д.).
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { api } from '@/lib/api'
 
 export type ChatPlatform = 'telegram' | 'vk' | 'max'
@@ -33,6 +33,20 @@ interface ClientChat {
 interface Props {
   value: EventChatsValue
   onChange: (next: EventChatsValue) => void
+  /** Заголовок блока. По умолчанию — чаты события (участников). */
+  label?: string
+  /** Подпись под заголовком. Передаётся целиком, чтобы текст был свой. */
+  hint?: ReactNode
+  /** Подпись «ни один чат не выбран» (что именно не будет работать). */
+  emptyHint?: ReactNode
+  /** Название одного чата на вкладке площадки: «Чат/канал события (Telegram)». */
+  chatLabel?: string
+  /**
+   * Не вести «главную площадку». У чата участников primary решает, какая
+   * ссылка уйдёт в кнопку «Чат»; у чата СПИКЕРОВ такой кнопки нет — сообщение
+   * уходит во все заполненные площадки сразу, и главной среди них не бывает.
+   */
+  noPrimary?: boolean
 }
 
 const PLATFORM_META: Record<ChatPlatform, { label: string; badge: string; color: string }> = {
@@ -45,7 +59,9 @@ const REF_KEY: Record<ChatPlatform, 'tgChatRef' | 'vkChatRef' | 'maxChatRef'> = 
   telegram: 'tgChatRef', vk: 'vkChatRef', max: 'maxChatRef',
 }
 
-export default function EventChatsField({ value, onChange }: Props) {
+export default function EventChatsField({
+  value, onChange, label, hint, emptyHint, chatLabel, noPrimary,
+}: Props) {
   const [chats, setChats] = useState<ClientChat[]>([])
   const [loading, setLoading] = useState(true)
   const [picker, setPicker] = useState<ChatPlatform | null>(null)
@@ -82,12 +98,14 @@ export default function EventChatsField({ value, onChange }: Props) {
 
   function pickChat(platform: ChatPlatform, chatId: number | null) {
     const next = { ...value, [REF_KEY[platform]]: chatId }
-    // авто-primary: первый выбранный становится главным
-    if (chatId && !next.primary) next.primary = platform
-    // сняли выбор у главного → главным следующий выбранный
-    if (!chatId && next.primary === platform) {
-      const others = (['telegram', 'vk', 'max'] as ChatPlatform[]).filter(p => p !== platform)
-      next.primary = others.find(p => next[REF_KEY[p]]) || null
+    if (!noPrimary) {
+      // авто-primary: первый выбранный становится главным
+      if (chatId && !next.primary) next.primary = platform
+      // сняли выбор у главного → главным следующий выбранный
+      if (!chatId && next.primary === platform) {
+        const others = (['telegram', 'vk', 'max'] as ChatPlatform[]).filter(p => p !== platform)
+        next.primary = others.find(p => next[REF_KEY[p]]) || null
+      }
     }
     onChange(next)
     setPicker(null)
@@ -98,11 +116,13 @@ export default function EventChatsField({ value, onChange }: Props) {
   return (
     <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
       <div>
-        <label className="block text-sm font-semibold text-gray-800">Чаты/каналы события</label>
+        <label className="block text-sm font-semibold text-gray-800">{label || 'Чаты/каналы события'}</label>
         <p className="text-xs text-gray-500 mt-1">
-          Выберите чат или канал для каждой площадки из вашей базы. Чаты/каналы добавляются один раз в{' '}
-          <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">Каналы → «Группы/Каналы для рассылок»</a>{' '}
-          (там определяется ID и ссылка).
+          {hint || <>
+            Выберите чат или канал для каждой площадки из вашей базы. Чаты/каналы добавляются один раз в{' '}
+            <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">Каналы → «Группы/Каналы для рассылок»</a>{' '}
+            (там определяется ID и ссылка).
+          </>}
         </p>
       </div>
 
@@ -134,7 +154,9 @@ export default function EventChatsField({ value, onChange }: Props) {
         const platformChats = chats.filter(c => c.platform === platform)
         return (
           <div className="bg-white border border-gray-200 rounded p-3">
-            <div className="text-sm font-medium text-gray-700">Чат/канал события ({meta.label})</div>
+            <div className="text-sm font-medium text-gray-700">
+              {chatLabel || 'Чат/канал события'} ({meta.label})
+            </div>
 
             <div className="mt-3">
               {selected ? (
@@ -190,7 +212,7 @@ export default function EventChatsField({ value, onChange }: Props) {
 
       {!anySelected && (
         <p className="text-xs text-gray-400 italic">
-          Если ни один чат не выбран — плитка «Чат» в Mini App у участников не покажется.
+          {emptyHint || 'Если ни один чат не выбран — плитка «Чат» в Mini App у участников не покажется.'}
         </p>
       )}
     </div>

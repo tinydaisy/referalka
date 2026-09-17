@@ -124,6 +124,34 @@ async def day_stream_url(db, event_id: int, day: Optional[int],
     return url
 
 
+async def day_room_url(db, event_id: int, day: Optional[int],
+                       contact_id: Optional[int] = None) -> str:
+    """Ссылка на НАШУ вебинарную комнату дня — всегда, даже когда эфир идёт
+    во внешнем сервисе (Zoom/YouTube).
+
+    Отличие от day_stream_url: та отдаёт ОДНУ ссылку «куда идти зрителю» и при
+    stream_type='external_link' возвращает внешний адрес вместо нашей комнаты.
+    Спикеру же в чат нужны обе строки сразу: «Ссылка на Зум» (внешняя) и
+    «Ссылка на вебинарную комнату» (наша) — он может вести эфир из одной, а
+    отвечать на вопросы зала в другой.
+
+    Комнаты нет вовсе → '' (строка плейсхолдера в рассылке просто исчезнет).
+    """
+    if not day:
+        return ""
+    exists = await db.fetchval(
+        "SELECT 1 FROM webinar_rooms WHERE event_id=$1 AND day_number=$2", event_id, day)
+    if not exists:
+        return ""
+    slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
+    if not slug:
+        return ""
+    url = await _event_public_link(db, event_id, f"webinar/{slug}/{day}", contact_id)
+    if contact_id:
+        url += f"?c={contact_id}"
+    return url
+
+
 async def resolve_event_by_slug(db, slug: str) -> Optional[dict]:
     """Событие + client_id владельца по slug (у events нет client_id — берём из event_owners)."""
     row = await db.fetchrow(
