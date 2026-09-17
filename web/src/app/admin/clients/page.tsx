@@ -173,8 +173,13 @@ export default function AdminClientsPage() {
       </div>
 
       <div className="bg-white rounded-2xl border card-border shadow-sm overflow-hidden">
-        <div className="flex items-center gap-3 p-5 border-b border-gray-100">
-          <div className="relative flex-1 max-w-sm">
+        {/* ⚠️ flex-wrap обязателен: фильтров много, и без переноса строка
+            ужимала поле поиска в кружок — подпись «Контактов от» наезжала на
+            него, а вводить было некуда (жалоба со скриншотом 16.09.2026). */}
+        <div className="flex flex-wrap items-center gap-3 p-5 border-b border-gray-100">
+          {/* ⚠️ min-width, иначе flex сжимает поле до размера иконки:
+              по умолчанию элемент может ужаться меньше содержимого. */}
+          <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[240px] sm:max-w-sm">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text" placeholder="Поиск по имени или email"
@@ -182,12 +187,12 @@ export default function AdminClientsPage() {
               className="w-full pl-8 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-brand/30"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Контактов от</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="whitespace-nowrap text-sm text-gray-500">Контактов от</span>
             <select
               value={minContacts}
               onChange={e => setMinContacts(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+              className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
             >
               <option value={0}>любое число</option>
               <option value={1}>1 и больше</option>
@@ -199,7 +204,7 @@ export default function AdminClientsPage() {
           </div>
           <select
             value={subscription} onChange={e => setSubscription(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+            className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
           >
             <option value="">Подписка: любая</option>
             <option value="active">Есть активная</option>
@@ -207,7 +212,7 @@ export default function AdminClientsPage() {
           </select>
           <select
             value={hasBot} onChange={e => setHasBot(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+            className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
           >
             <option value="">Бот: любой</option>
             <option value="yes">Есть свой бот</option>
@@ -215,7 +220,7 @@ export default function AdminClientsPage() {
           </select>
           <select
             value={inCollab} onChange={e => setInCollab(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+            className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
           >
             <option value="">Коллаб: все</option>
             <option value="yes">В Коллабораторной</option>
@@ -227,7 +232,7 @@ export default function AdminClientsPage() {
               фичи модуля) — тем же выражением, по которому гейтятся разделы. */}
           <select
             value={feature} onChange={e => setFeature(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none max-w-[230px]"
+            className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none max-w-[230px]"
           >
             <option value="">Модуль: любой</option>
             {allFeatures.map(f => (
@@ -239,7 +244,7 @@ export default function AdminClientsPage() {
           {feature && (
             <select
               value={featureSource} onChange={e => setFeatureSource(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+              className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
               title="«Купил отдельно» — только те, кто оплатил модуль, без тех, кому он достался в тарифе"
             >
               <option value="">Доступ: любой</option>
