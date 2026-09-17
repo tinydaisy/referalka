@@ -997,6 +997,20 @@ async def update_template(
             template_id, event_id,
         )
 
+    # ⚠️ speakers_call — доставка ЗАФИКСИРОВАНА: только чат спикеров, никогда
+    # участникам. В кабинете этих полей у типа и нет (выбирать нечего: чат один
+    # и задан в настройках события), но PATCH мог прийти со старой формы или из
+    # bulk-правки — и тогда служебное «вы следующие» ушло бы всей базе.
+    # Цена ошибки — рассылка на всю аудиторию, поэтому держим на бэке, а не
+    # только в UI.
+    if data.type == "speakers_call":
+        data.send_to_speakers_chat = True
+        data.send_to_event_chats = False
+        data.send_to_client_chats = False
+        data.send_to_private_chats = False
+        data.audience_include = "all_event"
+        data.audience_exclude = "all_event"   # вычитает всех участников → в личку никому
+
     # Привязка (миграция 260) меняется ТОЛЬКО если фронт её прислал. Иначе поля не
     # трогаем — иначе переключение «слот → день» не смогло бы обнулить старый слот
     # (COALESCE оставил бы его навсегда).
@@ -1558,13 +1572,18 @@ async def generate_schedules(
             """
             INSERT INTO broadcast_schedules
               (event_id, session_id, template_id, type, fire_at, day, status, audience_include, audience_exclude,
-               snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
-            VALUES ($1, $2, $3, $4, $5, $12, 'draft', $6, $7, $8, $9, $10, $11, $13)
+               snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id,
+               send_to_speakers_chat)
+            VALUES ($1, $2, $3, $4, $5, $12, 'draft', $6, $7, $8, $9, $10, $11, $13, $14)
             """,
             event_id, session_id, tmpl["id"], t, fire_at,
             tmpl["audience_include"], tmpl["audience_exclude"],
             tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
-            day, gen_client_id
+            day, gen_client_id,
+            # Пишем флаг в саму запись, а не полагаемся только на наследование от
+            # шаблона: в очереди по нему рисуется плашка «в чат спикеров», и она
+            # должна быть видна сразу после «Сформировать из программы».
+            bool(tmpl.get("send_to_speakers_chat")),
         )
         created += 1
 

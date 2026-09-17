@@ -1010,11 +1010,29 @@ export default function QueuePage() {
                       )}
                       {/* Аудитория */}
                       <span className="text-xs text-gray-400">
-                        {audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
+                        {/* ⚠️ У рассылки в чат спикеров получателей в базе НЕТ
+                            (audience_exclude='all_event' вычитает всех). Показывать
+                            ей «все участники» — прямая ложь: она им не уходит. */}
+                        {(s.eff_send_to_speakers_chat ?? s.send_to_speakers_chat)
+                          ? 'только чат — участникам не уходит'
+                          : audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
                       </span>
                       {/* Отмеченные чаты — итоговые флаги с сервера (учитывают
                           наследование от шаблона и правку в очереди). Видно, куда
                           именно уйдёт рассылка помимо базы. */}
+                      {/* ⚠️ Чат СПИКЕРОВ — отдельной плашкой, а не в списке «+ ещё
+                          сюда»: для этой рассылки он не дополнение к базе, а
+                          ЕДИНСТВЕННЫЙ получатель — участникам она не уходит
+                          вовсе. В общем списке это должно читаться сразу. */}
+                      {(s.eff_send_to_speakers_chat ?? s.send_to_speakers_chat) && (
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded font-medium text-white"
+                          style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}
+                          title="Уходит только в чат спикеров — участникам события не отправляется"
+                        >
+                          в чат спикеров
+                        </span>
+                      )}
                       {(() => {
                         const chats: string[] = []
                         if (s.eff_send_to_event_chats ?? s.send_to_event_chats) chats.push('чаты события')
@@ -1568,9 +1586,16 @@ export default function QueuePage() {
                 <p className="text-sm text-gray-400 py-4 text-center">Шаблонов нет — создайте на вкладке «Шаблоны»</p>
               ) : templates.map((t: any) => {
                 const checked = genSelectedIds.has(t.id)
+                // Рассылка в чат СПИКЕРОВ — не участникам. Помечаем прямо в
+                // списке: иначе её ставят в очередь, не понимая, что получателем
+                // будет закрытый чат команды, а не аудитория события.
+                const toSpeakers = !!t.send_to_speakers_chat
                 return (
                   <label key={t.id}
-                    className="flex items-center gap-3 p-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border cursor-pointer ${
+                      toSpeakers
+                        ? 'border-[#FFCFA4] bg-[#FFF7F0] hover:bg-[#FFF0E4]'
+                        : 'border-gray-200 hover:bg-gray-50'}`}>
                     <input type="checkbox" checked={checked}
                       onChange={() => {
                         setGenSelectedIds(prev => {
@@ -1580,7 +1605,12 @@ export default function QueuePage() {
                         })
                       }}
                       className="w-4 h-4 accent-[#25455D]" />
-                    <span className="text-sm text-gray-800">{t.name}</span>
+                    <span className="text-sm text-gray-800 flex-1">{t.name}</span>
+                    {toSpeakers && (
+                      <span className="shrink-0 px-2 py-0.5 rounded-lg bg-[#25455D] text-white text-[10px] font-semibold whitespace-nowrap">
+                        В ЧАТ СПИКЕРОВ
+                      </span>
+                    )}
                   </label>
                 )
               })}

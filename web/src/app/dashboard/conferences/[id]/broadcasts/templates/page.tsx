@@ -1931,6 +1931,23 @@ export default function TemplatesPage() {
                 </div>
               )}
 
+              {/* ⚠️ У рассылки в чат спикеров выбирать нечего: получатель ОДИН
+                  и задан в настройках события (раздел «Чаты и каналы события»).
+                  Аудитория, каналы и галочки чатов тут только сбивали бы — можно
+                  было снять нужную галочку или выставить аудиторию, которой всё
+                  равно ничего не уйдёт. Показываем вместо них пояснение. */}
+              {(form as any).type === 'speakers_call' ? (
+                <div className="border rounded-xl p-3 space-y-1.5"
+                     style={{ borderColor: '#FFCFA4', background: '#FFF7F0' }}>
+                  <p className="text-xs font-semibold text-gray-800">Уходит только в чат спикеров</p>
+                  <p className="text-[11px] text-gray-600 leading-relaxed">
+                    Участникам события эта рассылка не отправляется. Получатель —
+                    чат спикеров, он задаётся один раз в «Описании» события, раздел
+                    «Чаты и каналы события» (Telegram / ВКонтакте / MAX — уйдёт во все
+                    заполненные). Выбирать чат или аудиторию здесь не нужно.
+                  </p>
+                </div>
+              ) : (<>
               <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
                 <p className="text-xs font-medium text-gray-600">👥 Аудитория рассылки</p>
                 <div>
@@ -2022,6 +2039,7 @@ export default function TemplatesPage() {
                   </span>
                 </span>
               </label>)}
+              </>)}
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={save}
