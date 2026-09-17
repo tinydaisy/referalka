@@ -107,6 +107,26 @@ async def _log_step(db, order_id: int, step: str, text: str, ok: bool = True):
 # Человеческие тексты ошибок
 # ─────────────────────────────────────────────────────────────────────────
 #
+# ⚠️⚠️ ПРИВАТНОСТЬ «ГРУППЫ И КАНАЛЫ» — ЭТО НЕ СБОЙ, А НАСТРОЙКА У ЧЕЛОВЕКА.
+# Telegram запрещает назначать админом того, кто закрылся от добавления в
+# группы, — и запрет висит на ЕГО аккаунте: обойти его нельзя ничем, ни другим
+# служебным аккаунтом, ни ботом, ни командой. Единственный выход — человек
+# снимает настройку у себя. Значит текст обязан быть ИНСТРУКЦИЕЙ, а не
+# сообщением об ошибке: на заказе 8 (16.09.2026) клиент двое суток видел
+# «Не удалось выполнить шаг — мы разберёмся» и не знал, что действие за ним.
+#
+# ⚠️ Путь к настройке разный на Android и iPhone — даём оба, иначе человек
+# ищет несуществующий пункт и решает, что «у меня такого нет».
+GROUP_PRIVACY_HINT = (
+    "Не получилось сделать вас админом группы: в Telegram у вас закрыта "
+    "настройка «кто может добавлять меня в группы». "
+    "Откройте её на минуту — Telegram → Настройки → Конфиденциальность → "
+    "«Группы и каналы» → выберите «Все» "
+    "(на iPhone: Настройки → Конфиденциальность и безопасность → "
+    "Группы и каналы). Потом нажмите «Доделать настройку» — и сразу верните "
+    "настройку обратно, админом вы останетесь."
+)
+#
 # ⚠️⚠️ КЛИЕНТУ НЕЛЬЗЯ ПОКАЗЫВАТЬ ИМЕНА ИСКЛЮЧЕНИЙ. В логе заказа висело
 # «UserIdInvalidError» и «FrozenMethodInvalidError» — человек не понимает ни
 # слова и не знает, что делать. Причём именно эти два означали не «сбой», а
@@ -128,6 +148,11 @@ _ERROR_TEXTS: tuple[tuple[str, str], ...] = (
      "Такого ника в Telegram нет — проверьте ник в настройках кабинета"),
     ("UsernameInvalid",
      "Ник записан неверно — проверьте его в настройках кабинета"),
+    # ⚠️ Порядок важен: «privacy settings» ловится РАНЬШЕ общего
+    # UserPrivacyRestricted, потому что у назначения админом (EditAdminRequest)
+    # Telethon отдаёт причину строкой ответа сервера, без своего класса.
+    ("privacy settings do not allow", GROUP_PRIVACY_HINT),
+    ("EditAdminRequest", GROUP_PRIVACY_HINT),
     ("UserPrivacyRestricted",
      "У вас закрыты настройки приватности — вступите в группу по ссылке сами"),
     ("UserNotMutualContact",
@@ -312,7 +337,16 @@ async def _pick_account(db):
                 OR a.last_bot_created_at IS NULL
                 OR a.last_bot_created_at
                    <= NOW() - (a.min_create_gap_min || ' minutes')::interval)
-         ORDER BY busy ASC, a.id ASC
+         -- ⚠️⚠️ ВТОРОЙ КЛЮЧ — «КТО ДОЛЬШЕ НЕ РАБОТАЛ», А НЕ `a.id` (17.09.2026).
+         -- Было `ORDER BY busy ASC, a.id ASC`: пока у всех busy = 0, всегда
+         -- выигрывал наименьший id — аккаунт №2. На проде он один создал 5
+         -- ботов, а рядом простаивали два здоровых: №3 с двумя и №5, не
+         -- сделавший НИ ОДНОГО. Статичный ключ не ротирует по определению.
+         -- Отсюда и упёрлись в нарастающий лимит BotFather («try again in
+         -- 5320 seconds» на заказе 13), и получили `database is locked` —
+         -- два заказа лезли в один файл сессии одновременно.
+         -- NULLS FIRST: ни разу не работавший аккаунт идёт первым.
+         ORDER BY busy ASC, a.last_bot_created_at ASC NULLS FIRST, a.id ASC
          LIMIT 1
         """
     )
@@ -530,10 +564,30 @@ async def _run_setup(db, order) -> None:
                         "UPDATE service_orders SET client_joined_at=NOW(), updated_at=NOW() "
                         " WHERE id=$1", order_id,
                     )
-                    await tgs.promote_in_group(client, grp.chat_id, tg_nick.lstrip("@"))
-                    await _log_step(db, order_id, "group",
-                                    "Добавили вас в группу и назначили админом — "
-                                    "проверьте: группа появилась в списке чатов")
+                    # ⚠️⚠️ РЕЗУЛЬТАТ ПРОВЕРЯЕМ, А НЕ ВЕРИМ НА СЛОВО (17.09.2026).
+                    # Раньше ответ `promote_in_group` выбрасывался, и лог писал
+                    # «назначили админом» ВСЕГДА. На живом заказе 8 назначение
+                    # падало в ту же секунду (`The user's privacy settings do not
+                    # allow you to do this`), а человек читал, что всё хорошо, и
+                    # два дня не понимал, почему прав в группе нет.
+                    #
+                    # ⚠️ Добавление в группу и назначение админом — РАЗНЫЕ
+                    # настройки приватности: первая у человека открыта (иначе мы
+                    # бы сюда не дошли), вторая закрыта. Отсюда отдельный текст.
+                    promoted = await tgs.promote_in_group(
+                        client, grp.chat_id, tg_nick.lstrip("@")
+                    )
+                    if promoted:
+                        await db.execute(
+                            "UPDATE service_orders SET group_transferred_at=NOW(), "
+                            "       updated_at=NOW() WHERE id=$1", order_id,
+                        )
+                        await _log_step(db, order_id, "group",
+                                        "Добавили вас в группу и назначили админом — "
+                                        "проверьте: группа появилась в списке чатов")
+                    else:
+                        await _log_step(db, order_id, "group", GROUP_PRIVACY_HINT,
+                                        ok=False)
                 else:
                     # ⚠️ Отказ — НЕ ошибка услуги: это нормальная настройка
                     # приватности. Говорим прямо, что делать, и не пугаем.
@@ -793,6 +847,13 @@ async def _finish_setup(db, order) -> None:
                 )
 
         # ── права на группу: только после вступления клиента ──
+        #
+        # ⚠️⚠️ НЕУДАЧА ЗДЕСЬ ОБЯЗАНА БЫТЬ ВИДНА (17.09.2026). Раньше ветки
+        # `else` не было вовсе: `promote_in_group` возвращал False, и дальше не
+        # происходило НИЧЕГО — ни лога, ни ошибки, ни счётчика попыток. Поллер
+        # молча повторял шаг каждую минуту (на заказе 8 — около 400 раз за 7
+        # часов), клиент видел «всё хорошо», а заказ не двигался. Ровно такая
+        # же немая долбёжка в сентябре стоила нам служебного аккаунта.
         if order["client_joined_at"] and not order["group_transferred_at"]:
             ok = await tgs.promote_in_group(
                 client, order["group_chat_id"], tg_nick.lstrip("@")
@@ -800,11 +861,19 @@ async def _finish_setup(db, order) -> None:
             if ok:
                 await db.execute(
                     "UPDATE service_orders SET group_transferred_at=NOW(), "
-                    "       updated_at=NOW() WHERE id=$1", order_id,
+                    "       setup_error=NULL, updated_at=NOW() WHERE id=$1", order_id,
                 )
                 await _log_step(db, order_id, "group",
                                 "Вы админ группы с полными правами — "
                                 "проверьте в самой группе: «Участники» → ваш аккаунт")
+            else:
+                # ⚠️ Причина почти всегда одна — закрытая приватность «группы и
+                # каналы» у самого человека, и снять её можем только он. Поэтому
+                # шаг `group`, а не `transfer`: счётчик остановит повтор после
+                # второй неудачи, а человек получит инструкцию и кнопку.
+                await _fail_step(db, order_id, client_id,
+                                 order["bot_username"] or "",
+                                 GROUP_PRIVACY_HINT, step="group")
 
         # ── всё отдано — выходим из группы и закрываем заказ ──
         order = await db.fetchrow("SELECT * FROM service_orders WHERE id=$1", order_id)
@@ -1208,19 +1277,50 @@ async def _send_reminder(db, order) -> None:
 async def _send_reminder_email(
     db, order, text: str, *, subject: str = "Заберите вашего Telegram-бота",
 ) -> None:
+    """Письмо клиенту по заказу автонастройки.
+
+    ⚠️⚠️ ВЫЗОВ ОБЯЗАН СОВПАДАТЬ С СИГНАТУРОЙ `EmailSender.send` (17.09.2026).
+    Здесь стояло `send(to_email=…, subject=…, html=…, text=…)` — таких
+    параметров у метода НЕТ вовсе: он ждёт `body_text`/`body_html` и требует
+    `channel`, `client_brand_name` и `unsubscribe_token`. Поэтому письма
+    автонастройки не уходили НИ РАЗУ, у всех клиентов: каждый вызов падал с
+    `unexpected keyword argument 'html'`. На заказе 13 так потерялись все
+    четыре письма подряд — «заявка принята», «бот готов» и два напоминания, —
+    и человек после оплаты остался в полной тишине.
+    """
     email = await db.fetchval("SELECT email FROM clients WHERE id=$1", order["client_id"])
     if not email:
         return
     from app.services.email_sender import EmailSender
+    from app.services.unsubscribe_token import make_email_unsubscribe_token
 
-    html = text.replace("\n", "<br>")
-    sender = EmailSender()
+    # Системный email-канал платформы — тот же, которым ходят остальные
+    # служебные письма (напоминания о подписке, тревоги хранилища).
+    ch = await db.fetchrow(
+        """SELECT ch.id AS channel_id, cc.id AS client_channel_id,
+                  ch.email_subdomain, ch.email_from_local
+             FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+            WHERE ch.platform_slug = 'email' AND ch.is_system = TRUE
+            LIMIT 1"""
+    )
+    if not ch:
+        logger.warning("нет системного email-канала — письмо по заказу %s не ушло",
+                       order["id"])
+        return
+
+    channel = dict(ch)
+    channel["email_from_name"] = "iViSiON: ПЛЮСОН"
     await asyncio.to_thread(
-        sender.send,
+        EmailSender().send,
+        channel=channel,
+        client_brand_name="iViSiON: ПЛЮСОН",
         to_email=email,
         subject=subject,
-        html=html,
-        text=text,
+        body_text=text,
+        body_html=text.replace("\n", "<br>"),
+        unsubscribe_token=make_email_unsubscribe_token(
+            client_id=order["client_id"] or 0, contact_id=0,
+            client_channel_id=ch["client_channel_id"] or 0),
     )
 
 

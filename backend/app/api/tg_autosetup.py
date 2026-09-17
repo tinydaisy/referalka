@@ -1355,7 +1355,8 @@ async def transfer_now(user=Depends(get_current_client), db=Depends(get_db)):
         # останавливается, и кнопка «Передать мне» — единственный способ
         # повторить. Без этого она отвечала бы «нет настройки» именно тогда,
         # когда нужна больше всего.
-        """SELECT id, client_started_bot_at, bot_transferred_at, bot_created_at
+        """SELECT id, client_started_bot_at, bot_transferred_at, bot_created_at,
+                  group_transferred_at, client_joined_at
              FROM service_orders
             WHERE client_id = $1 AND setup_state IN ('awaiting_user', 'failed')
             ORDER BY id DESC LIMIT 1""",
@@ -1363,9 +1364,18 @@ async def transfer_now(user=Depends(get_current_client), db=Depends(get_db)):
     )
     if not order:
         raise HTTPException(404, "Нет настройки, ожидающей ваших действий")
-    if order["bot_transferred_at"]:
+    # ⚠️⚠️ «БОТ ПЕРЕДАН» ≠ «ВСЁ ГОТОВО» (17.09.2026). Здесь стоял безусловный
+    # выход `already: True`, и заказ, у которого бот уже у клиента, а права на
+    # ГРУППУ не отданы, доделать было нечем: кнопка отвечала «и так всё»,
+    # фоновая задача стояла после двух неудач. Ровно так завис заказ 8 —
+    # бот передан 16.09 в 12:24, а админом в группе человек не стал.
+    if order["bot_transferred_at"] and order["group_transferred_at"]:
         return {"ok": True, "already": True}
-    if not order["client_started_bot_at"]:
+    # ⚠️ Требование «сначала напишите боту» — про ПЕРЕДАЧУ БОТА: Telegram не
+    # даёт выбрать получателя, который боту не писал. К правам на группу оно
+    # отношения не имеет, поэтому когда бот уже передан — не мешаем доделать
+    # группу этой проверкой.
+    if not order["bot_transferred_at"] and not order["client_started_bot_at"]:
         raise HTTPException(
             400,
             "Сначала зайдите в бота и нажмите «Запустить», иначе Telegram "
