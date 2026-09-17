@@ -120,6 +120,73 @@ async def order_known(
             "known": await known_contact_fields(db, t["client_id"], contact_id)}
 
 
+class PromoCheckIn(BaseModel):
+    tariff_id: int
+    promo_code: str
+    contact_id: Optional[int] = None
+    email: Optional[str] = None
+
+
+@router.options("/check-promo", include_in_schema=False)
+async def _opts_promo(response: Response):
+    _cors(response)
+    return {}
+
+
+@router.post("/check-promo", summary="Проверить промокод до оформления заказа")
+async def check_promo(
+    data: PromoCheckIn,
+    response: Response,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Годится ли код и какая будет цена — ДО отправки формы.
+
+    ⚠️ Зачем отдельная проверка: раньше промокод проверялся только при
+    создании заказа, то есть В САМОМ КОНЦЕ. Между вводом кода и этой
+    проверкой успевал вклиниться экран «Это вы?» — человек вводил неверный
+    код, проходил выбор контакта и только потом узнавал, что код не годится
+    (жалоба владельца 17.09.2026). Теперь код проверяется сразу при вводе.
+
+    ⚠️ Это НЕ замена проверке в `create_order`: там она остаётся и остаётся
+    главной. Ответ браузера подделывается, скидку считает только сервер при
+    создании заказа. Здесь — лишь подсказка человеку.
+    """
+    _cors(response)
+    t = await _load_tariff(db, data.tariff_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+
+    price = int(t["price"] or 0)
+    if price <= 0:
+        raise HTTPException(status_code=400,
+                            detail="Этот тариф бесплатный — промокод не нужен")
+    if (t["pay_product_id"] or "").strip():
+        raise HTTPException(status_code=400,
+                            detail="На этом тарифе промокоды не действуют.")
+
+    try:
+        promo = await promo_svc.resolve(
+            db, code=data.promo_code, client_id=t["client_id"], price=price,
+            event_id=t["event_id"], tariff_id=t["id"], tariff_kind="event",
+            contact_id=data.contact_id, email=data.email,
+        )
+    except promo_svc.PromoError as e:
+        # Текст писался для покупателя — показываем как есть.
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # ⚠️ Показываем ту же цену, что уйдёт в оплату: с поправкой на минимум
+    # платёжной системы. Иначе человек увидит 50 ₽, а заплатит 100 ₽.
+    price_after = promo_svc.clamp_to_provider_minimum(
+        promo["price_after"], t["pay_provider"])
+    return {
+        "ok": True,
+        "code": promo["code"],
+        "price_before": price,
+        "price_after": price_after,
+        "is_free": price_after <= 0,
+    }
+
+
 @router.post("/create", summary="Оформить заказ тарифа")
 async def create_order(
     data: OrderIn,

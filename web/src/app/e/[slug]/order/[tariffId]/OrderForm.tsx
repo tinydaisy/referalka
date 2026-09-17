@@ -74,6 +74,16 @@ export default function OrderForm({
   // ввода и показ результата: расчёт в браузере обходится запросом мимо формы.
   const [promo, setPromo] = useState('')
   const [promoOpen, setPromoOpen] = useState(false)
+  // ⚠️ Проверка кода ПРИ ВВОДЕ, а не при отправке формы (17.09.2026).
+  // Раньше код проверялся только на создании заказа — то есть в самом конце,
+  // и между вводом и проверкой успевал вклиниться экран «Это вы?»: человек
+  // вводил неверный код, выбирал себя из списка и только потом узнавал, что
+  // код не годится. Сервер всё равно перепроверяет при создании заказа.
+  const [promoState, setPromoState] = useState<
+    { kind: 'idle' } | { kind: 'checking' }
+    | { kind: 'ok'; priceAfter: number; isFree: boolean }
+    | { kind: 'bad'; message: string }
+  >({ kind: 'idle' })
 
   const price = Number(tariff.price || 0)
   const isFree = price <= 0
@@ -167,6 +177,46 @@ export default function OrderForm({
       : { background: btnFill }),
   }
 
+  /**
+   * Проверить промокод сразу, не дожидаясь отправки формы.
+   *
+   * ⚠️ Ответ здесь — только подсказка человеку. Скидку всё равно считает
+   * сервер при создании заказа: ответ браузера подделывается.
+   */
+  const checkPromo = async () => {
+    const code = promo.trim()
+    if (!code) { setPromoState({ kind: 'idle' }); return }
+    setPromoState({ kind: 'checking' })
+    try {
+      const api = ownerType === 'product'
+        ? '/api/v1/public/product-orders/check-promo'
+        : '/api/v1/public/event-orders/check-promo'
+      const res = await fetch(api, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tariff_id: tariff.id,
+          promo_code: code,
+          contact_id: contactId ? Number(contactId) : null,
+          email: email.trim() || null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setPromoState({ kind: 'bad', message: data?.detail || 'Промокод не подошёл' })
+        return
+      }
+      setPromoState({
+        kind: 'ok',
+        priceAfter: Number(data.price_after || 0),
+        isFree: !!data.is_free,
+      })
+    } catch {
+      // Сеть подвела — не пугаем человека: код проверится при отправке.
+      setPromoState({ kind: 'idle' })
+    }
+  }
+
   const submit = async (extra: any = {}) => {
     // ⚠️ ЗАМОК ПОМИМО `busy` (2026-09-03). Состояние React применяется не
     // мгновенно: два быстрых нажатия успевают войти сюда оба, пока кнопка ещё
@@ -180,6 +230,14 @@ export default function OrderForm({
     if (!email.trim()) { unlock(); setError('Укажите email — на него придёт доступ'); return }
     if (!phone.trim()) { unlock(); setError('Укажите телефон'); return }
     if (!tg.trim()) { unlock(); setError('Укажите ник в Telegram — по нему добавим вас в чат'); return }
+    // ⚠️ Заведомо неверный код дальше не пускаем: иначе человек пройдёт ещё
+    // и экран «Это вы?», и только там узнает про ошибку — ровно то, на что
+    // жаловался владелец 17.09.2026.
+    if (promoAllowed && promo.trim() && promoState.kind === 'bad') {
+      unlock()
+      setError(`${promoState.message}. Исправьте код или уберите его`)
+      return
+    }
     if (!pd) {
       unlock()
       setError('Без согласия на обработку персональных данных оформить заказ нельзя')
@@ -429,10 +487,44 @@ export default function OrderForm({
           {promoAllowed && (
             promoOpen ? (
               <Field label="Промокод">
-                <input value={promo} onChange={e => setPromo(e.target.value)}
-                       placeholder="Введите код"
-                       autoCapitalize="characters" spellCheck={false}
-                       style={inputStyle(page)} />
+                <div className="flex gap-2">
+                  <input value={promo}
+                         onChange={e => {
+                           setPromo(e.target.value)
+                           // Правят код — прежний вердикт больше не про него.
+                           setPromoState({ kind: 'idle' })
+                         }}
+                         onBlur={() => checkPromo()}
+                         onKeyDown={e => {
+                           // ⚠️ Enter в поле промокода НЕ отправляет форму:
+                           // человек жмёт его, чтобы «применить код».
+                           if (e.key === 'Enter') { e.preventDefault(); checkPromo() }
+                         }}
+                         placeholder="Введите код"
+                         autoCapitalize="characters" spellCheck={false}
+                         style={{ ...inputStyle(page), flex: 1 }} />
+                  <button type="button" onClick={() => checkPromo()}
+                          disabled={promoState.kind === 'checking' || !promo.trim()}
+                          className="shrink-0 rounded-lg px-4 text-[.85em] font-semibold disabled:opacity-50"
+                          style={{
+                            background: page.color_link || '#FFCFA4',
+                            color: page.bg_css || '#25455D',
+                          }}>
+                    {promoState.kind === 'checking' ? 'Проверяем…' : 'Применить'}
+                  </button>
+                </div>
+                {promoState.kind === 'ok' && (
+                  <p className="mt-1.5 text-[.85em]" style={{ color: '#7CE08A' }}>
+                    {promoState.isFree
+                      ? '✓ Промокод применён — участие бесплатно'
+                      : `✓ Промокод применён — к оплате ${promoState.priceAfter} ₽`}
+                  </p>
+                )}
+                {promoState.kind === 'bad' && (
+                  <p className="mt-1.5 text-[.85em]" style={{ color: '#FF9C9C' }}>
+                    {promoState.message}
+                  </p>
+                )}
               </Field>
             ) : (
               <button type="button" onClick={() => setPromoOpen(true)}

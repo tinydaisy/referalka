@@ -96,6 +96,13 @@ export default function TariffPicker({
   // Промокод (миграция 397). Скидку считает СЕРВЕР — здесь только ввод.
   const [promo, setPromo] = useState('')
   const [promoOpen, setPromoOpen] = useState(false)
+  // ⚠️ Проверка кода ПРИ ВВОДЕ, а не при отправке (17.09.2026): иначе человек
+  // заполняет всю форму и только в конце узнаёт, что код не годится.
+  const [promoState, setPromoState] = useState<
+    { kind: 'idle' } | { kind: 'checking' }
+    | { kind: 'ok'; priceAfter: number; isFree: boolean }
+    | { kind: 'bad'; message: string }
+  >({ kind: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // ⚠️ Замок повторной отправки — обычной переменной, а не состоянием:
@@ -111,6 +118,44 @@ export default function TariffPicker({
   // которое ничего не делает, хуже отсутствующего.
   const promoAllowed = !isFree && (picked as any)?.promo_allowed !== false
 
+  /**
+   * Проверить промокод сразу, не дожидаясь отправки формы.
+   *
+   * ⚠️ Ответ — только подсказка человеку: скидку всё равно считает сервер
+   * при создании заказа, ответ браузера подделывается.
+   */
+  async function checkPromo() {
+    const code = promo.trim()
+    if (!code || !picked) { setPromoState({ kind: 'idle' }); return }
+    setPromoState({ kind: 'checking' })
+    try {
+      const apiUrl = (import.meta as any).env?.VITE_API_URL || ''
+      const res = await fetch(`${apiUrl}/api/v1/public/event-orders/check-promo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tariff_id: picked.id,
+          promo_code: code,
+          contact_id: contactId ?? null,
+          email: email.trim() || null,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setPromoState({ kind: 'bad', message: data?.detail || 'Промокод не подошёл' })
+        return
+      }
+      setPromoState({
+        kind: 'ok',
+        priceAfter: Number(data.price_after || 0),
+        isFree: !!data.is_free,
+      })
+    } catch {
+      // Сеть подвела — не пугаем: код проверится при отправке.
+      setPromoState({ kind: 'idle' })
+    }
+  }
+
   async function submit() {
     if (sending.current) return
     sending.current = true
@@ -120,6 +165,13 @@ export default function TariffPicker({
     if (!name.trim())  { unlock(); setError('Укажите имя и фамилию'); return }
     if (!email.trim()) { unlock(); setError('Укажите email — на него придёт доступ'); return }
     if (!phone.trim()) { unlock(); setError('Укажите телефон'); return }
+    // ⚠️ Заведомо неверный код дальше не пускаем — иначе человек узнает об
+    // ошибке только после оформления (жалоба владельца 17.09.2026).
+    if (promoAllowed && promo.trim() && promoState.kind === 'bad') {
+      unlock()
+      setError(`${promoState.message}. Исправьте код или уберите его`)
+      return
+    }
     if (!pd) {
       unlock()
       setError('Без согласия на обработку персональных данных оформить заказ нельзя')
@@ -472,10 +524,42 @@ export default function TariffPicker({
           {promoAllowed && (promoOpen ? (
             <div className="field">
               <label>Промокод</label>
-              <input className="input-dark" value={promo}
-                     onChange={e => setPromo(e.target.value)}
-                     autoCapitalize="characters" spellCheck={false}
-                     placeholder="Введите код" />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="input-dark" value={promo}
+                       onChange={e => {
+                         setPromo(e.target.value)
+                         setPromoState({ kind: 'idle' })
+                       }}
+                       onBlur={() => checkPromo()}
+                       onKeyDown={e => {
+                         if (e.key === 'Enter') { e.preventDefault(); checkPromo() }
+                       }}
+                       autoCapitalize="characters" spellCheck={false}
+                       placeholder="Введите код" style={{ flex: 1 }} />
+                <button type="button" onClick={() => checkPromo()}
+                        disabled={promoState.kind === 'checking' || !promo.trim()}
+                        style={{
+                          flexShrink: 0, padding: '0 14px', borderRadius: 8,
+                          border: 'none', cursor: 'pointer', fontSize: 13,
+                          fontWeight: 600, background: 'var(--accent)',
+                          color: '#25455D',
+                          opacity: promoState.kind === 'checking' || !promo.trim() ? 0.5 : 1,
+                        }}>
+                  {promoState.kind === 'checking' ? 'Проверяем…' : 'Применить'}
+                </button>
+              </div>
+              {promoState.kind === 'ok' && (
+                <div style={{ marginTop: 6, fontSize: 13, color: '#7CE08A' }}>
+                  {promoState.isFree
+                    ? '✓ Промокод применён — участие бесплатно'
+                    : `✓ Промокод применён — к оплате ${promoState.priceAfter} ₽`}
+                </div>
+              )}
+              {promoState.kind === 'bad' && (
+                <div style={{ marginTop: 6, fontSize: 13, color: '#FF9C9C' }}>
+                  {promoState.message}
+                </div>
+              )}
             </div>
           ) : (
             <button type="button" onClick={() => setPromoOpen(true)}
