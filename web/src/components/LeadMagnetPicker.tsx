@@ -83,6 +83,15 @@ export interface LeadMagnetPickerProps {
   /** Что выбрано сейчас. */
   value?: { kind: MagnetKind; id: number } | null
   onPick: (value: { kind: MagnetKind; id: number } | null) => void
+  /**
+   * Готовые списки вместо загрузки из кабинета клиента.
+   *
+   * ⚠️ Нужно кабинету спикера и Коллабораторной: там магниты и пакеты —
+   * СВОИ у каждого человека (из его привязанного ПЛЮСОН-аккаунта), а не
+   * клиента, который открыл страницу. Поведение пикера при этом одинаковое:
+   * поиск, две группы, тот же вид.
+   */
+  items?: { magnets: MagnetItem[]; packages: MagnetItem[] }
   placeholder?: string
   /** Можно ли снять выбор («— не выбран —»). */
   allowEmpty?: boolean
@@ -90,7 +99,7 @@ export interface LeadMagnetPickerProps {
 }
 
 export default function LeadMagnetPicker({
-  value, onPick,
+  value, onPick, items,
   placeholder = 'Выберите лид-магнит', allowEmpty = true, disabled,
 }: LeadMagnetPickerProps) {
   const [open, setOpen] = useState(false)
@@ -98,7 +107,11 @@ export default function LeadMagnetPicker({
   const [data, setData] = useState<{ magnets: MagnetItem[]; packages: MagnetItem[] } | null>(_cache)
   const boxRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { loadAll().then(setData) }, [])
+  // Списки переданы снаружи — своей загрузки не делаем.
+  useEffect(() => {
+    if (items) { setData(items); return }
+    loadAll().then(setData)
+  }, [items])
 
   // Клик мимо — закрыть. Это НЕ модалка-форма, а выпадающий список: здесь
   // закрытие по клику снаружи привычно и ничего введённого не теряет.

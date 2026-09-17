@@ -17,6 +17,7 @@ import { useParams } from 'next/navigation'
 import QrLinkButton from '@/components/QrLinkButton'
 import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 import SpeakerGiftStats from '@/components/SpeakerGiftStats'
+import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import MarkupHints from '@/components/MarkupHints'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 import { personWording } from '@/lib/personWording'
@@ -1572,17 +1573,28 @@ export default function SpeakerCabinetPage() {
                       </div>
                     )}
                     {(me.gift_lead_magnets || []).length < 4 ? (
-                      <select style={{ ...inputCss, ...(canEdit ? {} : lockedBtnCss) }} value=""
+                      /* ⚠️ Тот же пикер с ПОИСКОМ, что в кабинете клиента, но
+                         списки — СВОИ: магниты и пакеты из привязанного
+                         ПЛЮСОН-аккаунта спикера. Уже добавленные отфильтрованы,
+                         чтобы нельзя было выбрать подарок дважды. */
+                      <LeadMagnetPicker
+                        allowEmpty={false}
                         disabled={!canEdit}
-                        onChange={(e) => { addGiftMagnet(e.target.value); e.currentTarget.value = '' }}>
-                        <option value="">+ Добавить лид-магнит / пакет…</option>
-                        {(myMagnets?.magnets || [])
-                          .filter((m) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'magnet' && g.id === m.id))
-                          .map((m) => (<option key={`m${m.id}`} value={`m:${m.id}`}>🎁 {m.name} ({m.known ?? 0}/{m.delivered ?? 0})</option>))}
-                        {(myMagnets?.packages || [])
-                          .filter((p) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'package' && g.id === p.id))
-                          .map((p) => (<option key={`p${p.id}`} value={`p:${p.id}`}>📦 Пакет: {p.name} ({p.known ?? 0}/{p.delivered ?? 0})</option>))}
-                      </select>
+                        placeholder="+ Добавить лид-магнит / пакет…"
+                        value={null}
+                        items={{
+                          magnets: (myMagnets?.magnets || [])
+                            .filter((m) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'magnet' && g.id === m.id))
+                            .map((m) => ({ id: m.id, name: m.name, kind: 'magnet' as const })),
+                          packages: (myMagnets?.packages || [])
+                            .filter((p) => !(me.gift_lead_magnets || []).some((g) => g.kind === 'package' && g.id === p.id))
+                            .map((p) => ({ id: p.id, name: p.name, kind: 'package' as const })),
+                        }}
+                        onPick={(v) => {
+                          if (!v) return
+                          addGiftMagnet(`${v.kind === 'package' ? 'p' : 'm'}:${v.id}`)
+                        }}
+                      />
                     ) : (
                       <div style={{ fontSize: 11.5, color: '#a06a2a', marginTop: 4 }}>Максимум 4 лид-магнита.</div>
                     )}
