@@ -373,6 +373,8 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
 function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
   // Подарок, который анкета выдаёт после заполнения.
   const [giftId, setGiftId] = useState<number | ''>(survey.gift_lead_magnet_id || '')
+  // Пакет лид-магнитов — второй вид подарка (миграция 410). Магнит ИЛИ пакет.
+  const [giftPkgId, setGiftPkgId] = useState<number | ''>(survey.gift_package_id || '')
   const [magnets, setMagnets] = useState<any[]>([])
   useEffect(() => {
     // ⚠️ Эндпоинт отдаёт {items: [...]}, а не массив. Без разворота в
@@ -420,6 +422,10 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
         intro, after_mode: afterMode, thanks_text: thanks,
         redirect_url: redirect, allow_repeat: allowRepeat, is_active: isActive,
         image_url: imageUrl || null,
+        // ⚠️ НОЛЬ, а не null: бэкенд не различает «не прислали» и «прислали
+        // пусто», и снять выбранный подарок через null было бы нельзя.
+        gift_lead_magnet_id: giftId ? Number(giftId) : 0,
+        gift_package_id: giftPkgId ? Number(giftPkgId) : 0,
         ...(notifyTouched ? { notify_emails: notifyEmails } : {}),
       })
       setSaved(true); setTimeout(() => setSaved(false), 1500)
@@ -497,14 +503,18 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
         <span className="mb-1 block text-sm text-gray-600">
           Выдать подарок за заполнение
         </span>
-        {/* ⚠️ Общий пикер с поиском по названию: магнитов у клиента десятки.
-            Пакеты здесь не показываем — анкета выдаёт один материал. */}
+        {/* Общий пикер с поиском: и лид-магниты, и пакеты. */}
         <LeadMagnetPicker
-          withPackages={false}
           disabled={readOnly}
           placeholder="Не выдавать"
-          value={giftId ? { kind: 'magnet', id: Number(giftId) } : null}
-          onPick={v => setGiftId(v ? v.id : '')}
+          value={giftPkgId ? { kind: 'package', id: Number(giftPkgId) }
+               : giftId ? { kind: 'magnet', id: Number(giftId) } : null}
+          onPick={v => {
+            // Магнит ИЛИ пакет — второе поле зануляем, иначе в базе останутся
+            // оба и непонятно, что выдавать.
+            setGiftId(v?.kind === 'magnet' ? v.id : '')
+            setGiftPkgId(v?.kind === 'package' ? v.id : '')
+          }}
         />
         <span className="mt-1 block text-xs text-gray-500">
           {giftId

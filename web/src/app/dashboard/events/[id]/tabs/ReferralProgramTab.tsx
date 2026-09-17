@@ -589,6 +589,8 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
 function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any) {
   const [count, setCount] = useState(initial?.threshold_count ?? 0)
   const [leadMagnetId, setLeadMagnetId] = useState<number | null>(initial?.lead_magnet_id || null)
+  // Пакет лид-магнитов как подарок за порог (миграция 430). Магнит ИЛИ пакет.
+  const [packageId, setPackageId] = useState<number | null>(initial?.package_id || null)
   const [certificateUrl, setCertificateUrl] = useState(initial?.certificate_url || '')
   const [giftText, setGiftText] = useState(initial?.gift_template_text || '')
   const [saving, setSaving] = useState(false)
@@ -602,6 +604,7 @@ function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any)
       const payload = {
         threshold_count: count,
         lead_magnet_id: leadMagnetId,
+        package_id: packageId,
         certificate_url: certificateUrl.trim() || null,
         gift_template_text: giftText.trim() || null,
         sort: count,
@@ -631,13 +634,16 @@ function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any)
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Лид-магнит</label>
-            {/* ⚠️ Общий пикер с ПОИСКОМ по названию: у клиента магнитов
-                десятки, в обычном списке нужный не найти. Пакеты здесь не
-                показываем — порог выдаёт один материал. */}
+            {/* Общий пикер с поиском: и лид-магниты, и пакеты. */}
             <LeadMagnetPicker
-              withPackages={false}
-              value={leadMagnetId ? { kind: 'magnet', id: leadMagnetId } : null}
-              onPick={v => setLeadMagnetId(v ? v.id : null)}
+              value={packageId ? { kind: 'package', id: packageId }
+                   : leadMagnetId ? { kind: 'magnet', id: leadMagnetId } : null}
+              onPick={v => {
+                // Магнит ИЛИ пакет — второе поле зануляем, иначе в базе
+                // останутся оба и непонятно, что выдавать.
+                setLeadMagnetId(v?.kind === 'magnet' ? v.id : null)
+                setPackageId(v?.kind === 'package' ? v.id : null)
+              }}
             />
             {leadMagnets.length === 0 && (
               <p className="text-xs text-gray-400 mt-1">

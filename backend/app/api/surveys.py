@@ -504,6 +504,9 @@ async def update_survey(
     for col in ('gift_lead_magnet_id', 'gift_package_id'):
         if col in fs:
             val = getattr(data, col)
+            # ⚠️ 0 от фронта = «снять подарок» → NULL. Фронт шлёт ноль, а не
+            # null, потому что иначе не отличить «не прислали» от «сняли»;
+            # в базе же ноль — несуществующий id, храним NULL.
             # ⚠️ Защита от цикла: подарок, который сам требует ЭТУ анкету,
             # назначать нельзя — человек ходил бы по кругу.
             if val and col == 'gift_lead_magnet_id':
@@ -516,7 +519,7 @@ async def update_survey(
                         "Этот подарок уже требует заполнить эту же анкету — "
                         "получилось бы хождение по кругу. Снимите у него "
                         "настройку «Сначала анкета».")
-            add(col, val)
+            add(col, val or None)
 
     if 'notify_emails' in fs:
         # ⚠️ Через `model_fields_set`, а не `is not None`: пустой список —

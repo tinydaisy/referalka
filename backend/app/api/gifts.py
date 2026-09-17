@@ -153,17 +153,23 @@ async def _fetch_gifts_for_event(
     """
     rows = await db.fetch(
         """
+        -- ⚠️ Подарком за порог бывает и ПАКЕТ (миграция 430), а не только
+        -- один магнит: берём то, что заполнено. У пакета своей прямой ссылки
+        -- нет — он всегда выдаётся воронкой `/p/{slug}`, поэтому link_url
+        -- пустой, а slug и владелец берутся из пакета.
         SELECT t.id,
-               COALESCE(NULLIF(lm.name, ''), 'Подарок') AS title,
-               lm.description                          AS description,
+               COALESCE(NULLIF(lm.name, ''), NULLIF(pk.name, ''), 'Подарок') AS title,
+               COALESCE(lm.description, pk.description) AS description,
                t.threshold_count                       AS points_cost,
                lm.url                                  AS link_url,
-               lm.slug                                 AS lm_slug,
-               lm.client_id                            AS lm_client_id,
+               COALESCE(lm.slug, pk.slug)              AS lm_slug,
+               COALESCE(lm.client_id, pk.client_id)    AS lm_client_id,
+               (t.package_id IS NOT NULL)              AS is_package,
                t.certificate_url                       AS certificate_url,
                t.sort                                  AS sort_order
           FROM event_referral_thresholds t
           LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
+          LEFT JOIN lead_magnet_packages pk ON pk.id = t.package_id
          WHERE t.event_id = $1
          ORDER BY t.sort, t.threshold_count
         """,
@@ -185,8 +191,11 @@ async def _fetch_gifts_for_event(
         for g in gifts:
             if not g.get("lm_slug"):
                 continue
+            # ⚠️ У ПАКЕТА свой префикс адреса: `/p/{slug}`, у магнита `/m/`.
+            # Один префикс на оба вида вёл бы пакет на несуществующую страницу.
+            _kind = "p" if g.get("is_package") else "m"
             web_url = await client_public_link(
-                db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
+                db, g.get("lm_client_id"), f"{_kind}/{g['lm_slug']}")
 
             # ⚠️⚠️ ССЫЛКА ВЕДЁТ В БОТА, А НЕ НА ВЕБ-СТРАНИЦУ.
             # Человек открыл подарок в Telegram — он должен попасть в
@@ -200,7 +209,7 @@ async def _fetch_gifts_for_event(
             links = {}
             try:
                 links = await build_funnel_landing_links(
-                    db, client_id=g.get("lm_client_id"), slug=g["lm_slug"], kind="m")
+                    db, client_id=g.get("lm_client_id"), slug=g["lm_slug"], kind=_kind)
             except Exception:
                 links = {}
 

@@ -606,10 +606,14 @@ async def get_public_landing(
     # ── Подарки за регистрацию ────────────────────────────────────────────
     if "gifts" in kinds:
         rows = await db.fetch(
+            # ⚠️ Подарком бывает и ПАКЕТ (миграция 430) — берём то, что
+            # заполнено, иначе на лендинге у такого порога пустое название.
             """SELECT t.threshold_count, t.certificate_url,
-                      lm.name AS title, lm.description
+                      COALESCE(lm.name, pk.name) AS title,
+                      COALESCE(lm.description, pk.description) AS description
                  FROM event_referral_thresholds t
                  LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
+                 LEFT JOIN lead_magnet_packages pk ON pk.id = t.package_id
                 WHERE t.event_id = $1
                 ORDER BY t.threshold_count""",
             event["id"],

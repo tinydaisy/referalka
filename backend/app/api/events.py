@@ -1054,10 +1054,13 @@ async def copy_event(
         )
         for t in thresholds:
             await db.execute(
+                # ⚠️ package_id тоже копируем (миграция 430): без него копия
+                # события теряла подарок-пакет, и порог оставался пустым.
                 """INSERT INTO event_referral_thresholds
-                     (event_id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort)
-                   VALUES ($1,$2,$3,$4,$5,$6)""",
-                new_id, t['threshold_count'], t['lead_magnet_id'],
+                     (event_id, threshold_count, lead_magnet_id, package_id,
+                      certificate_url, gift_template_text, sort)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                new_id, t['threshold_count'], t['lead_magnet_id'], t['package_id'],
                 t['certificate_url'], t['gift_template_text'], t['sort']
             )
 

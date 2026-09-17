@@ -83,8 +83,6 @@ export interface LeadMagnetPickerProps {
   /** Что выбрано сейчас. */
   value?: { kind: MagnetKind; id: number } | null
   onPick: (value: { kind: MagnetKind; id: number } | null) => void
-  /** Показывать ли пакеты. У некоторых экранов пакет не поддержан. */
-  withPackages?: boolean
   placeholder?: string
   /** Можно ли снять выбор («— не выбран —»). */
   allowEmpty?: boolean
@@ -92,7 +90,7 @@ export interface LeadMagnetPickerProps {
 }
 
 export default function LeadMagnetPicker({
-  value, onPick, withPackages = true,
+  value, onPick,
   placeholder = 'Выберите лид-магнит', allowEmpty = true, disabled,
 }: LeadMagnetPickerProps) {
   const [open, setOpen] = useState(false)
@@ -113,10 +111,13 @@ export default function LeadMagnetPicker({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
+  // ⚠️⚠️ ПАКЕТЫ ПОКАЗЫВАЮТСЯ ВСЕГДА, на всех экранах (решение владельца
+  // 16.09.2026). Флага «показывать ли пакеты» больше нет: он делил список на
+  // два поведения и на части экранов пакеты просто не появлялись.
   const all: MagnetItem[] = useMemo(() => [
     ...(data?.magnets || []),
-    ...(withPackages ? (data?.packages || []) : []),
-  ], [data, withPackages])
+    ...(data?.packages || []),
+  ], [data])
 
   const current = value
     ? all.find(i => i.kind === value.kind && i.id === value.id) || null
@@ -213,40 +214,28 @@ export default function LeadMagnetPicker({
               </div>
             )}
 
-            {/* ⚠️⚠️ ЗАГОЛОВКИ ГРУПП — ВСЕГДА, безусловно. Раньше они зависели
-                от `withPackages`, и на экранах без пакетов (пороги, анкеты,
-                /start) список шёл СПЛОШНОЙ КУЧЕЙ без единой подписи. Магнит и
-                пакет — разные сущности, человек должен видеть, что выбирает. */}
+            {/* ⚠️⚠️ ДВЕ ГРУППЫ ВСЕГДА: «Лид-магниты» и «Пакеты». Заголовки
+                выделены персиковой плашкой — список без подписей читался как
+                сплошная куча, и было непонятно, что выбираешь. Магнит и пакет
+                — разные сущности (один материал против набора). */}
             {!!magnets.length && (
               <>
-                <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <div className="sticky top-0 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide"
+                     style={{ background: '#FFCFA4', color: '#25455D' }}>
                   Лид-магниты · {magnets.length}
                 </div>
                 {magnets.map(row)}
               </>
             )}
 
-            {/* ⚠️ Заголовок «Пакеты» виден и когда их НЕТ — с пояснением.
-                Иначе непонятно, почему пакетов не видно: то ли их не бывает,
-                то ли экран их не поддерживает. */}
-            {withPackages && (
-              packages.length ? (
-                <>
-                  <div className="sticky top-0 bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                    Пакеты · {packages.length}
-                  </div>
-                  {packages.map(row)}
-                </>
-              ) : !q && (
-                <div className="bg-gray-50 px-3 py-1.5 text-[11px] text-gray-400">
-                  Пакеты — пока ни одного
+            {!!packages.length && (
+              <>
+                <div className="sticky top-0 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide"
+                     style={{ background: '#FFCFA4', color: '#25455D' }}>
+                  Пакеты · {packages.length}
                 </div>
-              )
-            )}
-            {!withPackages && !!magnets.length && !q && (
-              <div className="bg-gray-50 px-3 py-1.5 text-[11px] text-gray-400">
-                Пакеты здесь не выдаются — только один материал
-              </div>
+                {packages.map(row)}
+              </>
             )}
           </div>
         </div>

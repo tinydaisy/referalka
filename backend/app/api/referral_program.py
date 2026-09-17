@@ -381,6 +381,8 @@ async def upsert_referral_settings(
 class ThresholdIn(BaseModel):
     threshold_count:    int                # 1, 3, 10, ...
     lead_magnet_id:     Optional[int] = None
+    # Пакет лид-магнитов как подарок за порог (миграция 430). Магнит ИЛИ пакет.
+    package_id:         Optional[int] = None
     certificate_url:    Optional[str] = None
     gift_template_text: Optional[str] = None
     sort:               int = 0
@@ -397,14 +399,17 @@ async def list_thresholds(
     # Нужно для пометки «чей подарок» в дашборде коллаб-события. У обычного события
     # и в Mini App участника пометка не показывается (решает фронт по is_collab).
     rows = await db.fetch(
-        """SELECT t.id, t.threshold_count, t.lead_magnet_id, t.certificate_url,
-                  t.gift_template_text, t.sort,
-                  lm.name AS lead_magnet_name, lm.url AS lead_magnet_url,
-                  lm.client_id AS owner_client_id,
+        """SELECT t.id, t.threshold_count, t.lead_magnet_id, t.package_id,
+                  t.certificate_url, t.gift_template_text, t.sort,
+                  -- Название подарка: магнит ИЛИ пакет, что заполнено.
+                  COALESCE(lm.name, pk.name) AS lead_magnet_name,
+                  lm.url AS lead_magnet_url,
+                  COALESCE(lm.client_id, pk.client_id) AS owner_client_id,
                   COALESCE(oc.brand_name, oc.name) AS owner_name
            FROM event_referral_thresholds t
            LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
-           LEFT JOIN clients oc ON oc.id = lm.client_id
+           LEFT JOIN lead_magnet_packages pk ON pk.id = t.package_id
+           LEFT JOIN clients oc ON oc.id = COALESCE(lm.client_id, pk.client_id)
            WHERE t.event_id = $1
            ORDER BY t.threshold_count, t.sort, t.id""",
         event_id
@@ -425,6 +430,17 @@ async def _check_lead_magnet_owned(lead_magnet_id: int, client_id: int, db: asyn
         raise HTTPException(status_code=400, detail="Лид-магнит не принадлежит клиенту")
 
 
+async def _check_package_owned(package_id: int, client_id: int, db: asyncpg.Connection):
+    if package_id is None:
+        return
+    ok = await db.fetchval(
+        "SELECT 1 FROM lead_magnet_packages WHERE id = $1 AND client_id = $2",
+        package_id, client_id
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="Пакет не принадлежит клиенту")
+
+
 @router.post("/referral/thresholds", summary="Добавить порог-подарок")
 async def add_threshold(
     event_id: int,
@@ -438,12 +454,17 @@ async def add_threshold(
         raise HTTPException(status_code=400, detail="threshold_count должен быть >= 0")
     if data.lead_magnet_id:
         await _check_lead_magnet_owned(data.lead_magnet_id, client_id, db)
+    if data.package_id:
+        await _check_package_owned(data.package_id, client_id, db)
     row = await db.fetchrow(
         """INSERT INTO event_referral_thresholds
-             (event_id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort)
-           VALUES ($1,$2,$3,$4,$5,$6)
-           RETURNING id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort""",
-        event_id, data.threshold_count, data.lead_magnet_id,
+             (event_id, threshold_count, lead_magnet_id, package_id,
+              certificate_url, gift_template_text, sort)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING id, threshold_count, lead_magnet_id, package_id,
+                     certificate_url, gift_template_text, sort""",
+        event_id, data.threshold_count, data.lead_magnet_id or None,
+        data.package_id or None,
         data.certificate_url, data.gift_template_text, data.sort
     )
     return dict(row)
@@ -462,16 +483,19 @@ async def update_threshold(
         raise HTTPException(status_code=400, detail="Количество приведённых должно быть 0 или больше")
     if data.lead_magnet_id:
         await _check_lead_magnet_owned(data.lead_magnet_id, client_id, db)
+    if data.package_id:
+        await _check_package_owned(data.package_id, client_id, db)
     row = await db.fetchrow(
         """UPDATE event_referral_thresholds
-              SET threshold_count = $1, lead_magnet_id = $2,
+              SET threshold_count = $1, lead_magnet_id = $2, package_id = $8,
                   certificate_url = $3, gift_template_text = $4, sort = $5,
                   updated_at = NOW()
             WHERE id = $6 AND event_id = $7
-            RETURNING id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort""",
-        data.threshold_count, data.lead_magnet_id,
+            RETURNING id, threshold_count, lead_magnet_id, package_id,
+                      certificate_url, gift_template_text, sort""",
+        data.threshold_count, data.lead_magnet_id or None,
         data.certificate_url, data.gift_template_text, data.sort,
-        threshold_id, event_id
+        threshold_id, event_id, data.package_id or None
     )
     if not row:
         raise HTTPException(status_code=404, detail="Порог не найден")

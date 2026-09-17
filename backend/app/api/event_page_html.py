@@ -171,15 +171,20 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
     Единый синтаксис с Mini App (gifts.py) и воронками (funnel_service).
     Нет зрителя / нет рефовода → плейсхолдеры пустые."""
     rows = await db.fetch(
+        # ⚠️ Подарком бывает и ПАКЕТ (миграция 430). У пакета своей прямой
+        # ссылки нет — он выдаётся воронкой `/p/{slug}`, поэтому link_url
+        # пустой, а slug и владелец берутся из пакета.
         """SELECT t.threshold_count AS points_cost,
-                  COALESCE(lm.name, 'Подарок') AS title,
+                  COALESCE(NULLIF(lm.name,''), NULLIF(pk.name,''), 'Подарок') AS title,
                   t.gift_template_text AS description,
                   lm.url AS link_url,
-                  lm.slug AS lm_slug,
-                  lm.client_id AS lm_client_id,
+                  COALESCE(lm.slug, pk.slug) AS lm_slug,
+                  COALESCE(lm.client_id, pk.client_id) AS lm_client_id,
+                  (t.package_id IS NOT NULL) AS is_package,
                   t.certificate_url
              FROM event_referral_thresholds t
              LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
+             LEFT JOIN lead_magnet_packages pk ON pk.id = t.package_id
             WHERE t.event_id = $1
             ORDER BY t.threshold_count""",
         event_id,
@@ -206,10 +211,12 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
             if not g.get("lm_slug"):
                 continue
             web_url = await client_public_link(
-                db, g.get("lm_client_id"), f"m/{g['lm_slug']}")
+                db, g.get("lm_client_id"),
+                f"{'p' if g.get('is_package') else 'm'}/{g['lm_slug']}")
             try:
                 links = await build_funnel_landing_links(
-                    db, client_id=g.get("lm_client_id"), slug=g["lm_slug"], kind="m")
+                    db, client_id=g.get("lm_client_id"), slug=g["lm_slug"],
+                    kind=("p" if g.get("is_package") else "m"))
             except Exception:
                 links = {}
             g["platform_links"] = {k: v for k, v in (links or {}).items() if v}
