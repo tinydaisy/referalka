@@ -38,6 +38,7 @@
 import hmac
 import hashlib
 import logging
+import re
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -191,12 +192,11 @@ def verify_leadpay_webhook(payload: dict, token: str) -> bool:
 # Продамус
 # ─────────────────────────────────────────────────────────────────────────────
 def _prodamus_normalize(value):
-    """Приводит данные к виду, в котором Продамус считает подпись.
+    """Приводит значения к строкам — шаг 1 алгоритма Продамуса.
 
-    ⚠️ Порядок действий важен: булево становится «1»/«0», числа — строкой,
-    None — пустой строкой, ключи словарей сортируются на КАЖДОМ уровне
-    вложенности (в товарах вложенность есть). Иначе подпись не сойдётся,
-    а Продамус в ответ просто откажет в оплате без объяснения.
+    ⚠️ СТРУКТУРА НЕ МЕНЯЕТСЯ: список остаётся списком, словарь — словарём.
+    Раньше список превращался в словарь с числовыми ключами («0», «1»), и
+    подпись не сходилась НИКОГДА — см. `_prodamus_sign`.
     """
     if isinstance(value, bool):
         return "1" if value else "0"
@@ -205,35 +205,109 @@ def _prodamus_normalize(value):
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, dict):
-        return {k: _prodamus_normalize(value[k]) for k in sorted(value.keys(), key=str)}
+        return {k: _prodamus_normalize(value[k]) for k in value}
     if isinstance(value, (list, tuple)):
-        # Список у Продамуса — это словарь с числовыми ключами.
-        return {str(i): _prodamus_normalize(v) for i, v in enumerate(value)}
+        return [_prodamus_normalize(v) for v in value]
     return str(value)
 
 
 def _prodamus_sign(data: dict, secret: str) -> str:
-    """HMAC-SHA256 от JSON нормализованных данных (без поля `signature`)."""
+    """HMAC-SHA256 подписи Продамуса.
+
+    Алгоритм из их документации (help.prodamus.ru, «Инструкция для
+    самостоятельной интеграции»), дословно пять шагов:
+      1. привести все значения к строкам;
+      2. отсортировать по ключам по алфавиту, в том числе вглубь;
+      3. перевести в JSON-строку;
+      4. ⚠️ ЭКРАНИРОВАТЬ «/» как «\\/»;
+      5. подписать SHA-256 секретным ключом.
+
+    ⚠️⚠️ Два шага раньше делались неверно, и оба — молча (17.09.2026,
+    подобрано перебором на живой форме `ivision.payform.ru`):
+
+    • шаг 4 не делался вовсе. PHP `json_encode` экранирует слэши сам,
+      Python — нет, а в данных сплошь URL: адреса возврата и вебхука.
+    • список товаров превращался в словарь `{"0": {...}}` вместо списка.
+      Эталонная библиотека (`prodamuspy`) подписывает структуру как есть.
+
+    ⚠️ Чем это опасно: при неверной подписи Продамус НЕ ругается. Он молча
+    отбрасывает наши данные и подставляет товар по умолчанию из настроек
+    формы — клиент видит чужое название и пустую сумму. Правя это место,
+    проверять надо на живой форме (название и цена из ссылки должны встать),
+    а не «по документации».
+    """
     import json
 
     payload = _prodamus_normalize(
         {k: v for k, v in data.items() if k not in ("signature", "sign")}
     )
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"),
-                     sort_keys=True).encode("utf-8")
+                     sort_keys=True).replace("/", r"\/").encode("utf-8")
     return hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+
+
+def _prodamus_unflatten(data: dict) -> dict:
+    """Собирает плоские ключи формы обратно во вложенную структуру.
+
+    `{"products[0][name]": "X"}` → `{"products": [{"name": "X"}]}`.
+
+    ⚠️ Нужно ИМЕННО для проверки подписи вебхука: тело приходит формой, где
+    товары разложены плоско, а подпись Продамус считает по вложенной
+    структуре (как и для ссылки). Без сборки подписи не сойдутся, и оплата
+    не отметится — притом что оплата реально прошла.
+
+    Числовой ключ даёт список, остальные — словарь. Чего разобрать не
+    удалось, кладём как есть: терять поля при проверке подписи нельзя.
+    """
+    root: dict = {}
+    for key, value in data.items():
+        m = re.match(r"^([^\[]+)((?:\[[^\]]*\])+)$", str(key))
+        if not m:
+            root[key] = value
+            continue
+        path = [m.group(1)] + re.findall(r"\[([^\]]*)\]", m.group(2))
+        node = root
+        for i, part in enumerate(path):
+            last = i == len(path) - 1
+            nxt = path[i + 1] if not last else None
+            if last:
+                if isinstance(node, list):
+                    node.append(value)
+                else:
+                    node[part] = value
+            else:
+                child_is_list = nxt is not None and nxt.isdigit()
+                default = [] if child_is_list else {}
+                if isinstance(node, list):
+                    idx = int(part) if part.isdigit() else len(node)
+                    while len(node) <= idx:
+                        node.append(type(default)())
+                    node = node[idx]
+                else:
+                    if part not in node or not isinstance(node[part], (dict, list)):
+                        node[part] = default
+                    node = node[part]
+    return root
 
 
 def verify_prodamus_webhook(payload: dict, signature: Optional[str], secret: str) -> bool:
     """Проверяет подпись вебхука Продамуса (заголовок `Sign`).
+
+    ⚠️ Тело приходит ПЛОСКОЙ формой (`products[0][name]=…`), а подпись
+    считается по вложенной структуре — поэтому сначала собираем её обратно
+    (`_prodamus_unflatten`). Пробуем оба варианта: если Продамус когда-то
+    пришлёт уже вложенный JSON, проверка не развалится.
 
     Пустой ключ → False: у клиента приём оплаты не настроен, доверять
     такому вебхуку нельзя.
     """
     if not secret or not signature:
         return False
-    expected = _prodamus_sign(payload, secret)
-    return hmac.compare_digest(expected.lower(), signature.strip().lower())
+    signature = signature.strip().lower()
+    for candidate in (_prodamus_unflatten(payload), payload):
+        if hmac.compare_digest(_prodamus_sign(candidate, secret).lower(), signature):
+            return True
+    return False
 
 
 def _prodamus_link(
