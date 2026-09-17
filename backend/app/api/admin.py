@@ -242,14 +242,20 @@ async def list_clients(
           -- модуль, за который он ЗАПЛАТИЛ отдельно (Конференции, Турниры,
           -- Коллабораторная), туда не попадает вовсе — и в админке его не
           -- было видно. Владельцу нужно именно это: кто что купил и до когда.
+          -- ⚠️ ИСТЁКШИЕ МОДУЛИ ТОЖЕ ОТДАЁМ (`is_active` в каждой строке).
+          -- Раньше условие было `expires_at > NOW()`, и модуль, у которого
+          -- кончился срок, пропадал из админки бесследно: владелец не видел,
+          -- что клиент им пользовался и когда доступ закончился.
           (SELECT json_agg(json_build_object(
                      'slug', f.slug, 'name', f.name,
-                     'expires_at', ca.expires_at)
-                   ORDER BY ca.expires_at)
+                     'expires_at', ca.expires_at,
+                     'is_active', (ca.status = 'active' AND ca.expires_at > NOW()))
+                   -- Действующие сверху, затем недавно истёкшие.
+                   ORDER BY (ca.status = 'active' AND ca.expires_at > NOW()) DESC,
+                            ca.expires_at DESC)
              FROM client_addons ca
              JOIN features f ON f.id = ca.feature_id
-            WHERE ca.client_id = c.id
-              AND ca.status = 'active' AND ca.expires_at > NOW()) AS addons,
+            WHERE ca.client_id = c.id) AS addons,
           (SELECT COUNT(*) FROM events e WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=c.id AND eo.status='accepted')) AS events_count,
           (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id AND ct.is_active = TRUE) AS contacts_count,
           (SELECT COUNT(*) FROM client_channels cc

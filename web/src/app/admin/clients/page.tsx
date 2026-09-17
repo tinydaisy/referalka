@@ -23,7 +23,9 @@ interface Client {
   features: string[] | null
   /** ⚠️ Модули, КУПЛЕННЫЕ отдельно (`client_addons`). В `features` их нет:
    *  там только то, что дал тариф. */
-  addons?: { slug: string; name: string; expires_at: string | null }[] | null
+  /** ⚠️ Приходят И действующие, И истёкшие (`is_active`): факт, что модуль
+   *  был и кончился, тоже нужен — по нему видно, кого возвращать. */
+  addons?: { slug: string; name: string; expires_at: string | null; is_active?: boolean }[] | null
   offer_accepted_at?: string | null
   offer_accepted_version?: string | null
   privacy_consent_at?: string | null
@@ -83,6 +85,12 @@ export default function AdminClientsPage() {
   // даёт и тариф, а нужны именно подключения.
   const [feature, setFeature] = useState('')
   const [allFeatures, setAllFeatures] = useState<{ slug: string; name: string }[]>([])
+  // ⚠️ Фильтр по ТАРИФУ. Бэкенд умел его с самого начала (параметр `tariff`),
+  // но в панели выпадашки не было — выбрать конкретный тариф было нельзя,
+  // только «есть подписка / нет». Не путать с «Подписка: любая» рядом: то про
+  // наличие активной подписки, это — про её тариф.
+  const [tariffFilter, setTariffFilter] = useState('')
+  const [allTariffs, setAllTariffs] = useState<{ slug: string; name: string }[]>([])
   // Сортировка по клику на заголовок. По умолчанию — новые сверху, как было.
   const [sort, setSort] = useState('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -108,12 +116,13 @@ export default function AdminClientsPage() {
     if (hasBot) qs.set('has_bot', hasBot)
     if (inCollab) qs.set('in_collab', inCollab)
     if (feature) qs.set('feature', feature)
+    if (tariffFilter) qs.set('tariff', tariffFilter)
     if (sort) { qs.set('sort', sort); qs.set('sort_dir', sortDir) }
     qs.set('limit', String(limit))
     api.admin.clients(qs.toString())
       .then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) })
       .catch(() => {})
-  }, [search, limit, minContacts, subscription, hasBot, inCollab, feature, sort, sortDir, reloadTick])
+  }, [search, limit, minContacts, subscription, hasBot, inCollab, feature, tariffFilter, sort, sortDir, reloadTick])
 
   // Справочник фич для выпадающего списка — грузим один раз.
   useEffect(() => {
@@ -124,12 +133,18 @@ export default function AdminClientsPage() {
       // подключённый клиент у неё есть.
       .then((r: any) => setAllFeatures((r.features || []).filter((f: any) => f.is_connectable)))
       .catch(() => {})
+    // ⚠️ ВСЕ тарифы, включая неактивные. По `is_active` из фильтра выпали бы
+    // «Администратор» и «Стандарт»: они сняты с продажи, но клиенты на них
+    // есть (на проде — 2 на «Администраторе»), и найти их было бы нечем.
+    api.admin.tariffs()
+      .then((r: any) => setAllTariffs(r.tariffs || r.items || []))
+      .catch(() => {})
   }, [])
 
   // Смена фильтра/поиска — снова с первой страницы, иначе останется раздутый
   // limit от прошлого просмотра.
   useEffect(() => { setLimit(50) },
-    [search, minContacts, subscription, hasBot, inCollab, feature])
+    [search, minContacts, subscription, hasBot, inCollab, feature, tariffFilter])
 
   // Разметить контакты тегами plusson:* — после этого сегменты доступны
   // в рассылках кабинета как обычный фильтр по тегам.
@@ -228,6 +243,19 @@ export default function AdminClientsPage() {
             <option value="">Коллаб: все</option>
             <option value="yes">В Коллабораторной</option>
             <option value="no">Не в Коллабораторной</option>
+          </select>
+
+          {/* ⚠️ Фильтр по ТАРИФУ активной подписки. Не путать с «Подписка»
+              слева: та про наличие подписки, эта — про то, какая именно. */}
+          <select
+            value={tariffFilter} onChange={e => setTariffFilter(e.target.value)}
+            className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
+            title="Клиенты на этом тарифе (по активной подписке)"
+          >
+            <option value="">Тариф: любой</option>
+            {allTariffs.map(t => (
+              <option key={t.slug} value={t.slug}>{t.name}</option>
+            ))}
           </select>
 
           {/* ⚠️⚠️ ПОДКЛЮЧЁННЫЕ МОДУЛИ, а не фичи. Показывает тех, у кого
@@ -379,27 +407,47 @@ export default function AdminClientsPage() {
                         {c.tariff_name || c.tariff_slug}
                       </span>
                     </div>
+                    {/* ⚠️ ПИШЕМ, К ЧЕМУ ОТНОСИТСЯ ДАТА. Раньше под тарифом
+                        висело просто «истекла 30.08.2026», а ниже — бейдж
+                        модуля со своей датой в подсказке: две даты рядом без
+                        подписи, и непонятно, что кончилось — тариф или модуль. */}
                     {c.subscription_expires_at && (
                       <div className={`text-[10px] mt-1 ${c.subscription_status === 'expired' ? 'text-red-500' : 'text-gray-400'}`}>
-                        {c.subscription_status === 'expired' ? 'истекла ' : 'до '}
+                        {c.subscription_status === 'expired' ? 'тариф истёк ' : 'тариф до '}
                         {new Date(c.subscription_expires_at).toLocaleDateString('ru')}
                       </div>
                     )}
-                    {/* ⚠️ КУПЛЕННЫЕ МОДУЛИ — рядом с тарифом. Раньше их не было
-                        видно нигде: колонка `features` собирает только то, что
-                        дал тариф, и оплаченные Конференции или Турниры в
-                        админке не показывались вовсе. */}
+                    {/* ⚠️ МОДУЛИ — рядом с тарифом, у каждого СВОЯ дата прямо в
+                        бейдже. Раньше их не было видно вовсе (колонка `features`
+                        собирает только то, что дал тариф), а после — дата пряталась
+                        в подсказке, которую надо поймать наведением.
+                        ⚠️ Истёкшие показываем серым и с пометкой: сам факт, что
+                        модуль был и кончился, — это то, ради чего сюда смотрят. */}
                     {(c.addons || []).length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {(c.addons || []).map(a => (
-                          <span key={a.slug}
-                                title={a.expires_at
-                                  ? `Модуль оплачен до ${new Date(a.expires_at).toLocaleDateString('ru')}`
-                                  : 'Купленный модуль'}
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200">
-                            {a.name}
-                          </span>
-                        ))}
+                        {(c.addons || []).map(a => {
+                          const active = a.is_active !== false
+                          const date = a.expires_at
+                            ? new Date(a.expires_at).toLocaleDateString('ru') : null
+                          return (
+                            <span key={a.slug}
+                                  title={date
+                                    ? (active ? `Модуль подключён до ${date}` : `Модуль истёк ${date}`)
+                                    : 'Подключённый модуль'}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                                    active
+                                      ? 'bg-violet-50 text-violet-700 border-violet-200'
+                                      : 'bg-gray-50 text-gray-400 border-gray-200 line-through'
+                                  }`}>
+                              {a.name}
+                              {date && (
+                                <span className={active ? 'text-violet-500' : 'text-gray-400'}>
+                                  {' · '}{active ? 'до' : 'истёк'} {date}
+                                </span>
+                              )}
+                            </span>
+                          )
+                        })}
                       </div>
                     )}
                   </td>
