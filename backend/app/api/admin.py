@@ -70,7 +70,8 @@ async def list_clients(
     has_bot: Optional[str] = None,        # yes | no
     in_collab: Optional[str] = None,      # yes | no
     feature: Optional[str] = None,        # slug фичи/модуля
-    feature_source: Optional[str] = None, # any | addon — откуда доступ
+    # ⚠️ `feature` — slug ПОДКЛЮЧЁННОГО МОДУЛЯ (`features.is_addon`), а не
+    # любой фичи: фильтр отвечает на вопрос «у кого сейчас подключён модуль».
     min_subscribers: Optional[int] = None,
     min_events: Optional[int] = None,
     min_channels: Optional[int] = None,
@@ -107,39 +108,28 @@ async def list_clients(
                 "WHERE ca2.client_id = c.id AND f2.slug = 'collab_hub' AND ca2.status = 'active'))")
         conditions.append(cond if in_collab == "yes" else f"NOT {cond}")
 
-    # ─── Фильтр по модулю/услуге ────────────────────────────────────────
+    # ─── Фильтр по ПОДКЛЮЧЁННОМУ МОДУЛЮ ─────────────────────────────────
     #
-    # ⚠️⚠️ ОДИН ФИЛЬТР НА ВСЕ ФИЧИ, а не по фильтру на каждую. Их 36, и
-    # отдельными выпадашками панель стала бы нечитаемой; список из 36 пунктов
-    # в одном селекторе — читаемо и покрывает всё разом.
+    # ⚠️⚠️ ТОЛЬКО `client_addons` — то есть модуль, который клиенту РЕАЛЬНО
+    # подключён прямо сейчас (куплен или выдан админом), с действующим сроком.
     #
-    # ⚠️ Доступ к фиче даёт ТРИ разных источника (тариф, купленный модуль,
-    # вложенные фичи модуля), и общий `_CLIENT_FEATURES_SQL` их уже сводит.
-    # Своего запроса не пишем: он разошёлся бы с тем, по чему гейтятся
-    # разделы, и админка показывала бы не тех клиентов.
+    # ⚠️ Раньше здесь искали по ДОСТУПУ К ФИЧЕ (`_CLIENT_FEATURES_SQL`), и это
+    # был неверный ответ на вопрос: доступ даёт ещё и тариф, поэтому в выдачу
+    # попадали все, у кого фича «есть», — а нужны те, у кого модуль ПОДКЛЮЧЁН.
+    # Модулей всего три (`features.is_addon`), остальные 33 фичи к этому
+    # фильтру отношения не имеют.
     #
-    # ⚠️ `feature_source='addon'` — «КУПИЛ ОТДЕЛЬНО», а не «есть доступ». Это
-    # разные вопросы: конференции входят в тариф у одних и куплены модулем у
-    # других, и владельцу нужно уметь спросить именно про покупку (кто платил).
+    # ⚠️ `expires_at > NOW()` обязательно: истёкший модуль остаётся строкой в
+    # таблице со статусом `active`, и без проверки срока в списке висели бы
+    # клиенты, у которых модуль давно кончился.
     if feature:
-        from app.services.features import _CLIENT_FEATURES_SQL
         params.append(feature)
-        p = len(params)
-        if feature_source == "addon":
-            conditions.append(
-                f"""EXISTS (SELECT 1 FROM client_addons ca3
-                              JOIN features f3 ON f3.id = ca3.feature_id
-                             WHERE ca3.client_id = c.id AND f3.slug = ${p}
-                               AND ca3.status = 'active' AND ca3.expires_at > NOW())"""
-            )
-        else:
-            # ⚠️ `$1` внутри общего запроса — это client_id, поэтому подставляем
-            # туда `c.id` текущей строки, а slug идёт отдельным параметром.
-            conditions.append(
-                f"EXISTS (SELECT 1 FROM ("
-                f"{_CLIENT_FEATURES_SQL.replace('$1', 'c.id')}"
-                f") fs WHERE fs.slug = ${p})"
-            )
+        conditions.append(
+            f"""EXISTS (SELECT 1 FROM client_addons ca3
+                          JOIN features f3 ON f3.id = ca3.feature_id
+                         WHERE ca3.client_id = c.id AND f3.slug = ${len(params)}
+                           AND ca3.status = 'active' AND ca3.expires_at > NOW())"""
+        )
 
     # ─── Пороги по числовым колонкам ────────────────────────────────────
     #
@@ -1245,7 +1235,20 @@ async def list_features(
     admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    rows = await db.fetch("SELECT id, slug, name, description, sort FROM features ORDER BY sort, slug")
+    # ⚠️ `is_addon` — модуль, продающийся отдельно от тарифа.
+    #
+    # ⚠️⚠️ `is_connectable` — то, что РЕАЛЬНО подключают клиентам через
+    # `client_addons`. Это НЕ то же самое, что `is_addon`: услуга автонастройки
+    # (`tg_autosetup`) выдаётся строкой в той же таблице (по промокоду), но
+    # модулем не помечена. Фильтр в списке клиентов строится по этому полю —
+    # иначе клиент с подключённой услугой не нашёлся бы вовсе.
+    rows = await db.fetch(
+        """SELECT f.id, f.slug, f.name, f.description, f.sort, f.is_addon,
+                  (f.is_addon OR EXISTS (
+                      SELECT 1 FROM client_addons ca WHERE ca.feature_id = f.id
+                  )) AS is_connectable
+             FROM features f ORDER BY f.sort, f.slug"""
+    )
     return {"features": [dict(r) for r in rows]}
 
 

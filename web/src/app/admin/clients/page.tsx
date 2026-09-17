@@ -76,12 +76,12 @@ export default function AdminClientsPage() {
   const [subscription, setSubscription] = useState('')
   const [hasBot, setHasBot] = useState('')
   const [inCollab, setInCollab] = useState('')
-  // ⚠️ ОДИН фильтр на все 36 фич и модулей вместо выпадашки на каждую: иначе
-  // панель не читается. `featureSource` отделяет «есть доступ» (тариф ИЛИ
-  // покупка) от «купил отдельно» — это разные вопросы: конференции у одних
-  // входят в тариф, а другие за них платили.
+  // ⚠️⚠️ ФИЛЬТР ПО ПОДКЛЮЧЁННОМУ МОДУЛЮ, а не по доступу к фиче. Вопрос
+  // владельца: «у кого сейчас подключён модуль». Сначала здесь ошибочно
+  // фильтровали по доступу (тариф + модуль + вложенные фичи) и показывали
+  // список из всех 36 фич — это был ответ не на тот вопрос: доступ к фиче
+  // даёт и тариф, а нужны именно подключения.
   const [feature, setFeature] = useState('')
-  const [featureSource, setFeatureSource] = useState('')
   const [allFeatures, setAllFeatures] = useState<{ slug: string; name: string }[]>([])
   // Сортировка по клику на заголовок. По умолчанию — новые сверху, как было.
   const [sort, setSort] = useState('created_at')
@@ -108,25 +108,28 @@ export default function AdminClientsPage() {
     if (hasBot) qs.set('has_bot', hasBot)
     if (inCollab) qs.set('in_collab', inCollab)
     if (feature) qs.set('feature', feature)
-    if (feature && featureSource) qs.set('feature_source', featureSource)
     if (sort) { qs.set('sort', sort); qs.set('sort_dir', sortDir) }
     qs.set('limit', String(limit))
     api.admin.clients(qs.toString())
       .then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) })
       .catch(() => {})
-  }, [search, limit, minContacts, subscription, hasBot, inCollab, feature, featureSource, sort, sortDir, reloadTick])
+  }, [search, limit, minContacts, subscription, hasBot, inCollab, feature, sort, sortDir, reloadTick])
 
   // Справочник фич для выпадающего списка — грузим один раз.
   useEffect(() => {
     api.admin.features()
-      .then((r: any) => setAllFeatures(r.features || []))
+      // ⚠️ Только то, что РЕАЛЬНО подключают через `client_addons`
+      // (`is_connectable`): три модуля + услуги, выдаваемые той же таблицей.
+      // По `is_addon` услуга автонастройки выпала бы из фильтра, хотя
+      // подключённый клиент у неё есть.
+      .then((r: any) => setAllFeatures((r.features || []).filter((f: any) => f.is_connectable)))
       .catch(() => {})
   }, [])
 
   // Смена фильтра/поиска — снова с первой страницы, иначе останется раздутый
   // limit от прошлого просмотра.
   useEffect(() => { setLimit(50) },
-    [search, minContacts, subscription, hasBot, inCollab, feature, featureSource])
+    [search, minContacts, subscription, hasBot, inCollab, feature])
 
   // Разметить контакты тегами plusson:* — после этого сегменты доступны
   // в рассылках кабинета как обычный фильтр по тегам.
@@ -227,30 +230,19 @@ export default function AdminClientsPage() {
             <option value="no">Не в Коллабораторной</option>
           </select>
 
-          {/* ⚠️ Фильтр по МОДУЛЮ/УСЛУГЕ — один список на все фичи. Ищет по
-              доступу из любого источника (тариф, купленный модуль, вложенные
-              фичи модуля) — тем же выражением, по которому гейтятся разделы. */}
+          {/* ⚠️⚠️ ПОДКЛЮЧЁННЫЕ МОДУЛИ, а не фичи. Показывает тех, у кого
+              модуль подключён ПРЯМО СЕЙЧАС (активный, срок не истёк). Тариф
+              в расчёт не идёт: вопрос именно про модули. */}
           <select
             value={feature} onChange={e => setFeature(e.target.value)}
             className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none max-w-[230px]"
+            title="Клиенты, у которых этот модуль подключён и срок не истёк"
           >
             <option value="">Модуль: любой</option>
             {allFeatures.map(f => (
-              <option key={f.slug} value={f.slug}>{f.name}</option>
+              <option key={f.slug} value={f.slug}>Подключён: {f.name}</option>
             ))}
           </select>
-          {/* Второй селектор появляется только когда модуль выбран: без него
-              он ничего не фильтрует и только занимает место. */}
-          {feature && (
-            <select
-              value={featureSource} onChange={e => setFeatureSource(e.target.value)}
-              className="shrink-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none"
-              title="«Купил отдельно» — только те, кто оплатил модуль, без тех, кому он достался в тарифе"
-            >
-              <option value="">Доступ: любой</option>
-              <option value="addon">Купил отдельно</option>
-            </select>
-          )}
 
           <button
             onClick={syncTags} disabled={syncing}
