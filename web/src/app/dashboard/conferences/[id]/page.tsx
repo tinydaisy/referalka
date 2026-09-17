@@ -103,7 +103,7 @@ export default function ConferencePage() {
   // Группировка вкладок в разделы (двухуровневая навигация):
   //  Настройки / Люди / Отслеживания / Платежи / Рассылки.
   // Программа осталась внутри «Настроек» (часть наполнения события).
-  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'tournament' | 'payments' | 'broadcasts' | 'webinar_grp'
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'tournament' | 'payments' | 'landing_grp' | 'broadcasts' | 'webinar_grp'
   const GROUPS: { key: GroupKey; label: string; tabs: { id: Tab; label: string }[] }[] = [
     {
       key: 'settings_grp', label: 'Настройки',
@@ -111,7 +111,7 @@ export default function ConferencePage() {
         { id: 'settings', label: 'Описание' },
         { id: 'program',  label: t.conferences.tabs.program },
         { id: 'posters',  label: t.conferences.tabs.posters },
-        ...(hasLanding ? [{ id: 'landing' as Tab, label: 'Лендинг' }] : []),
+        // ⚠️ «Лендинг» здесь НЕТ — он отдельный раздел первого уровня, ниже.
         { id: 'referral', label: 'Реф-программа' },
         { id: 'raffle',   label: t.conferences.tabs.raffle },
         { id: 'nurture',  label: 'Воронка догрева' },
@@ -160,6 +160,18 @@ export default function ConferencePage() {
       tabs: [
         { id: 'tariffs' as Tab, label: 'Тарифы' },
         { id: 'tariff_orders' as Tab, label: 'Заказы' },
+      ],
+    }] : []),
+    // ⚠️ «Лендинг» — ОТДЕЛЬНЫЙ раздел первого уровня, а не вкладка внутри
+    // «Настроек» (решение владельца 07.09.2026): конструктор продающей
+    // страницы — самостоятельная работа, внутри настроек его не находили.
+    // Стоит после «Платежей»: сначала что продаём, потом чем продаём.
+    // ⚠️ Раньше правило применили только к мероприятиям, а у конференций и
+    // премий лендинг так и остался в «Настройках» — разошлись три страницы.
+    ...(hasLanding ? [{
+      key: 'landing_grp' as GroupKey, label: 'Лендинг',
+      tabs: [
+        { id: 'landing' as Tab, label: 'Конструктор' },
       ],
     }] : []),
     // «Вебинары» — по фиче webinar_room. Внутри WebinarTab своя

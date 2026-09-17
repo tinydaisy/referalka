@@ -58,7 +58,7 @@ export default function ContestPage() {
   if (!event) return null
 
   // Группировка вкладок: Настройки / Люди / Отслеживания / Рассылки.
-  type GroupKey = 'settings_grp' | 'people' | 'tracking'
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'landing_grp'
   const hasLanding = (me?.features || []).includes('event_landing')
 
   const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
@@ -67,13 +67,22 @@ export default function ContestPage() {
       tabs: [
         { key: 'overview', label: 'Описание' },
         { key: 'posters',  label: 'Афиши' },
-        ...(hasLanding ? [{ key: 'landing' as TabKey, label: 'Лендинг' }] : []),
+        // ⚠️ «Лендинг» здесь НЕТ — он отдельный раздел первого уровня, ниже.
         { key: 'referral', label: 'Реф-программа' },
         { key: 'welcome',  label: 'Приветствие' },
       ],
     },
     { key: 'people',   label: 'Люди',         tabs: [{ key: 'voters', label: 'Голосующие' }] },
     { key: 'tracking', label: 'Отслеживания', tabs: [{ key: 'report', label: 'Отчёт по привлечению' }] },
+    // ⚠️ «Лендинг» — ОТДЕЛЬНЫЙ раздел первого уровня, а не вкладка внутри
+    // «Настроек» (решение владельца 07.09.2026): конструктор продающей
+    // страницы — самостоятельная работа, внутри настроек его не находили.
+    // ⚠️ Раньше правило применили только к мероприятиям, а у конференций и
+    // премий лендинг так и остался в «Настройках» — разошлись три страницы.
+    ...(hasLanding ? [{
+      key: 'landing_grp' as GroupKey, label: 'Лендинг',
+      tabs: [{ key: 'landing' as TabKey, label: 'Конструктор' }],
+    }] : []),
   ]
   const activeGroup = GROUPS.find(g => g.tabs.some(tb => tb.key === activeTab)) || GROUPS[0]
 
