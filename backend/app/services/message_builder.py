@@ -130,6 +130,8 @@ _SPEAKER_ONLY_PLACEHOLDERS = (
     # Следующий по программе спикер — есть только там, где известен слот
     # (speakers_call «вы следующие»). Подробности — _next_speaker_in_program().
     "next_speaker_name", "next_speaker_tg_username", "next_speaker_time",
+    # Вход СПИКЕРА в эфир дня (Zoom) — не путать со {stream_url} (комната зрителя).
+    "speaker_join_url",
     "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
 )
 CONF_TYPES = ("pre_conf",)
@@ -721,18 +723,19 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
                             vk_url=None, max_url=None, website_url=None,
                             achievements=None, role=None, bio=None, positioning=None,
                             card_link=None, speaker_notes=None, speaker_topic_desc=None,
-                            speaker_when=None, speaker_time=None, webinar_room_url=None,
+                            speaker_when=None, speaker_time=None, speaker_join_url=None,
                             next_speaker_name=None, next_speaker_tg=None,
                             next_speaker_time=None):
     text = tmpl_text or ""
     text = text.replace("{stream_url}", stream_url_val or "")
-    # {webinar_room_url} — НАША комната дня, отдельно от {stream_url} (которая при
-    # внешнем эфире отдаёт Zoom/YouTube). В шаблоне «вы следующие» спикеру нужны
-    # обе ссылки сразу. Пусто → строка убирается целиком.
-    _room_v = (webinar_room_url or "").strip()
-    if not _room_v:
-        text = re.sub(r"^[^\n]*\{webinar_room_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    text = text.replace("{webinar_room_url}", _room_v)
+    # {speaker_join_url} — вход СПИКЕРА в эфир дня (Zoom). ⚠️ Не то же, что
+    # {stream_url}: та — вебинарная комната для ЗРИТЕЛЕЙ, а спикер заходит
+    # отдельной ссылкой, чтобы его картинка попала в эту комнату. Пусто →
+    # строка убирается целиком (ссылку могли не заводить вовсе).
+    _join_v = (speaker_join_url or "").strip()
+    if not _join_v:
+        text = re.sub(r"^[^\n]*\{speaker_join_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    text = text.replace("{speaker_join_url}", _join_v)
     # {speaker_time} — «14:30–15:00 МСК». Раньше раскрывался только в
     # speaker_intro, хотя фронт предлагал его и здесь — плейсхолдер уходил сырым.
     _stime_v = (speaker_time or "").strip()
@@ -1948,12 +1951,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             # {speaker_time} — «14:30–15:00 МСК» для обоих типов.
             _pre_time, _, _ = _build_speaker_slot_strings(
                 session_data.get("start_time"), session_data.get("end_time"), _pre_date)
-            # Следующий по программе + наша комната дня — только для «вы следующие».
-            _room_url = ""
+            # Вход спикера (Zoom) + следующий по программе — для «вы следующие».
+            _join_url = ""
             _nx_name = _nx_tg = _nx_time = ""
             if tpl_type == "speakers_call":
-                from app.services.webinar_service import day_room_url as _day_room_url
-                _room_url = await _day_room_url(conn, _slot_event_id, _slot_day, None)
+                # Ссылка входа СПИКЕРА в эфир ЭТОГО дня (миграция 433). У каждого
+                # дня своя: зум-конференцию заводят под конкретный эфир.
+                _join_url = await conn.fetchval(
+                    "SELECT speaker_join_url FROM webinar_rooms "
+                    "WHERE event_id=$1 AND day_number=$2",
+                    _slot_event_id, _slot_day) or ""
                 _nx = await _next_speaker_in_program(
                     conn, _slot_event_id,
                     session_data.get("day") or _slot_day,
@@ -1986,7 +1993,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 speaker_topic_desc=session_data.get("speaker_topic_desc"),
                 speaker_when=_pre_when,
                 speaker_time=_pre_time,
-                webinar_room_url=_room_url,
+                speaker_join_url=_join_url,
                 next_speaker_name=_nx_name,
                 next_speaker_tg=_nx_tg,
                 next_speaker_time=_nx_time,
@@ -2275,7 +2282,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "speaker_notes", "speaker_ask_topics", "speaker_slot_topic",
         # Рассылка «вы следующие» в чат спикеров (speakers_call).
         "next_speaker_name", "next_speaker_tg_username", "next_speaker_time",
-        "webinar_room_url",
+        "speaker_join_url",
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
         "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",

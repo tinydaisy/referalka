@@ -164,10 +164,10 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 
         {/* Сторонний вебинар → только настройки (одна ссылка), что бы ни было выбрано. */}
         {active.room?.stream_type === 'external_link' ? (
-          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} />
+          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} />
         ) : (<>
         {subView === 'settings' && (
-          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} />
+          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} />
         )}
         {subView === 'blocks' && (
           <BlocksEditor eventId={eventId} day={active} event={event} />
@@ -215,7 +215,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 }
 
 // ─────────────────────────── настройки комнаты дня ───────────────────────────
-function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void }) {
+function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void; daysCount?: number }) {
   // Домен клиента: ссылку на комнату он отдаёт своим зрителям.
   const { publicBase } = useMe()
   const r = day.room
@@ -223,6 +223,7 @@ function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number;
     title: r?.title || day.day_title || '',
     stream_type: r?.stream_type || (level === 'room' ? 'encoder' : 'external_link'),
     external_url: r?.external_url || '',
+    speaker_join_url: r?.speaker_join_url || '',
     hide_viewer_count: r?.hide_viewer_count || false,
     chat_enabled: r?.chat_enabled ?? true,
     premoderation: r?.premoderation || false,
@@ -241,6 +242,29 @@ function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number;
   })
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState('')
+  const [copyingJoin, setCopyingJoin] = useState(false)
+  const [joinCopied, setJoinCopied] = useState(false)
+
+  // Ссылку входа спикера — во все дни программы.
+  // ⚠️ Сначала СОХРАНЯЕМ текущий день: бэкенд копирует то, что лежит в базе, а
+  // не то, что набрано в поле. Без этого кнопка разнесла бы по дням прошлую
+  // ссылку (или ничего), и человек узнал бы об этом уже во время эфира.
+  async function copyJoinUrlToAllDays() {
+    const url = (f.speaker_join_url || '').trim()
+    if (!url) { alert('Сначала укажите ссылку входа для спикеров.'); return }
+    setCopyingJoin(true); setJoinCopied(false)
+    try {
+      await api.webinar.upsertRoom(eventId, day.day_number, f)
+      await api.webinar.copySpeakerJoinUrl(eventId, day.day_number)
+      setJoinCopied(true)
+      setTimeout(() => setJoinCopied(false), 3000)
+      onSaved()
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось скопировать')
+    } finally {
+      setCopyingJoin(false)
+    }
+  }
 
   useEffect(() => {
     const rr = day.room
@@ -248,6 +272,7 @@ function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number;
       title: rr?.title || day.day_title || '',
       stream_type: rr?.stream_type || (level === 'room' ? 'encoder' : 'external_link'),
       external_url: rr?.external_url || '',
+      speaker_join_url: rr?.speaker_join_url || '',
       hide_viewer_count: rr?.hide_viewer_count || false,
       chat_enabled: rr?.chat_enabled ?? true,
       premoderation: rr?.premoderation || false,
@@ -283,6 +308,7 @@ function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number;
           title: rr.title ?? prev.title,
           stream_type: rr.stream_type ?? prev.stream_type,
           external_url: rr.external_url ?? '',
+          speaker_join_url: rr.speaker_join_url ?? '',
           hide_viewer_count: rr.hide_viewer_count ?? false,
           chat_enabled: rr.chat_enabled ?? true,
           premoderation: rr.premoderation ?? false,
@@ -397,6 +423,35 @@ function RoomSettings({ eventId, day, level, slug, onSaved }: { eventId: number;
           </p>
         </div>
       )}
+
+      {/* ⚠️ ВХОД СПИКЕРА — НЕ ссылка на эфир, и поэтому стоит ОТДЕЛЬНО от
+          настроек комнаты (и вне блока isEncoder: нужна при любом типе эфира).
+          Зрители идут в вебинарную комнату, а спикер заходит сюда — чтобы его
+          картинка попала В эту комнату. Ссылка своя у каждого дня: зум-конференцию
+          заводят под конкретный эфир. */}
+      <div className="rounded-xl border border-gray-200 p-4 space-y-2">
+        <label className="label">Ссылка для входа спикеров (Zoom)</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <input className="input flex-1 min-w-[220px]" value={f.speaker_join_url}
+                 onChange={e => setF({ ...f, speaker_join_url: e.target.value })}
+                 placeholder="https://zoom.us/j/..." />
+          {daysCount > 1 && (
+            <button type="button" onClick={copyJoinUrlToAllDays} disabled={copyingJoin}
+              className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+              {copyingJoin ? 'Копируем…' : 'Скопировать во все дни'}
+            </button>
+          )}
+        </div>
+        {joinCopied && (
+          <p className="text-xs text-green-600">Скопировано во все дни программы.</p>
+        )}
+        <p className="text-xs text-gray-500">
+          Куда заходит спикер, чтобы его картинка попала в эфир. Уходит в рассылке
+          «вы следующие» в чат спикеров — плейсхолдер {'{speaker_join_url}'}.
+          Зрители по ней не ходят: они открывают вебинарную комнату.
+          {daysCount > 1 && ' Обычно зум один на всё событие — заполните здесь и нажмите «Скопировать во все дни».'}
+        </p>
+      </div>
 
       {/* Все настройки нашей комнаты — ТОЛЬКО при видеокодере. У сторонней —
           одна ссылка выше, остальное недоступно (ведёт внешний сервис). */}

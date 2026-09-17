@@ -65,6 +65,9 @@ class RoomUpsert(BaseModel):
     auto_delay_min: Optional[int] = None
     auto_allow_seek: Optional[bool] = None
     external_url: Optional[str] = None
+    # ⚠️ НЕ ссылка на эфир. Куда заходит СПИКЕР, чтобы его картинка попала в
+    # комнату этого дня (Zoom/Meet). Зрители идут в комнату, не сюда (мигр. 433).
+    speaker_join_url: Optional[str] = None
     hide_viewer_count: Optional[bool] = None
     chat_enabled: Optional[bool] = None
     premoderation: Optional[bool] = None
@@ -223,6 +226,7 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "rtmp_url": ws.rtmp_url(key) if key else None,
         "hls_url": ws.hls_url(key) if key else None,
         "external_url": r.get("external_url"),
+        "speaker_join_url": r.get("speaker_join_url"),
         "status": r.get("status"),
         "stream_active": r.get("stream_active"),
         "hide_viewer_count": r.get("hide_viewer_count"),
@@ -296,12 +300,12 @@ async def upsert_room(
             " stream_key, hls_url, external_url, hide_viewer_count, chat_enabled, premoderation, "
             " redirect_url, reaction_up_label, reaction_down_label, show_down_reaction, intro_text, "
             " buttons_per_row, auth_mode, auth_require_name, auth_require_email, auth_require_phone, "
-            " auth_require_tg, auth_intro_text) "
+            " auth_require_tg, auth_intro_text, speaker_join_url) "
             "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,"
             " COALESCE($9,FALSE), COALESCE($10,TRUE), COALESCE($11,FALSE),"
             " $12, COALESCE($13,'Огонь'), COALESCE($14,'Слабо'), COALESCE($15,TRUE), $16,"
             " COALESCE($17,1), COALESCE($18,'auto'), COALESCE($19,TRUE), COALESCE($20,FALSE),"
-            " COALESCE($21,FALSE), COALESCE($22,FALSE), $23)",
+            " COALESCE($21,FALSE), COALESCE($22,FALSE), $23, $24)",
             event_id, day_number, fields.get("title"), fields.get("starts_at"), stream_type,
             stream_key, hls, fields.get("external_url"), fields.get("hide_viewer_count"),
             fields.get("chat_enabled"), fields.get("premoderation"), fields.get("redirect_url"),
@@ -310,6 +314,7 @@ async def upsert_room(
             fields.get("buttons_per_row"), fields.get("auth_mode"), fields.get("auth_require_name"),
             fields.get("auth_require_email"), fields.get("auth_require_phone"),
             fields.get("auth_require_tg"), fields.get("auth_intro_text"),
+            fields.get("speaker_join_url"),
         )
     room = await db.fetchrow(
         "SELECT * FROM webinar_rooms WHERE event_id=$1 AND day_number=$2", event_id, day_number)
@@ -328,6 +333,63 @@ async def regen_key(event_id: int, day_number: int, client=Depends(get_current_c
         key, ws.hls_url(key), event_id, day_number,
     )
     return {"stream_key": key, "rtmp_url": ws.rtmp_url(key), "hls_url": ws.hls_url(key)}
+
+
+@router.post("/{day_number}/copy-speaker-join-url",
+             summary="Скопировать ссылку входа спикера во все дни")
+async def copy_speaker_join_url(
+    event_id: int, day_number: int,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Ставит ссылку входа спикера этого дня всем остальным дням программы.
+
+    Зум-конференцию чаще заводят одну на всё событие — вбивать её в каждый день
+    руками незачем. Кнопка рядом с полем; дни, где ссылка уже другая, тоже
+    перезаписываются: это осознанное действие «сделать как здесь».
+
+    ⚠️ Дни БЕЗ комнаты тоже получают ссылку — для них комната создаётся. Иначе
+    копирование молча пропускало бы ровно те дни, которые ещё не настроили, а
+    заметно это стало бы уже во время эфира.
+    """
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=False)
+
+    url = await db.fetchval(
+        "SELECT speaker_join_url FROM webinar_rooms WHERE event_id=$1 AND day_number=$2",
+        event_id, day_number)
+    url = (url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400,
+                            detail="Сначала укажите ссылку и сохраните день.")
+
+    # Все дни программы события, кроме исходного. Берём из conf_days (программа),
+    # а не из webinar_rooms: у дня без комнаты записи там ещё нет.
+    days = await db.fetch(
+        "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_number<>$2 "
+        "ORDER BY day_number", event_id, day_number)
+    if not days:
+        return {"ok": True, "updated": 0}
+
+    updated = 0
+    for d in days:
+        dn = d["day_number"]
+        res = await db.execute(
+            "UPDATE webinar_rooms SET speaker_join_url=$1, updated_at=NOW() "
+            "WHERE event_id=$2 AND day_number=$3", url, event_id, dn)
+        if res and res.endswith(" 0"):
+            # Комнаты у дня ещё нет — заводим минимальную, со ссылкой.
+            # stream_type='encoder' — как при обычном создании (уровня 'link'
+            # больше нет, миграция 354), свой ключ потока у каждого дня свой.
+            key = ws.make_stream_key()
+            await db.execute(
+                "INSERT INTO webinar_rooms (event_id, day_number, stream_type, "
+                " stream_key, hls_url, speaker_join_url) VALUES ($1,$2,'encoder',$3,$4,$5) "
+                "ON CONFLICT (event_id, day_number) DO UPDATE "
+                "  SET speaker_join_url=EXCLUDED.speaker_join_url, updated_at=NOW()",
+                event_id, dn, key, ws.hls_url(key), url)
+        updated += 1
+    return {"ok": True, "updated": updated}
 
 
 @router.delete("/{day_number}", summary="Удалить комнату дня")

@@ -28,11 +28,12 @@ ALTER TABLE default_broadcast_templates
 --
 -- Плейсхолдеры:
 --   {speaker_name} {speaker_tg_username} {speaker_time} — кто выступает
---   {stream_url}        — ссылка эфира дня (внешняя: Zoom/YouTube — если задана)
---   {webinar_room_url}  — наша вебинарная комната дня
---   {next_speaker_*}    — кто готовится следом
--- Пустой плейсхолдер убирает свою строку целиком (message_builder), поэтому
--- «Ссылка на Зум» не покажется, если внешней ссылки нет.
+--   {speaker_join_url} — вход СПИКЕРА в эфир дня (Zoom, миграция 433): спикер
+--                        заходит туда, чтобы его картинка попала в комнату.
+--   {stream_url}       — вебинарная комната дня — для ЗРИТЕЛЕЙ. Резолвится сама
+--                        (наша комната или сторонний эфир — что выбрано в «Вебинарах»).
+--   {next_speaker_*}   — кто готовится следом
+-- Пустой плейсхолдер убирает свою строку целиком (message_builder).
 INSERT INTO default_broadcast_templates
   (type, name, subject, text,
    schedule_mode, offset_minutes, audience_include, audience_exclude,
@@ -46,8 +47,8 @@ VALUES (
   '<b>{speaker_name} ({speaker_tg_username}) — вы следующие</b>' || E'\n\n' ||
   'Через 5 минут ждём: {speaker_name}' || E'\n' ||
   'Ваше выступление в {speaker_time}' || E'\n\n' ||
-  'Ссылка на Зум: {stream_url}' || E'\n\n' ||
-  'Ссылка на вебинарную комнату: {webinar_room_url}' || E'\n\n' ||
+  'Ссылка для входа (Zoom): {speaker_join_url}' || E'\n\n' ||
+  'Вебинарная комната: {stream_url}' || E'\n\n' ||
   '—————' || E'\n\n' ||
   'Готовится к {next_speaker_time}: {next_speaker_name} ({next_speaker_tg_username})' || E'\n\n' ||
   '—————' || E'\n\n' ||
