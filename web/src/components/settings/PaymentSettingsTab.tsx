@@ -347,6 +347,54 @@ export default function PaymentSettingsTab() {
             </p>
           </div>
 
+          {/* ⚠️ Та же таблица «что в каком поле их кабинета», что и у
+              Продамуса — требование владельца 17.09.2026: писать на фронте,
+              а не в инструкции. У LeadPay адреса возврата и уведомления тоже
+              уходят в запросе (`notification_url`, `redirect_url_ok/error`),
+              поэтому в кабинете их настраивать не надо вовсе. Единственное,
+              что там ОБЯЗАТЕЛЬНО — варианты оплаты (см. плашку выше). */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-sm font-medium text-gray-800">
+              Что заполнять в самом кабинете LeadPay
+            </p>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-left text-xs text-gray-700">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="py-1 pr-3 font-semibold">Что у них</th>
+                    <th className="py-1 font-semibold">Что делать</th>
+                  </tr>
+                </thead>
+                <tbody className="align-top">
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3">Настройки → Варианты оплаты</td>
+                    <td className="py-1.5">
+                      <b>обязательно отметить</b> карту, СБП и остальное — без
+                      этого оплата не откроется
+                    </td>
+                  </tr>
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3">Адреса возврата и уведомлений</td>
+                    <td className="py-1.5">не трогать — передаём сами с каждым заказом</td>
+                  </tr>
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3">Карточки товаров</td>
+                    <td className="py-1.5">
+                      не заводить — название и цену берём из вашего тарифа
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 pr-3">Их промокоды</td>
+                    <td className="py-1.5">
+                      не работают через интеграцию — пользуйтесь нашими,
+                      во вкладке «Промокоды»
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => save({
@@ -441,22 +489,66 @@ export default function PaymentSettingsTab() {
             </p>
           </div>
 
-          {/* ⚠️ Реальные грабли владельца 17.09.2026: вписала в Продамусе
-              «URL адреса для уведомлений» руками — и попала на приёмник оплаты
-              ПОДПИСКИ (/integrations/prodamus/webhook) вместо тарифов событий
-              (/integrations/client-pay/prodamus). Оплата бы прошла, а участник
-              не отметился. Предупреждение стоит в форме, а не только в
-              инструкции: заполняют поле до того, как что-то прочтут. */}
+          {/* ⚠️⚠️ Таблица «что в каком поле» — ПРЯМО ЗДЕСЬ, а не в инструкции
+              (требование владельца 17.09.2026, дословно: «в инструкции нет —
+              на фронте: что впишите, то-то и туда»).
+
+              Повод: вписала «URL адреса для уведомлений» руками и попала на
+              приёмник оплаты ПОДПИСКИ (/integrations/prodamus/webhook) вместо
+              тарифов событий (/integrations/client-pay/prodamus) — оплата бы
+              прошла, а участник не отметился.
+
+              ⚠️ Success/Fail URL кабинета трогать НЕ надо: для тарифов мы шлём
+              свои в самой ссылке (urlSuccess/urlReturn в `_prodamus_link`),
+              они перекрывают настройки кабинета. А в кабинете стоят адреса
+              под оплату подписки на ПЛЮСОН — сотрёшь, сломается подписка. */}
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
             <p className="text-sm font-medium text-amber-900">
-              В Продамусе оставьте «URL адреса для уведомлений» пустым
+              Что заполнять в самом кабинете Продамуса
             </p>
             <p className="mt-1 text-xs text-amber-800">
-              Адрес, куда сообщать об оплате, мы передаём сами с каждым заказом.
-              Если вписать его вручную, легко попасть не в тот приёмник —
-              и тогда покупатель заплатит, а участником не отметится. Уже
-              вписали — просто очистите поле. Почта и телефоны для уведомлений
-              никак не мешают, их можно оставить.
+              Раздел <b>Настройки → Настройка адресов и уведомлений</b>:
+            </p>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-left text-xs text-amber-900">
+                <thead>
+                  <tr className="border-b border-amber-200">
+                    <th className="py-1 pr-3 font-semibold">Поле у них</th>
+                    <th className="py-1 font-semibold">Что делать</th>
+                  </tr>
+                </thead>
+                <tbody className="align-top">
+                  <tr className="border-b border-amber-100">
+                    <td className="py-1.5 pr-3">Success URL</td>
+                    <td className="py-1.5">оставить как есть, не трогать</td>
+                  </tr>
+                  <tr className="border-b border-amber-100">
+                    <td className="py-1.5 pr-3">Fail URL</td>
+                    <td className="py-1.5">оставить как есть, не трогать</td>
+                  </tr>
+                  <tr className="border-b border-amber-100">
+                    <td className="py-1.5 pr-3">URL адреса для уведомлений</td>
+                    <td className="py-1.5">
+                      <b>очистить</b> — кнопка с корзиной справа от поля
+                    </td>
+                  </tr>
+                  <tr className="border-b border-amber-100">
+                    <td className="py-1.5 pr-3">e-mail адреса</td>
+                    <td className="py-1.5">ваша почта — или пусто, как удобно</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 pr-3">номера телефонов</td>
+                    <td className="py-1.5">пусто</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-amber-800">
+              Почему так: все три адреса — куда вернуть покупателя и куда
+              сообщить об оплате — мы передаём <b>сами с каждым заказом</b>,
+              и они перекрывают настройки кабинета. А вписанный руками адрес
+              уведомлений попадает не в тот приёмник: покупатель заплатит,
+              а участником не отметится.
             </p>
           </div>
 
@@ -630,6 +722,47 @@ export default function PaymentSettingsTab() {
                   <option key={k} value={k}>{String(v)}</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          {/* ⚠️ Та же таблица «что в каком поле их кабинета», что и у двух
+              других систем — требование владельца 17.09.2026. У Т-Банка
+              NotificationURL/SuccessURL/FailURL тоже уходят в запросе Init,
+              настройки терминала перекрываются. */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-sm font-medium text-gray-800">
+              Что заполнять в самом кабинете Т-Бизнеса
+            </p>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-left text-xs text-gray-700">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="py-1 pr-3 font-semibold">Что у них</th>
+                    <th className="py-1 font-semibold">Что делать</th>
+                  </tr>
+                </thead>
+                <tbody className="align-top">
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3">
+                      Notification URL, Success URL, Fail URL у терминала
+                    </td>
+                    <td className="py-1.5">не трогать — передаём сами с каждым заказом</td>
+                  </tr>
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3">Товары, витрина</td>
+                    <td className="py-1.5">
+                      не заводить — название и сумму берём из вашего тарифа
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 pr-3">Сервис «Чеки от Т-Бизнеса»</td>
+                    <td className="py-1.5">
+                      по желанию. Включите у них — банк сам выдаст покупателю
+                      чек, а здесь заполните налогообложение и НДС
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
