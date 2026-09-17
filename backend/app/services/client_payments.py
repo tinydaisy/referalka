@@ -271,9 +271,17 @@ def _prodamus_link(
         # Номер заказа с тем же префиксом, что у LeadPay: по нему вебхук
         # отличает оплату тарифа события от оплаты подписки на платформу.
         "order_id": f"evt-{order_id}",
-        "products[0][name]": title or "Участие в событии",
-        "products[0][price]": amount,
-        "products[0][quantity]": "1",
+        # ⚠️⚠️ Товары — ВЛОЖЕННОЙ структурой, а не плоскими ключами
+        # `products[0][name]`. Продамус, приняв ссылку, разбирает query-строку
+        # обратно во вложенный массив и считает подпись ПО НЕМУ. Если
+        # подписать плоские строки, подписи не сойдутся, и он ответит
+        # «Ошибка подписи передаваемых данных. Оплата отменена» (17.09.2026,
+        # живая проверка на ivision.payform.ru).
+        "products": [{
+            "name": title or "Участие в событии",
+            "price": amount,
+            "quantity": "1",
+        }],
         "urlReturn": redirect_url_error,
         "urlSuccess": redirect_url_ok,
         "urlNotification": notification_url,
@@ -291,7 +299,34 @@ def _prodamus_link(
     if secret:
         params["signature"] = _prodamus_sign(params, secret)
 
-    return f"{base}/?{urlencode(params)}"
+    # ⚠️ В САМУ ССЫЛКУ вложенность уходит плоскими ключами
+    # (`products[0][name]=…`) — query-строка иначе устроена быть не может.
+    # `urlencode` вложенный список не разворачивает, поэтому делаем сами.
+    # Подпись при этом уже посчитана по вложенной структуре — см. выше.
+    return f"{base}/?{urlencode(_prodamus_flatten(params))}"
+
+
+def _prodamus_flatten(data: dict) -> list:
+    """Разворачивает вложенные списки и словари в плоские ключи для query.
+
+    `{"products": [{"name": "X"}]}` → `[("products[0][name]", "X")]`.
+    Возвращает список пар, а не словарь: у одного ключа может быть несколько
+    значений, и порядок важен для читаемости ссылки.
+    """
+    out: list = []
+
+    def walk(prefix: str, value):
+        if isinstance(value, dict):
+            for k in value:
+                walk(f"{prefix}[{k}]" if prefix else str(k), value[k])
+        elif isinstance(value, (list, tuple)):
+            for i, v in enumerate(value):
+                walk(f"{prefix}[{i}]", v)
+        else:
+            out.append((prefix, "" if value is None else str(value)))
+
+    walk("", data)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
