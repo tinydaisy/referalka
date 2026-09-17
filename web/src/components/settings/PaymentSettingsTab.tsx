@@ -17,8 +17,32 @@ import FeatureLock from '@/components/FeatureLock'
  * клиент стирал бы тестовые ключи, и вернуться к проверке было бы нечем.
  */
 import { useEffect, useState } from 'react'
-import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
+import { Loader2, CheckCircle2, AlertCircle, ExternalLink, BookOpen, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/api'
+
+/**
+ * Ссылка на пошаговую инструкцию по своей платёжной системе.
+ *
+ * ⚠️ Нарочно яркая, золотом и первой строкой блока: человек открывает форму,
+ * видит два пустых поля и не знает, где брать значения — «я что, экстрасенс?»
+ * (владелец, 17.09.2026). Неприметная серая ссылка внизу эту задачу не решает.
+ */
+function HelpLink({ href, title }: { href: string; title: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex items-start gap-3 rounded-xl border-2 p-3 transition-colors hover:brightness-95"
+      style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.25)' }}
+    >
+      <BookOpen className="mt-0.5 h-5 w-5 shrink-0" style={{ color: '#25455D' }} />
+      <span className="flex-1 text-sm font-semibold leading-snug" style={{ color: '#25455D' }}>
+        Инструкция по настройке — {title}
+      </span>
+      <ChevronRight className="mt-0.5 h-4 w-4 shrink-0" style={{ color: '#25455D' }} />
+    </Link>
+  )
+}
 
 export default function PaymentSettingsTab() {
   const [loading, setLoading] = useState(true)
@@ -187,10 +211,13 @@ export default function PaymentSettingsTab() {
             </>
           ) : (
             <>
-              <div className="font-medium text-amber-900">Не подключено</div>
+              <div className="font-medium text-amber-900">Платёжная система не подключена</div>
               <div className="mt-0.5 text-amber-800">
-                Пока в тарифах работает внешняя ссылка на оплату, а оплаты
-                придётся отмечать вручную.
+                Продавать всё равно можно: в каждом тарифе есть поле для ссылки
+                на оплату — вставьте туда ссылку на свою платёжную страницу или
+                счёт. Человек оплатит там, а вы отметите оплату руками в списке
+                заказов. Подключите систему ниже — и заказы начнут отмечаться
+                оплаченными сами.
               </div>
             </>
           )}
@@ -214,6 +241,23 @@ export default function PaymentSettingsTab() {
         </select>
       </div>
 
+      {/* Система ещё не выбрана — показываем инструкции по всем трём сразу:
+          иначе выбирать приходится вслепую, а инструкции спрятаны за выбором. */}
+      {!provider && (
+        <div className="space-y-2 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-1 font-medium text-gray-800">
+            Выберите систему — или сначала почитайте, как подключается каждая
+          </div>
+          <p className="mb-3 text-sm text-gray-500">
+            Во всех трёх нужны два значения из вашего кабинета. Где их брать —
+            расписано по шагам.
+          </p>
+          <HelpLink href="/dashboard/help/pay-prodamus" title="как подключить Продамус" />
+          <HelpLink href="/dashboard/help/pay-leadpay" title="как подключить LeadPay" />
+          <HelpLink href="/dashboard/help/pay-tbank" title="как подключить эквайринг Т-Банка" />
+        </div>
+      )}
+
       {provider === 'tbank' && tbTest && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="font-medium">Включён тестовый терминал</div>
@@ -227,6 +271,8 @@ export default function PaymentSettingsTab() {
 
       {provider === 'leadpay' && (
         <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+          <HelpLink href="/dashboard/help/pay-leadpay" title="как подключить LeadPay" />
+
           <p className="text-sm text-gray-600">
             Оба значения — в кабинете LeadPay:{' '}
             <a href="https://app.leadpay.ru" target="_blank" rel="noreferrer"
@@ -338,12 +384,15 @@ export default function PaymentSettingsTab() {
 
       {provider === 'prodamus' && (
         <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+          <HelpLink href="/dashboard/help/pay-prodamus" title="как подключить Продамус" />
+
           <p className="text-sm text-gray-600">
-            Оба значения — в личном кабинете Продамуса:{' '}
+            Оба значения берутся в вашем кабинете{' '}
             <a href="https://prodamus.ru" target="_blank" rel="noreferrer"
                className="inline-flex items-center gap-1 font-medium text-brand hover:underline">
-              Настройки → Интеграции <ExternalLink className="h-3 w-3" />
+              Продамуса <ExternalLink className="h-3 w-3" />
             </a>
+            . Где именно — расписано в инструкции выше.
           </p>
 
           <div>
@@ -363,6 +412,8 @@ export default function PaymentSettingsTab() {
             />
             <p className="mt-1 text-xs text-gray-500">
               Тот самый адрес, по которому открывается ваша платёжная форма.
+              Откройте свою форму в браузере и скопируйте адрес из адресной
+              строки — до первого «/» после названия магазина.
             </p>
           </div>
 
@@ -382,8 +433,11 @@ export default function PaymentSettingsTab() {
               className="input font-mono text-[13px]"
             />
             <p className="mt-1 text-xs text-gray-500">
-              Храним у себя и наружу не показываем. Вебхук в Продамусе
-              настраивать не нужно — его адрес мы передаём сами с каждым заказом.
+              В кабинете Продамуса: <b>Настройки → Настройки уведомлений →
+              Секретный ключ</b> (в старых кабинетах раздел называется
+              «Интеграции»). Храним у себя и наружу не показываем. Вебхук в
+              Продамусе настраивать не нужно — его адрес мы передаём сами
+              с каждым заказом.
             </p>
           </div>
 
@@ -429,6 +483,8 @@ export default function PaymentSettingsTab() {
 
       {provider === 'tbank' && (
         <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+          <HelpLink href="/dashboard/help/pay-tbank" title="как подключить эквайринг Т-Банка" />
+
           <p className="text-sm text-gray-600">
             Оба значения — в кабинете Т-Бизнеса:{' '}
             <a href="https://business.tbank.ru" target="_blank" rel="noreferrer"
