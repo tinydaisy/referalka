@@ -310,6 +310,35 @@ def verify_prodamus_webhook(payload: dict, signature: Optional[str], secret: str
     return False
 
 
+def _order_ref(order_id, title: Optional[str] = None) -> str:
+    """Номер заказа для платёжной системы — с префиксом и названием тарифа.
+
+    ⚠️ ЗАЧЕМ НАЗВАНИЕ. Продамус показывает `order_id` покупателю в шапке
+    страницы оплаты: «Оплата заказа №48861971 (evt-188 · VIP-участие)». Это
+    ЕДИНСТВЕННОЕ место, где человек видит, за что платит: состав заказа на
+    этой странице не выводится вовсе (проверено 17.09.2026).
+
+    ⚠️ Название идёт ПОСЛЕ номера, а не перед ним: разбор в вебхуке ищет
+    цифры сразу за префиксом (`_our_order_id`, `_product_order_id`).
+    Поставить название впереди — значит перестать узнавать свой заказ, и
+    оплата не отметится.
+
+    ⚠️ Префикс приклеиваем, ТОЛЬКО если его ещё нет: заказы продуктов
+    приходят сюда уже как `prd-42`, и `f"evt-{order_id}"` давал `evt-prd-42` —
+    такой номер не узнавал ни один разбор.
+
+    Длину режем: у Продамуса номер заказа — не безразмерное поле, а длинное
+    название вылезет из шапки.
+    """
+    ref = str(order_id).strip()
+    if not re.match(r"^(evt|prd)-", ref):
+        ref = f"evt-{ref}"
+    title = (title or "").strip()
+    if title:
+        ref = f"{ref} · {title[:60]}"
+    return ref
+
+
 def _prodamus_link(
     *,
     client: dict,
@@ -344,7 +373,8 @@ def _prodamus_link(
     params: dict = {
         # Номер заказа с тем же префиксом, что у LeadPay: по нему вебхук
         # отличает оплату тарифа события от оплаты подписки на платформу.
-        "order_id": f"evt-{order_id}",
+        # ⚠️ Сюда же дописывается НАЗВАНИЕ ТАРИФА — см. `_order_ref`.
+        "order_id": _order_ref(order_id, title),
         # ⚠️⚠️ Товары — ВЛОЖЕННОЙ структурой, а не плоскими ключами
         # `products[0][name]`. Продамус, приняв ссылку, разбирает query-строку
         # обратно во вложенный массив и считает подпись ПО НЕМУ. Если
@@ -562,7 +592,11 @@ async def _tbank_link(
         "Amount": amount_kop,
         # Тот же префикс, что у остальных систем: по нему вебхук отличает
         # оплату тарифа события от оплаты подписки на платформу.
-        "OrderId": f"evt-{order_id}",
+        # ⚠️ Префикс через `_order_ref`: заказы продуктов приходят уже как
+        # `prd-42`, и жёсткое `f"evt-{order_id}"` давало `evt-prd-42` — такой
+        # номер не узнавал ни один разбор в вебхуке, оплата не отмечалась.
+        # Название тарифа здесь НЕ добавляем: банк показывает его отдельно.
+        "OrderId": _order_ref(order_id),
         # Ограничение банка — 140 символов.
         "Description": (title or "Участие в событии")[:140],
         "NotificationURL": notification_url,
@@ -738,7 +772,7 @@ async def create_payment_link(
     if product_id and str(product_id).strip():
         params = {
             "login": login,
-            "id": f"evt-{order_id}",
+            "id": _order_ref(order_id),
             "product_id": str(product_id).strip(),
             "count": "1",
             "notification_url": notification_url,
@@ -770,7 +804,7 @@ async def create_payment_link(
 
     params: dict = {
         "login": login,
-        "id": f"evt-{order_id}",
+        "id": _order_ref(order_id),
         "product_name": (title or "Участие в событии")[:255],
         "product_price": price_str,
         "count": "1",

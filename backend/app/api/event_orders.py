@@ -14,6 +14,8 @@
 ⚠️ Бесплатный тариф (цена 0 или пусто) заказа НЕ создаёт — сразу регистрация.
 Иначе в «Заказах» копился бы мусор из нулевых оплат.
 """
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -856,14 +858,17 @@ def _is_true(value) -> bool:
 
 def _our_order_id(raw: str) -> Optional[int]:
     """Номер нашего заказа из `evt-<id>`. Чужой номер → None (это оплата
-    подписки на платформу, её обрабатывает другой роутер)."""
-    raw = str(raw or "").strip()
-    if not raw.startswith("evt-"):
-        return None
-    try:
-        return int(raw[4:])
-    except ValueError:
-        return None
+    подписки на платформу, её обрабатывает другой роутер).
+
+    ⚠️ После номера может идти НАЗВАНИЕ ТАРИФА: `evt-188 · VIP-участие`.
+    Продамус показывает `order_id` покупателю в шапке страницы оплаты
+    («Оплата заказа №48861971 (evt-188 · VIP-участие)»), и это единственное
+    место, где человек видит, за что платит. Поэтому берём только цифры
+    сразу после префикса, а не всё до конца строки — иначе `int()` падает,
+    заказ не находится и оплата не отмечается.
+    """
+    m = re.match(r"^evt-(\d+)", str(raw or "").strip())
+    return int(m.group(1)) if m else None
 
 
 def _product_order_id(raw: str) -> Optional[int]:
@@ -873,14 +878,12 @@ def _product_order_id(raw: str) -> Optional[int]:
     client_payments один на всю платёжную систему, отдельного адреса завести
     нельзя. Поэтому обработчик сначала смотрит префикс и уводит заказ продукта
     в свою ветку.
+
+    ⚠️ Как и у события, после номера может идти название тарифа
+    (`prd-42 · Курс`) — берём только цифры сразу после префикса.
     """
-    raw = str(raw or "").strip()
-    if not raw.startswith("prd-"):
-        return None
-    try:
-        return int(raw[4:])
-    except ValueError:
-        return None
+    m = re.match(r"^prd-(\d+)", str(raw or "").strip())
+    return int(m.group(1)) if m else None
 
 
 async def _try_product_webhook(db, *, raw_order, provider: str, verify,
