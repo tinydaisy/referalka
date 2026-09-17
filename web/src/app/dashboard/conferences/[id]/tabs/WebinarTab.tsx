@@ -342,6 +342,10 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { e
   }
 
   const isEncoder = f.stream_type === 'encoder'
+  // Вебинарной комнаты БЕЗ зума не бывает: картинка в неё идёт из зума
+  // (Zoom/OBS → RTMP → плеер). Обратное возможно — эфир может быть только в
+  // зуме, без нашей комнаты. Поэтому обязателен он ровно при своей комнате.
+  const joinMissing = isEncoder && !(f.speaker_join_url || '').trim()
 
   return (
     <div className="space-y-5 max-w-2xl">
@@ -429,10 +433,21 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { e
           Зрители идут в вебинарную комнату, а спикер заходит сюда — чтобы его
           картинка попала В эту комнату. Ссылка своя у каждого дня: зум-конференцию
           заводят под конкретный эфир. */}
-      <div className="rounded-xl border border-gray-200 p-4 space-y-2">
-        <label className="label">Ссылка для входа спикеров (Zoom)</label>
+      {/* ⚠️ У НАШЕЙ комнаты зум ОБЯЗАТЕЛЕН: картинка в неё идёт из зума
+          (Zoom/OBS → RTMP → плеер). Без него комната пустая — эфира не будет
+          вовсе, и выяснится это в момент старта. Поэтому пустое поле светим
+          красным, а не оставляем «необязательным». У сторонней комнаты эфир
+          ведёт чужой сервис — там зум не нужен. */}
+      <div className={`rounded-xl border p-4 space-y-2 ${
+        joinMissing ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
+        <label className={`label ${joinMissing ? 'text-red-700' : ''}`}>
+          Ссылка для входа спикеров (Zoom)
+          {isEncoder && <span className="text-red-600"> *</span>}
+        </label>
         <div className="flex flex-wrap items-center gap-2">
-          <input className="input flex-1 min-w-[220px]" value={f.speaker_join_url}
+          <input className={`input flex-1 min-w-[220px] ${
+                   joinMissing ? 'border-red-400 focus:border-red-500' : ''}`}
+                 value={f.speaker_join_url}
                  onChange={e => setF({ ...f, speaker_join_url: e.target.value })}
                  placeholder="https://zoom.us/j/..." />
           {daysCount > 1 && (
@@ -444,6 +459,12 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { e
         </div>
         {joinCopied && (
           <p className="text-xs text-green-600">Скопировано во все дни программы.</p>
+        )}
+        {joinMissing && (
+          <p className="text-xs font-medium text-red-700">
+            Без зума эфира не будет: картинка в вашу комнату идёт именно оттуда.
+            Укажите ссылку — по ней зайдут спикеры.
+          </p>
         )}
         <p className="text-xs text-gray-500">
           Куда заходит спикер, чтобы его картинка попала в эфир. Уходит в рассылке

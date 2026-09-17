@@ -44,11 +44,11 @@ VALUES (
   'speakers_call',
   'Спикеру: «вы следующие» (в чат спикеров)',
   NULL,
-  '<b>{speaker_name} ({speaker_tg_username}) — вы следующие</b>' || E'\n\n' ||
-  'Через 5 минут ждём: {speaker_name}' || E'\n' ||
+  '<b>{speaker_name} ({speaker_tg_username}) — заходите в зум через 5 минут</b>' || E'\n\n' ||
   'Ваше выступление в {speaker_time}' || E'\n\n' ||
-  'Ссылка для входа (Zoom): {speaker_join_url}' || E'\n\n' ||
-  'Вебинарная комната: {stream_url}' || E'\n\n' ||
+  'Ссылка для входа (Zoom):' || E'\n' ||
+  '{speaker_join_url}' || E'\n\n' ||
+  'Ссылка на эфир: {stream_url}' || E'\n\n' ||
   '—————' || E'\n\n' ||
   'Готовится к {next_speaker_time}: {next_speaker_name} ({next_speaker_tg_username})' || E'\n\n' ||
   '—————' || E'\n\n' ||

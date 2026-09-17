@@ -258,11 +258,11 @@ DEFAULT_TEMPLATES = [
         "name": "Спикеру: «вы следующие» (в чат спикеров)",
         "type": "speakers_call",
         "text": (
-            "<b>{speaker_name} ({speaker_tg_username}) — вы следующие</b>\n\n"
-            "Через 5 минут ждём: {speaker_name}\n"
+            "<b>{speaker_name} ({speaker_tg_username}) — заходите в зум через 5 минут</b>\n\n"
             "Ваше выступление в {speaker_time}\n\n"
-            "Ссылка для входа (Zoom): {speaker_join_url}\n\n"
-            "Вебинарная комната: {stream_url}\n\n"
+            "Ссылка для входа (Zoom):\n"
+            "{speaker_join_url}\n\n"
+            "Ссылка на эфир: {stream_url}\n\n"
             "—————\n\n"
             "Готовится к {next_speaker_time}: {next_speaker_name} ({next_speaker_tg_username})\n\n"
             "—————\n\n"
