@@ -12,9 +12,12 @@ import { EventStatusToggle } from '@/components/EventStatusToggle'
 import ContestOverviewTab from './tabs/ContestOverviewTab'
 import ContestReportTab from './tabs/ContestReportTab'
 import LandingTab from '../../events/[id]/tabs/LandingTab'
+import TariffsTab from '../../events/[id]/tabs/TariffsTab'
+import RequestFormTab from '@/components/RequestFormTab'
 import { useMe } from '@/hooks/useMe'
 
 type TabKey = 'overview' | 'posters' | 'landing' | 'referral' | 'voters' | 'welcome' | 'report'
+  | 'tariffs' | 'request_form' | 'tariff_orders'
 
 export default function ContestPage() {
   const { id } = useParams()
@@ -58,8 +61,9 @@ export default function ContestPage() {
   if (!event) return null
 
   // Группировка вкладок: Настройки / Люди / Отслеживания / Рассылки.
-  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'landing_grp'
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'payments' | 'landing_grp'
   const hasLanding = (me?.features || []).includes('event_landing')
+  const isVip = (me?.features || []).includes('event_tariffs')
 
   const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
     {
@@ -74,6 +78,21 @@ export default function ContestPage() {
     },
     { key: 'people',   label: 'Люди',         tabs: [{ key: 'voters', label: 'Голосующие' }] },
     { key: 'tracking', label: 'Отслеживания', tabs: [{ key: 'report', label: 'Отчёт по привлечению' }] },
+    // «Платежи/Заявки» — по фиче `event_tariffs`, как у мероприятий и
+    // конференций. ⚠️ Раньше раздела у премий не было вовсе: продать билет на
+    // голосование или собрать заявки было нечем, хотя механизм общий для всех
+    // событий (TariffsTab + RequestFormTab работают по event_id, тип события
+    // им безразличен). Название раздела ОДНО на все типы событий.
+    ...(isVip ? [{
+      key: 'payments' as GroupKey, label: 'Платежи/Заявки',
+      tabs: [
+        { key: 'tariffs' as TabKey, label: 'Тарифы' },
+        // «Формы заявки» (мигр. 363): заявка НЕ регистрирует и не берёт
+        // денег — человек заполняет анкету, ответ идёт в её заявки.
+        { key: 'request_form' as TabKey, label: 'Формы заявки' },
+        { key: 'tariff_orders' as TabKey, label: 'Заказы' },
+      ],
+    }] : []),
     // ⚠️ «Лендинг» — ОТДЕЛЬНЫЙ раздел первого уровня, а не вкладка внутри
     // «Настроек» (решение владельца 07.09.2026): конструктор продающей
     // страницы — самостоятельная работа, внутри настроек его не находили.
@@ -159,6 +178,9 @@ export default function ContestPage() {
       {activeTab === 'voters'   && <EventParticipants eventId={eventId} moduleSlug="contest" />}
       {activeTab === 'welcome'  && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'report'   && <ContestReportTab eventId={eventId} />}
+      {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
+      {activeTab === 'request_form'  && isVip && <RequestFormTab ownerType="events" ownerId={eventId} />}
+      {activeTab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
     </div>
   )
 }

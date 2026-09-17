@@ -33,6 +33,7 @@ import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
 import LandingTab from '@/app/dashboard/events/[id]/tabs/LandingTab'
 import TariffsTab from '../../events/[id]/tabs/TariffsTab'
+import RequestFormTab from '@/components/RequestFormTab'
 import BroadcastTemplatesView from './broadcasts/templates/page'
 import BroadcastQueueView from './broadcasts/queue/page'
 import WebinarTab from './tabs/WebinarTab'
@@ -41,8 +42,8 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'nominations' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard' | 'crm'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'nominations', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing', 'dashboard', 'crm']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'nominations' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'request_form' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard' | 'crm'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'nominations', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'request_form', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing', 'dashboard', 'crm']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -156,9 +157,14 @@ export default function ConferencePage() {
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip. Внутри
     // TariffsTab свои подвкладки Тарифы / Заказы.
     ...(isVip ? [{
-      key: 'payments' as GroupKey, label: 'Платежи',
+      key: 'payments' as GroupKey, label: 'Платежи/Заявки',
       tabs: [
         { id: 'tariffs' as Tab, label: 'Тарифы' },
+        // «Формы заявки» (мигр. 363): заявка НЕ регистрирует и не берёт
+        // денег — человек заполняет анкету, ответ идёт в её заявки.
+        // ⚠️ Вкладка есть у ЛЮБОГО события: формы заявки проверяют владение
+        // через `event_owners`, а не тип события (request_forms.py).
+        { id: 'request_form' as Tab, label: 'Формы заявки' },
         { id: 'tariff_orders' as Tab, label: 'Заказы' },
       ],
     }] : []),
@@ -331,6 +337,7 @@ export default function ConferencePage() {
       {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'landing'      && hasLanding && <LandingTab eventId={eventId} event={event} />}
       {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
+      {tab === 'request_form' && isVip && <RequestFormTab ownerType="events" ownerId={eventId} />}
       {tab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
       {/* Дашборд события: тот же движок, что в «Аналитике», но считает
