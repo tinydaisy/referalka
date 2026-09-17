@@ -536,27 +536,28 @@ export default function TariffPicker({
                        }}
                        autoCapitalize="characters" spellCheck={false}
                        placeholder="Введите код" style={{ flex: 1 }} />
-                <button type="button" onClick={() => checkPromo()}
+                {/* ⚠️ Класс проекта, а не свой стиль: у кнопок Mini App это
+                    `btn btn-primary` — цвета берутся из темы один раз, а не
+                    хардкодятся в каждом файле. */}
+                <button type="button" className="btn btn-primary"
+                        onClick={() => checkPromo()}
                         disabled={promoState.kind === 'checking' || !promo.trim()}
-                        style={{
-                          flexShrink: 0, padding: '0 14px', borderRadius: 8,
-                          border: 'none', cursor: 'pointer', fontSize: 13,
-                          fontWeight: 600, background: 'var(--accent)',
-                          color: '#25455D',
-                          opacity: promoState.kind === 'checking' || !promo.trim() ? 0.5 : 1,
-                        }}>
+                        style={{ flexShrink: 0, padding: '0 14px', fontSize: 13 }}>
                   {promoState.kind === 'checking' ? 'Проверяем…' : 'Применить'}
                 </button>
               </div>
+              {/* ⚠️ Красный — тот же `#d9483b`, что у ошибки формы ниже:
+                  третий оттенок красного на одном экране не заводим.
+                  Зелёный — акцент подтверждения, как у успешных состояний. */}
               {promoState.kind === 'ok' && (
-                <div style={{ marginTop: 6, fontSize: 13, color: '#7CE08A' }}>
+                <div style={{ marginTop: 6, fontSize: 13, color: '#4ade80' }}>
                   {promoState.isFree
                     ? '✓ Промокод применён — участие бесплатно'
                     : `✓ Промокод применён — к оплате ${promoState.priceAfter} ₽`}
                 </div>
               )}
               {promoState.kind === 'bad' && (
-                <div style={{ marginTop: 6, fontSize: 13, color: '#FF9C9C' }}>
+                <div style={{ marginTop: 6, fontSize: 13, color: '#d9483b' }}>
                   {promoState.message}
                 </div>
               )}

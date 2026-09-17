@@ -503,27 +503,38 @@ export default function OrderForm({
                          placeholder="Введите код"
                          autoCapitalize="characters" spellCheck={false}
                          style={{ ...inputStyle(page), flex: 1 }} />
+                  {/* ⚠️ Цвета — ИЗ БРЕНДИНГА страницы, не свои: заливка та же,
+                      что у главной кнопки (`btnFill`), текст — `btn_text_color`.
+                      Свой хардкод уже подвёл: стояло `color: page.bg_css`, а
+                      это ГРАДИЕНТ — CSS-свойство `color` его не принимает,
+                      текст оставался белым и на персиковом не читался. */}
                   <button type="button" onClick={() => checkPromo()}
                           disabled={promoState.kind === 'checking' || !promo.trim()}
-                          className="shrink-0 rounded-lg px-4 text-[.85em] font-semibold disabled:opacity-50"
+                          className="shrink-0 px-4 text-[.85em] font-semibold disabled:opacity-50"
                           style={{
-                            background: page.color_link || '#FFCFA4',
-                            color: page.bg_css || '#25455D',
+                            background: btnFill,
+                            color: page.btn_text_color || page.bg_color || '#0a1520',
+                            borderRadius: page.btn_radius ?? page.radius ?? 5,
+                            fontFamily: page.font_body_css,
+                            border: 'none',
                           }}>
                     {promoState.kind === 'checking' ? 'Проверяем…' : 'Применить'}
                   </button>
                 </div>
+                {/* ⚠️ Успех/ошибка — теми же классами, что общая ошибка формы
+                    ниже (bg-red-500/20 + text-red-100): на тёмном фоне
+                    страницы они уже проверены на читаемость. */}
                 {promoState.kind === 'ok' && (
-                  <p className="mt-1.5 text-[.85em]" style={{ color: '#7CE08A' }}>
+                  <div className="mt-1.5 rounded-lg bg-emerald-500/20 p-2 text-[.85em] text-emerald-100">
                     {promoState.isFree
                       ? '✓ Промокод применён — участие бесплатно'
                       : `✓ Промокод применён — к оплате ${promoState.priceAfter} ₽`}
-                  </p>
+                  </div>
                 )}
                 {promoState.kind === 'bad' && (
-                  <p className="mt-1.5 text-[.85em]" style={{ color: '#FF9C9C' }}>
+                  <div className="mt-1.5 rounded-lg bg-red-500/20 p-2 text-[.85em] text-red-100">
                     {promoState.message}
-                  </p>
+                  </div>
                 )}
               </Field>
             ) : (
