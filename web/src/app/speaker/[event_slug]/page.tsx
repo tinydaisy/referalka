@@ -1209,8 +1209,8 @@ export default function SpeakerCabinetPage() {
                 url={me.photo_url}
                 value={me.photo_focal ?? null}
                 onChange={v => update({ photo_focal: v })}
-                zooms={me}
-                onZoomChange={z => update(z)}
+                zooms={me as any}
+                onZoomChange={z => update(z as any)}
                 hint="Так ваше фото встанет на афишах события и в карточках. Подгоните каждую форму — организатор увидит ровно это."
               />
             </div>
