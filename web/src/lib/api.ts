@@ -259,10 +259,14 @@ export const api = {
         method: 'POST', body: JSON.stringify({ module_slug: moduleSlug }),
       }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
-    shareLinks: (slug: string, pid?: string, mode?: 'miniapp' | 'bot') => {
+    // ⚠️ `allPlatforms` — для КАБИНЕТА: вернуть и выключенные площадки, чтобы
+    // строка осталась со снятой галочкой. Без него площадка пропадала из
+    // списка совсем и включить её обратно было нечем.
+    shareLinks: (slug: string, pid?: string, mode?: 'miniapp' | 'bot', allPlatforms?: boolean) => {
       const p = new URLSearchParams()
       if (pid) p.set('pid', pid)
       if (mode) p.set('mode', mode)
+      if (allPlatforms) p.set('all_platforms', 'true')
       const qs = p.toString() ? `?${p}` : ''
       return request(`/api/v1/events/slug/${encodeURIComponent(slug)}/share-links${qs}`)
     },

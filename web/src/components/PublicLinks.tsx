@@ -91,9 +91,11 @@ export default function PublicLinks({
   const [botLinks, setBotLinks] = useState<PlatformLinks>({})
   useEffect(() => {
     if (!slug) { setMiniappLinks({}); setBotLinks({}); return }
-    api.events.shareLinks(slug, undefined, 'miniapp')
+    // ⚠️ true — просим ВСЕ площадки, включая выключенные: это кабинет, здесь
+    // строка должна остаться с галочкой, чтобы площадку можно было вернуть.
+    api.events.shareLinks(slug, undefined, 'miniapp', true)
       .then((r: any) => setMiniappLinks(r?.links || {})).catch(() => setMiniappLinks({}))
-    api.events.shareLinks(slug, undefined, 'bot')
+    api.events.shareLinks(slug, undefined, 'bot', true)
       .then((r: any) => setBotLinks(r?.links || {})).catch(() => setBotLinks({}))
   }, [slug])
 

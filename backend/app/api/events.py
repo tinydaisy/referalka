@@ -511,6 +511,12 @@ async def get_event_share_links_by_slug(
     tab: str | None = None,
     mode: str | None = None,
     cid: int | None = None,
+    # ⚠️⚠️ ВЫКЛЮЧЕННЫЕ ПЛОЩАДКИ — ТОЛЬКО ДЛЯ КАБИНЕТА. Ручка публичная (её
+    # зовёт и Mini App), поэтому по умолчанию выключенная площадка наружу не
+    # отдаётся. Но в настройках события строка обязана остаться со снятой
+    # галочкой: без неё площадка пропадала из списка насовсем, и включить её
+    # обратно было НЕЧЕМ — только правкой в базе (жалоба владельца 18.09.2026).
+    all_platforms: bool = False,
     db: asyncpg.Connection = Depends(get_db),
 ):
     from ..services.share_links import build_share_links, resolve_event_link_mode
@@ -524,6 +530,7 @@ async def get_event_share_links_by_slug(
     lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=owner_cid)
     links = await build_share_links(
         db, client_id=owner_cid, event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
+        include_disabled=all_platforms,
     )
     return {"event_id": ev["id"], "slug": ev["slug"], "links": links, "link_mode": lm}
 
