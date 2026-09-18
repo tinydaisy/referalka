@@ -278,6 +278,10 @@ type SpeakerMaterials = {
   // Фото профиля коллаба (collaborators.photo_url) — «Фото для сайта»
   photo_url: string | null
   photo_focal?: string | null
+  // Приближение кадра по формам (мигр. 451) — спикер настраивает себя сам.
+  crop_zoom_circle?: number | null
+  crop_zoom_square?: number | null
+  crop_zoom_portrait?: number | null
   // Афиша помеченная клиентом «Для рассылок по чат-боту» в этой конференции.
   // NULL → fallback на первую из библиотеки.
   broadcast_poster_url: string | null
