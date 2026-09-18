@@ -942,6 +942,15 @@ export const api = {
     templates: () => request('/api/v1/clients/me/call-settings/templates'),
   },
 
+  // Zoom: клиент подключает СВОЙ зум по OAuth (миграция 444). Ключей в кабинете
+  // нет — только вход в аккаунт и согласие.
+  zoom: {
+    get: () => request('/api/v1/clients/me/zoom'),
+    oauthUrl: () => request('/api/v1/clients/me/zoom/oauth-url'),
+    check: () => request('/api/v1/clients/me/zoom/check', { method: 'POST' }),
+    disconnect: () => request('/api/v1/clients/me/zoom', { method: 'DELETE' }),
+  },
+
   calls: {
     list: (eventId?: number) =>
       request(`/api/v1/call-campaigns${eventId ? `?event_id=${eventId}` : ''}`),
@@ -2234,6 +2243,12 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/copy-speaker-join-url`, { method: 'POST' }),
     regenerateKey: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/regenerate-key`, { method: 'POST' }),
+    // Zoom: конференция дня одной кнопкой (миграция 444). Создаёт конференцию,
+    // включает ей вещание на наш RTMP и подставляет ссылку входа спикеров.
+    createZoomMeeting: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/zoom-meeting`, { method: 'POST' }),
+    deleteZoomMeeting: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/zoom-meeting`, { method: 'DELETE' }),
     // текущий спикер: auto (по программе) или manual (ведущий выбрал)
     setCurrentSpeaker: (eventId: number, day: number, mode: 'auto' | 'manual', ecId?: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/current-speaker?mode=${mode}${ecId ? `&ec_id=${ecId}` : ''}`, { method: 'POST' }),

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
-import { Copy, RefreshCw, Trash2, Plus, BarChart3, Radio } from 'lucide-react'
+import { Copy, RefreshCw, Trash2, Plus, BarChart3, Radio, Video } from 'lucide-react'
 import WebinarAnalytics from './WebinarAnalytics'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -47,6 +47,13 @@ type SubView = 'settings' | 'blocks' | 'auto' | 'analytics' | 'records' | 'refer
 export default function WebinarTab({ eventId, event }: { eventId: number; event: any }) {
   const [loading, setLoading] = useState(true)
   const [level, setLevel] = useState<'room' | 'link'>('room')
+  // Доступно ли создание конференции Zoom кнопкой. Считает БЭКЕНД (фича
+  // `zoom_integration` + ключи приложения в окружении) — на фронте это не
+  // вывести: про ключи сервера браузер не знает.
+  const [zoomEnabled, setZoomEnabled] = useState(false)
+  // Фича есть, но зум ещё не подключён — показываем не кнопку, а подсказку,
+  // куда идти подключать. Иначе человек не узнает, что возможность существует.
+  const [zoomConnectable, setZoomConnectable] = useState(false)
   const { me } = useMe()
   const hasAuto = !!me?.features?.includes('autowebinar')
   const [days, setDays] = useState<DayItem[]>([])
@@ -70,6 +77,8 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
     try {
       const res = await api.webinar.listRooms(eventId)
       setLevel(res.level)
+      setZoomEnabled(!!res.zoom_enabled)
+      setZoomConnectable(!!res.zoom_connectable)
       setDays(res.days || [])
       setActiveDay(prev => {
         if (prev != null) return prev
@@ -164,10 +173,10 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 
         {/* Сторонний вебинар → только настройки (одна ссылка), что бы ни было выбрано. */}
         {active.room?.stream_type === 'external_link' ? (
-          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} />
+          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
         ) : (<>
         {subView === 'settings' && (
-          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} />
+          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
         )}
         {subView === 'blocks' && (
           <BlocksEditor eventId={eventId} day={active} event={event} />
@@ -215,7 +224,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 }
 
 // ─────────────────────────── настройки комнаты дня ───────────────────────────
-function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void; daysCount?: number }) {
+function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomEnabled = false, zoomConnectable = false }: { eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void; daysCount?: number; zoomEnabled?: boolean; zoomConnectable?: boolean }) {
   // Домен клиента: ссылку на комнату он отдаёт своим зрителям.
   const { publicBase } = useMe()
   const r = day.room
@@ -244,6 +253,35 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { e
   const [copied, setCopied] = useState('')
   const [copyingJoin, setCopyingJoin] = useState(false)
   const [joinCopied, setJoinCopied] = useState(false)
+  const [zoomBusy, setZoomBusy] = useState(false)
+  const [zoomMsg, setZoomMsg] = useState('')
+  const [zoomMsgOk, setZoomMsgOk] = useState(true)
+
+  // Создать конференцию в зуме клиента и подставить её ссылку в поле входа.
+  //
+  // ⚠️ Сначала СОХРАНЯЕМ день — по той же причине, что и у копирования ссылки
+  // ниже: бэкенд читает комнату из базы, и у несохранённого дня её может не
+  // быть вовсе (тогда «Сначала сохраните комнату»), либо тип трансляции в базе
+  // окажется прежним.
+  async function createZoom() {
+    if (r?.zoom_meeting_id &&
+        !confirm('Пересоздать конференцию? Прежняя будет удалена, и старая ссылка перестанет работать.')) return
+    setZoomBusy(true); setZoomMsg('')
+    try {
+      await api.webinar.upsertRoom(eventId, day.day_number, f)
+      const res = await api.webinar.createZoomMeeting(eventId, day.day_number)
+      setF((prev: any) => ({ ...prev, speaker_join_url: res.join_url || prev.speaker_join_url }))
+      setZoomMsgOk(!!res.livestream_ok)
+      setZoomMsg(res.livestream_ok
+        ? 'Конференция создана, трансляция в комнату включена, ссылка входа подставлена.'
+        : `Конференция создана, но трансляцию в комнату включить не удалось: ${
+            res.livestream_warning || 'Zoom отказал'}. Чаще всего дело в тарифе Zoom ниже Pro.`)
+      await onSaved()
+    } catch (e: any) {
+      setZoomMsgOk(false)
+      setZoomMsg(e.message || 'Не получилось создать конференцию')
+    } finally { setZoomBusy(false) }
+  }
 
   // Ссылку входа спикера — во все дни программы.
   // ⚠️ Сначала СОХРАНЯЕМ текущий день: бэкенд копирует то, что лежит в базе, а
@@ -502,6 +540,46 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { e
           Ссылка для входа спикеров (Zoom)
           {isEncoder && <span className="text-red-600"> *</span>}
         </label>
+        {/* ⚠️ Кнопка создаёт конференцию в ЗУМЕ КЛИЕНТА и сама заполняет поле
+            ниже. Показывается только когда сработает: есть фича и зум подключён.
+            Есть фича, но зум не подключён — вместо кнопки подсказка, куда идти:
+            иначе человек не узнает, что так вообще можно. */}
+        {isEncoder && zoomEnabled && (
+          <div className="rounded-xl border border-brand/30 bg-white p-3 mb-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={createZoom} disabled={zoomBusy}
+                className="btn-gold text-sm inline-flex items-center gap-1.5 disabled:opacity-60">
+                <Video size={14} />
+                {zoomBusy ? 'Создаём…'
+                  : r?.zoom_meeting_id ? 'Пересоздать конференцию Zoom' : 'Создать конференцию Zoom'}
+              </button>
+              {r?.zoom_meeting_id && (
+                <span className="text-xs text-gray-500">
+                  Конференция {r.zoom_meeting_id}
+                  {r.zoom_livestream_ok
+                    ? ' · трансляция в комнату включена'
+                    : ' · трансляция в комнату НЕ включена'}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1.5">
+              Заведём конференцию на дату и время этого дня, включим ей трансляцию
+              в вашу комнату и подставим ссылку входа в поле ниже.
+              {r?.zoom_meeting_id && ' Пересоздание удалит прежнюю конференцию — старая ссылка перестанет работать.'}
+            </p>
+            {zoomMsg && (
+              <p className={`text-xs mt-1.5 ${zoomMsgOk ? 'text-green-600' : 'text-red-600'}`}>{zoomMsg}</p>
+            )}
+          </div>
+        )}
+        {isEncoder && !zoomEnabled && zoomConnectable && (
+          <p className="text-xs text-gray-500 mb-2">
+            Хотите, чтобы конференция создавалась кнопкой? Подключите свой Zoom в{' '}
+            <a href="/dashboard/settings?tab=integration" className="text-blue-600 hover:underline">
+              Настройки → Интеграция
+            </a>.
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <input className={`input flex-1 min-w-[220px] ${
                    joinMissing ? 'border-red-400 focus:border-red-500' : ''}`}

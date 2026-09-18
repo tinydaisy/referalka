@@ -10,8 +10,9 @@
 from __future__ import annotations
 
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
+import logging
 import re
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
@@ -26,6 +27,8 @@ from app.services import webinar_service as ws
 # лежит отдельно (миграция 302). Здесь список для поиска глазами, поэтому
 # порядок «Фамилия Имя» — правило проекта.
 from app.services.person_name import SEARCH_NAME_SQL
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/events/{event_id}/webinar", tags=["Вебинарная комната"])
 internal_router = APIRouter(prefix="/internal/webinar", tags=["Вебинар — внутренний хук"])
@@ -166,7 +169,23 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
             "room": _room_public(room) if room else None,
         }
         out.append(item)
-    return {"level": level, "days": out}
+    # ⚠️ Кнопку «Создать конференцию Zoom» показываем, только когда она и правда
+    # сработает: есть фича (пока — тариф `admin`, миграция 444) И клиент
+    # подключил свой зум. Кнопка, отвечающая ошибкой, читается как поломка
+    # интеграции, а не как «вы её не подключали».
+    #
+    # ⚠️ `zoom_connectable` отдельно от `zoom_enabled`: фича есть, а зум не
+    # подключён — это не «кнопки нет», а «подключите зум, и она появится».
+    # Без этого различия человек не узнает, что возможность вообще существует.
+    zoom_has_feature = await client_has_feature(db, cid, "zoom_integration")
+    zoom_connected = bool(await db.fetchval(
+        "SELECT 1 FROM client_zoom_accounts WHERE client_id=$1 "
+        "AND access_token IS NOT NULL AND access_token <> ''", cid)) if zoom_has_feature else False
+    return {
+        "level": level, "days": out,
+        "zoom_enabled": zoom_has_feature and zoom_connected,
+        "zoom_connectable": zoom_has_feature,
+    }
 
 
 @router.get("/upcoming-events", summary="Предстоящие события клиента (для блока «Регистрация на событие»)")
@@ -227,6 +246,13 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "hls_url": ws.hls_url(key) if key else None,
         "external_url": r.get("external_url"),
         "speaker_join_url": r.get("speaker_join_url"),
+        # Zoom (миграция 444). ⚠️ `zoom_start_url` наружу НЕ отдаём: открывший
+        # её становится ведущим конференции. В кабинете она не нужна — ведущий
+        # запускает эфир из своего зума.
+        "zoom_meeting_id": r.get("zoom_meeting_id"),
+        "zoom_password": r.get("zoom_password"),
+        "zoom_livestream_ok": r.get("zoom_livestream_ok"),
+        "zoom_created_at": r["zoom_created_at"].isoformat() if r.get("zoom_created_at") else None,
         "status": r.get("status"),
         "stream_active": r.get("stream_active"),
         "hide_viewer_count": r.get("hide_viewer_count"),
@@ -335,6 +361,212 @@ async def regen_key(event_id: int, day_number: int, client=Depends(get_current_c
     return {"stream_key": key, "rtmp_url": ws.rtmp_url(key), "hls_url": ws.hls_url(key)}
 
 
+# ─────────────────────────── Zoom: конференция одной кнопкой ───────────────────────────
+@router.post("/{day_number}/zoom-meeting", summary="Создать конференцию Zoom для дня")
+async def create_zoom_meeting(
+    event_id: int, day_number: int,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Заводит зум-конференцию под эфир этого дня и связывает её с комнатой.
+
+    Делает за один раз то, что раньше человек переносил руками между двумя
+    вкладками: создаёт конференцию, включает ей вещание на наш RTMP (тот же
+    `stream_key`, что показан в «Данных для видеокодера») и кладёт ссылку входа
+    в `speaker_join_url`.
+
+    ⚠️ Гейт — ДВЕ фичи, и это не перестраховка: `webinar_room` отвечает за саму
+    комнату, `zoom_integration` — за право создавать конференции в аккаунте
+    платформы (миграция 444, только тариф `admin`).
+
+    ⚠️ Нужна комната типа `encoder` с ключом потока: вещать в стороннюю
+    комнату нам некуда, а без ключа некуда направить трансляцию.
+
+    ⚠️ Конференция создаётся ЗАНОВО при каждом нажатии, старая удаляется. Иначе
+    у дня копились бы конференции-дубли, и спикеры расходились бы по разным.
+    """
+    from app.services import zoom_api
+
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+
+    if not await client_has_feature(db, cid, "zoom_integration"):
+        raise HTTPException(
+            status_code=403,
+            detail="Создание конференций Zoom из кабинета пока доступно только администратору платформы.",
+        )
+    # ⚠️ Подключён ли ЗУМ ЭТОГО КЛИЕНТА — конференция создаётся в его аккаунте.
+    # Проверяем здесь, а не только внутри zoom_api: сообщение должно вести туда,
+    # где это чинится, а не быть технической ошибкой запроса.
+    has_account = await db.fetchval(
+        "SELECT 1 FROM client_zoom_accounts WHERE client_id=$1 AND access_token IS NOT NULL "
+        "AND access_token <> ''", cid)
+    if not has_account:
+        raise HTTPException(
+            status_code=400,
+            detail="Zoom не подключён. Подключите его в «Настройки → Интеграция».",
+        )
+
+    room = await db.fetchrow(
+        "SELECT * FROM webinar_rooms WHERE event_id=$1 AND day_number=$2", event_id, day_number)
+    if not room:
+        raise HTTPException(status_code=404,
+                            detail="Сначала сохраните вебинарную комнату этого дня.")
+    if room["stream_type"] != "encoder" or not room["stream_key"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Конференция создаётся для своей комнаты (тип «Видеокодер»). "
+                   "Выберите этот тип и сохраните день.",
+        )
+
+    # ── когда эфир: дата дня + время открытия. Программа проекта в МСК, Zoom
+    # получает UTC — перевод здесь, в единственном месте, где известна МСК.
+    ev = await db.fetchrow("SELECT title, start_at FROM events WHERE id=$1", event_id)
+    day = await db.fetchrow(
+        "SELECT day_date, open_time, close_time, title FROM conf_days "
+        "WHERE event_id=$1 AND day_number=$2", event_id, day_number)
+
+    day_date = (day["day_date"] if day else None) or (
+        ev["start_at"].date() if ev and ev["start_at"] else None)
+    open_time = (day["open_time"] if day else None) or "10:00"
+    close_time = (day["close_time"] if day else None) or ""
+
+    start_utc: Optional[str] = None
+    duration_min = 240   # ⚠️ дефолт 4 часа: у дня конференции close_time часто пуст,
+                         # а конференция, оборвавшаяся по таймеру посреди эфира, хуже
+                         # запаса. Zoom по истечении времени ничего не выключает — это
+                         # только пометка в расписании.
+    if day_date:
+        try:
+            hh, mm = (open_time or "10:00").split(":")[:2]
+            local = datetime(day_date.year, day_date.month, day_date.day,
+                             int(hh), int(mm), tzinfo=ws.MSK)
+            start_utc = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if close_time:
+                ch, cm = close_time.split(":")[:2]
+                end_local = datetime(day_date.year, day_date.month, day_date.day,
+                                     int(ch), int(cm), tzinfo=ws.MSK)
+                mins = int((end_local - local).total_seconds() // 60)
+                if mins > 0:
+                    duration_min = mins
+        except (ValueError, TypeError):
+            # Время в базе — свободный текст «HH:MM». Кривое значение не должно
+            # мешать создать конференцию: заведём бессрочную, без расписания.
+            start_utc = None
+
+    # Тема конференции — то, что спикер увидит в зуме. Название дня, если оно
+    # своё; иначе событие + номер дня.
+    day_title = (day["title"] if day else None) or (room["title"] or "")
+    ev_title = (ev["title"] if ev else "") or "Эфир"
+    topic = day_title.strip() or (f"{ev_title} — день {day_number}" if day_number > 1 else ev_title)
+
+    # ── старую конференцию убираем, чтобы у дня не копились дубли
+    old_id = room["zoom_meeting_id"]
+    if old_id:
+        try:
+            await zoom_api.delete_meeting(db, cid, str(old_id))
+        except zoom_api.ZoomError as e:
+            # Не смогли удалить — не повод не создавать новую: в базе останется
+            # ссылка на актуальную, а лишняя в зуме человеку видна и удаляется руками.
+            logger.warning("Zoom: не удалось удалить конференцию %s: %s", old_id, e)
+
+    try:
+        meeting = await zoom_api.create_meeting(
+            db, cid,
+            topic=topic,
+            start_time_utc=start_utc,
+            duration_min=duration_min,
+            agenda=f"Эфир идёт в вебинарную комнату ПЛЮСОНа (день {day_number}).",
+        )
+    except zoom_api.ZoomNotConnected as e:
+        # Доступ отозван между проверкой выше и запросом — ведём туда, где чинится.
+        raise HTTPException(status_code=400, detail=str(e))
+    except zoom_api.ZoomError as e:
+        raise HTTPException(status_code=502, detail=f"Zoom: {e}")
+
+    meeting_id = str(meeting.get("id") or "")
+    join_url = meeting.get("join_url") or ""
+    if not meeting_id or not join_url:
+        raise HTTPException(status_code=502,
+                            detail="Zoom создал конференцию, но не вернул её ссылку. Попробуйте ещё раз.")
+
+    # ── вещание на наш MediaMTX. Отдельным запросом: Zoom не принимает
+    # livestream внутри создания конференции.
+    stream_ok, stream_warning = True, ""
+    try:
+        await zoom_api.set_livestream(
+            db, cid, meeting_id,
+            stream_url=ws.rtmp_url(room["stream_key"]),
+            stream_key=room["stream_key"],
+        )
+    except zoom_api.ZoomError as e:
+        # ⚠️ Конференция уже создана и полезна сама по себе — не откатываем.
+        # Но честно говорим, что в комнату она не польётся: выяснить это в
+        # момент старта эфира намного хуже.
+        stream_ok = False
+        stream_warning = str(e)
+        logger.warning("Zoom: livestream не включён для %s: %s", meeting_id, e)
+
+    await db.execute(
+        "UPDATE webinar_rooms SET zoom_meeting_id=$1, zoom_start_url=$2, zoom_password=$3, "
+        " zoom_livestream_ok=$4, zoom_created_at=NOW(), speaker_join_url=$5, updated_at=NOW() "
+        "WHERE event_id=$6 AND day_number=$7",
+        meeting_id, meeting.get("start_url") or "", meeting.get("password") or "",
+        stream_ok, join_url, event_id, day_number,
+    )
+
+    return {
+        "ok": True,
+        "meeting_id": meeting_id,
+        "join_url": join_url,
+        "start_url": meeting.get("start_url") or "",
+        "password": meeting.get("password") or "",
+        "start_time": start_utc,
+        "duration_min": duration_min,
+        "livestream_ok": stream_ok,
+        "livestream_warning": stream_warning,
+    }
+
+
+@router.delete("/{day_number}/zoom-meeting", summary="Удалить конференцию Zoom этого дня")
+async def delete_zoom_meeting(
+    event_id: int, day_number: int,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Удаляет конференцию в Zoom и забывает её у дня.
+
+    ⚠️ `speaker_join_url` НЕ чистим: ссылку могли уже разослать спикерам, и
+    молча опустевшее поле выглядело бы как потеря настройки. Человек видит, что
+    конференции больше нет, и решает сам.
+    """
+    from app.services import zoom_api
+
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    if not await client_has_feature(db, cid, "zoom_integration"):
+        raise HTTPException(status_code=403, detail="Доступно только администратору платформы.")
+
+    mid = await db.fetchval(
+        "SELECT zoom_meeting_id FROM webinar_rooms WHERE event_id=$1 AND day_number=$2",
+        event_id, day_number)
+    if not mid:
+        return {"ok": True, "deleted": False}
+
+    try:
+        await zoom_api.delete_meeting(db, cid, str(mid))
+    except zoom_api.ZoomNotConnected as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except zoom_api.ZoomError as e:
+        raise HTTPException(status_code=502, detail=f"Zoom: {e}")
+
+    await db.execute(
+        "UPDATE webinar_rooms SET zoom_meeting_id=NULL, zoom_start_url=NULL, zoom_password=NULL, "
+        " zoom_livestream_ok=FALSE, zoom_created_at=NULL, updated_at=NOW() "
+        "WHERE event_id=$1 AND day_number=$2", event_id, day_number)
+    return {"ok": True, "deleted": True}
+
+
 @router.post("/{day_number}/copy-speaker-join-url",
              summary="Скопировать ссылку входа спикера во все дни")
 async def copy_speaker_join_url(
@@ -394,6 +626,14 @@ async def copy_speaker_join_url(
 
 @router.delete("/{day_number}", summary="Удалить комнату дня")
 async def delete_room(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
+    """Удаляет комнату дня.
+
+    ⚠️ Зум-конференцию этого дня (`zoom_meeting_id`) в Zoom НЕ удаляем, хотя
+    запись о ней исчезает вместе со строкой. Это осознанно: конференция
+    назначена, её ссылка могла уже уйти спикерам, и снести её заодно с
+    комнатой значит сорвать эфир тем, кто на неё рассчитывает. Удаление
+    конференции — отдельное действие с отдельной кнопкой.
+    """
     cid = _cid(client)
     await ws.assert_event_owner(db, event_id, cid)
     await db.execute("DELETE FROM webinar_rooms WHERE event_id=$1 AND day_number=$2", event_id, day_number)

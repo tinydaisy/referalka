@@ -15,6 +15,7 @@ import StorageTab from '@/components/settings/StorageTab'
 import PaymentsSection from '@/components/settings/PaymentsSection'
 import DomainsTab from '@/components/settings/DomainsTab'
 import CallSettingsBlock from '@/components/settings/CallSettingsBlock'
+import ZoomSettingsBlock from '@/components/settings/ZoomSettingsBlock'
 import NewsEmailBlock from '@/components/settings/NewsEmailBlock'
 import CopyAllLinksButton, { type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
 
@@ -230,8 +231,13 @@ function SettingsPageInner() {
   // ⚠️ Плюс фича calls: настройки автообзвонов живут в этой же вкладке, и без
   // такой проверки клиент с обзвонами, но без partner_registration, не смог бы
   // до них добраться — вкладки бы просто не было.
+  // ⚠️ И фича zoom_integration — по той же причине: подключение своего Zoom
+  // живёт в этой вкладке, и без неё клиент с зумом, но без partner_registration,
+  // до него не добрался бы (миграция 444).
   const hasCalls = clientFeatures.includes('calls')
-  const hasPartnerRegistration = clientFeatures.includes('partner_registration') || hasCalls
+  const hasZoom = clientFeatures.includes('zoom_integration')
+  const hasPartnerRegistration =
+    clientFeatures.includes('partner_registration') || hasCalls || hasZoom
   // Стили бренда и лендинга — та же фича, что и сам конструктор лендинга (миграция 241).
   const hasLandingTheme = clientFeatures.includes('event_landing')
   // Приём оплаты за тарифы своей платёжной системой (миграция 257).
@@ -1152,6 +1158,10 @@ function IntegrationTab() {
           если фичи calls нет: замок на пол-экрана рядом с другими интеграциями
           был бы шумом. */}
       <CallSettingsBlock />
+
+      {/* Zoom — подключение своего аккаунта (миграция 444). Так же сам
+          скрывается без фичи. */}
+      <ZoomSettingsBlock />
 
       {/* МедиаЛифт — карточка клиента в системе автоподписки */}
       {mlCard && (
