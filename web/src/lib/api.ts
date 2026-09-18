@@ -853,10 +853,13 @@ export const api = {
     // ⚠️ `channel_url` — ссылка на канал клиента, спрашивается СРАЗУ при
     // запуске: её нельзя поймать автоматически (бот услуги не в поллинге), а
     // без неё не работает проверка подписки в воронках лид-магнитов.
-    start: (bot_username: string, bot_title?: string, channel_url?: string) =>
+    // ⚠️ `bot_role` — только когда у клиента УЖЕ есть главный telegram-бот:
+    // 'main' (новый забирает воронки) | 'broadcast' (только рассылки).
+    start: (bot_username: string, bot_title?: string, channel_url?: string,
+            bot_role?: string) =>
       request('/api/v1/clients/me/tg-autosetup/start', {
         method: 'POST',
-        body: JSON.stringify({ bot_username, bot_title, channel_url }),
+        body: JSON.stringify({ bot_username, bot_title, channel_url, bot_role }),
       }),
     // Открыть услугу по коду доступа — пока идёт обкатка, она раздаётся
     // точечно, а не продаётся всем.

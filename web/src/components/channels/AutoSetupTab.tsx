@@ -62,6 +62,8 @@ type State = {
    *  письмо — единственный способ позвать человека забрать права на бота. */
   email?: string | null
   email_verified?: boolean
+  /** @handle уже подключённого главного telegram-бота, если он есть. */
+  existing_main_bot?: string | null
   /** Демо-заготовки, созданные автонастройкой (миграция 411) — их показывает
    *  итог со ссылкой «проверьте выдачу на себе». */
   demo_magnets?: { id: number; name: string; slug: string; num: number; link?: string | null }[]
@@ -384,6 +386,18 @@ export default function AutoSetupTab() {
    */
   const [zeroReady, setZeroReady] = useState<boolean | null>(null)
 
+  /**
+   * ⚠️⚠️ РОЛЬ НОВОГО БОТА, когда у клиента УЖЕ есть главный (18.09.2026).
+   *
+   * Раньше решалось молча: есть главный — новый заводился рассылочным.
+   * Человек покупал «настроим бота», получал бота, который не ведёт НИ ОДНОЙ
+   * воронки, и не понимал, почему в нём ничего не работает.
+   *
+   * ⚠️ По умолчанию 'broadcast' — прежнее, безопасное поведение: работающего
+   * бота не трогаем, пока человек сам не выберет иначе.
+   */
+  const [botRole, setBotRole] = useState<'main' | 'broadcast'>('broadcast')
+
   /** Передать права немедленно — кнопка в конце списка действий. */
   const [transferring, setTransferring] = useState(false)
   /**
@@ -527,7 +541,8 @@ export default function AutoSetupTab() {
       if (nickErrorRef.current) { setStarting(false); return }
 
       const r = await api.tgAutosetup.start(
-        username, title || undefined, effChannel || undefined)
+        username, title || undefined, effChannel || undefined,
+        state.existing_main_bot ? botRole : undefined)
       if (r.payment_url) { window.location.href = r.payment_url; return }
       await load()
     } catch (e: any) {
@@ -1106,6 +1121,57 @@ export default function AutoSetupTab() {
               доходит только тот, у кого почта уже подтверждена. Держать здесь
               вторую точку с тем же требованием значило бы показывать человеку
               одно и то же дважды и чинить потом в двух местах. */}
+
+          {/* ⚠️⚠️ У КЛИЕНТА УЖЕ ЕСТЬ БОТ — СПРАШИВАЕМ, КТО ИЗ НИХ ГЛАВНЫЙ.
+              Раньше это решалось за него молча (новый шёл рассылочным), и
+              человек получал бота, не ведущего ни одной воронки. Молча забрать
+              воронки у работающего — не лучше. Выбирает владелец. */}
+          {state.existing_main_bot && (
+            <div className="mt-4 rounded-xl border-2 p-4" style={{ borderColor: '#FFCFA4' }}>
+              <p className="text-base font-semibold text-gray-900">
+                У вас уже есть бот @{state.existing_main_bot}
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                Кем сделать нового? Главный может быть только один.
+              </p>
+              <div className="mt-3 space-y-2">
+                <label className="flex items-start gap-2.5 cursor-pointer p-3 rounded-lg border"
+                       style={{ borderColor: botRole === 'broadcast' ? '#FFCFA4' : '#e5e7eb',
+                                background: botRole === 'broadcast' ? '#FFF8F0' : '#fff' }}>
+                  <input type="radio" name="botrole" className="mt-1"
+                         checked={botRole === 'broadcast'}
+                         onChange={() => setBotRole('broadcast')} />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-gray-900">
+                      Для рассылок
+                    </span>
+                    <span className="block text-xs text-gray-600 mt-0.5">
+                      Воронки, регистрации и приложение остаются
+                      у @{state.existing_main_bot}. Новый бот — отдельная база
+                      подписчиков, чтобы делать по ней рассылки.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 cursor-pointer p-3 rounded-lg border"
+                       style={{ borderColor: botRole === 'main' ? '#FFCFA4' : '#e5e7eb',
+                                background: botRole === 'main' ? '#FFF8F0' : '#fff' }}>
+                  <input type="radio" name="botrole" className="mt-1"
+                         checked={botRole === 'main'}
+                         onChange={() => setBotRole('main')} />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-gray-900">
+                      Главный — отвечает за всё
+                    </span>
+                    <span className="block text-xs text-gray-600 mt-0.5">
+                      Новый бот забирает воронки, регистрации, приветствия и
+                      приложение. @{state.existing_main_bot} останется
+                      подключённым, но только для рассылок.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
 
           <button
             onClick={start}

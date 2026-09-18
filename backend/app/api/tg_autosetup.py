@@ -352,6 +352,18 @@ async def get_state(user=Depends(get_current_client), db=Depends(get_db)):
         # письмом. Человек с открытой страницей должен видеть причину, а не
         # неподвижный «крутилку»: иначе он решает, что услуга сломалась.
         "queue_wait": await _queue_wait(db, order),
+        # ⚠️⚠️ ЕСТЬ ЛИ У КЛИЕНТА УЖЕ ГЛАВНЫЙ TELEGRAM-БОТ. От этого зависит,
+        # спрашивать ли роль нового: воронки заберёт или только рассылки.
+        # Считаем на СЕРВЕРЕ — фронт не должен сам ходить по каналам и делать
+        # вывод, иначе правило разъедется с тем, что применит задача.
+        "existing_main_bot": await db.fetchval(
+            """SELECT ch.handle FROM client_channels cc
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1 AND ch.platform_slug = 'telegram'
+                  AND cc.is_active = TRUE
+                LIMIT 1""",
+            client_id,
+        ),
     }
 
 
@@ -467,6 +479,13 @@ class StartRequest(BaseModel):
     # работает проверка подписки в воронках лид-магнитов и гейт в чатах.
     # `client_broadcast_chats` (куда рассылать) — ДРУГОЕ место и другая задача.
     channel_url: Optional[str] = None
+    # ⚠️⚠️ РОЛЬ НОВОГО БОТА, если у клиента УЖЕ есть главный telegram-бот:
+    #   "main"      — новый забирает воронки, старый становится рассылочным;
+    #   "broadcast" — воронки остаются у старого (прежнее поведение).
+    # Спрашиваем на экране запуска, а не при создании бота: бот создаётся
+    # фоновой задачей, иногда через час (лимит BotFather), и спросить тогда
+    # уже некого. NULL/пусто — у клиента бота не было, вопрос не задавался.
+    bot_role: Optional[str] = None
     # ⚠️⚠️ ТРИ ОБЯЗАТЕЛЬНЫХ ПОЛЯ ПРИХОДЯТ ВМЕСТЕ С ЗАПУСКОМ, а не отдельной
     # кнопкой «Сохранить». Раньше кнопок было две, и человек не понимал, куда
     # именно сохраняет первая: она молча писала в три разных места кабинета.
@@ -1508,6 +1527,13 @@ async def start_setup(data: StartRequest,
     username = data.bot_username.strip().lstrip("@")
     title = (data.bot_title or "").strip() or username
 
+    # ⚠️ Роль нового бота — только из белого списка: значение идёт в заказ и
+    # решает, заберёт ли новый бот воронки у работающего. Мусор приравниваем
+    # к «не выбрано», то есть к прежнему безопасному поведению.
+    bot_role = (data.bot_role or "").strip().lower()
+    if bot_role not in ("main", "broadcast"):
+        bot_role = None
+
     # ⚠️ Канал записываем СРАЗУ, до создания заказа: он нужен не настройке, а
     # самому клиенту (проверка подписки в воронках), и не должен зависеть от
     # того, чем закончится прогон.
@@ -1586,9 +1612,9 @@ async def start_setup(data: StartRequest,
                   SET bot_username=$2, bot_title=$3, setup_state='queued',
                       setup_error=NULL, setup_log='[]'::jsonb,
                       claim_deadline=NULL, reminders_sent=0, last_reminder_at=NULL,
-                      setup_account_id=NULL, updated_at=NOW()
+                      setup_account_id=NULL, bot_role=$4, updated_at=NOW()
                 WHERE id=$1""",
-            existing["id"], username, title,
+            existing["id"], username, title, bot_role,
         )
         await _write_prelog(existing["id"])
         _kick_queue()
@@ -1623,10 +1649,10 @@ async def start_setup(data: StartRequest,
             """INSERT INTO service_orders (client_id, service_id, amount,
                                            bot_username, bot_title,
                                            status, setup_state,
-                                           payment_provider, paid_at)
-                    VALUES ($1, $2, 0, $3, $4, 'paid', 'queued', 'free', NOW())
+                                           payment_provider, paid_at, bot_role)
+                    VALUES ($1, $2, 0, $3, $4, 'paid', 'queued', 'free', NOW(), $5)
                  RETURNING id""",
-            client_id, svc["id"], username, title,
+            client_id, svc["id"], username, title, bot_role,
         )
         # ⚠️ Бесплатная выдача (по промокоду) — тоже пишем первые строки лога.
         # Раньше они появлялись только при перезапуске, и человек, запускающий
@@ -1642,10 +1668,11 @@ async def start_setup(data: StartRequest,
 
     order_id = await db.fetchval(
         """INSERT INTO service_orders (client_id, service_id, amount,
-                                       bot_username, bot_title, status, setup_state)
-                VALUES ($1, $2, $3, $4, $5, 'created', 'new')
+                                       bot_username, bot_title, status,
+                                       setup_state, bot_role)
+                VALUES ($1, $2, $3, $4, $5, 'created', 'new', $6)
              RETURNING id""",
-        client_id, svc["id"], svc["price"], username, title,
+        client_id, svc["id"], svc["price"], username, title, bot_role,
     )
 
     pay_url = await _payment_link(db, svc, order_id, client_id)

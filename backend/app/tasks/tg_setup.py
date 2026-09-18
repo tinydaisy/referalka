@@ -766,8 +766,6 @@ async def _register_bot_channel(db, client_id: int, order) -> int | None:
                  RETURNING id""",
             title, username, token,
         )
-        # ⚠️ Главным делаем только если у клиента ещё нет главного telegram-бота:
-        # иначе автонастройка молча перебила бы уже работающего бота.
         has_primary = await db.fetchval(
             """SELECT EXISTS(
                    SELECT 1 FROM client_channels cc
@@ -776,10 +774,47 @@ async def _register_bot_channel(db, client_id: int, order) -> int | None:
                       AND cc.is_active = TRUE)""",
             client_id,
         )
+
+        # ⚠️⚠️ РОЛЬ НОВОГО БОТА ВЫБИРАЕТ ЧЕЛОВЕК, А НЕ МЫ (18.09.2026).
+        #
+        # Раньше решалось молча: есть главный — новый заводился рассылочным.
+        # Осторожно (работающего бота не перебивали), но человек покупал
+        # «настроим бота», получал бота, который не ведёт НИ ОДНОЙ воронки, и
+        # не понимал, почему в нём ничего не работает. Обратное — молча забрать
+        # воронки у бота, уже работающего с аудиторией, — не лучше.
+        #
+        # ⚠️ Вопрос задаётся на экране ЗАПУСКА и лежит в заказе (`bot_role`):
+        # бот создаётся фоновой задачей, иногда через час после нажатия (лимит
+        # BotFather), и спросить в этот момент уже некого.
+        #
+        # Семантика флага прежняя: is_active=TRUE — главный (воронки, /start,
+        # Mini App, системные уведомления), FALSE — только база для рассылок.
+        role = (order["bot_role"] or "").strip() if "bot_role" in order else ""
+        if not has_primary:
+            # Первый telegram-бот у клиента — всегда главный, тут выбирать не из чего.
+            make_primary = True
+        else:
+            make_primary = role == "main"
+
+        # ⚠️ Снимаем флаг у прежнего главного В ТОЙ ЖЕ транзакции: UNIQUE-индекс
+        # разрешает ровно один главный на (client_id, platform_slug), и без
+        # этого вставка упала бы, оставив клиента вовсе без бота.
+        if make_primary and has_primary:
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE ch.id = cc.channel_id
+                      AND cc.client_id = $1
+                      AND ch.platform_slug = 'telegram'
+                      AND cc.is_active = TRUE""",
+                client_id,
+            )
+
         await db.execute(
             "INSERT INTO client_channels (client_id, channel_id, is_active) "
             "VALUES ($1, $2, $3)",
-            client_id, channel_id, not has_primary,
+            client_id, channel_id, make_primary,
         )
     return channel_id
 
