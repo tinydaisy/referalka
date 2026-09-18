@@ -899,7 +899,11 @@ export default function AutoSetupTab() {
           своего статуса новый экран и решил, что настройка сбросилась. */}
       {showStepZero && (
         <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5">
+          {/* ⚠️ Кнопка «Продолжить» обязательна: переход к полям происходит сам,
+              когда оба шага пройдены, но человек этого не знает и ждёт, что
+              нажать. Кнопка даёт явный конец шага. */}
           <StepZero title="Шаг 1. Прежде чем начать"
+                    showContinue
                     onReady={ready => setZeroReady(ready)} />
         </div>
       )}

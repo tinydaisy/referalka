@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { PlatformLogo, PLATFORM_COLORS } from '@/components/PlatformLogo'
-import { Check, ExternalLink, Loader2, Mail, RefreshCw } from 'lucide-react'
+import { ArrowRight, Check, ExternalLink, Loader2, Mail, RefreshCw } from 'lucide-react'
 
 const GOLD = '#FFCFA4'
 
@@ -41,9 +41,20 @@ type Props = {
   onReady?: (ready: boolean) => void
   /** Заголовок: на демо-странице свой, в автонастройке — «Шаг 1». */
   title?: string
+  /**
+   * Показывать кнопку «Продолжить настройку» под карточками площадок.
+   *
+   * ⚠️⚠️ КНОПКА НУЖНА, ХОТЯ ПЕРЕХОД И АВТОМАТИЧЕСКИЙ. Когда оба шага пройдены,
+   * блок исчезает сам и появляются поля — но человек этого НЕ ЗНАЕТ. Он сидит
+   * на экране, где всё зелёное, и ждёт, что нажать. Кнопка даёт явное действие
+   * и понятный конец шага; пока шаги не пройдены — она неактивна и прямо
+   * говорит, чего не хватает.
+   */
+  showContinue?: boolean
 }
 
-export function StepZero({ onReady, title = 'Прежде чем начать' }: Props) {
+export function StepZero({ onReady, title = 'Прежде чем начать',
+                           showContinue = false }: Props) {
   const [state, setState] = useState<StepZeroState | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -222,6 +233,28 @@ export function StepZero({ onReady, title = 'Прежде чем начать' }
           </div>
         </div>
       </div>
+
+      {/* ⚠️ Кнопка ПОД карточками площадок — там, где человек заканчивает шаг.
+          Неактивная прямо говорит, чего не хватает, а не молчит серым. */}
+      {showContinue && (
+        <div className="mt-4">
+          <button
+            onClick={() => load(true)}
+            disabled={!emailDone || !botDone}
+            className="btn-gold px-5 py-2.5 text-base font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+            Продолжить настройку <ArrowRight size={17} />
+          </button>
+          {(!emailDone || !botDone) && (
+            <p className="text-xs text-gray-500 mt-2">
+              {!emailDone && !botDone
+                ? 'Подтвердите почту и зайдите в бота — кнопка откроется сама.'
+                : !emailDone
+                  ? 'Осталось подтвердить почту.'
+                  : 'Осталось зайти хотя бы в одного бота.'}
+            </p>
+          )}
+        </div>
+      )}
 
       {note && <div className="mt-4 text-sm text-gray-700">{note}</div>}
     </div>
