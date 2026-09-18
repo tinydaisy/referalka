@@ -12,7 +12,7 @@
  * картинку снимает браузер с этой же вёрстки.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { GripVertical } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -78,10 +78,38 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       .finally(() => setLoading(false))
   }, [eventId, o])
 
+  // Есть ли несохранённые правки — для автосохранения ниже.
+  const dirtyRef = useRef(false)
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
+
   function patch(p: Partial<PosterLayout>) {
     setLayout(l => (l ? { ...l, ...p } : l))
     setSaved(false)
+    dirtyRef.current = true
   }
+
+  // ⚠️⚠️ АВТОСОХРАНЕНИЕ. Клиент расставил спикеров по рядам, ушёл со страницы —
+  // и всё пропало: сохранение висело на отдельной кнопке, а перетаскивание
+  // выглядит как действие, которое уже применилось (афиша-то перестроилась).
+  // Сохраняем сами через полторы секунды после последней правки: ползунок
+  // двигают часто, и слать запрос на каждое движение незачем.
+  useEffect(() => {
+    if (!dirtyRef.current) return
+    const t = setTimeout(async () => {
+      const cur = layoutRef.current
+      if (!cur) return
+      dirtyRef.current = false
+      setSaving(true)
+      try {
+        const { orientation, ...body } = cur
+        await api.posterLayout.save(eventId, o, body)
+        setSaved(true)
+      } catch (e: any) { setErr(e?.message || 'Не удалось сохранить') }
+      finally { setSaving(false) }
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [layout, eventId, o])
 
   async function save() {
     if (!layout) return

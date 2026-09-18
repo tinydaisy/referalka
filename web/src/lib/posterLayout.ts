@@ -51,8 +51,15 @@ export function subscribersOf(p: PosterPerson): number {
  * коммерческих.
  */
 export function autoOrder(people: PosterPerson[]): PosterPerson[] {
-  const commercial = people.filter(p => p.is_commercial)
-  const rest = people.filter(p => !p.is_commercial)
+  // ⚠️⚠️ ОРГАНИЗАТОР — В ПЕРВЫЙ РЯД И ПО СЕРЕДИНЕ (правило владельца
+  // 18.09.2026). Он стоит в общей сетке, но должен быть виден сразу: место в
+  // центре верхнего ряда даёт это без отдельной строки, которая раньше съедала
+  // высоту и выталкивала часть людей за край.
+  const organizers = people.filter(p => ORGANIZER_ROLES.includes(p.role))
+  const withoutOrg = people.filter(p => !ORGANIZER_ROLES.includes(p.role))
+
+  const commercial = withoutOrg.filter(p => p.is_commercial)
+  const rest = withoutOrg.filter(p => !p.is_commercial)
 
   // Крупные вперёд — дальше разложим их по краям.
   const byWeight = [...rest].sort((a, b) => {
@@ -70,7 +77,16 @@ export function autoOrder(people: PosterPerson[]): PosterPerson[] {
   byWeight.forEach((p, i) => (i % 2 === 0 ? left : right).push(p))
 
   // Коммерческие — ровно посередине, между половинами.
-  return [...left, ...commercial, ...right.reverse()]
+  const ordered = [...left, ...commercial, ...right.reverse()]
+
+  // ⚠️ Организаторов вставляем В СЕРЕДИНУ первого ряда. Ряд ещё не нарезан, но
+  // он идёт с начала списка, поэтому «середина первого ряда» — это середина
+  // первых N человек. Точное N здесь неизвестно (его считает полотно), берём
+  // половину от всех: при любой нарезке организатор оказывается в верхнем ряду
+  // ближе к центру, а не с краю.
+  if (!organizers.length) return ordered
+  const mid = Math.floor(Math.min(ordered.length, 7) / 2)
+  return [...ordered.slice(0, mid), ...organizers, ...ordered.slice(mid)]
 }
 
 /**

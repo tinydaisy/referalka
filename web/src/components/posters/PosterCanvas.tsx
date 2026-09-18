@@ -481,7 +481,7 @@ export default function PosterCanvas({
           }}>
             {row.map(p => (
               <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit}
-                          wPct={cardW} hPx={cardH * AW / 100}
+                          wPct={cardW} wPx={cardW * AW / 100} hPx={cardH * AW / 100}
                           highlighted={p.role === 'headliner' || p.role === 'general_partner' || ORGANIZER_ROLES.includes(p.role)}
                           theme={th} label={label} />
             ))}
@@ -521,9 +521,13 @@ function defaultSpeakersTop(o: PosterOrientation): number {
  */
 export function defaultRowCount(o: PosterOrientation, count: number): number {
   if (count <= 1) return 1
-  if (o === 'horizontal') return Math.min(4, Math.max(2, Math.ceil(count / 6)))
-  if (o === 'square') return Math.min(5, Math.max(2, Math.ceil(count / 5)))
-  return Math.min(7, Math.max(2, Math.ceil(count / 4)))
+  // ⚠️ Правила заданы владельцем прямо (18.09.2026):
+  //   горизонтальная и квадратная — до 7 человек один ряд, до 14 два, дальше три;
+  //   вертикальная — по 4 человека в ряд.
+  if (o === 'vertical') return Math.max(1, Math.ceil(count / 4))
+  if (count <= 7) return 1
+  if (count <= 14) return 2
+  return Math.max(3, Math.ceil(count / 7))
 }
 
 /** Расставляет по заданному порядку id; кого нет в списке — в конец. */
@@ -548,13 +552,56 @@ function shapeRatio(shape?: string): number {
 /** CSS-форма маски. */
 function maskCss(L: PosterLayout): React.CSSProperties {
   switch (L.mask_shape) {
-    case 'circle': return { borderRadius: '9999px' }
-    case 'oval':   return { borderRadius: '50% / 50%' }
+    // ⚠️⚠️ КРУГ — ЭТО 50 %, А НЕ 9999px. На прямоугольной карточке `9999px`
+    // даёт «таблетку» — прямоугольник со скруглёнными торцами, что и было
+    // видно на экране. Круг получается только когда карточка КВАДРАТНАЯ
+    // (за это отвечает shapeRatio) и радиус задан в процентах.
+    case 'circle': return { borderRadius: '50%' }
+    // Овал — тот же 50 %, но карточка вытянута по высоте (shapeRatio 1.25).
+    case 'oval':   return { borderRadius: '50%' }
     // Яйцо: снизу круглее, сверху уже — несимметричное скругление.
     case 'egg':    return { borderRadius: '50% 50% 50% 50% / 60% 60% 40% 40%' }
     case 'cutout': return {}
+    // ⚠️ Квадрат и прямоугольник отличаются ПРОПОРЦИЕЙ (shapeRatio: 1 против
+    // 1.35), а не скруглением. Радиус — общая настройка для обоих.
+    // `mask_radius` в % от ширины: у квадрата 50 % дадут круг, и это законно —
+    // клиент сам решает, насколько скруглить.
+    case 'square':
     default:       return { borderRadius: `${L.mask_radius ?? 0}%` }
   }
+}
+
+/**
+ * Во сколько раз приблизить кадр внутри маски.
+ *
+ * ⚠️ Круг и квадрат показывают почти квадратный фрагмент фото. Портрет в рост
+ * в таком фрагменте — фигурка целиком, лица не разобрать (жалоба владельца:
+ * «кружок и квадрат всегда надо крупнее»). Прямоугольная карточка вытянута и
+ * так берёт человека по пояс — ей приближение не нужно.
+ */
+function maskZoom(shape?: string): number {
+  if (shape === 'circle' || shape === 'square') return 1.6
+  if (shape === 'oval' || shape === 'egg') return 1.35
+  return 1
+}
+
+/**
+ * Где держать лицо внутри маски.
+ *
+ * ⚠️⚠️ У КРУГА И КВАДРАТА НОС — ПОСЕРЕДИНЕ (требование владельца). В
+ * прямоугольной карточке лицо поднимают вверх: под ним ещё есть плечи и место
+ * под подпись. В круге и квадрате это выглядит так, будто человек выглядывает
+ * из-за края — центр там и есть правильное место.
+ */
+function maskFocal(shape: string | undefined, focal?: string | null): string {
+  if (shape === 'circle' || shape === 'square' || shape === 'oval' || shape === 'egg') {
+    // Держим точку лица ровно в центре маски: по горизонтали берём отмеченную
+    // (лицо бывает сбоку), по вертикали — центр.
+    const m = (focal || '').match(/(-?[\d.]+)\s*%/)
+    const x = m ? Math.max(0, Math.min(100, Number(m[1]))) : 50
+    return `${Math.round(x)}% 50%`
+  }
+  return focalCssForPoster(focal)
 }
 
 function bgStyle(L: PosterLayout, th: PosterTheme): React.CSSProperties {
@@ -727,12 +774,17 @@ function Pill({ text, L, px, tx, gold, font }: {
 }
 
 /** Карточка человека: фото в маске + подпись + выделение роли. */
-function PersonCard({ p, L, gold, px, wPct, hPx, highlighted, theme, label, nameSize }: {
+function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label, nameSize }: {
   p: PosterPerson
   L: PosterLayout
   gold: string
   px: (n: number) => number
+  /** Ширина карточки в % ширины рабочей области — для размеров подписей. */
   wPct: number
+  /** ⚠️ Ширина в ПИКСЕЛЯХ. Проценты здесь не годятся: `width: N%` считается от
+   *  flex-ряда, а короткий ряд уже полного — и «квадрат» переставал быть
+   *  квадратом, а круг превращался в таблетку. В пикселях форма гарантирована. */
+  wPx: number
   hPx: number
   highlighted: boolean
   theme: PosterTheme
@@ -757,7 +809,7 @@ function PersonCard({ p, L, gold, px, wPct, hPx, highlighted, theme, label, name
   const borderW = Math.max(1, px(L.hl_border_w ?? 0.3))
 
   return (
-    <div style={{ width: `${wPct}%`, position: 'relative', zIndex: on ? 3 : 1 }}>
+    <div style={{ width: wPx, position: 'relative', zIndex: on ? 3 : 1 }}>
       {/* ⚠️ МЕСТО ПОД ПЛАШКУ РЕЗЕРВИРУЕТСЯ У ВСЕХ, а не только у выделенных.
           Требование: имена всех людей стоят на ОДНОМ уровне. Плашка только у
           хедлайнера сдвинула бы его карточку вниз, и ряд поехал бы. */}
@@ -804,7 +856,16 @@ function PersonCard({ p, L, gold, px, wPct, hPx, highlighted, theme, label, name
                  // лица: правило «лицо не ниже середины карточки» вшито в
                  // focalCssForPoster.
                  objectFit: cutout ? 'contain' : 'cover',
-                 objectPosition: cutout ? 'bottom center' : focalCssForPoster(focal),
+                 objectPosition: cutout ? 'bottom center' : maskFocal(L.mask_shape, focal),
+                 // ⚠️⚠️ У КРУГА И КВАДРАТА КАДР ПРИБЛИЖАЕТСЯ К ЛИЦУ. В них
+                 // помещается почти квадратный фрагмент снимка, и человек,
+                 // снятый в полный рост, превращался в фигурку с неразличимым
+                 // лицом. Масштабируем от точки лица — она остаётся на месте,
+                 // а лишнее (пол, потолок) уходит за края маски.
+                 ...(maskZoom(L.mask_shape) > 1 ? {
+                   transform: `scale(${maskZoom(L.mask_shape)})`,
+                   transformOrigin: maskFocal(L.mask_shape, focal),
+                 } : {}),
                  // Свечение вырезки — по контуру человека, а не по прямоугольнику.
                  ...(cutout && on && (hl === 'glow' || hl === 'both')
                    ? { filter: `drop-shadow(0 0 ${px(L.hl_glow ?? 1.5)}px ${gold})` } : {}),

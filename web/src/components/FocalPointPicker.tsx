@@ -72,8 +72,8 @@ export default function FocalPointPicker({
               : 'Точка не отмечена — кадр держится за верхнюю треть. Нажмите на лицо, чтобы задать точно.'}
           </p>
           <div className="flex items-end gap-3 flex-wrap">
-            <Sample url={url} focal={value} w={64} h={64} round label="Кружок" />
-            <Sample url={url} focal={value} w={72} h={72} label="Квадрат" />
+            <Sample url={url} focal={value} w={72} h={72} round zoom={1.6} center label="Кружок" />
+            <Sample url={url} focal={value} w={72} h={72} zoom={1.6} center label="Квадрат" />
             <Sample url={url} focal={value} w={72} h={96} label="Афиша" />
           </div>
           {hint && <p className="text-xs text-gray-400 mt-3 leading-relaxed">{hint}</p>}
@@ -90,16 +90,29 @@ export default function FocalPointPicker({
   )
 }
 
-function Sample({ url, focal, w, h, round, label }: {
+function Sample({ url, focal, w, h, round, label, zoom = 1, center = false }: {
   url: string; focal?: string | null; w: number; h: number; round?: boolean; label: string
+  /** Приближение кадра — как на афише у круга и квадрата. */
+  zoom?: number
+  /** Держать точку лица ПО ЦЕНТРУ (круг, квадрат), а не поднимать вверх. */
+  center?: boolean
 }) {
+  // ⚠️ Показываем ровно то, что будет на афише: у круга и квадрата лицо стоит
+  // по центру и кадр приближен. Иначе в примере человек в полный рост, а в
+  // готовой афише — крупный портрет, и клиент отмечает точку вслепую.
+  const pos = center
+    ? `${(focalCss(focal).match(/(-?[\d.]+)\s*%/)?.[1] ?? '50')}% 50%`
+    : focalCss(focal)
   return (
     <div className="text-center">
       <div className="overflow-hidden border card-border bg-gray-100 mx-auto"
            style={{ width: w, height: h, borderRadius: round ? 9999 : 10 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={url} alt="" className="w-full h-full"
-             style={{ objectFit: 'cover', objectPosition: focalCss(focal) }} />
+             style={{
+               objectFit: 'cover', objectPosition: pos,
+               ...(zoom > 1 ? { transform: `scale(${zoom})`, transformOrigin: pos } : {}),
+             }} />
       </div>
       <p className="text-[10px] text-gray-400 mt-1">{label}</p>
     </div>
