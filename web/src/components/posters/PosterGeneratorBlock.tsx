@@ -122,8 +122,11 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
 
   // Люди, которых можно перетаскивать: организаторы стоят сверху всегда,
   // партнёры-компании идут логотипами — их порядок не переставляют.
+  // ⚠️ Организаторы ПЕРЕТАСКИВАЮТСЯ наравне со всеми: они стоят в общей сетке
+  // (решение владельца), и «Марго Форбс не перетаскивается» было именно из-за
+  // того, что их отсюда исключали.
   const draggable = useMemo(() => {
-    const persons = people.filter(p => !p.is_company && !ORGANIZER_ROLES.includes(p.role))
+    const persons = people.filter(p => !p.is_company)
     return applyManualOrder(persons, layout?.speaker_order || [])
   }, [people, layout?.speaker_order])
 
@@ -136,11 +139,6 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     return [...list.filter(p => pos.has(p.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!),
             ...list.filter(p => !pos.has(p.id))]
   }, [people, layout?.partner_order])
-
-  const organizers = useMemo(
-    () => people.filter(p => !p.is_company && ORGANIZER_ROLES.includes(p.role)),
-    [people],
-  )
 
   // ⚠️ Ряды для редактора считаем ТЕМ ЖЕ способом, что и полотно
   // (applyManualRows), иначе в списке одно, а на афише другое.
@@ -161,8 +159,12 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       ? (theme.brand_logo_light_url || theme.brand_logo_url)
       : (theme.brand_logo_url || theme.brand_logo_light_url)
     if (brandUrl) items.push({ key: 'brand', url: brandUrl, name: 'Логотип бренда', isBrand: true })
+    const forLight = layout?.logos_variant === 'dark'
     for (const c of companies) {
-      const u = c.photo_url || c.cutout_photo_url
+      // Тот же выбор, что на афише: иначе в списке один логотип, на афише другой.
+      const u = forLight
+        ? ((c as any).logo_on_light_url || c.photo_url || c.cutout_photo_url)
+        : (c.photo_url || c.cutout_photo_url)
       if (u) items.push({
         key: String(c.id), url: u, isBrand: false,
         name: [c.name, c.last_name].filter(Boolean).join(' ') || 'Партнёр',
@@ -681,8 +683,9 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                     onChange={v => patch({ logos_variant: v as any })}
                     options={[['light', 'Для тёмного фона'], ['dark', 'Для светлого фона']]} />
             <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-              Влияет на логотип бренда — у него заведены два варианта. У партнёров
-              логотип один, он берётся как есть.
+              Действует на все логотипы сразу. Второй вариант загружается в карточке
+              партнёра — у карточек с галочкой «Компания» два поля: логотип для тёмного
+              и для светлого фона. Нет второго — возьмётся основной.
             </p>
 
             <div className="mt-4">
@@ -736,7 +739,6 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           {tab === 'order' && (<>
           <SpeakerRowsEditor
             rows={rowsView}
-            organizers={organizers}
             manual={Array.isArray(layout.speaker_rows) && layout.speaker_rows.length > 0}
             dragId={dragId}
             overRow={overRow}
@@ -946,12 +948,11 @@ function FontPicker({ theme, value, onChange }: {
  * структуру, что получится на афише.
  */
 function SpeakerRowsEditor({
-  rows, organizers, manual, dragId, overRow,
+  rows, manual, dragId, overRow,
   onDragStart, onDragEnd, onOverRow, onDropToRow, onReset,
   onSetRowCount, total,
 }: {
   rows: PosterPerson[][]
-  organizers: PosterPerson[]
   manual: boolean
   dragId: number | null
   overRow: number | null
@@ -980,7 +981,7 @@ function SpeakerRowsEditor({
       {total > 1 && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="text-xs text-gray-600">Разложить на</span>
-          {Array.from({ length: Math.min(6, total) }, (_, i) => i + 1).map(n => (
+          {Array.from({ length: Math.min(8, total) }, (_, i) => i + 1).map(n => (
             <button key={n} type="button" onClick={() => onSetRowCount(n)}
                     className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                       rows.length === n
@@ -989,21 +990,6 @@ function SpeakerRowsEditor({
               {n} {n === 1 ? 'ряд' : n < 5 ? 'ряда' : 'рядов'}
             </button>
           ))}
-        </div>
-      )}
-
-      {organizers.length > 0 && (
-        <div className="mb-3 rounded-lg bg-gray-50 px-3 py-2">
-          <div className="text-[11px] text-gray-500 mb-1.5">
-            Организаторы — всегда отдельной строкой сверху по центру
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {organizers.map(p => (
-              <PersonChip key={p.id} p={p} isDragging={false}
-                          onDragStart={() => {}} onDragOver={e => e.preventDefault()}
-                          onDrop={() => {}} />
-            ))}
-          </div>
         </div>
       )}
 

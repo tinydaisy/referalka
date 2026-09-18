@@ -77,7 +77,7 @@ _FIELDS = (
 _DEFAULTS = {
     "bg_url": None, "bg_dim": 0,
     "margin_top": 10, "margin_bottom": 10, "margin_left": 10, "margin_right": 10,
-    "speakers_top": 45, "speakers_bottom": 97, "speakers_side": 5,
+    "speakers_top": 46, "speakers_bottom": 97, "speakers_side": 5,
     "mask_shape": "portrait", "mask_radius": 0, "per_row": None,
     "gap": 2, "row_overlap": 0,
     "show_names": True, "name_order": "first_last", "name_lines": 2,
@@ -305,7 +305,7 @@ def _norm(data: dict) -> dict:
 # оставляло людям треть высоты: карточки ужимались втрое против примеров
 # заказчика. Сверху всегда идут логотипы и заголовок, но на широком полотне
 # они занимают меньшую долю высоты — значит и линия должна быть выше.
-_TOP_BY_ORIENTATION = {"horizontal": 26, "vertical": 32, "square": 30}
+_TOP_BY_ORIENTATION = {"horizontal": 40, "vertical": 46, "square": 42}
 
 
 # Поля, которые лежат в базе как jsonb.
@@ -465,6 +465,8 @@ async def _people(db: asyncpg.Connection, event_id: int) -> list[dict]:
                   c.photo_url, c.cutout_photo_url,
                   c.photo_focal, c.cutout_photo_focal,
                   c.is_company, c.media_assets,
+                  -- Логотип компании для светлого фона (миграция 450).
+                  c.logo_on_light_url,
                   ec.role, ec.is_commercial, ec.sort_order
              FROM event_collaborators ec
              JOIN collaborators c ON c.id = ec.speaker_id

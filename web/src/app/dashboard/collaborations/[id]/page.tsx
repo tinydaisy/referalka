@@ -138,6 +138,8 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         // Точки лица (миграция 434) — у каждого фото своя.
         photo_focal: form.photo_focal ?? null,
         cutout_photo_focal: form.cutout_photo_focal ?? null,
+        // Логотип компании для светлого фона (миграция 450).
+        logo_on_light_url: form.logo_on_light_url ?? null,
         photo_folder_url: form.photo_folder_url,
         video_folder_url: form.video_folder_url,
         video_url: form.video_url || null,
@@ -391,6 +393,53 @@ export default function CollaborationPage({ params }: { params: { id: string } }
 
         <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.media}</h2>
+          {/* ⚠️⚠️ У КОМПАНИИ — ДВА ЛОГОТИПА, у человека — фото (миграция 450).
+              Раньше поле было одно, и на афише переключатель «для тёмного /
+              для светлого фона» партнёров не касался вовсе: брать было нечего,
+              все логотипы оставались светлыми и на белом фоне пропадали. */}
+          {form.is_company !== false ? (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Логотип для ТЁМНОГО фона
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Основной знак — им подписывают афиши на тёмном фоне. Обычно светлый или цветной.
+                </p>
+                <FileUploader
+                  mode="single"
+                  kind="speaker_photo"
+                  collaboratorId={collaboratorId}
+                  value={form.photo_url || null}
+                  onChange={u => setForm((f: any) => ({ ...f, photo_url: u || '' }))}
+                  accept="image/*"
+                  aspectClass="aspect-video"
+                  emptyText="Перетащите сюда логотип"
+                  buttonLabel="Загрузить"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Логотип для СВЕТЛОГО фона
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Тёмная версия того же знака. Не загрузите — на светлой афише возьмётся основной,
+                  и он может слиться с фоном.
+                </p>
+                <FileUploader
+                  mode="single"
+                  kind="speaker_photo"
+                  collaboratorId={collaboratorId}
+                  value={form.logo_on_light_url || null}
+                  onChange={u => setForm((f: any) => ({ ...f, logo_on_light_url: u || '' }))}
+                  accept="image/*"
+                  aspectClass="aspect-video"
+                  emptyText="Перетащите сюда логотип"
+                  buttonLabel="Загрузить"
+                />
+              </div>
+            </>
+          ) : (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото для сайта</label>
             <FileUploader
@@ -405,7 +454,8 @@ export default function CollaborationPage({ params }: { params: { id: string } }
               buttonLabel="Загрузить"
             />
             {/* Точка лица (миграция 434): по ней кадрируются все миниатюры —
-                на сайте, в Mini App и на афишах. */}
+                на сайте, в Mini App и на афишах. ⚠️ Только у ЧЕЛОВЕКА: у
+                логотипа лицо не ищут, он показывается целиком. */}
             {form.photo_url && (
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Где лицо на фото</label>
@@ -418,6 +468,8 @@ export default function CollaborationPage({ params }: { params: { id: string } }
               </div>
             )}
           </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Афиши (библиотека)</label>
             <CollaboratorPostersField collaboratorId={collaboratorId} />

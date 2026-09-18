@@ -17,6 +17,8 @@ export type PosterPerson = {
   cutout_photo_focal?: string | null
   role: string
   is_company?: boolean | null
+  /** Логотип компании для СВЕТЛОГО фона (миграция 450). */
+  logo_on_light_url?: string | null
   is_commercial?: boolean | null
   media_assets?: { platform?: string; subscribers?: number }[] | null
 }

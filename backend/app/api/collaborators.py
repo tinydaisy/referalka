@@ -191,6 +191,9 @@ class CollaboratorCreate(BaseModel):
     # ⚠️ У основного фото и у вырезки она СВОЯ: кадрированы они по-разному.
     photo_focal: Optional[str] = None
     cutout_photo_focal: Optional[str] = None
+    # Логотип компании для СВЕТЛОГО фона (миграция 450). Основной photo_url —
+    # для тёмного. Только у карточек с галочкой «Компания».
+    logo_on_light_url: Optional[str] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters
     # (CRUD `/api/v1/collaborators/{id}/posters`).
     photo_folder_url: Optional[str] = None
@@ -236,6 +239,8 @@ class CollaboratorUpdate(BaseModel):
     # Точка лица (миграция 434), своя у каждого из двух фото.
     photo_focal: Optional[str] = None
     cutout_photo_focal: Optional[str] = None
+    # Логотип компании для светлого фона (миграция 450).
+    logo_on_light_url: Optional[str] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters.
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
@@ -297,6 +302,8 @@ _COLLAB_SELECT = """
     -- миниатюры и афиши, иначе голову срезает.
     c.photo_focal,
     c.cutout_photo_focal,
+    -- Логотип компании для светлого фона (миграция 450).
+    c.logo_on_light_url,
     (SELECT url FROM collaborator_posters cp
        WHERE cp.collaborator_id = c.id
        ORDER BY cp.sort_order, cp.id
@@ -798,7 +805,7 @@ async def update_collaborator(
     # этого фильтр `v is not None` выше выбросил бы пустое значение, и снятая
     # отметка возвращалась бы обратно при следующем сохранении. Пустая строка и
     # NULL здесь означают одно и то же — «не отмечено», поэтому пишем NULL.
-    for _f in ("photo_focal", "cutout_photo_focal"):
+    for _f in ("photo_focal", "cutout_photo_focal", "logo_on_light_url"):
         if _f in data.model_fields_set and not getattr(data, _f):
             updates_full[_f] = None
     # ⚠️ Галочку «Компания» надо уметь СНЯТЬ: False фильтр `v is not None` выше

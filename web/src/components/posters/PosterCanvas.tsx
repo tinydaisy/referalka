@@ -26,7 +26,7 @@
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
 import { focalCssForPoster } from '@/lib/photoFocal'
 import {
-  applyManualOrder, applyManualRows, splitRows, personLines, bestPerRow,
+  applyManualOrder, applyManualRows, splitRows, splitIntoRows, personLines,
   BADGE_LABELS, ORGANIZER_ROLES, type PosterPerson,
 } from '@/lib/posterLayout'
 
@@ -220,6 +220,9 @@ export default function PosterCanvas({
   const pill1 = (L.pill_text ?? '').trim() || suggested?.pill_text || ''
   const pill2 = (L.pill_text_2 ?? '').trim() || suggested?.pill_text_2 || ''
 
+  // Один выбор на всю строку логотипов: фон афиши один.
+  const variantForLight = (L.logos_variant || L.brand_logo_variant || 'light') === 'dark'
+
   const brandUrl = brandLogo(L, th)
   const logoItems: { key: string; url: string; isBrand: boolean }[] = []
   // Бренд участвует наравне с партнёрами; `show_brand_logo` оставлен для
@@ -230,7 +233,15 @@ export default function PosterCanvas({
   if (L.show_partners !== false) {
     for (const c of companies) {
       if (hidden.has(String(c.id))) continue
-      const u = c.photo_url || c.cutout_photo_url
+      // ⚠️ У компании ДВА логотипа (миграция 450): основной для тёмного фона и
+      // версия для светлого. Раньше поле было одно, и переключатель
+      // «для светлого фона» партнёров не касался вовсе — все логотипы
+      // оставались светлыми и на белой афише пропадали.
+      // Версии для светлого нет — берём основной: лучше показать хоть какой-то
+      // логотип, чем пустое место.
+      const u = variantForLight
+        ? (c.logo_on_light_url || c.photo_url || c.cutout_photo_url)
+        : (c.photo_url || c.cutout_photo_url)
       if (u) logoItems.push({ key: String(c.id), url: u, isBrand: false })
     }
   }
@@ -244,11 +255,13 @@ export default function PosterCanvas({
   const persons = visible.filter(p => !p.is_company)
 
   // Организаторы — всегда отдельной строкой сверху блока людей.
+  // ⚠️⚠️ ОРГАНИЗАТОРЫ — В ОБЩЕЙ СЕТКЕ, а не отдельной строкой (решение
+  // владельца 18.09.2026, сказано прямо и не раз). Отдельная строка съедала
+  // целый ряд высоты, из-за чего остальные карточки ужимались, а часть людей
+  // вовсе не влезала и обрезалась. Организаторы просто стоят ПЕРВЫМИ — они и
+  // так оказываются в верхнем ряду, а выделение им даёт рамка/свечение.
   const organizers = persons.filter(p => ORGANIZER_ROLES.includes(p.role))
-  const others = applyManualOrder(
-    persons.filter(p => !ORGANIZER_ROLES.includes(p.role)),
-    L.speaker_order || [],
-  )
+  const others = applyManualOrder(persons, L.speaker_order || [])
 
   const cutout = L.mask_shape === 'cutout'
   const gap = L.gap ?? 2
@@ -275,60 +288,35 @@ export default function PosterCanvas({
   const bottom = L.speakers_bottom ?? 97
   const availH = Math.max(1, bottom - top) / 100 * hPctOfW
 
-  const hasOrganizers = organizers.length > 0
 
-  // ⚠️⚠️ ОРГАНИЗАТОРЫ КРУПНЕЕ ОСТАЛЬНЫХ. Они стоят отдельной строкой сверху —
-  // это главные люди афиши, и в макетах заказчика их карточки заметно больше.
-  // Раньше они рисовались карточкой того же размера, что и рядовой спикер, и
-  // в ряду из одного человека организатор выглядел потерянным пятнышком.
-  //
-  // Коэффициент зависит от того, сколько их: один — крупно, четверо — почти
-  // как спикеры, иначе строка организаторов не влезет в ширину.
-  const orgK = organizers.length <= 1 ? 1.8
-             : organizers.length === 2 ? 1.5
-             : organizers.length === 3 ? 1.25 : 1.1
-
-
-  // ⚠️⚠️ ЧИСЛО В РЯДУ ПОДБИРАЕТСЯ РАСЧЁТОМ (bestPerRow), а не берётся из
-  // угаданных констант. Прежние «по 4 / по 6 / по 7» не знали формы области, и
-  // на горизонтальной афише 11 человек занимали треть отведённого места —
-  // карточки выходили с ноготь, остальное пустовало.
-  // ⚠️ Потолок «сколько в ряд» — по ФОРМАТУ, а не общий: на широкой афише 8 лиц
-  // в ряд читаются, на узкой вертикальной то же число превращает лица в горошины.
-  // Без потолка расчёт выдавал «по 11 в ряд» — длинную ленту в два ряда.
-  const maxPerRow = L.orientation === 'horizontal' ? 8 : L.orientation === 'square' ? 7 : 5
-
-  // ⚠️⚠️ РУЧНЫЕ РЯДЫ ГЛАВНЕЕ РАСЧЁТА (миграция 445). Клиент разложил людей по
-  // рядам перетаскиванием — значит так и рисуем, СКОЛЬКО ПОЛОЖИЛИ В РЯД,
-  // СТОЛЬКО И БУДЕТ. Ряды разной длины это норма, а не ошибка: так и верстают
-  // афиши. Пересчитывать их «как удобнее» нельзя — человек уедет обратно.
   // ⚠️ Проверяем, что это ИМЕННО массив: jsonb из базы может приехать строкой
   // («[]»), и тогда `.length` даёт длину текста, а `.map()` роняет страницу.
   const rawRows = Array.isArray(L.speaker_rows) ? L.speaker_rows : []
   const manualRows = rawRows.length > 0
+  // ⚠️ Без ручной расстановки раскладываем на ЧИСЛО РЯДОВ по формату
+  // (вертикальная — много коротких, горизонтальная — 3-4 длинных), а не
+  // подбираем «сколько в ряд»: так афиша сразу похожа на макет, а не требует
+  // получаса настройки.
   const rows = manualRows
     ? applyManualRows(others, rawRows)
-    : splitRows(others, L.per_row || bestPerRow(others.length, availH, {
-        gap, rowUnit, extraRows: hasOrganizers ? 1 : 0, max: maxPerRow,
-      }))
+    : (L.per_row
+        ? splitRows(others, L.per_row)
+        : splitIntoRows(others, defaultRowCount(L.orientation, others.length)))
 
   // ⚠️ Размер карточки задаёт САМЫЙ ДЛИННЫЙ ряд: по нему считается, сколько
   // помещается в ширину. Возьми среднее — длинный ряд вылез бы за поля.
-  const perRow = Math.max(1, ...rows.map(r => r.length), organizers.length)
+  const perRow = Math.max(1, ...rows.map(r => r.length))
 
   // ⚠️⚠️ РАЗМЕР КАРТОЧКИ ОГРАНИЧЕН И ШИРИНОЙ, И ВЫСОТОЙ — берём меньшее.
   // Только по ширине считать нельзя: на горизонтальной афише под людей
   // остаётся около трети высоты, и карточки вылезали бы за нижнее поле.
   const byWidth = (100 - gap * (perRow - 1)) / Math.max(1, perRow)
 
-  const rowsCount = rows.length + (hasOrganizers ? 1 : 0)
+  const rowsCount = rows.length
   // Наложение рядов уменьшает суммарную высоту — учитываем, иначе при плотной
   // группе вырезок карточки ужимались бы зря.
   const overlapK = cutout ? 1 - (L.row_overlap ?? 0) / 100 : 1
-  // ⚠️ Строка организаторов выше обычной (они крупнее) — иначе блок людей
-  // вылезет за нижнее поле ровно на эту разницу.
-  const orgExtra = hasOrganizers ? (orgK - 1) : 0
-  const rowsK = Math.max(1, 1 + (rowsCount - 1) * overlapK + orgExtra)
+  const rowsK = Math.max(1, 1 + (rowsCount - 1) * overlapK)
 
   const byHeight = Math.max(
     1,
@@ -480,20 +468,6 @@ export default function PosterCanvas({
         // при больших полях ряды расходились бы шире, чем задумано.
         gap: cutout ? 0 : `${gap * AW / 100}px`,
       }}>
-        {/* Организаторы — сверху по центру, всегда отдельной строкой. */}
-        {organizers.length > 0 && (
-          <div style={{
-            display: 'flex', justifyContent: 'center',
-            gap: `${gap * AW / 100}px`,
-            marginBottom: cutout ? 0 : `${gap * AW / 100}px`,
-          }}>
-            {organizers.map(p => (
-              <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit * orgK}
-                          wPct={cardW * orgK} hPx={cardH * orgK * AW / 100} highlighted theme={th} label={label} />
-            ))}
-          </div>
-        )}
-
         {rows.map((row, ri) => (
           <div key={ri} style={{
             display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
@@ -508,7 +482,7 @@ export default function PosterCanvas({
             {row.map(p => (
               <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit}
                           wPct={cardW} hPx={cardH * AW / 100}
-                          highlighted={p.role === 'headliner' || p.role === 'general_partner'}
+                          highlighted={p.role === 'headliner' || p.role === 'general_partner' || ORGANIZER_ROLES.includes(p.role)}
                           theme={th} label={label} />
             ))}
           </div>
@@ -529,9 +503,27 @@ export default function PosterCanvas({
  * спикерам половину листа, и карточки выходили вдвое мельче возможного.
  */
 function defaultSpeakersTop(o: PosterOrientation): number {
-  if (o === 'horizontal') return 26
-  if (o === 'square') return 30
-  return 32
+  // ⚠️ Числа подобраны РАСЧЁТОМ под реальный состав (14 человек), а не на глаз:
+  // при них блок людей занимает отведённую полосу целиком и никого не обрезает,
+  // а фото выходит 170–230 px в готовом файле. Сверху остаётся место под
+  // логотипы, заголовок и пилюлю.
+  if (o === 'horizontal') return 40
+  if (o === 'square') return 42
+  return 46
+}
+
+/**
+ * Сколько рядов по умолчанию — ПО ФОРМАТУ (правило владельца 18.09.2026).
+ *
+ * ⚠️ На вертикальной афише рядов много и они короткие (бывает и 7), на
+ * горизонтальной — 3-4 длинных. Одно число на все форматы давало на узкой
+ * афише длинные ряды из горошин, а на широкой — башню в один столбец.
+ */
+export function defaultRowCount(o: PosterOrientation, count: number): number {
+  if (count <= 1) return 1
+  if (o === 'horizontal') return Math.min(4, Math.max(2, Math.ceil(count / 6)))
+  if (o === 'square') return Math.min(5, Math.max(2, Math.ceil(count / 5)))
+  return Math.min(7, Math.max(2, Math.ceil(count / 4)))
 }
 
 /** Расставляет по заданному порядку id; кого нет в списке — в конец. */
@@ -874,7 +866,12 @@ function NameBlock({ lines, roleText, L, px, font, color, style, size }: {
       textShadow: shadow
         ? `0 ${px(size * 0.08)}px ${px(size * 0.22)}px rgba(0,0,0,0.85)`
         : undefined,
-      overflowWrap: 'anywhere',
+      // ⚠️⚠️ НЕ `anywhere`: он разрешает разрыв после ЛЮБОГО символа, и в узкой
+      // карточке фамилия рвалась по буквам в вертикальную колбасу («М-а-р-г-о»).
+      // `break-word` рвёт только то, что иначе не влезает совсем.
+      overflowWrap: 'break-word',
+      // Подпись не должна вылезать за карточку вбок.
+      maxWidth: '100%',
       ...style,
     }}>
       {lines.map((l, i) => (
