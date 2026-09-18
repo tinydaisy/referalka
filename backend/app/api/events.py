@@ -171,12 +171,19 @@ class UpdateEventRequest(BaseModel):
     tg_chat_ref: Optional[int] = None
     vk_chat_ref: Optional[int] = None
     max_chat_ref: Optional[int] = None
-    # Чат СПИКЕРОВ (миграция 431) — закрытый чат команды, отдельный от чата
+    # Чат СПИКЕРОВ (миграция 437) — закрытый чат команды, отдельный от чата
     # участников. Туда бот шлёт служебное «вы следующие» за 15 минут до
     # выступления. Есть только у конференций/премий/турниров.
-    tg_speakers_chat_ref: Optional[int] = None
-    vk_speakers_chat_ref: Optional[int] = None
-    max_speakers_chat_ref: Optional[int] = None
+    # ⚠️ ID вводится ВРУЧНУЮ (командой /getmyid в самом чате), а не выбором из
+    # базы чатов клиента: служебный чат заводят под событие, в общую базу
+    # рассылок ему попадать незачем. URL — только для справки, в отправке не
+    # участвует (чтобы из кабинета быстро открыть нужный чат).
+    tg_speakers_chat_id: Optional[str] = None
+    vk_speakers_chat_id: Optional[str] = None
+    max_speakers_chat_id: Optional[str] = None
+    tg_speakers_chat_url: Optional[str] = None
+    vk_speakers_chat_url: Optional[str] = None
+    max_speakers_chat_url: Optional[str] = None
     # Приветствие в чатах (миграция 163): включатель + кодовое слово. Бот ловит
     # кодовое слово в сообщении чата события (TG/VK/MAX) и отвечает reply'ем
     # случайной фразой из набора event_chat_greetings.
@@ -450,13 +457,9 @@ _CHAT_SUBQ = """
     (SELECT title    FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_title,
     (SELECT title    FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_title,
     (SELECT title    FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_title,
-    -- Чат спикеров (миграция 431): отдельный закрытый чат команды.
-    (SELECT chat_id  FROM client_broadcast_chats WHERE id = e.tg_speakers_chat_ref)  AS tg_speakers_chat_id,
-    (SELECT chat_id  FROM client_broadcast_chats WHERE id = e.vk_speakers_chat_ref)  AS vk_speakers_chat_id,
-    (SELECT chat_id  FROM client_broadcast_chats WHERE id = e.max_speakers_chat_ref) AS max_speakers_chat_id,
-    (SELECT title    FROM client_broadcast_chats WHERE id = e.tg_speakers_chat_ref)  AS tg_speakers_chat_title,
-    (SELECT title    FROM client_broadcast_chats WHERE id = e.vk_speakers_chat_ref)  AS vk_speakers_chat_title,
-    (SELECT title    FROM client_broadcast_chats WHERE id = e.max_speakers_chat_ref) AS max_speakers_chat_title"""
+    -- Чат спикеров (миграция 437): ID введён вручную, лежит прямо в events.
+    e.tg_speakers_chat_id, e.vk_speakers_chat_id, e.max_speakers_chat_id,
+    e.tg_speakers_chat_url, e.vk_speakers_chat_url, e.max_speakers_chat_url"""
 
 
 @router.get("/slug/{slug}", summary="Получить событие по slug")
@@ -958,7 +961,7 @@ async def copy_event(
                   registration_closed, pre_reg_text, pre_reg_btn_label, pre_reg_btn_url,
                   pre_reg_poster_url, partner_enabled, gifts_open_to_guests,
                   show_welcome_tab,
-                  tg_speakers_chat_ref, vk_speakers_chat_ref, max_speakers_chat_ref)
+                  tg_speakers_chat_id, vk_speakers_chat_id, max_speakers_chat_id)
                VALUES ($1,$2,$3,$4,$5,$6,
                        $37,$38,
                        $7,$8,$9,$10,$11,
@@ -1025,8 +1028,8 @@ async def copy_event(
             # ⚠️ Чат спикеров ($40–$42) — в конец, по той же причине, что даты.
             # Чат команды обычно тот же от захода к заходу: не перенести его
             # значило бы, что у копии молча отвалится «вы следующие».
-            src.get('tg_speakers_chat_ref'), src.get('vk_speakers_chat_ref'),
-            src.get('max_speakers_chat_ref'),
+            src.get('tg_speakers_chat_id'), src.get('vk_speakers_chat_id'),
+            src.get('max_speakers_chat_id'),
         )
         new_id = new_event['id']
         await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)

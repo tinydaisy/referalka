@@ -9,6 +9,7 @@ import { useLang } from '@/contexts/LangContext'
 import PublicLinks from '@/components/PublicLinks'
 import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
+import SpeakersChatField, { SpeakersChatValue } from '@/components/SpeakersChatField'
 import MainButtonsBlock, { AccentButton, normalizeAccent } from '@/components/MainButtonsBlock'
 import AddressField from '@/components/AddressField'
 
@@ -100,13 +101,15 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     maxChatRef: conf?.max_chat_ref ?? null,
     primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
   })
-  // Чат СПИКЕРОВ (миграция 431) — отдельный закрытый чат команды. Главной
-  // площадки у него нет: сообщение уходит во все заполненные сразу.
-  const [speakersChats, setSpeakersChats] = useState<EventChatsValue>({
-    tgChatRef:  conf?.tg_speakers_chat_ref  ?? null,
-    vkChatRef:  conf?.vk_speakers_chat_ref  ?? null,
-    maxChatRef: conf?.max_speakers_chat_ref ?? null,
-    primary: null,
+  // Чат СПИКЕРОВ (миграция 437) — закрытый чат команды. ID вводится ВРУЧНУЮ
+  // (/getmyid в чате), а не выбирается из базы чатов клиента. Ссылка — справочно.
+  const [speakersChats, setSpeakersChats] = useState<SpeakersChatValue>({
+    tgChatId:  conf?.tg_speakers_chat_id  || '',
+    vkChatId:  conf?.vk_speakers_chat_id  || '',
+    maxChatId: conf?.max_speakers_chat_id || '',
+    tgChatUrl:  conf?.tg_speakers_chat_url  || '',
+    vkChatUrl:  conf?.vk_speakers_chat_url  || '',
+    maxChatUrl: conf?.max_speakers_chat_url || '',
   })
   // У премии/турнира люди — номинанты, у конференции — спикеры.
   const isTurnir = event?.module_slug === 'turnir'
@@ -176,10 +179,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
     })
     setSpeakersChats({
-      tgChatRef:  conf?.tg_speakers_chat_ref  ?? null,
-      vkChatRef:  conf?.vk_speakers_chat_ref  ?? null,
-      maxChatRef: conf?.max_speakers_chat_ref ?? null,
-      primary: null,
+      tgChatId:  conf?.tg_speakers_chat_id  || '',
+      vkChatId:  conf?.vk_speakers_chat_id  || '',
+      maxChatId: conf?.max_speakers_chat_id || '',
+      tgChatUrl:  conf?.tg_speakers_chat_url  || '',
+      vkChatUrl:  conf?.vk_speakers_chat_url  || '',
+      maxChatUrl: conf?.max_speakers_chat_url || '',
     })
     // ⚠️ event?.skip_contact_form в зависимостях НЕТ намеренно: этот блок
     // пересобирает форму при каждом изменении объекта event, а он меняется
@@ -275,13 +280,16 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (chats.vkChatRef  !== (conf?.vk_chat_ref  ?? null))           confPatch.vk_chat_ref  = chats.vkChatRef
       if (chats.maxChatRef !== (conf?.max_chat_ref ?? null))           confPatch.max_chat_ref = chats.maxChatRef
       if (chats.primary !== initPrimary)                               confPatch.primary_chat_platform = chats.primary || null
-      // Чат спикеров (миграция 431) — те же три ref, без primary.
-      if (speakersChats.tgChatRef  !== (conf?.tg_speakers_chat_ref  ?? null))
-        confPatch.tg_speakers_chat_ref  = speakersChats.tgChatRef
-      if (speakersChats.vkChatRef  !== (conf?.vk_speakers_chat_ref  ?? null))
-        confPatch.vk_speakers_chat_ref  = speakersChats.vkChatRef
-      if (speakersChats.maxChatRef !== (conf?.max_speakers_chat_ref ?? null))
-        confPatch.max_speakers_chat_ref = speakersChats.maxChatRef
+      // Чат спикеров (миграция 437): ID введён вручную + справочная ссылка.
+      // Пустая строка → null, чтобы в базе не оседали пустышки.
+      ;([
+        ['tgChatId',  'tg_speakers_chat_id'],  ['vkChatId',  'vk_speakers_chat_id'],
+        ['maxChatId', 'max_speakers_chat_id'], ['tgChatUrl', 'tg_speakers_chat_url'],
+        ['vkChatUrl', 'vk_speakers_chat_url'], ['maxChatUrl','max_speakers_chat_url'],
+      ] as const).forEach(([k, col]) => {
+        const next = (speakersChats[k] || '').trim()
+        if (next !== ((conf as any)?.[col] || '')) confPatch[col] = next || null
+      })
 
       if (Object.keys(confPatch).length > 0) {
         const updated = await api.conference.update(eventId, confPatch)
@@ -363,29 +371,14 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         <h2 className="block-title">Чаты и каналы события</h2>
         <EventChatsField value={chats} onChange={setChats} />
 
-        {/* Чат СПИКЕРОВ — отдельный закрытый чат команды (миграция 431).
-            У мероприятий его нет вовсе: там нет спикеров и программы. */}
-        <EventChatsField
+        {/* Чат СПИКЕРОВ — отдельный закрытый чат команды (миграция 437).
+            ID вводится вручную: служебный чат заводят под событие, в общую базу
+            чатов ему попадать незачем. У мероприятий блока нет вовсе — там нет
+            ни спикеров, ни программы по слотам. */}
+        <SpeakersChatField
           value={speakersChats}
           onChange={setSpeakersChats}
-          noPrimary
           label={speakersChatTitle}
-          chatLabel={speakersChatTitle}
-          hint={<>
-            Закрытый чат команды — отдельно от чата участников. Бот присылает туда
-            служебные сообщения по программе: за 15 минут до выступления —
-            «вы следующие» с временем, ссылками на эфир и тем, кто готовится следом
-            (шаблон «{isTurnir ? 'Спикеру/номинанту' : 'Спикеру'}: „вы следующие“» в разделе{' '}
-            <a href={`/dashboard/${isTurnir ? 'tournaments' : 'conferences'}/${eventId}?tab=broadcast-templates`}
-               className="text-[#25455D] underline hover:opacity-70">Рассылки → Шаблоны</a>).
-            {' '}Чат берётся из вашей базы: добавьте его один раз в{' '}
-            <a href="/dashboard/channels" target="_blank" className="text-[#25455D] underline">
-              Каналы → «Группы/Каналы для рассылок»
-            </a>{' '}— ID определится сам, вручную вводить ничего не нужно.
-            {' '}Для Telegram нужно добавить своего бота в чат и сделать его администратором:
-            ниже сразу видно, на месте ли он и может ли писать.
-          </>}
-          emptyHint="Чат спикеров не выбран — напоминания «вы следующие» отправляться не будут."
         />
       </div>
 

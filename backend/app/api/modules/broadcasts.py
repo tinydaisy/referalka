@@ -628,7 +628,7 @@ async def list_templates(
         is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
         # У коллабы module_slug='base' — тип события её не выдаёт, нужен свой флаг.
         is_collab = bool(ev_row and ev_row["is_collab"])
-        for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=False, is_collab=is_collab):
+        for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=False, is_collab=is_collab, client_id=client_id):
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
@@ -833,9 +833,17 @@ def _fallback_flags(t: str, for_presets: bool) -> dict:
     }
 
 
+# Типы шаблонов, закрытые ФИЧЕЙ: {тип: slug фичи}. Нет фичи — шаблон не
+# предлагается ни в авто-сиде, ни в «Добавить готовый шаблон».
+# ⚠️ Закрыт только САМ шаблон. Поля чата спикеров и ссылки входа в зум —
+# обычные настройки события, доступны всем и гейтом не трогаются.
+_FEATURE_GATED_TYPES = {"speakers_call": "speakers_call"}
+
+
 async def _allowed_preset_types_for_event(db, is_conf: bool, is_turnir: bool,
                                           for_presets: bool = False,
-                                          is_collab: bool = False) -> list[dict]:
+                                          is_collab: bool = False,
+                                          client_id: int | None = None) -> list[dict]:
     """Шаблоны библиотеки, доступные этому типу события.
 
     Принадлежность модулю — по флагам for_event / for_conference / for_turnir /
@@ -861,8 +869,21 @@ async def _allowed_preset_types_for_event(db, is_conf: bool, is_turnir: bool,
                 "turnir_text": _TURNIR_TEMPLATE_TEXTS.get(t["type"])}
                for t in DEFAULT_TEMPLATES]
 
+    # Какие из закрытых фичами типов доступны этому клиенту. Считаем один раз
+    # на весь список: иначе на каждый шаблон уходил бы запрос в базу.
+    gated_ok: dict[str, bool] = {}
+    if client_id is not None:
+        from app.services.features import client_has_feature
+        for t, slug in _FEATURE_GATED_TYPES.items():
+            gated_ok[t] = await client_has_feature(db, client_id, slug)
+
     out = []
     for tpl in lib:
+        # Шаблон под фичей: без неё не показываем вовсе. client_id не передан —
+        # считаем, что доступа нет (безопасная сторона: лучше не показать, чем
+        # дать поставить в очередь рассылку, которой у клиента быть не должно).
+        if tpl["type"] in _FEATURE_GATED_TYPES and not gated_ok.get(tpl["type"]):
+            continue
         if is_conf and not tpl.get("for_conference"):
             continue
         if is_turnir and not tpl.get("for_turnir"):
@@ -915,7 +936,7 @@ async def list_template_presets(
         "SELECT DISTINCT type FROM broadcast_templates WHERE event_id=$1", event_id
     )}
     presets = []
-    for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True, is_collab=is_collab):
+    for tpl in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True, is_collab=is_collab, client_id=client_id):
         # Уже существующий одиночный тип — не предлагаем повторно.
         multi = tpl.get("multi_instance", tpl["type"] in MULTI_INSTANCE_PRESET_TYPES)
         if tpl["type"] in existing_types and not multi:
@@ -951,7 +972,7 @@ async def create_template_from_preset(
     # У коллабы module_slug='base' — тип события её не выдаёт, нужен свой флаг.
     is_collab = bool(ev_row and ev_row["is_collab"])
 
-    tpl = next((t for t in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True, is_collab=is_collab)
+    tpl = next((t for t in await _allowed_preset_types_for_event(db, is_conf, is_turnir, for_presets=True, is_collab=is_collab, client_id=client_id)
                 if t["type"] == data.type), None)
     if not tpl:
         raise HTTPException(status_code=400, detail="Такой готовый шаблон недоступен для этого события")
@@ -1474,6 +1495,11 @@ async def generate_schedules(
     )
     use_day_program = bool(is_conf or (is_turnir and has_conf_days))
 
+    # Рассылка спикерам «вы следующие» — под фичей (миграция 438). Считаем один
+    # раз на весь прогон: внутри цикла по слотам это был бы запрос на каждый слот.
+    from app.services.features import client_has_feature as _has_feat
+    speakers_call_allowed = await _has_feat(db, client_id, "speakers_call")
+
     templates = await db.fetch(
         """
         SELECT id, type, schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
@@ -1812,7 +1838,9 @@ async def generate_schedules(
 
         # «Вы следующие» — в ЧАТ СПИКЕРОВ за 15 минут до выступления (миграция 432).
         # Отдельная запись на каждый слот: у каждого спикера свой сигнал.
-        if "speakers_call" in tmpl_map and s_start_utc:
+        # ⚠️ Под фичей: шаблон мог остаться у события с тех пор, когда фича была
+        # (или её выключили) — тогда в очередь он больше не становится.
+        if "speakers_call" in tmpl_map and s_start_utc and speakers_call_allowed:
             tmpl = tmpl_map["speakers_call"]
             offset = tmpl["offset_minutes"] or 15
             await add_schedule(tmpl, s_start_utc - timedelta(minutes=offset), s["id"], "speakers_call")

@@ -848,12 +848,11 @@ async def _send_broadcast(schedule_id: int):
                 if ev_tg and str(ev_tg).strip():
                     tg_chats.append((str(ev_tg).strip(), "event"))
             if schedule.get("send_to_speakers_chat") and event_id:
-                # Чат СПИКЕРОВ события (миграция 431) — отдельный от чата участников:
+                # Чат СПИКЕРОВ события (миграция 437) — отдельный от чата участников:
                 # служебные сообщения команде («вы следующие» за 15 минут).
+                # ID вводится вручную (/getmyid в чате), не из базы чатов клиента.
                 ev_sp = await conn.fetchval(
-                    """SELECT cbc.chat_id FROM events e
-                         JOIN client_broadcast_chats cbc ON cbc.id = e.tg_speakers_chat_ref
-                        WHERE e.id = $1""", event_id)
+                    "SELECT tg_speakers_chat_id FROM events WHERE id = $1", event_id)
                 if ev_sp and str(ev_sp).strip():
                     tg_chats.append((str(ev_sp).strip(), "event_speakers"))
             if schedule.get("send_to_client_chats"):
@@ -1067,15 +1066,20 @@ async def _send_broadcast_to_event_chats(
     для дедупа с базой чатов клиента.
 
     speakers=True — то же самое, но для ЧАТА СПИКЕРОВ (миграция 431):
-    читаются vk/max_speakers_chat_ref, в лог пишется chat_kind='event_speakers'."""
-    # Чаты события VK/MAX — через ref на client_broadcast_chats.
-    _vk_col = "vk_speakers_chat_ref" if speakers else "vk_chat_ref"
-    _max_col = "max_speakers_chat_ref" if speakers else "max_chat_ref"
-    ev = await conn.fetchrow(
-        f"""SELECT (SELECT chat_id FROM client_broadcast_chats WHERE id = e.{_vk_col}) AS vk_chat_id,
-                   (SELECT chat_id FROM client_broadcast_chats WHERE id = e.{_max_col}) AS max_chat_id
-              FROM events e WHERE e.id = $1""", event_id
-    )
+    читаются events.vk/max_speakers_chat_id (прямой ID, миграция 437), в лог
+    пишется chat_kind='event_speakers'."""
+    # Чаты УЧАСТНИКОВ — через ref на client_broadcast_chats (миграция 174).
+    # Чат СПИКЕРОВ — прямой ID, введённый вручную (миграция 437): служебный чат
+    # заводят под событие, в общую базу чатов ему попадать незачем.
+    if speakers:
+        ev = await conn.fetchrow(
+            "SELECT vk_speakers_chat_id AS vk_chat_id, max_speakers_chat_id AS max_chat_id "
+            "FROM events WHERE id = $1", event_id)
+    else:
+        ev = await conn.fetchrow(
+            """SELECT (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_id,
+                      (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_id
+                 FROM events e WHERE e.id = $1""", event_id)
     if not ev:
         return 0
     client_id = schedule["client_id"]
