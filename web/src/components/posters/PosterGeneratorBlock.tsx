@@ -51,6 +51,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [dragId, setDragId] = useState<number | null>(null)
   // Пунктир границы полей — подсказка редактора, в макете не хранится.
   const [showMargins, setShowMargins] = useState(false)
+  // Крупный просмотр афиши: на маленьком превью не видно ни лиц, ни подписей.
+  const [zoom, setZoom] = useState(false)
+  const [suggested, setSuggested] = useState<any>(null)
+  const [dragLogo, setDragLogo] = useState<string | null>(null)
   const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','order'])
   const [dragPartner, setDragPartner] = useState<number | null>(null)
   // Ряд, в который сейчас тащат — подсвечиваем, иначе непонятно, куда упадёт.
@@ -67,6 +71,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         setLayout({ ...r.layout, orientation: o })
         setTheme(r.theme || {})
         setPeople(r.people || [])
+        setSuggested(r.suggested || null)
         setErr(null)
       })
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить макет'))
@@ -125,7 +130,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // Партнёры-компании в порядке, заданном клиентом.
   const companies = useMemo(() => {
     const list = people.filter(p => p.is_company && (p.photo_url || p.cutout_photo_url))
-    const order = layout?.partner_order || []
+    const order = Array.isArray(layout?.partner_order) ? layout!.partner_order : []
     if (!order.length) return list
     const pos = new Map(order.map((id, i) => [id, i]))
     return [...list.filter(p => pos.has(p.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!),
@@ -141,11 +146,57 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // (applyManualRows), иначе в списке одно, а на афише другое.
   const rowsView = useMemo(() => {
     if (!layout) return []
-    const rows = layout.speaker_rows || []
+    // ⚠️ Только массив: строка из jsonb иначе сойдёт за «ряды заданы».
+    const rows = Array.isArray(layout.speaker_rows) ? layout.speaker_rows : []
     if (rows.length) return applyManualRows(draggable, rows)
     // Ряды ещё не задавали — показываем как один ряд: клиент растащит его сам.
     return draggable.length ? [draggable] : []
   }, [draggable, layout?.speaker_rows])
+
+  // ⚠️ Список логотипов — бренд и партнёры ВМЕСТЕ, как их рисует полотно.
+  // Иначе в настройках один порядок, а на афише другой.
+  const logoList = useMemo(() => {
+    const items: { key: string; url: string; name: string; isBrand: boolean }[] = []
+    const brandUrl = layout?.logos_variant === 'dark'
+      ? (theme.brand_logo_light_url || theme.brand_logo_url)
+      : (theme.brand_logo_url || theme.brand_logo_light_url)
+    if (brandUrl) items.push({ key: 'brand', url: brandUrl, name: 'Логотип бренда', isBrand: true })
+    for (const c of companies) {
+      const u = c.photo_url || c.cutout_photo_url
+      if (u) items.push({
+        key: String(c.id), url: u, isBrand: false,
+        name: [c.name, c.last_name].filter(Boolean).join(' ') || 'Партнёр',
+      })
+    }
+    const order = (Array.isArray(layout?.logos_order) ? layout!.logos_order : []).map(String)
+    if (!order.length) return items
+    return [...items.filter(i => order.includes(i.key))
+              .sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)),
+            ...items.filter(i => !order.includes(i.key))]
+  }, [companies, theme, layout?.logos_order, layout?.logos_variant])
+
+  const hiddenSet = useMemo(
+    () => new Set((Array.isArray(layout?.logos_hidden) ? layout!.logos_hidden : []).map(String)),
+    [layout?.logos_hidden],
+  )
+
+  function toggleLogo(key: string) {
+    const next = new Set(hiddenSet)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    patch({ logos_hidden: [...next] })
+  }
+
+  function onDropLogo(targetKey: string) {
+    if (dragLogo == null || dragLogo === targetKey) { setDragLogo(null); return }
+    const list = logoList.map(i => i.key)
+    const from = list.indexOf(dragLogo)
+    const to = list.indexOf(targetKey)
+    if (from < 0 || to < 0) { setDragLogo(null); return }
+    const [moved] = list.splice(from, 1)
+    list.splice(to, 0, moved)
+    patch({ logos_order: list })
+    setDragLogo(null)
+  }
 
   function onDropPartner(targetId: number) {
     if (dragPartner == null || dragPartner === targetId) { setDragPartner(null); return }
@@ -188,6 +239,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const size = POSTER_SIZE[o]
   // Полотно настоящего размера в колонку кабинета не влезает — уменьшаем.
   const scale = o === 'horizontal' ? 0.28 : o === 'square' ? 0.3 : 0.22
+  // Крупный просмотр — во всю доступную высоту окна (с запасом на поля).
+  const zoomScale = typeof window !== 'undefined'
+    ? Math.min((window.innerHeight - 80) / size.h, (window.innerWidth - 80) / size.w, 1)
+    : 0.5
 
   return (
     <div className="space-y-5">
@@ -219,8 +274,14 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           <div style={{ width: size.w * scale, height: size.h * scale }}
                className="overflow-hidden rounded-xl shadow-sm border card-border bg-gray-50">
             <PosterCanvas layout={layout} theme={theme} people={people} scale={scale}
-                          showMargins={showMargins} />
+                          suggested={suggested} showMargins={showMargins} />
           </div>
+          {/* Клик по превью — крупный просмотр: на уменьшенном в 4 раза макете
+              не разобрать ни лиц, ни подписей. */}
+          <button type="button" onClick={() => setZoom(true)}
+                  className="mt-2 text-xs text-[#25455D] hover:underline">
+            Посмотреть крупно
+          </button>
           <label className="flex items-center gap-2 text-xs text-gray-500 mt-2">
             <input type="checkbox" checked={showMargins}
                    onChange={e => setShowMargins(e.target.checked)} />
@@ -448,9 +509,38 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </label>
             {layout.show_title !== false && (
               <>
-                <input value={layout.title || ''} placeholder="Название события"
+                <input value={layout.title || ''}
+                       placeholder={suggested?.title || 'Название события'}
                        onChange={e => patch({ title: e.target.value })}
                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+                <p className="text-xs text-gray-400 mt-1">
+                  Пусто — возьмётся название события. Впишите своё, чтобы заменить.
+                </p>
+
+                {/* ⚠️ Вторая часть заголовка СВОИМ ЦВЕТОМ (миграция 447): на
+                    макетах заказчика заголовок почти всегда двухцветный —
+                    «ВИДЕНИЕ/iViSiON-7:» белым, «БИЗНЕСЫ ВЛИЯНИЯ» золотом. */}
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="text-xs text-gray-600 mb-1">
+                    Вторая часть заголовка — другим цветом
+                  </div>
+                  <input value={layout.title_2 || ''}
+                         placeholder="необязательно"
+                         onChange={e => patch({ title_2: e.target.value })}
+                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+                  {!!layout.title_2 && (
+                    <>
+                      <ColorRow label="Цвет второй части" value={layout.title_2_color}
+                                placeholder="как основной текст"
+                                onChange={v => patch({ title_2_color: v })} />
+                      <div className="mt-2">
+                        <Choice value={layout.title_2_newline === false ? 'same' : 'new'}
+                                onChange={v => patch({ title_2_newline: v === 'new' })}
+                                options={[['new', 'С новой строки'], ['same', 'В подбор']]} />
+                      </div>
+                    </>
+                  )}
+                </div>
                 <Range label="Размер, % высоты" value={layout.title_size ?? 7} min={1} max={20}
                        onChange={v => patch({ title_size: v })} />
                 <ColorRow label="Цвет" value={layout.title_color}
@@ -481,7 +571,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
               {layout.show_subtitle !== false && (
                 <>
                   <textarea value={layout.subtitle || ''} rows={2}
-                            placeholder="Подзаголовок"
+                            placeholder={suggested?.subtitle || 'Подзаголовок'}
                             onChange={e => patch({ subtitle: e.target.value })}
                             className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
                   <Range label="Размер, % высоты" value={layout.subtitle_size ?? 2.6} min={0.5} max={12}
@@ -512,10 +602,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </label>
             {layout.show_pill !== false && (
               <>
-                <input value={layout.pill_text || ''} placeholder="23–24 апреля"
+                <input value={layout.pill_text || ''} placeholder={suggested?.pill_text || '23–24 апреля'}
                        onChange={e => patch({ pill_text: e.target.value })}
                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-                <input value={layout.pill_text_2 || ''} placeholder="Онлайн-конференция"
+                <input value={layout.pill_text_2 || ''} placeholder={suggested?.pill_text_2 || 'Онлайн-конференция'}
                        onChange={e => patch({ pill_text_2: e.target.value })}
                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
                 <div className="mt-3">
@@ -527,10 +617,16 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                             ['underline', 'Подчёркивание'], ['plain', 'Просто текст'],
                           ]} />
                 </div>
-                {layout.pill_style === 'border' && (
+                {/* ⚠️ Настройки показываем ПО СТИЛЮ: раньше скругление и цвета
+                    висели только под «Рамкой», и при заливке клиент не мог
+                    задать ни цвет фона, ни скругление — выглядело как поломка. */}
+                {(layout.pill_style === 'border' || layout.pill_style === 'filled' || !layout.pill_style) && (
+                  <Range label="Скругление (50 — полукруглые торцы)"
+                         value={layout.pill_radius ?? 50} min={0} max={50}
+                         onChange={v => patch({ pill_radius: v })} />
+                )}
+                {(layout.pill_style === 'border' || !layout.pill_style) && (
                   <>
-                    <Range label="Скругление" value={layout.pill_radius ?? 50} min={0} max={50}
-                           onChange={v => patch({ pill_radius: v })} />
                     <ColorRow label="Цвет рамки" value={layout.pill_border_color}
                               placeholder="золото бренда"
                               onChange={v => patch({ pill_border_color: v })} />
@@ -539,7 +635,19 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                               onChange={v => patch({ pill_border_color_2: v })} />
                   </>
                 )}
+                {layout.pill_style === 'underline' && (
+                  <ColorRow label="Цвет линии" value={layout.pill_border_color}
+                            placeholder="золото бренда"
+                            onChange={v => patch({ pill_border_color: v })} />
+                )}
+                {(layout.pill_style === 'filled' || layout.pill_style === 'border' || !layout.pill_style) && (
+                  <ColorRow label={layout.pill_style === 'filled' ? 'Цвет заливки' : 'Цвет фона внутри'}
+                            value={layout.pill_bg_color}
+                            placeholder={layout.pill_style === 'filled' ? 'золото бренда' : 'прозрачный'}
+                            onChange={v => patch({ pill_bg_color: v })} />
+                )}
                 <ColorRow label="Цвет текста" value={layout.pill_text_color}
+                          placeholder="белый"
                           onChange={v => patch({ pill_text_color: v })} />
                 <Range label="Размер, % высоты" value={layout.pill_size ?? 2} min={0.3} max={8}
                        onChange={v => patch({ pill_size: v })} />
@@ -550,83 +658,69 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           </>)}
 
           {tab === 'logos' && (<>
-          <Card title="Логотип бренда">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input type="checkbox" checked={layout.show_brand_logo !== false}
-                     onChange={e => patch({ show_brand_logo: e.target.checked })} />
-              Показывать логотип бренда
-            </label>
-            {layout.show_brand_logo !== false && (
-              <>
-                <div className="mt-3">
-                  <div className="mb-1 text-xs text-gray-600">Какой логотип брать</div>
-                  {/* ⚠️ Выбор по фону, а не «светлый/тёмный логотип»: клиент
-                      думает про свою афишу, а не про файл. На тёмном фоне нужен
-                      светлый логотип — подпись говорит именно это. */}
-                  <Choice value={layout.brand_logo_variant || 'light'}
-                          onChange={v => patch({ brand_logo_variant: v as any })}
-                          options={[['light', 'Для тёмного фона'], ['dark', 'Для светлого фона']]} />
-                </div>
-                <Range label="Размер области под логотип, % ширины"
-                       value={layout.brand_logo_size ?? 6} min={1} max={30}
-                       hint="Логотип вписывается в эту высоту целиком, пропорции не искажаются"
-                       onChange={v => patch({ brand_logo_size: v })} />
-                <Range label="По горизонтали, %" value={layout.brand_logo_x ?? 50} min={0} max={100}
-                       hint="50 % — по центру"
-                       onChange={v => patch({ brand_logo_x: v })} />
-                <Range label="По вертикали, %" value={layout.brand_logo_y ?? 5} min={0} max={100}
-                       onChange={v => patch({ brand_logo_y: v })} />
-              </>
-            )}
-          </Card>
-
-          <Card title="Партнёры">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input type="checkbox" checked={layout.show_partners !== false}
-                     onChange={e => patch({ show_partners: e.target.checked })} />
-              Показывать логотипы партнёров
-            </label>
-            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-              Сюда попадают партнёры с галочкой «Компания» в карточке. Партнёр-человек идёт
-              в общую сетку со спикерами — со своим фото, а не логотипом.
+          <Card title="Логотипы">
+            <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+              Логотип бренда и логотипы партнёров стоят ОДНОЙ строкой по общим правилам —
+              поэтому они не наезжают друг на друга. Порядок меняется перетаскиванием,
+              галочка у каждого — показывать его или нет.
             </p>
-            {layout.show_partners !== false && (
-              <>
-                <Range label="Размер области под логотипы, % ширины"
-                       value={layout.partners_size ?? 5} min={1} max={20}
-                       onChange={v => patch({ partners_size: v })} />
-                <Range label="Высота, %" value={layout.partners_y ?? 5} min={0} max={100}
-                       onChange={v => patch({ partners_y: v })} />
 
-                {/* Порядок партнёров — перетаскиванием, как и спикеров. */}
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <div className="text-xs text-gray-600 mb-2">
-                    Порядок логотипов — перетащите за ⠿
-                  </div>
-                  {companies.length === 0 ? (
-                    <p className="text-sm text-gray-400">
-                      У события нет партнёров-компаний с логотипом.
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {companies.map(c => (
-                        <PersonChip key={c.id} p={c}
-                                    isDragging={dragPartner === c.id}
-                                    onDragStart={() => setDragPartner(c.id)}
-                                    onDragOver={e => e.preventDefault()}
-                                    onDrop={() => onDropPartner(c.id)} />
-                      ))}
-                    </div>
-                  )}
-                  {layout.partner_order?.length ? (
-                    <button onClick={() => patch({ partner_order: [] })}
-                            className="text-xs text-gray-400 hover:text-gray-600 underline mt-3">
-                      Вернуть порядок как в карточках события
-                    </button>
-                  ) : null}
-                </div>
-              </>
-            )}
+            <div className="mb-1 text-xs text-gray-600">Какой логотип брать</div>
+            {/* ⚠️ Вариант ОБЩИЙ на всю строку: фон афиши один, и «этот логотип
+                под тёмный, соседний под светлый» — бессмыслица. */}
+            <Choice value={layout.logos_variant || 'light'}
+                    onChange={v => patch({ logos_variant: v as any })}
+                    options={[['light', 'Для тёмного фона'], ['dark', 'Для светлого фона']]} />
+            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Влияет на логотип бренда — у него заведены два варианта. У партнёров
+              логотип один, он берётся как есть.
+            </p>
+
+            <div className="mt-4">
+              <div className="mb-1 text-xs text-gray-600">Выравнивание строки</div>
+              <Choice value={layout.logos_align || 'center'}
+                      onChange={v => patch({ logos_align: v as any })}
+                      options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]} />
+            </div>
+
+            <Range label="Расстояние между логотипами, %" value={layout.logos_gap ?? 2.5}
+                   min={0} max={20} onChange={v => patch({ logos_gap: v })} />
+            <Range label="Высота строки, %" value={layout.partners_y ?? 5} min={0} max={100}
+                   hint="Насколько ниже верхнего поля стоят логотипы"
+                   onChange={v => patch({ partners_y: v })} />
+            <Range label="Размер логотипа бренда, % ширины" value={layout.brand_logo_size ?? 6}
+                   min={1} max={30} onChange={v => patch({ brand_logo_size: v })} />
+            <Range label="Размер логотипов партнёров, % ширины" value={layout.partners_size ?? 5}
+                   min={1} max={20} onChange={v => patch({ partners_size: v })} />
+
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <div className="text-xs text-gray-600 mb-2">
+                Порядок и видимость — перетащите за ⠿
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {logoList.map(l => (
+                  <LogoChip key={l.key} item={l}
+                            hidden={hiddenSet.has(l.key)}
+                            isDragging={dragLogo === l.key}
+                            onToggle={() => toggleLogo(l.key)}
+                            onDragStart={() => setDragLogo(l.key)}
+                            onDragEnd={() => setDragLogo(null)}
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={() => onDropLogo(l.key)} />
+                ))}
+                {logoList.length === 0 && (
+                  <p className="text-sm text-gray-400">
+                    Нет ни логотипа бренда, ни партнёров-компаний.
+                  </p>
+                )}
+              </div>
+              {(layout.logos_order?.length || layout.logos_hidden?.length) ? (
+                <button onClick={() => patch({ logos_order: [], logos_hidden: [] })}
+                        className="text-xs text-gray-400 hover:text-gray-600 underline mt-3">
+                  Сбросить порядок и показать все
+                </button>
+              ) : null}
+            </div>
           </Card>
           </>)}
 
@@ -634,7 +728,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           <SpeakerRowsEditor
             rows={rowsView}
             organizers={organizers}
-            manual={(layout.speaker_rows?.length ?? 0) > 0}
+            manual={Array.isArray(layout.speaker_rows) && layout.speaker_rows.length > 0}
             dragId={dragId}
             overRow={overRow}
             onDragStart={setDragId}
@@ -648,6 +742,24 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         </div>
       </div>
 
+      {/* Крупный просмотр. ⚠️ Это НЕ форма, а просмотр картинки — закрытие по
+          клику на фон здесь разрешено правилами проекта (как у лайтбоксов). */}
+      {zoom && (
+        <div onClick={() => setZoom(false)}
+             className="fixed inset-0 z-[200] bg-black/80 overflow-auto p-4 flex items-start justify-center">
+          <div onClick={e => e.stopPropagation()} className="relative my-auto">
+            <div style={{ width: size.w * zoomScale, height: size.h * zoomScale }}
+                 className="overflow-hidden rounded-xl shadow-2xl">
+              <PosterCanvas layout={layout} theme={theme} people={people}
+                            scale={zoomScale} suggested={suggested} />
+            </div>
+            <button onClick={() => setZoom(false)}
+                    className="absolute -top-3 -right-3 bg-white text-gray-700 rounded-full w-8 h-8 shadow-lg hover:bg-gray-100">
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -911,5 +1023,52 @@ function SpeakerRowsEditor({
         </button>
       )}
     </Card>
+  )
+}
+
+
+/** Логотип в списке: перетаскивание за ⠿ + галочка «показывать». */
+function LogoChip({ item, hidden, isDragging, onToggle, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  item: { key: string; url: string; name: string; isBrand: boolean }
+  hidden: boolean
+  isDragging: boolean
+  onToggle: () => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  onDragOver: (e: React.DragEvent) => void
+  onDrop: () => void
+}) {
+  const [canDrag, setCanDrag] = useState(false)
+  return (
+    <div
+      draggable={canDrag}
+      onDragStart={onDragStart}
+      onDragEnd={() => { setCanDrag(false); onDragEnd() }}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className={`flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 transition ${
+        isDragging ? 'opacity-40 border-[#FFCFA4]' : 'border-gray-200'} ${hidden ? 'opacity-50' : ''}`}
+    >
+      <span
+        onMouseDown={() => setCanDrag(true)}
+        onMouseUp={() => setCanDrag(false)}
+        onMouseLeave={() => setCanDrag(false)}
+        title="Перетащите, чтобы поменять порядок"
+        className="shrink-0 cursor-grab active:cursor-grabbing"
+      >
+        <GripVertical className="h-4 w-4 text-[#25455D]/50" />
+      </span>
+      {/* ⚠️ Логотип на СВЕТЛОЙ подложке: светлый вариант логотипа на белом фоне
+          списка не виден вовсе, и клиент решил бы, что файла нет. */}
+      <span className="w-12 h-7 rounded bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={item.url} alt="" className="max-w-full max-h-full object-contain" />
+      </span>
+      <span className="text-xs text-gray-800 truncate max-w-[120px]">{item.name}</span>
+      <label className="flex items-center gap-1 text-[11px] text-gray-500 cursor-pointer shrink-0">
+        <input type="checkbox" checked={!hidden} onChange={onToggle} />
+        показывать
+      </label>
+    </div>
   )
 }

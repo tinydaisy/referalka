@@ -22,7 +22,9 @@ from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.event_posters_gen import FEATURE, ORIENTATIONS, _people, _row, _theme
+from app.api.event_posters_gen import (
+    FEATURE, ORIENTATIONS, _people, _row, _suggested, _theme,
+)
 from app.database import get_db
 from app.services.event_access import is_event_owner
 from app.services.features import client_has_feature
@@ -55,4 +57,7 @@ async def poster_data(
         "layout": await _row(db, event, o),
         "theme": await _theme(db, client_id),
         "people": await _people(db, event),
+        # Те же подсказки, что в кабинете: иначе снимок вышел бы с пустым
+        # заголовком там, где в предпросмотре стояло название события.
+        "suggested": await _suggested(db, event),
     }

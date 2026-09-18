@@ -73,6 +73,10 @@ export type PosterLayout = {
   role_badge_color?: string | null
   role_badge_text_color?: string | null
   title?: string | null
+  /** Вторая часть заголовка — своим цветом (миграция 447). */
+  title_2?: string | null
+  title_2_color?: string | null
+  title_2_newline?: boolean
   subtitle?: string | null
   show_title?: boolean
   show_subtitle?: boolean
@@ -114,6 +118,13 @@ export type PosterLayout = {
   speaker_rows?: number[][]
   /** Порядок логотипов партнёров (миграция 445). */
   partner_order?: number[]
+  /** Общая строка логотипов (миграция 446). */
+  logos_align?: 'left' | 'center' | 'right'
+  logos_gap?: number
+  logos_variant?: 'light' | 'dark'
+  /** Скрытые поштучно: id партнёров и 'brand'. */
+  logos_hidden?: (number | string)[]
+  logos_order?: (number | string)[]
 }
 
 export type PosterTheme = {
@@ -134,10 +145,13 @@ export type PosterTheme = {
 const GOLD = '#FFCFA4'
 
 export default function PosterCanvas({
-  layout: L, theme: th, people, scale = 1, showMargins = false,
+  layout: L, theme: th, people, scale = 1, showMargins = false, suggested,
 }: {
   layout: PosterLayout
   theme: PosterTheme
+  /** Чем заполнить ПУСТЫЕ поля: название события, подзаголовок лендинга, дата.
+   *  ⚠️ Подставляется только в пустое — вписал клиент своё, остаётся его. */
+  suggested?: { title?: string; subtitle?: string; pill_text?: string; pill_text_2?: string }
   /** Все люди события: организаторы, спикеры, партнёры. */
   people: PosterPerson[]
   /** Во сколько раз уменьшить на экране. В снимке всегда 1. */
@@ -192,6 +206,41 @@ export default function PosterCanvas({
   // ⚠️ Порядок логотипов партнёров задаёт клиент перетаскиванием. Кого в списке
   // нет — в конец, а не выбрасываем: новый партнёр иначе не попал бы на афишу.
   const companies = orderByIds(visible.filter(p => p.is_company), L.partner_order)
+
+  // ⚠️ Строка логотипов: бренд и партнёры в одном списке (миграция 446).
+  // Скрытие — ПОШТУЧНОЕ (клиент прячет свой бренд, когда на афише уже есть
+  // логотип ПЛЮСОНа), а вариант светлый/тёмный — ОБЩИЙ: фон афиши один.
+  const hidden = new Set((Array.isArray(L.logos_hidden) ? L.logos_hidden : []).map(String))
+  const logoOrder = Array.isArray(L.logos_order) ? L.logos_order.map(String) : []
+
+  // ⚠️ Пустое поле = «взять из события» (название, подзаголовок лендинга,
+  // даты). Подставляем ТОЛЬКО в пустое: вписал клиент своё — остаётся его.
+  const titleText = (L.title ?? '').trim() || suggested?.title || ''
+  const subtitleText = (L.subtitle ?? '').trim() || suggested?.subtitle || ''
+  const pill1 = (L.pill_text ?? '').trim() || suggested?.pill_text || ''
+  const pill2 = (L.pill_text_2 ?? '').trim() || suggested?.pill_text_2 || ''
+
+  const brandUrl = brandLogo(L, th)
+  const logoItems: { key: string; url: string; isBrand: boolean }[] = []
+  // Бренд участвует наравне с партнёрами; `show_brand_logo` оставлен для
+  // макетов, сохранённых до 446 — там скрытие жило галочкой.
+  if (brandUrl && L.show_brand_logo !== false && !hidden.has('brand')) {
+    logoItems.push({ key: 'brand', url: brandUrl, isBrand: true })
+  }
+  if (L.show_partners !== false) {
+    for (const c of companies) {
+      if (hidden.has(String(c.id))) continue
+      const u = c.photo_url || c.cutout_photo_url
+      if (u) logoItems.push({ key: String(c.id), url: u, isBrand: false })
+    }
+  }
+  // Порядок задаёт клиент; кого в списке нет — в конец, чтобы новый партнёр
+  // не пропал с афиши молча.
+  const logoRow = logoOrder.length
+    ? [...logoItems.filter(l => logoOrder.includes(l.key))
+         .sort((a, b) => logoOrder.indexOf(a.key) - logoOrder.indexOf(b.key)),
+       ...logoItems.filter(l => !logoOrder.includes(l.key))]
+    : logoItems
   const persons = visible.filter(p => !p.is_company)
 
   // Организаторы — всегда отдельной строкой сверху блока людей.
@@ -228,6 +277,18 @@ export default function PosterCanvas({
 
   const hasOrganizers = organizers.length > 0
 
+  // ⚠️⚠️ ОРГАНИЗАТОРЫ КРУПНЕЕ ОСТАЛЬНЫХ. Они стоят отдельной строкой сверху —
+  // это главные люди афиши, и в макетах заказчика их карточки заметно больше.
+  // Раньше они рисовались карточкой того же размера, что и рядовой спикер, и
+  // в ряду из одного человека организатор выглядел потерянным пятнышком.
+  //
+  // Коэффициент зависит от того, сколько их: один — крупно, четверо — почти
+  // как спикеры, иначе строка организаторов не влезет в ширину.
+  const orgK = organizers.length <= 1 ? 1.8
+             : organizers.length === 2 ? 1.5
+             : organizers.length === 3 ? 1.25 : 1.1
+
+
   // ⚠️⚠️ ЧИСЛО В РЯДУ ПОДБИРАЕТСЯ РАСЧЁТОМ (bestPerRow), а не берётся из
   // угаданных констант. Прежние «по 4 / по 6 / по 7» не знали формы области, и
   // на горизонтальной афише 11 человек занимали треть отведённого места —
@@ -241,9 +302,12 @@ export default function PosterCanvas({
   // рядам перетаскиванием — значит так и рисуем, СКОЛЬКО ПОЛОЖИЛИ В РЯД,
   // СТОЛЬКО И БУДЕТ. Ряды разной длины это норма, а не ошибка: так и верстают
   // афиши. Пересчитывать их «как удобнее» нельзя — человек уедет обратно.
-  const manualRows = (L.speaker_rows?.length ?? 0) > 0
+  // ⚠️ Проверяем, что это ИМЕННО массив: jsonb из базы может приехать строкой
+  // («[]»), и тогда `.length` даёт длину текста, а `.map()` роняет страницу.
+  const rawRows = Array.isArray(L.speaker_rows) ? L.speaker_rows : []
+  const manualRows = rawRows.length > 0
   const rows = manualRows
-    ? applyManualRows(others, L.speaker_rows!)
+    ? applyManualRows(others, rawRows)
     : splitRows(others, L.per_row || bestPerRow(others.length, availH, {
         gap, rowUnit, extraRows: hasOrganizers ? 1 : 0, max: maxPerRow,
       }))
@@ -261,7 +325,10 @@ export default function PosterCanvas({
   // Наложение рядов уменьшает суммарную высоту — учитываем, иначе при плотной
   // группе вырезок карточки ужимались бы зря.
   const overlapK = cutout ? 1 - (L.row_overlap ?? 0) / 100 : 1
-  const rowsK = Math.max(1, 1 + (rowsCount - 1) * overlapK)
+  // ⚠️ Строка организаторов выше обычной (они крупнее) — иначе блок людей
+  // вылезет за нижнее поле ровно на эту разницу.
+  const orgExtra = hasOrganizers ? (orgK - 1) : 0
+  const rowsK = Math.max(1, 1 + (rowsCount - 1) * overlapK + orgExtra)
 
   const byHeight = Math.max(
     1,
@@ -317,33 +384,33 @@ export default function PosterCanvas({
         }} />
       )}
 
-      {/* Логотипы партнёров-компаний — рядком сверху. */}
-      {L.show_partners !== false && companies.length > 0 && (
+      {/* ⚠️⚠️ ОДНА СТРОКА ЛОГОТИПОВ: бренд и партнёры вместе (миграция 446).
+          Раньше это были ДВА независимых слоя — партнёры строкой по центру и
+          бренд по своим координатам X/Y. Две раскладки в одном месте листа
+          неизбежно пересекались: логотип бренда наезжал на партнёров, и
+          «подвинуть, чтобы не мешал» приходилось вручную на каждом формате.
+          Теперь это один ряд с общим размером, промежутком и выравниванием —
+          пересечься они больше не могут по построению. */}
+      {logoRow.length > 0 && (
         <div style={{
           position: 'absolute', left: 0, right: 0,
           top: `${L.partners_y ?? 5}%`,
-          display: 'flex', justifyContent: 'center', alignItems: 'center',
-          gap: px(2.5), flexWrap: 'wrap',
+          display: 'flex', alignItems: 'center', flexWrap: 'wrap',
+          justifyContent: L.logos_align === 'left' ? 'flex-start'
+                        : L.logos_align === 'right' ? 'flex-end' : 'center',
+          gap: px(L.logos_gap ?? 2.5),
         }}>
-          {companies.map(c => (
+          {logoRow.map(l => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={c.id} src={c.photo_url || c.cutout_photo_url || ''} alt=""
-                 style={{ height: px(L.partners_size ?? 5), objectFit: 'contain' }} />
+            <img key={l.key} src={l.url} alt=""
+                 style={{
+                   // Высота общая, ширина по пропорции: логотипы бывают и
+                   // квадратные, и длинные — растягивать их нельзя.
+                   height: px(l.isBrand ? (L.brand_logo_size ?? 6) : (L.partners_size ?? 5)),
+                   objectFit: 'contain',
+                 }} />
           ))}
         </div>
-      )}
-
-      {/* Логотип бренда. Место задаёт клиент: фон у каждого свой, жёсткий угол
-          наехал бы на рисунок фона или на логотипы партнёров. */}
-      {L.show_brand_logo !== false && brandLogo(L, th) && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={brandLogo(L, th)!} alt=""
-             style={{
-               position: 'absolute',
-               left: `${L.brand_logo_x ?? 50}%`, top: `${L.brand_logo_y ?? 5}%`,
-               transform: 'translate(-50%, -50%)',
-               height: px(L.brand_logo_size ?? 6), objectFit: 'contain',
-             }} />
       )}
 
       {/* Текстовый блок: пилюля, заголовок, подзаголовок. Всё можно выключить —
@@ -352,17 +419,20 @@ export default function PosterCanvas({
         position: 'absolute', left: 0, right: 0,
         top: `${L.text_top ?? 18}%`,
       }}>
-        {L.show_pill !== false && (L.pill_text || L.pill_text_2) && (
+        {L.show_pill !== false && (pill1 || pill2) && (
           <div style={{ display: 'flex', justifyContent: 'center', gap: px(1.5), flexWrap: 'wrap', marginBottom: px(1.6) }}>
-            {[L.pill_text, L.pill_text_2].filter(Boolean).map((txt, i) => (
+            {[pill1, pill2].filter(Boolean).map((txt, i) => (
               <Pill key={i} text={txt as string} L={L} px={px} tx={tx} gold={gold} font={brandFontCss(L.pill_font || th.lp_font_body, label(L.pill_font || th.lp_font_body))} />
             ))}
           </div>
         )}
 
-        {L.show_title !== false && !!L.title && (
+        {L.show_title !== false && !!titleText && (
           <Heading
-            text={L.title}
+            text={titleText}
+            text2={L.title_2 || null}
+            color2={L.title_2_color || th.lp_color_body || '#FFFFFF'}
+            newline2={L.title_2_newline !== false}
             align={L.title_align || 'center'}
             font={brandFontCss(L.title_font || th.lp_font_heading || 'BebasNeue', label(L.title_font || th.lp_font_heading))}
             sizePx={tx(L.title_size ?? 7)}
@@ -394,12 +464,18 @@ export default function PosterCanvas({
       <div style={{
         position: 'absolute',
         left: 0, right: 0,
+        // ⚠️⚠️ БЛОК ЦЕНТРИРУЕТСЯ В ОТВЕДЁННОЙ ПОЛОСЕ, а не прижимается к её
+        // верху. Прижатый блок при малом числе людей «уезжал вниз»: сверху
+        // оставалась дыра между заголовком и лицами, снизу — ничего. Теперь
+        // полоса задаёт ГРАНИЦЫ (от `top` до `bottom`), а блок встаёт в её
+        // середину, и свободное место делится поровну.
         top: `${top}%`,
-        // ⚠️ Ограничиваем высоту и прячем лишнее: если спикеров больше, чем
-        // влезает, они полезли бы за нижнее поле и на снимке пропали бы молча —
-        // клиент увидел бы это только в готовом файле.
-        maxHeight: `${Math.max(5, bottom - top)}%`,
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        height: `${Math.max(5, bottom - top)}%`,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        // Лишнее прячем: если людей больше, чем влезает, они полезли бы за
+        // нижнее поле и на снимке пропали бы молча.
+        overflow: 'hidden',
         // ⚠️ Промежутки — от ширины РАБОЧЕЙ ОБЛАСТИ (AW), а не полотна: иначе
         // при больших полях ряды расходились бы шире, чем задумано.
         gap: cutout ? 0 : `${gap * AW / 100}px`,
@@ -412,8 +488,8 @@ export default function PosterCanvas({
             marginBottom: cutout ? 0 : `${gap * AW / 100}px`,
           }}>
             {organizers.map(p => (
-              <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit}
-                          wPct={cardW} hPx={cardH * AW / 100} highlighted theme={th} label={label} />
+              <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit * orgK}
+                          wPct={cardW * orgK} hPx={cardH * orgK * AW / 100} highlighted theme={th} label={label} />
             ))}
           </div>
         )}
@@ -500,13 +576,26 @@ function bgStyle(L: PosterLayout, th: PosterTheme): React.CSSProperties {
 }
 
 function brandLogo(L: PosterLayout, th: PosterTheme): string | null {
-  if (L.brand_logo_variant === 'dark') return th.brand_logo_light_url || th.brand_logo_url || null
+  // ⚠️ Вариант ОБЩИЙ для строки логотипов (мигр. 446): фон афиши один, и
+  // «этот логотип под тёмный, соседний под светлый» — бессмыслица.
+  // `brand_logo_variant` читается только у макетов, сохранённых до 446.
+  const variant = L.logos_variant || L.brand_logo_variant || 'light'
+  if (variant === 'dark') return th.brand_logo_light_url || th.brand_logo_url || null
   return th.brand_logo_url || th.brand_logo_light_url || null
 }
 
+/** Стиль одной части заголовка: свой цвет, свой перелив. */
+function partStyle(color: string, metallic: boolean): React.CSSProperties {
+  return metallic ? metallicTextStyle(color) : { color }
+}
+
 /** Заголовок с металлическим переливом и подчёркиванием. */
-function Heading({ text, align, font, sizePx, color, metallic, underline, px }: {
+function Heading({ text, text2, color2, newline2, align, font, sizePx, color, metallic, underline, px }: {
   text: string
+  /** Вторая часть заголовка своим цветом (миграция 447). Пусто — одноцветный. */
+  text2?: string | null
+  color2?: string
+  newline2?: boolean
   align: 'left' | 'center' | 'right'
   font: string
   sizePx: number
@@ -538,7 +627,15 @@ function Heading({ text, align, font, sizePx, color, metallic, underline, px }: 
           paddingBottom: sizePx * 0.18,
           borderBottom: `${Math.max(2, sizePx * 0.05)}px solid ${color}`,
         } : {}),
-      }}>{text}</span>
+      }}>
+        {text}
+        {/* ⚠️ Вторая часть — ОТДЕЛЬНЫМ span со своим цветом. Металлический
+            перелив у каждой части считается от своего цвета: он строится через
+            background-clip, и один общий фон на две части дал бы переход
+            посреди слова. */}
+        {!!text2 && (newline2 ? <><br /><span style={partStyle(color2 || color, metallic)}>{text2}</span></>
+                              : <span style={partStyle(color2 || color, metallic)}>{' ' + text2}</span>)}
+      </span>
       {/* ⚠️ Градиентную линию рисуем ОТДЕЛЬНЫМ элементом: на самом тексте уже
           стоит градиент металла через background-clip, и второй фон туда не
           положить — они на одном свойстве. */}
@@ -576,6 +673,13 @@ function Pill({ text, L, px, tx, gold, font }: {
   // ⚠️ Отступы внутри пилюли — доля от ЕЁ КЕГЛЯ, а не от ширины афиши:
   // иначе на горизонтальном формате пилюля раздувалась вдвое при том же тексте.
   const fs = tx(L.pill_size ?? 2)
+  // ⚠️⚠️ СКРУГЛЕНИЕ — ДОЛЯ ОТ ВЫСОТЫ ПИЛЮЛИ, а не пиксели полотна. Раньше
+  // «50» означало 50 px на афише шириной 1920 — глазом почти не видно, и
+  // настройка выглядела нерабочей. Теперь 50 % = полукруглые торцы, как и
+  // ожидается от «пилюли».
+  const pillH = fs * 1.2 + fs * 0.42 * 2
+  const radiusPx = (pillH / 2) * ((L.pill_radius ?? 50) / 50)
+
   const base: React.CSSProperties = {
     fontFamily: font, fontSize: fs,
     color: textColor, lineHeight: 1.2,
@@ -595,15 +699,17 @@ function Pill({ text, L, px, tx, gold, font }: {
     return (
       <span style={{
         ...base,
-        borderRadius: `${L.pill_radius ?? 50}px`,
+        borderRadius: radiusPx,
         background: L.pill_bg_color || c1,
-      }}>{text}</span>
+      }}>
+        {text}
+      </span>
     )
   }
 
   // border. ⚠️ Градиентная рамка делается ДВУМЯ слоями фона (внешний — градиент,
   // внутренний — свой фон), потому что CSS `border-color` градиент не принимает.
-  const radius = `${L.pill_radius ?? 50}px`
+  const radius = radiusPx
   if (c2) {
     return (
       <span style={{
@@ -613,7 +719,9 @@ function Pill({ text, L, px, tx, gold, font }: {
         <span style={{
           ...base, display: 'block', borderRadius: radius,
           background: L.pill_bg_color || 'rgba(0,0,0,0.35)',
-        }}>{text}</span>
+        }}>
+        {text}
+      </span>
       </span>
     )
   }

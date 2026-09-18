@@ -50,7 +50,8 @@ _FIELDS = (
     "name_color", "name_shadow", "name_place",
     "hl_style", "hl_color", "hl_border_w", "hl_glow",
     "role_badge", "role_badge_color", "role_badge_text_color",
-    "title", "subtitle", "show_title", "show_subtitle",
+    "title", "title_2", "title_2_color", "title_2_newline",
+    "subtitle", "show_title", "show_subtitle",
     "title_font", "title_size", "title_color", "title_metallic",
     "title_underline", "title_align",
     "subtitle_font", "subtitle_size", "subtitle_color", "subtitle_metallic",
@@ -67,6 +68,8 @@ _FIELDS = (
     "speaker_rows",
     # Порядок логотипов партнёров (миграция 445).
     "partner_order",
+    # Общая строка логотипов (миграция 446): бренд и партнёры вместе.
+    "logos_align", "logos_gap", "logos_variant", "logos_hidden", "logos_order",
 )
 
 # ⚠️ Должны совпадать с DEFAULT и CHECK в миграции 435: разойдутся — клиент
@@ -82,7 +85,8 @@ _DEFAULTS = {
     "name_shadow": False, "name_place": "below",
     "hl_style": "border", "hl_color": None, "hl_border_w": 0.3, "hl_glow": 1.5,
     "role_badge": "pill", "role_badge_color": None, "role_badge_text_color": None,
-    "title": None, "subtitle": None, "show_title": True, "show_subtitle": True,
+    "title": None, "title_2": None, "title_2_color": None, "title_2_newline": True,
+    "subtitle": None, "show_title": True, "show_subtitle": True,
     "title_font": None, "title_size": 7, "title_color": None,
     "title_metallic": True, "title_underline": "none", "title_align": "center",
     "subtitle_font": None, "subtitle_size": 2.6, "subtitle_color": None,
@@ -96,6 +100,8 @@ _DEFAULTS = {
     "brand_logo_x": 50, "brand_logo_y": 5, "brand_logo_size": 6,
     "show_partners": True, "partners_y": 5, "partners_size": 5,
     "speaker_order": [], "speaker_rows": [], "partner_order": [],
+    "logos_align": "center", "logos_gap": 2.5, "logos_variant": "light",
+    "logos_hidden": [], "logos_order": [],
 }
 
 # Границы числовых полей — те же, что в CHECK миграции.
@@ -111,6 +117,7 @@ _RANGES = {
     "pill_radius": (0, 50), "pill_border_w": (0, 2), "pill_size": (0.3, 8),
     "brand_logo_x": (0, 100), "brand_logo_y": (0, 100), "brand_logo_size": (1, 30),
     "partners_y": (0, 100), "partners_size": (1, 20),
+    "logos_gap": (0, 20),
 }
 
 _CHOICES = {
@@ -125,6 +132,8 @@ _CHOICES = {
     "subtitle_align": ("left", "center", "right"),
     "pill_style": ("border", "filled", "underline", "plain"),
     "brand_logo_variant": ("light", "dark"),
+    "logos_align": ("left", "center", "right"),
+    "logos_variant": ("light", "dark"),
 }
 
 # Целые поля — их база не примет дробью.
@@ -168,6 +177,10 @@ class LayoutIn(BaseModel):
     role_badge_color: Optional[str] = None
     role_badge_text_color: Optional[str] = None
     title: Optional[str] = None
+    # Вторая часть заголовка своим цветом (миграция 447).
+    title_2: Optional[str] = None
+    title_2_color: Optional[str] = None
+    title_2_newline: Optional[bool] = None
     subtitle: Optional[str] = None
     show_title: Optional[bool] = None
     show_subtitle: Optional[bool] = None
@@ -208,6 +221,13 @@ class LayoutIn(BaseModel):
     # Ряды спикеров (миграция 445). Ряды разной длины — это норма.
     speaker_rows: Optional[list[list[int]]] = None
     partner_order: Optional[list[int]] = None
+    # Общая строка логотипов (миграция 446).
+    logos_align: Optional[str] = None
+    logos_gap: Optional[float] = None
+    logos_variant: Optional[str] = None
+    # ⚠️ Скрытые — смешанный список: id партнёров и строка 'brand'.
+    logos_hidden: Optional[list] = None
+    logos_order: Optional[list] = None
 
 
 def _clamp(v, lo, hi, default, as_int=False):
@@ -288,20 +308,39 @@ def _norm(data: dict) -> dict:
 _TOP_BY_ORIENTATION = {"horizontal": 26, "vertical": 32, "square": 30}
 
 
-def _num(row) -> dict:
-    """Record → dict, где NUMERIC превращён в обычное число.
+# Поля, которые лежат в базе как jsonb.
+_JSON_FIELDS = ("speaker_order", "speaker_rows", "partner_order",
+                "logos_hidden", "logos_order")
 
-    ⚠️⚠️ ОБЯЗАТЕЛЬНО. asyncpg отдаёт NUMERIC как `Decimal`, а тот уезжает в JSON
-    СТРОКОЙ («10.0»). Фронт умножает поля и кегли на коэффициенты — на строке
-    это даёт NaN, и афиша рисуется пустой или схлопнутой. Полей NUMERIC здесь
-    много: поля от края, `gap`, `name_size`, `hl_border_w`, `hl_glow`, размеры
-    заголовка и пилюли.
+
+def _num(row) -> dict:
+    """Record → dict с нормальными типами для фронта.
+
+    ⚠️⚠️ ДВЕ ЛОВУШКИ asyncpg, обе тихие.
+
+    1. NUMERIC приходит как `Decimal`, а тот уезжает в JSON СТРОКОЙ («10.0»).
+       Фронт умножает поля и кегли на коэффициенты — на строке это даёт NaN, и
+       афиша рисуется пустой. Полей NUMERIC много: поля от края, `gap`,
+       `name_size`, `hl_border_w`, `hl_glow`, размеры заголовка и пилюли.
+
+    2. JSONB приходит СТРОКОЙ («[]»), а не списком. Фронт зовёт `.map()` и
+       `.length` — на строке `.length` даёт 2 (длину текста «[]»), раскладка
+       считает, что ряды заданы, и падает на `.map()` элементов-символов.
+       Ровно так и ловилась «application error» после сохранения макета.
     """
     from decimal import Decimal
+    import json as _json
     out = dict(row)
     for k, v in out.items():
         if isinstance(v, Decimal):
             out[k] = float(v)
+        elif k in _JSON_FIELDS and isinstance(v, str):
+            try:
+                out[k] = _json.loads(v)
+            except ValueError:
+                out[k] = []
+        elif k in _JSON_FIELDS and v is None:
+            out[k] = []
     return out
 
 
@@ -323,6 +362,71 @@ async def _row(db: asyncpg.Connection, event_id: int, orientation: str) -> dict:
         "event_id": event_id, "orientation": orientation,
         **_DEFAULTS,
         "speakers_top": _TOP_BY_ORIENTATION.get(orientation, _DEFAULTS["speakers_top"]),
+    }
+
+
+# Месяцы для «23–24 апреля».
+_RU_MONTHS = ["", "января", "февраля", "марта", "апреля", "мая", "июня",
+              "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+
+async def _suggested(db: asyncpg.Connection, event_id: int) -> dict:
+    """Что подставить в пустые поля макета: название, подзаголовок, дата.
+
+    ⚠️ ПОДСТАВЛЯЕМ ПРИ ОТДАЧЕ, А НЕ ПИШЕМ В БАЗУ. Запиши мы это один раз при
+    создании макета — правка названия события или дат перестала бы доезжать до
+    афиши, и клиент правил бы их дважды. Пустое поле означает «бери из события»,
+    а как только клиент впишет своё — оно и останется.
+    """
+    ev = await db.fetchrow(
+        "SELECT title, start_at, end_at, module_slug FROM events WHERE id = $1", event_id)
+    if not ev:
+        return {}
+
+    # Подзаголовок — из блока «герой» лендинга события (то, что клиент уже
+    # написал там, а не второй раз здесь).
+    sub = await db.fetchval(
+        """SELECT NULLIF(btrim(b.subtitle), '')
+             FROM event_landing_blocks b
+             JOIN event_landing_pages p ON p.id = b.page_id
+            WHERE p.event_id = $1 AND p.kind = 'main' AND b.kind = 'hero'
+              AND NULLIF(btrim(b.subtitle), '') IS NOT NULL
+            ORDER BY b.sort_order LIMIT 1""",
+        event_id,
+    )
+
+    # ⚠️ Даты у конференции и турнира живут в conf_days / conf_stages, а не в
+    # events.start_at — там они часто пустые. Берём крайние дни программы.
+    d1 = d2 = None
+    if ev["module_slug"] in ("conference", "turnir"):
+        row = await db.fetchrow(
+            "SELECT MIN(day_date) AS a, MAX(day_date) AS b FROM conf_days WHERE event_id = $1",
+            event_id,
+        )
+        if row:
+            d1, d2 = row["a"], row["b"]
+    if not d1 and ev["start_at"]:
+        d1 = ev["start_at"].date()
+        d2 = ev["end_at"].date() if ev["end_at"] else d1
+
+    date_text = ""
+    if d1:
+        if d2 and d2 != d1:
+            date_text = (f"{d1.day}–{d2.day} {_RU_MONTHS[d2.month]}"
+                         if d1.month == d2.month
+                         else f"{d1.day} {_RU_MONTHS[d1.month]} – {d2.day} {_RU_MONTHS[d2.month]}")
+        else:
+            date_text = f"{d1.day} {_RU_MONTHS[d1.month]}"
+
+    # Формат события: «онлайн» есть в названии почти всегда, но полагаться на
+    # это нельзя — для конференции подпись и так верна.
+    fmt = "Онлайн-конференция" if ev["module_slug"] == "conference" else ""
+
+    return {
+        "title": ev["title"] or "",
+        "subtitle": sub or "",
+        "pill_text": date_text,
+        "pill_text_2": fmt,
     }
 
 
@@ -422,6 +526,10 @@ async def get_layout(
         "layout": await _row(db, event_id, orientation),
         "theme": await _theme(db, client_id),
         "people": await _people(db, event_id),
+        # ⚠️ Отдаём ОТДЕЛЬНО от макета, а не подмешиваем в него: иначе
+        # сохранение записало бы подсказку как «выбор клиента», и правка
+        # названия события перестала бы доезжать до афиши.
+        "suggested": await _suggested(db, event_id),
     }
 
 
@@ -451,6 +559,8 @@ async def save_layout(
     merged["speaker_order"] = json.dumps(merged.get("speaker_order") or [])
     merged["speaker_rows"] = json.dumps(merged.get("speaker_rows") or [])
     merged["partner_order"] = json.dumps(merged.get("partner_order") or [])
+    merged["logos_hidden"] = json.dumps(merged.get("logos_hidden") or [])
+    merged["logos_order"] = json.dumps(merged.get("logos_order") or [])
 
     cols = ", ".join(_FIELDS)
     ph = ", ".join(f"${i + 3}" for i in range(len(_FIELDS)))
