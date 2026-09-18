@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { SUPPORT_URL, SUPPORT_LABEL } from '@/lib/support'
+import { StepZero } from '@/components/channels/StepZero'
 import { useMe } from '@/hooks/useMe'
 import {
   AUTOSETUP_STEPS, AUTOSETUP_FROM_CLIENT, AUTOSETUP_NOT_INCLUDED,
@@ -365,61 +366,23 @@ export default function AutoSetupTab() {
   }
 
   /**
-   * Повторная отправка письма подтверждения — ПРЯМО ЗДЕСЬ.
-   *
-   * ⚠️ Раньше плашка отправляла человека «в плашку вверху кабинета»: лишний
-   * поиск ради одного нажатия, посреди запуска услуги. Ручка общая
-   * (`auth.resendVerifyEmail`), своей не заводим.
+   * ⚠️⚠️ ПОЧТА ПЕРЕЕХАЛА В ШАГ НОЛЬ (18.09.2026). Здесь были состояния и
+   * функции повторной отправки письма и кнопки «Я подтвердила» — вся эта
+   * работа теперь в компоненте `StepZero`, который идёт ПЕРЕД формой запуска.
+   * Держать вторую точку с тем же требованием значило бы просить человека об
+   * одном и том же дважды и чинить потом в двух местах.
    */
-  const [resending, setResending] = useState(false)
-  const [resent, setResent] = useState(false)
 
   /**
-   * «Я подтвердила» — перепроверка статуса почты ПО НАЖАТИЮ.
+   * ⚠️⚠️ ШАГ НОЛЬ — ПЕРВЫЙ ШАГ НАСТРОЙКИ (18.09.2026, решение владельца).
+   * Пока почта не подтверждена и человек не зашёл хотя бы в одного нашего
+   * бота, остальные шаги не показываем вовсе: без канала связи услуга встаёт
+   * молча на первом же действии, которое требуется от клиента.
    *
-   * ⚠️⚠️ Подтверждение идёт ВНЕ кабинета: человек уходит в почту, жмёт ссылку
-   * и возвращается — а плашка ещё висит (экран сам обновляется раз в 5-30
-   * секунд) и кнопка запуска не работает. Приходилось ждать вслепую.
-   *
-   * ⚠️ Верим только СЕРВЕРУ: галочка не ставит никаких отметок, она лишь
-   * заставляет перечитать состояние. Подтверждена почта или нет — решает
-   * `email_verified` в базе, как и раньше.
+   * ⚠️ `null` — «ещё не знаем»: до ответа сервера не показываем ни шаг ноль,
+   * ни форму, иначе экран мигает тем, что через мгновение спрячется.
    */
-  const [checkingEmail, setCheckingEmail] = useState(false)
-  const [emailNote, setEmailNote] = useState<{ ok: boolean; text: string } | null>(null)
-  const [emailJustConfirmed, setEmailJustConfirmed] = useState(false)
-  const recheckEmail = async () => {
-    setCheckingEmail(true); setEmailNote(null)
-    try {
-      const fresh = await api.tgAutosetup.get()
-      setState(fresh)
-      if (fresh?.email_verified) {
-        setEmailJustConfirmed(true)
-        setEmailNote(null)
-      } else {
-        setEmailNote({
-          ok: false,
-          text: 'Подтверждения пока не видим. Откройте письмо и нажмите ссылку '
-              + '— проверьте и папку «Спам». Потом нажмите ещё раз.',
-        })
-      }
-    } catch {
-      setEmailNote({ ok: false, text: 'Не смогли проверить — попробуйте ещё раз' })
-    } finally {
-      setCheckingEmail(false)
-    }
-  }
-  const resendEmail = async () => {
-    setResending(true)
-    try {
-      await api.auth.resendVerifyEmail()
-      setResent(true)
-    } catch (e: any) {
-      alert(e?.message || 'Не удалось отправить письмо')
-    } finally {
-      setResending(false)
-    }
-  }
+  const [zeroReady, setZeroReady] = useState<boolean | null>(null)
 
   /** Передать права немедленно — кнопка в конце списка действий. */
   const [transferring, setTransferring] = useState(false)
@@ -724,8 +687,24 @@ export default function AutoSetupTab() {
    * иначе форма мигает на первом кадре ровно в том виде, который мы прячем.
    */
   const showWelcome = !order && welcomeDone === false
-  /** Поля и форма запуска — только когда приветствие пройдено. */
-  const introPassed = !!order || welcomeDone === true
+
+  /**
+   * ⚠️⚠️ ШАГ НОЛЬ ПОКАЗЫВАЕМ ТОЛЬКО НОВИЧКУ — И ТОЛЬКО ПОСЛЕ ПРИВЕТСТВИЯ.
+   *
+   * ⚠️ `!order` обязателен (решение владельца 18.09.2026): у кого настройка уже
+   * идёт или завершена — ничего не меняется. Иначе человек с заказом в работе
+   * увидел бы вместо своего статуса новый экран и решил, что настройка
+   * сбросилась. Именно так сейчас висят заказы Влады и Екатерины.
+   */
+  const showStepZero = !order && welcomeDone === true && zeroReady !== true
+
+  /**
+   * Поля и форма запуска — когда приветствие пройдено И шаг ноль закрыт.
+   *
+   * ⚠️ У существующего заказа (`!!order`) условие про шаг ноль не действует:
+   * человек уже в процессе, задерживать его нечем.
+   */
+  const introPassed = !!order || (welcomeDone === true && zeroReady === true)
 
   /**
    * ШАГ 3 — между передачей прав и поздравлением.
@@ -888,6 +867,25 @@ export default function AutoSetupTab() {
                   className="btn-gold mt-8 px-16 py-5 text-2xl font-bold uppercase tracking-wide">
             Начать
           </button>
+        </div>
+      )}
+
+      {/* ─── ШАГ НОЛЬ: почта + бот поддержки ───
+          ⚠️⚠️ ПЕРВЫЙ ШАГ НАСТРОЙКИ, сразу после приветствия (решение владельца
+          18.09.2026). Пока он не пройден, остальные шаги не показываем вовсе:
+          без рабочего канала связи услуга встаёт молча на первом же действии,
+          которое требуется от клиента (зайти в бота, открыть приватность).
+
+          ⚠️ Разметка — общий компонент StepZero: его же показывает демо-
+          страница /dashboard/help/step-zero-preview. Копии быть не должно.
+
+          ⚠️ Тем, у кого настройка уже идёт или завершена, шаг НЕ показывается
+          (`!order` внутри `showStepZero`) — иначе человек увидел бы вместо
+          своего статуса новый экран и решил, что настройка сбросилась. */}
+      {showStepZero && (
+        <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5">
+          <StepZero title="Шаг 1. Прежде чем начать"
+                    onReady={ready => setZeroReady(ready)} />
         </div>
       )}
 
@@ -1103,75 +1101,22 @@ export default function AutoSetupTab() {
               сделать прямо здесь: ручка `resendVerifyEmail` уже есть, своей не
               заводим. Про «Спам» — отдельной заметной строкой: письмо чаще
               всего именно там. */}
-          {state.email_verified === false && (
-            <div className="mt-4 rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
-              <p className="text-lg font-bold text-amber-900">
-                Сначала подтвердите почту
-              </p>
-              <p className="text-base text-amber-900 mt-1.5 leading-relaxed">
-                Письмо со ссылкой уже отправлено
-                {state.email ? <> на <b>{state.email}</b></> : null}. Без
-                подтверждения запуск закрыт: на эту почту придёт ссылка, чтобы
-                принять права на бота.
-              </p>
-              <p className="text-base font-bold text-amber-900 mt-2.5">
-                Не нашли письмо? Проверьте папку «Спам».
-              </p>
-              {/* ⚠️⚠️ ГАЛОЧКА «Я ПОДТВЕРДИЛА» — ЧТОБЫ НЕ ЖДАТЬ ВСЛЕПУЮ
-                  (решение владельца 16.09.2026). Подтверждение происходит ВНЕ
-                  кабинета: человек уходит в почту, жмёт ссылку, возвращается —
-                  а плашка ещё висит (экран обновляется раз в 5-30 секунд) и
-                  кнопка запуска не работает. Приходилось «тупить» и гадать,
-                  сработало или нет. Теперь можно нажать самому: перепроверяем
-                  статус у сервера сразу и отвечаем прямо. */}
-              <label className="mt-4 flex items-center gap-2.5 cursor-pointer select-none">
-                <input type="checkbox" checked={false} disabled={checkingEmail}
-                       onChange={recheckEmail}
-                       className="w-5 h-5 rounded border-gray-400 cursor-pointer" />
-                <span className="text-base font-semibold text-amber-900">
-                  {checkingEmail ? 'Проверяем…' : 'Я подтвердила — проверьте'}
-                </span>
-              </label>
-              {emailNote && (
-                <p className={`text-base font-medium mt-2 ${
-                  emailNote.ok ? 'text-green-700' : 'text-red-700'}`}>
-                  {emailNote.text}
-                </p>
-              )}
-
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button onClick={resendEmail} disabled={resending}
-                        className="btn-gold px-5 py-2.5 text-sm disabled:opacity-50">
-                  {resending ? 'Отправляем…' : 'Отправить письмо повторно'}
-                </button>
-                {resent && (
-                  <span className="text-base font-medium text-green-700 flex items-center gap-1.5">
-                    <Check size={17} /> Отправили — проверьте почту и «Спам»
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ⚠️ Почта подтверждена — говорим об этом ЗЕЛЁНЫМ, а не молча
-              убираем плашку: человек только что нажимал ссылку и должен
-              увидеть, что это засчитано. */}
-          {state.email_verified === true && emailJustConfirmed && (
-            <div className="mt-4 rounded-xl border-2 border-green-300 bg-green-50 px-4 py-3 flex items-center gap-2.5">
-              <Check size={20} className="text-green-600 shrink-0" />
-              <p className="text-base font-semibold text-green-900">
-                Почта подтверждена — можно запускать настройку
-              </p>
-            </div>
-          )}
+          {/* ⚠️⚠️ ПЛАШКА ПРО ПОЧТУ ОТСЮДА УБРАНА (18.09.2026). Подтверждение
+              почты переехало в ШАГ НОЛЬ — он идёт перед этой формой, и до сюда
+              доходит только тот, у кого почта уже подтверждена. Держать здесь
+              вторую точку с тем же требованием значило бы показывать человеку
+              одно и то же дважды и чинить потом в двух местах. */}
 
           <button
             onClick={start}
             // ⚠️ Запуск требует ВСЕ ТРИ поля, а не только ник: без службы
             // заботы и канала настройка дойдёт до конца и оставит их пустыми —
             // то есть не сделает половину того, ради чего услуга покупалась.
-            disabled={starting || !nameCheck?.free || !allFilled
-                      || state.email_verified === false}
+            // ⚠️ Проверки почты здесь БОЛЬШЕ НЕТ: до этой формы доходит только
+            // тот, кто прошёл шаг ноль (почта подтверждена + есть бот). На
+            // сервере тот же отказ остался — кнопку легко обойти запросом мимо
+            // интерфейса, и эта защита снимается не здесь.
+            disabled={starting || !nameCheck?.free || !allFilled}
             className="btn-gold w-full mt-4 py-3 disabled:opacity-50"
           >
             {/* ⚠️ Про деньги здесь не пишем. До этого экрана доходит только
