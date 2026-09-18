@@ -1365,6 +1365,43 @@ export default function AutoSetupTab() {
                   {order.setup_error || 'Не удалось выполнить один из шагов'}
                 </div>
               </div>
+              {/* ⚠️⚠️ ССЫЛКИ НА БОТА И ГРУППУ — ПРЯМО ЗДЕСЬ (18.09.2026).
+                  Блок говорил «сначала зайдите в бота и нажмите Запустить», но
+                  САМОГО БОТА на экране не было: карточки шагов рисуются только
+                  в обычном состоянии, а в «можно доделать» их нет. Человек
+                  читал требование и не понимал, куда идти — искать бота по
+                  памяти или лезть в другой раздел.
+
+                  ⚠️ Порядок тот же, что в обычных шагах: СНАЧАЛА бот, потом
+                  группа. Telegram не отдаёт бота тому, кто ему не писал, —
+                  значит вход в бота идёт раньше всего остального. */}
+              {(order.bot_username || order.group_invite_link) && (
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {!!order.bot_username && (
+                    <a href={`https://telegram.me/${order.bot_username}`}
+                       target="_blank" rel="noopener noreferrer"
+                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm hover:border-gray-400">
+                      <MessageSquare size={15} className="text-gray-500" />
+                      <span className="font-medium">@{order.bot_username}</span>
+                      <span className="text-xs text-gray-500">
+                        {order.steps?.client_started_bot ? '— вы заходили' : '— зайдите и нажмите «Запустить»'}
+                      </span>
+                    </a>
+                  )}
+                  {!!order.group_invite_link && (
+                    <a href={order.group_invite_link}
+                       target="_blank" rel="noopener noreferrer"
+                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm hover:border-gray-400">
+                      <Users size={15} className="text-gray-500" />
+                      <span className="font-medium">Группа уведомлений</span>
+                      <span className="text-xs text-gray-500">
+                        {order.steps?.client_joined ? '— вы в ней' : '— вступите по ссылке'}
+                      </span>
+                    </a>
+                  )}
+                </div>
+              )}
+
               {/* ⚠️ Кнопка ведёт в ту же ручку, что и обычная передача: своей
                   логики на фронте нет, иначе две реализации разойдутся. */}
               <div className="flex flex-wrap items-center gap-3">
