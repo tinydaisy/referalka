@@ -100,6 +100,20 @@ const WELCOME_KEY_BASE = 'plusson_autosetup_welcome_v2'
 const welcomeKey = (clientId?: number | null) =>
   clientId ? `${WELCOME_KEY_BASE}_${clientId}` : WELCOME_KEY_BASE
 
+/**
+ * Отметка «шаг ноль пройден» — та же механика, что у приветствия.
+ *
+ * ⚠️ Без неё человек, нажавший «Продолжить настройку», при перезагрузке
+ * страницы снова упирался бы в шаг ноль: сам факт подписки живёт в базе, а вот
+ * НАЖАТИЕ кнопки — состояние экрана, и хранить его на сервере незачем.
+ *
+ * ⚠️ Ключ с id клиента: общий ключ на браузер уже подводил с приветствием —
+ * во втором кабинете экран пропадал, потому что отметка осталась от первого.
+ */
+const ZERO_KEY_BASE = 'plusson_autosetup_zero_v1'
+const zeroKey = (clientId?: number | null) =>
+  clientId ? `${ZERO_KEY_BASE}_${clientId}` : ZERO_KEY_BASE
+
 export default function AutoSetupTab() {
   const [state, setState] = useState<State | null>(null)
   const [loading, setLoading] = useState(true)
@@ -326,6 +340,10 @@ export default function AutoSetupTab() {
     if (!me) return
     try {
       setWelcomeDone(localStorage.getItem(welcomeKey(me.id)) === '1')
+      // ⚠️ Шаг ноль читаем здесь же: обе отметки — состояние ЭКРАНА, и обе
+      // должны восстановиться до первой отрисовки, иначе человек увидит шаг,
+      // который уже прошёл, и решит, что настройка откатилась.
+      if (localStorage.getItem(zeroKey(me.id)) === '1') setZeroReady(true)
     } catch {
       // Приватный режим / запрет хранилища — приветствие просто не запомнится.
       setWelcomeDone(false)
@@ -904,7 +922,16 @@ export default function AutoSetupTab() {
               нажать. Кнопка даёт явный конец шага. */}
           <StepZero title="Шаг 1. Прежде чем начать"
                     showContinue
-                    onReady={ready => setZeroReady(ready)} />
+                    onReady={() => {
+                      // ⚠️ `onReady` приходит ТОЛЬКО по нажатию кнопки внутри
+                      // компонента — автоперехода нет. Запоминаем, чтобы
+                      // перезагрузка страницы не вернула человека на шаг,
+                      // который он уже закрыл.
+                      try {
+                        localStorage.setItem(zeroKey(me?.id), '1')
+                      } catch { /* приватный режим — просто не запомнится */ }
+                      setZeroReady(true)
+                    }} />
         </div>
       )}
 

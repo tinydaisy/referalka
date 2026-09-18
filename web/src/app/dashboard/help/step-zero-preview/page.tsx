@@ -52,7 +52,10 @@ export default function StepZeroPreviewPage() {
         в разделе «Автонастройка».
       </div>
 
-      <StepZero onReady={setReady} />
+      {/* ⚠️ `showContinue` обязателен: с 18.09 `onReady` приходит ТОЛЬКО по
+          нажатию кнопки внутри компонента — автоперехода больше нет. Без неё
+          блок ниже не открылся бы никогда. */}
+      <StepZero onReady={setReady} showContinue />
 
       <div className="rounded-2xl border-2 p-5 mt-4"
            style={{ borderColor: ready ? '#86efac' : '#e5e7eb',

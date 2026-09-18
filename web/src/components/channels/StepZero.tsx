@@ -60,18 +60,26 @@ export function StepZero({ onReady, title = 'Прежде чем начать',
   const [sending, setSending] = useState(false)
   const [note, setNote] = useState<string | null>(null)
 
+  /**
+   * ⚠️⚠️ ЗАГРУЗКА НЕ ДВИГАЕТ ЭКРАН ДАЛЬШЕ. Здесь стоял `onReady?.(…)` прямо в
+   * загрузке — и родитель прятал шаг, как только оба условия сходились. Опрос
+   * идёт каждые 5 секунд, поэтому человека перекидывало на следующий экран
+   * САМО, без его нажатия: он не успевал увидеть, что шаг пройден, и терял
+   * место, где находится.
+   *
+   * Теперь загрузка только обновляет галочки. Дальше уводит ТОЛЬКО кнопка.
+   */
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
       const data = await api.supportOnboarding.get()
       setState(data)
-      onReady?.(!!data?.can_continue)
     } catch (e: any) {
       setNote(e?.message || 'Не удалось загрузить состояние')
     } finally {
       setLoading(false)
     }
-  }, [onReady])
+  }, [])
 
   useEffect(() => { load() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -238,8 +246,9 @@ export function StepZero({ onReady, title = 'Прежде чем начать',
           Неактивная прямо говорит, чего не хватает, а не молчит серым. */}
       {showContinue && (
         <div className="mt-4">
+          {/* ⚠️ ЕДИНСТВЕННОЕ место, которое уводит со шага: только нажатие. */}
           <button
-            onClick={() => load(true)}
+            onClick={() => onReady?.(true)}
             disabled={!emailDone || !botDone}
             className="btn-gold px-5 py-2.5 text-base font-semibold disabled:opacity-50 inline-flex items-center gap-2">
             Продолжить настройку <ArrowRight size={17} />
