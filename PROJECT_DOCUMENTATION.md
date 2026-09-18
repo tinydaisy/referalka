@@ -30,6 +30,8 @@
 | Продукты/услуги | [documentation/PRODUCTS-PLAN.md](documentation/PRODUCTS-PLAN.md) |
 | Почта и рассылки | [documentation/EMAIL-INFRASTRUCTURE.md](documentation/EMAIL-INFRASTRUCTURE.md) |
 | Деплой | [documentation/DEPLOY.md](documentation/DEPLOY.md) |
+| Внедренцы: мотивация, ставки, три варианта сотрудничества | [documentation/architecture/IMPLEMENTER-SYSTEM.md](documentation/architecture/IMPLEMENTER-SYSTEM.md) |
+| Кабинет техспеца, персональные заказы, заявка «текст в бот» | [documentation/architecture/TECH-CABINET.md](documentation/architecture/TECH-CABINET.md) |
 
 ---
 

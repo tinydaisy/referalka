@@ -14,6 +14,7 @@ import { ChevronDown, Menu, X } from 'lucide-react'
 
 const DARK = 'linear-gradient(45deg, #25455D, #0a1520)'
 const TARIFFS_HREF = '/#tariffs'
+const SERVICES_HREF = '/#services'
 const PEACH = '#FFCFA4'
 
 /**
@@ -96,6 +97,12 @@ export default function PublicHeader({ registerHref = '/register' }: {
             )}
           </div>
 
+          {/* Услуги — якорь на главной, отдельной страницы пока нет (как у
+              тарифов). Появится — правим SERVICES_HREF здесь и в футере. */}
+          <Link href={SERVICES_HREF}
+                className="text-white/70 hover:text-white transition-colors whitespace-nowrap">
+            Услуги
+          </Link>
           <Link href="/pr/ivision-for-speakers"
                 className="text-white/70 hover:text-white transition-colors whitespace-nowrap">
             Конференция iViSiON
@@ -148,6 +155,10 @@ export default function PublicHeader({ registerHref = '/register' }: {
               ))}
             </div>
 
+            <Link href={SERVICES_HREF} onClick={() => setMobile(false)}
+                  className="block py-2.5 text-sm text-white/80">
+              Услуги
+            </Link>
             <Link href="/pr/ivision-for-speakers" onClick={() => setMobile(false)}
                   className="block py-2.5 text-sm text-white/80">
               Конференция «ВИДЕНИЕ / iViSiON»

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { CheckCircle, ArrowRight, Users, Megaphone, Gift } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicShell from '@/components/public/PublicShell'
+import ServicesSection from '@/components/ServicesSection'
 
 interface Tariff {
   id: number
@@ -220,9 +221,13 @@ export default function LandingClient() {
         </div>
       </section>
 
+      {/* Услуги: настроим за вас. Прайс — ориентир, точную цену называем после
+          разговора и выставляем персональным заказом (миграция 439). */}
+      <ServicesSection />
+
       {/* Модули (аддоны поверх тарифа) */}
       {addonModules.length > 0 && (
-        <section className="bg-gray-50 py-14 sm:py-20">
+        <section className="bg-white py-14 sm:py-20">
           <div className="max-w-6xl mx-auto px-5 sm:px-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-center mb-3" style={{ color: '#25455D' }}>
               Модули

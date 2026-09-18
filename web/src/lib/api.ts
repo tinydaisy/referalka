@@ -1483,6 +1483,47 @@ export const api = {
   },
 
   // Управление тех-специалистами — только для админа.
+  // Персональные заказы (миграция 439): произвольная услуга, произвольная цена.
+  // ⚠️ ДВА набора методов на одну сущность — `customOrders` для админки и
+  // `techCustomOrders` для кабинета внедренца. Пути разные, потому что права
+  // разные: внедренец видит ТОЛЬКО свои заказы, и фильтр стоит в SQL.
+  // ⚠️ Функция здесь `request`, не `req`, и путь передаётся ПОЛНЫЙ, с
+  // префиксом `/api/v1` — см. предупреждение в adminTech ниже.
+  customOrders: {
+    list: (status?: string) =>
+      request(`/api/v1/admin/custom-orders${status ? `?status=${status}` : ''}`),
+    create: (data: any) =>
+      request('/api/v1/admin/custom-orders',
+              { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/admin/custom-orders/${id}`,
+              { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: number) =>
+      request(`/api/v1/admin/custom-orders/${id}`, { method: 'DELETE' }),
+    // Прайс услуг — ориентир для сборки заказа.
+    prices: () => request('/api/v1/admin/service-prices'),
+    createPrice: (data: any) =>
+      request('/api/v1/admin/service-prices',
+              { method: 'POST', body: JSON.stringify(data) }),
+    updatePrice: (id: number, data: any) =>
+      request(`/api/v1/admin/service-prices/${id}`,
+              { method: 'PATCH', body: JSON.stringify(data) }),
+    removePrice: (id: number) =>
+      request(`/api/v1/admin/service-prices/${id}`, { method: 'DELETE' }),
+  },
+
+  techCustomOrders: {
+    list: (status?: string) =>
+      request(`/api/v1/tech/custom-orders${status ? `?status=${status}` : ''}`),
+    prices: () => request('/api/v1/tech/custom-orders/prices'),
+    create: (data: any) =>
+      request('/api/v1/tech/custom-orders',
+              { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/tech/custom-orders/${id}`,
+              { method: 'PATCH', body: JSON.stringify(data) }),
+  },
+
   adminTech: {
     // ⚠️ Премиальный фонд: сумму считает владелец в фин-модели (процент от
     // прибыли компании) и вносит одним числом — платформа прибыль не знает.

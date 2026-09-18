@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone, Wrench } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone, Wrench, ClipboardList } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const adminNav = [
@@ -16,6 +16,9 @@ const adminNav = [
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
   { href: '/admin/promotions', label: 'Акции', icon: Tag },
   { href: '/admin/orders', label: 'Оплаты', icon: CreditCard },
+  // Персональные заказы (миграция 439): произвольная услуга, цена «как
+  // договорились». Рядом с «Оплатами» — это тоже про деньги.
+  { href: '/admin/custom-orders', label: 'Персональные заказы', icon: ClipboardList },
   { href: '/admin/withdrawals', label: 'Заявки на вывод', icon: CreditCard },
   { href: '/admin/referral-settings', label: 'Реф-программа', icon: Percent },
   { href: '/admin/storage', label: 'Файловое хранилище', icon: HardDrive },

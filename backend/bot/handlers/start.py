@@ -342,6 +342,14 @@ async def handle_start(message: Message, command: CommandObject):
         if await _send_question_prompt(message):
             return
 
+    # ⚠️⚠️ ЧЕЛОВЕК ПРИШЁЛ С ТЕКСТОМ, написанным на сайте. В `?start=` уезжает
+    # только короткий токен (`txt_…`) — сам текст в 64 символа не влезает и
+    # кириллицей ломает ссылку. Забираем написанное из базы и показываем его:
+    # человеку — что мы его получили, нам — что он хочет, ещё до разговора.
+    if args.startswith("txt_"):
+        if await _send_saved_text(message, args, platform="telegram"):
+            return
+
     # ⚠️⚠️ «ШАГ НОЛЬ»: человек пришёл из кабинета по ПОДПИСАННОЙ ссылке
     # `?start=zero-<client_id>-<подпись>`. Отмечаем, что канал связи с ним
     # заведён, — дальше автонастройка сможет до него достучаться.
@@ -2708,6 +2716,77 @@ async def _mark_support_subscribed(message: Message, param: str, *,
         )
     except Exception as e:  # noqa: BLE001
         log.warning("support subscription answer failed: %s", e)
+    return True
+
+
+async def _send_saved_text(message: Message, token: str, *, platform: str) -> bool:
+    """Показывает текст, который человек написал на сайте, и уведомляет нас.
+
+    ⚠️ ОБЩАЯ для всех площадок: `platform` передаёт вызывающий бот. MAX и ВК
+    вызывают её же — меняется только слаг, ни строки логики не дублируется.
+
+    Возвращает True, если текст найден и показан (payload дальше не разбираем).
+    """
+    try:
+        from app.services import bot_text_request
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            saved = await bot_text_request.take_text(db, token, platform=platform)
+    except Exception as e:  # noqa: BLE001
+        log.warning("saved text fetch failed (%s): %s", token, e)
+        return False
+
+    if not saved:
+        # Токен не наш или устарел — молча уходим в обычную обработку.
+        return False
+
+    text = (saved.get("text") or "").strip()
+    kind = saved.get("kind") or "service"
+
+    # Встречающая фраза зависит от того, откуда человек пришёл.
+    intro = {
+        "service": ("✅ <b>Заявка принята</b> — мы получили ваше описание.\n\n"
+                    "Сейчас посмотрим, что нужно сделать, и напишем вам сюда: "
+                    "уточним детали и назовём стоимость. Если что-то забыли "
+                    "добавить — просто отправьте следующим сообщением."),
+        "autosetup": ("✅ <b>Заявка принята</b> — мы получили ваше описание.\n\n"
+                      "Ответим сюда, как разберёмся, что нужно настроить."),
+        "support": ("✅ <b>Вопрос принят</b> — мы его получили.\n\n"
+                    "Ответим вам сюда. Если нужно что-то добавить — "
+                    "отправьте следующим сообщением."),
+    }.get(kind, "✅ <b>Заявка принята.</b>")
+
+    try:
+        await message.answer(
+            f"{intro}\n\n<b>Вы написали:</b>\n<i>{_html.escape(text)}</i>",
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("saved text answer failed: %s", e)
+
+    # Уведомление нам — иначе заявка тихо ляжет в базу и её никто не увидит.
+    try:
+        from app.services.channels import notify_organizer_all_channels
+        user = message.from_user
+        who = f"@{user.username}" if user and user.username else (
+            (user.full_name if user else "") or "без ника")
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            service_id = await db.fetchval(
+                "SELECT id FROM clients WHERE is_system_service = TRUE "
+                " ORDER BY id LIMIT 1"
+            )
+            if service_id:
+                await notify_organizer_all_channels(
+                    client_id=service_id,
+                    text_html=(f"📝 <b>Новая заявка на персональную настройку</b>\n"
+                               f"От: {_html.escape(who)} ({platform})\n\n"
+                               f"{_html.escape(text)}"),
+                    db=db,
+                )
+    except Exception as e:  # noqa: BLE001
+        log.warning("saved text notify failed: %s", e)
+
     return True
 
 

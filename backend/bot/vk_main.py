@@ -186,6 +186,77 @@ def _extract_product_payload(message_or_event: dict) -> dict | None:
     return None
 
 
+def _extract_text_token(message_or_event: dict) -> str | None:
+    """Ищет `ref=txt_<токен>` — человек пришёл с текстом, написанным на сайте.
+
+    ⚠️ Метка СТРОКОВАЯ, поэтому мимо `_extract_ref_with_prefix` (тот тянет
+    int-метки). Сам текст в метке не едет: он лежит у нас, разбор общий с TG и
+    MAX (`services/bot_text_request`).
+    """
+    from app.services.bot_text_request import is_text_token
+    for s in _ref_candidates(message_or_event):
+        if is_text_token(s):
+            return s
+    return None
+
+
+async def _vk_handle_saved_text(token: str, user_id: int, db, ctx) -> bool:
+    """Показывает в ВК текст, написанный человеком на сайте.
+
+    ⚠️ Зеркало телеграмной `_send_saved_text` и максовой `_send_max_saved_text`:
+    чтение текста общее, различается только транспорт. ВК шлём БЕЗ HTML.
+    """
+    from app.services import bot_text_request
+
+    try:
+        saved = await bot_text_request.take_text(db, token, platform="vk")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK saved text fetch failed: %s", e)
+        return False
+    if not saved:
+        return False
+
+    text = (saved.get("text") or "").strip()
+    kind = saved.get("kind") or "service"
+    intro = {
+        "service": ("✅ Заявка принята — мы получили ваше описание.\n\n"
+                    "Сейчас посмотрим, что нужно сделать, и напишем вам сюда: "
+                    "уточним детали и назовём стоимость. Если что-то забыли "
+                    "добавить — просто отправьте следующим сообщением."),
+        "autosetup": ("✅ Заявка принята — мы получили ваше описание.\n\n"
+                      "Ответим сюда, как разберёмся, что нужно настроить."),
+        "support": ("✅ Вопрос принят — мы его получили.\n\n"
+                    "Ответим вам сюда. Если нужно что-то добавить — "
+                    "отправьте следующим сообщением."),
+    }.get(kind, "✅ Заявка принята.")
+
+    try:
+        await vk_send_message(user_id, f"{intro}\n\nВы написали:\n{text}",
+                              token=ctx.token)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK saved text answer failed: %s", e)
+
+    try:
+        import html as _html
+
+        from app.services.channels import notify_organizer_all_channels
+        service_id = await db.fetchval(
+            "SELECT id FROM clients WHERE is_system_service = TRUE ORDER BY id LIMIT 1"
+        )
+        if service_id:
+            await notify_organizer_all_channels(
+                client_id=service_id,
+                text_html=(f"📝 <b>Новая заявка на персональную настройку</b>\n"
+                           f"От: id {user_id} (ВКонтакте)\n\n"
+                           f"{_html.escape(text)}"),
+                db=db,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK saved text notify failed: %s", e)
+
+    return True
+
+
 def _extract_funnel_run_id(message_or_event: dict) -> int | None:
     """Ищет `ref=fnl_<int>` — воронка лид-магнита."""
     return _extract_ref_with_prefix(message_or_event, "fnl_")
@@ -1002,6 +1073,16 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
                 return
         except Exception as e:  # noqa: BLE001
             logger.warning("VK pr_ (message_allow) failed: %s", e)
+
+    # Текст, написанный на сайте: ref=txt_<токен>. Метка строковая — рядом с
+    # остальными строковыми, до разбора int-меток событий.
+    _txt = _extract_text_token(event)
+    if _txt:
+        try:
+            if await _vk_handle_saved_text(_txt, int(user_id), db, ctx):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK txt_ (message_allow) failed: %s", e)
 
     # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>.
     # Ведём сразу на «вступить в чат» — проверка подписки + выдача чат-ссылок.
@@ -1964,6 +2045,16 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
                 return
         except Exception as e:  # noqa: BLE001
             logger.warning("VK pr_ (message_new) failed: %s", e)
+
+    # Текст, написанный на сайте: ref=txt_<токен> (если ЛС уже разрешены, метка
+    # приходит сюда). Врезка нужна в ОБЕИХ точках — как и у остальных меток.
+    _txt_new = _extract_text_token(event_obj)
+    if _txt_new:
+        try:
+            if await _vk_handle_saved_text(_txt_new, int(from_id), db, ctx):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK txt_ (message_new) failed: %s", e)
 
     # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>
     # (если человек уже разрешил ЛС, ref приходит в message_new). Ведём сразу

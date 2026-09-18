@@ -1118,6 +1118,76 @@ async def _mark_max_support_subscribed(
     return True
 
 
+async def _send_max_saved_text(
+    payload: str, *, user_id: int, chat_id: int, bot_token: str,
+    username: str = "",
+) -> bool:
+    """Текст, написанный на сайте, показываем в MAX.
+
+    ⚠️ Зеркало телеграмной `_send_saved_text` из bot/handlers/start.py: разбор
+    токена и чтение текста — общие (`bot_text_request`), различается только
+    транспорт ответа и то, что MAX шлём БЕЗ HTML-разметки.
+    """
+    from ..services import bot_text_request
+
+    pool = await get_pool()
+    if not pool:
+        return False
+    try:
+        async with pool.acquire() as conn:
+            saved = await bot_text_request.take_text(conn, payload, platform="max")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX saved text fetch failed: {e}")
+        return False
+
+    if not saved:
+        return False
+
+    text = (saved.get("text") or "").strip()
+    kind = saved.get("kind") or "service"
+    intro = {
+        "service": ("✅ Заявка принята — мы получили ваше описание.\n\n"
+                    "Сейчас посмотрим, что нужно сделать, и напишем вам сюда: "
+                    "уточним детали и назовём стоимость. Если что-то забыли "
+                    "добавить — просто отправьте следующим сообщением."),
+        "autosetup": ("✅ Заявка принята — мы получили ваше описание.\n\n"
+                      "Ответим сюда, как разберёмся, что нужно настроить."),
+        "support": ("✅ Вопрос принят — мы его получили.\n\n"
+                    "Ответим вам сюда. Если нужно что-то добавить — "
+                    "отправьте следующим сообщением."),
+    }.get(kind, "✅ Заявка принята.")
+
+    try:
+        await max_send_message(
+            chat_id, f"{intro}\n\nВы написали:\n{text}", token=bot_token,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX saved text answer failed: {e}")
+
+    try:
+        import html as _html
+
+        from ..services.channels import notify_organizer_all_channels
+        who = f"@{username.lstrip('@')}" if username else f"id {user_id}"
+        async with pool.acquire() as conn:
+            service_id = await conn.fetchval(
+                "SELECT id FROM clients WHERE is_system_service = TRUE "
+                " ORDER BY id LIMIT 1"
+            )
+            if service_id:
+                await notify_organizer_all_channels(
+                    client_id=service_id,
+                    text_html=(f"📝 <b>Новая заявка на персональную настройку</b>\n"
+                               f"От: {_html.escape(who)} (MAX)\n\n"
+                               f"{_html.escape(text)}"),
+                    db=conn,
+                )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX saved text notify failed: {e}")
+
+    return True
+
+
 async def _handle_max_partner_invite(
     payload: str, user_id: int, chat_id: int, bot_token: str,
     client_id_override: int | None,
@@ -1281,6 +1351,16 @@ async def _process_start(
     # человека опознаёт `user_id` из апдейта, client_id берётся из подписи.
     if payload and payload.startswith("zero-"):
         if await _mark_max_support_subscribed(
+            payload, user_id=user_id, chat_id=chat_id,
+            bot_token=bot_token, username=username,
+        ):
+            return
+
+    # ⚠️⚠️ ЧЕЛОВЕК ПРИШЁЛ С ТЕКСТОМ, написанным на сайте (`?start=txt_…`).
+    # Сам текст в параметр не влезает — он лежит у нас, по ссылке едет токен.
+    # Врезка нужна в КАЖДОМ боте: та же ошибка, что с «шагом ноль» выше.
+    if payload and payload.startswith("txt_"):
+        if await _send_max_saved_text(
             payload, user_id=user_id, chat_id=chat_id,
             bot_token=bot_token, username=username,
         ):
