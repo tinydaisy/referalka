@@ -589,52 +589,6 @@ function cropShapeOf(shape?: string): CropShape {
   return 'portrait'
 }
 
-/** Пропорция карточки (высота / ширина) по форме маски. */
-function shapeRatio(shape?: string): number {
-  switch (shape) {
-    case 'square':   return 1
-    case 'circle':   return 1
-    case 'oval':     return 1.25
-    case 'egg':      return 1.2
-    default:         return 1.35   // portrait — вертикальный прямоугольник
-  }
-}
-
-/** CSS-форма маски. */
-function maskCss(L: PosterLayout): React.CSSProperties {
-  switch (L.mask_shape) {
-    // ⚠️⚠️ КРУГ — ЭТО 50 %, А НЕ 9999px. На прямоугольной карточке `9999px`
-    // даёт «таблетку» — прямоугольник со скруглёнными торцами, что и было
-    // видно на экране. Круг получается только когда карточка КВАДРАТНАЯ
-    // (за это отвечает shapeRatio) и радиус задан в процентах.
-    case 'circle': return { borderRadius: '50%' }
-    // Овал — тот же 50 %, но карточка вытянута по высоте (shapeRatio 1.25).
-    case 'oval':   return { borderRadius: '50%' }
-    // Яйцо: снизу круглее, сверху уже — несимметричное скругление.
-    case 'egg':    return { borderRadius: '50% 50% 50% 50% / 60% 60% 40% 40%' }
-    case 'cutout': return {}
-    // ⚠️ Квадрат и прямоугольник отличаются ПРОПОРЦИЕЙ (shapeRatio: 1 против
-    // 1.35), а не скруглением. Радиус — общая настройка для обоих.
-    // `mask_radius` в % от ширины: у квадрата 50 % дадут круг, и это законно —
-    // клиент сам решает, насколько скруглить.
-    case 'square':
-    default:       return { borderRadius: `${L.mask_radius ?? 0}%` }
-  }
-}
-
-/**
- * Форма маски → форма, для которой настроен кадр в карточке человека.
- *
- * ⚠️ Овал и яйцо близки к кругу, поэтому берут его настройку: заводить им свои
- * ползунки значило бы пять ручек на фото вместо трёх, а разница между кругом и
- * овалом для кадрирования невелика.
- */
-function cropShapeOf(shape?: string): CropShape {
-  if (shape === 'circle' || shape === 'oval' || shape === 'egg') return 'circle'
-  if (shape === 'square') return 'square'
-  return 'portrait'
-}
-
 function bgStyle(L: PosterLayout, th: PosterTheme): React.CSSProperties {
   if (L.bg_url) {
     return { backgroundImage: `url(${L.bg_url})`, backgroundSize: 'cover', backgroundPosition: 'center' }
