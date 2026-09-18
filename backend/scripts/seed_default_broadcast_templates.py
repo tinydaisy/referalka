@@ -28,7 +28,8 @@ EVENT_ONLY_TYPES = {
     "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
 }
 # Турнир получает в АВТО-СИДЕ (помимо общих).
-TURNIR_AUTOSEED_EXTRA = {"speaker_intro", "5min_before", "day_live", "speakers_call"}
+TURNIR_AUTOSEED_EXTRA = {"speaker_intro", "5min_before", "day_live",
+                         "speakers_call", "speakers_day"}
 # …и дополнительно может добавить вручную из пресетов.
 TURNIR_PRESET_EXTRA = TURNIR_AUTOSEED_EXTRA | {"pre_conf", "gift", "day_end", "expert_day"}
 

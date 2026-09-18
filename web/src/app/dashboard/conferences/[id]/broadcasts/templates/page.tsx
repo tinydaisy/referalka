@@ -58,6 +58,12 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     hasSpeaker: true,
   },
   {
+    type: 'speakers_day',
+    title: 'Спикерам: программа дня (в чат спикеров)',
+    hint: 'Уходит В ЧАТ СПИКЕРОВ (не участникам) за сутки до дня программы — своя рассылка на каждый день. Тайминг выступлений: время, имя, ник в Telegram. Чат спикеров задаётся в «Описании» события.',
+    variables: ['{day_program_speakers}', '{day_date}', '{day_number}', '{day_title}', '{conf_title}'],
+  },
+  {
     type: 'event_live',
     title: 'За 5 минут до старта мероприятия',
     hint: 'Только для мероприятия. Отправляется за 5 минут до старта эфира мероприятия. Фото — афиша события.',
@@ -184,6 +190,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{support_links}', desc: 'Служба поддержки — ВСЕ каналы списком (ВК, Telegram, MAX), по строке на каждый' },
   { name: '{support_command}', desc: 'Ссылка ДЛЯ КНОПКИ «Тех.поддержка» — клик открывает бота и показывает все контакты поддержки. Вставлять в поле URL кнопки, не в текст' },
   { name: '{day_program}', desc: 'Программа дня (список спикеров и тем)' },
+  { name: '{day_program_speakers}', desc: 'Тайминг дня ДЛЯ СПИКЕРОВ: «10:30–10:55 — Иван Петров (@ivan)». Без тем и ролей — только время, имя и ник. Для рассылок в чат спикеров' },
   { name: '{day_program_with_links}', desc: 'Программа дня, но имена спикеров — ссылками на их карточки' },
   { name: '{next_day_mention}', desc: 'Фраза про следующую встречу (авто: завтра/дата, пусто если последний день)' },
   { name: '{raffle_url}', desc: 'Ссылка на розыгрыш' },
@@ -1591,17 +1598,45 @@ export default function TemplatesPage() {
           .filter(t => t.type !== 'custom')
           .slice()
           .sort((a, b) => {
+            // ⚠️ Сначала по ГРУППЕ: шаблоны в чат спикеров идут после
+            // участниковых. В общем списке служебные сообщения команде
+            // теряются среди рассылок по аудитории, и их путают — человек
+            // открывает «Программу дня», думая, что она уйдёт зрителям.
+            const ag = a.send_to_speakers_chat ? 1 : 0
+            const bg = b.send_to_speakers_chat ? 1 : 0
+            if (ag !== bg) return ag - bg
             const ai = TYPE_DEFS.findIndex(d => d.type === a.type)
             const bi = TYPE_DEFS.findIndex(d => d.type === b.type)
             const av = ai === -1 ? 999 : ai
             const bv = bi === -1 ? 999 : bi
             return av - bv
           })
-          .map(tpl => {
+          .map((tpl, idx, arr) => {
             const def: TypeDef = TYPE_DEFS.find(d => d.type === tpl.type)
               || { type: tpl.type, title: tpl.name, hint: '', variables: [], showPhoto: false }
+            // Заголовки групп — перед первой карточкой каждой группы.
+            // Подпись «для участников» показываем, только когда есть вторая
+            // группа: при одном списке она лишняя.
+            const isSpk = !!tpl.send_to_speakers_chat
+            const prevSpk = idx > 0 ? !!arr[idx - 1].send_to_speakers_chat : null
+            const firstOfGroup = idx === 0 || prevSpk !== isSpk
+            const hasBoth = arr.some(x => x.send_to_speakers_chat) && arr.some(x => !x.send_to_speakers_chat)
             return (
-              <div key={tpl.id} className="bg-white rounded-2xl border card-border p-5">
+              <div key={tpl.id}>
+                {firstOfGroup && hasBoth && (
+                  <div className={isSpk ? 'border-t border-gray-200 pt-6 mt-6 mb-3' : 'mb-3'}>
+                    <h3 className="text-sm font-bold uppercase tracking-wide text-[#25455D]">
+                      {isSpk ? 'Шаблоны в чат спикеров' : 'Шаблоны для участников'}
+                    </h3>
+                    {isSpk && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Служебные сообщения команде. Участникам события не уходят —
+                        чат задаётся в «Описании» события, раздел «Чаты и каналы события».
+                      </p>
+                    )}
+                  </div>
+                )}
+              <div className="bg-white rounded-2xl border card-border p-5">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
                     {/* Название — то, что клиент задал в шаблоне (tpl.name из БД).
@@ -1680,6 +1715,7 @@ export default function TemplatesPage() {
                     </span>
                   </div>
                 </div>
+              </div>
               </div>
             )
           })}

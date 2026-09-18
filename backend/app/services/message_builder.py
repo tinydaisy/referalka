@@ -114,7 +114,10 @@ ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр
 
 DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "day_end",
              "day_before_09_12_unreg", "day_before_09_12_reg",
-             "event_live")
+             "event_live",
+             # Программа дня В ЧАТ СПИКЕРОВ (миграция 442): та же механика дня
+             # (номер дня, дата, заголовок), но свой формат тайминга.
+             "speakers_day")
 SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before", "expert_day", "speakers_call")
 
 # Плейсхолдеры, которые можно заполнить ТОЛЬКО когда выбран конкретный спикер
@@ -406,6 +409,48 @@ async def _next_speaker_in_program(conn, event_id, day, start_time):
         """,
         event_id, day, start_time,
     )
+
+
+async def _day_program_for_speakers(conn, event_id, day) -> str:
+    """Тайминг дня ДЛЯ СПИКЕРОВ: «10:30–10:55 — Иван Петров (@ivan)».
+
+    ⚠️ Свой формат, не общий {day_program}. Зрителю важна тема выступления, а
+    спикеру — во сколько он и кто рядом: по этому списку он сверяет своё время
+    и видит, за кем идёт. Поэтому здесь время, имя и тег — без темы и без
+    ролей, которые в чате команды только удлиняют строку.
+
+    Пустой ник → просто «время — Имя», без висящих скобок.
+    Слотов нет → пустая строка, и строка с плейсхолдером убирается целиком.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT cs.start_time, cs.end_time,
+               btrim(CASE WHEN COALESCE(btrim(c.last_name),'')=''
+                          THEN COALESCE(c.name,'')
+                          ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name,
+               pu_tg.username AS tg_username
+          FROM conf_sessions cs
+          JOIN event_collaborators ec ON ec.id = cs.speaker_id
+          JOIN collaborators c ON c.id = ec.speaker_id
+          LEFT JOIN platform_users pu_tg
+            ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
+         WHERE cs.event_id = $1 AND cs.day = $2 AND cs.start_time IS NOT NULL
+         ORDER BY cs.start_time, cs.sort_order, cs.id
+        """,
+        event_id, day,
+    )
+    lines = []
+    for r in rows:
+        t_start = _fmt_time(r["start_time"])
+        t_end = _fmt_time(r["end_time"])
+        when = f"{t_start}–{t_end}" if (t_start and t_end) else t_start
+        name = (r["name"] or "").strip()
+        if not (when and name):
+            continue
+        tg = (r["tg_username"] or "").strip().lstrip("@")
+        who = f"{name} (@{tg})" if tg else name
+        lines.append(f"<b>{when}</b> — {who}")
+    return "\n".join(lines)
 
 
 # ─── Формирование текста: speaker_intro ─────────────────────────────────────
@@ -1518,6 +1563,20 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         day_program = "\n".join(program_lines)
         day_program_with_links = "\n".join(program_lines_links)
 
+        # Тайминг для ЧАТА СПИКЕРОВ — свой формат: «10:30–10:55 — Иван (@ivan)».
+        # Считаем только когда он в тексте: лишний запрос на каждую дневную
+        # рассылку участникам не нужен.
+        # ⚠️ Только по тексту: subject на этом шаге ещё не собран (он строится
+        # ниже), обращение к нему здесь упало бы с NameError при отправке.
+        if "{day_program_speakers}" in (text or ""):
+            _prog_sp = await _day_program_for_speakers(conn, event_id, day)
+            if _prog_sp:
+                text = text.replace("{day_program_speakers}", _prog_sp)
+            else:
+                # Нет слотов со спикерами — убираем строку целиком, чтобы не
+                # ушёл заголовок «тайминг» с пустотой под ним.
+                text = re.sub(r"^[^\n]*\{day_program_speakers\}[^\n]*\n?", "", text or "", flags=re.MULTILINE)
+
         day_speakers_gifts = ""
         next_day_mention = ""
         if tpl_type == "day_end":
@@ -2293,7 +2352,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
         "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",
-        "day_datetime", "day_program", "day_program_with_links", "next_day_mention",
+        "day_datetime", "day_program", "day_program_with_links",
+        "day_program_speakers", "next_day_mention",
         "raffle_url", "day_speakers_gifts", "vip_url",
         "brand_name", "event_chat_tg", "event_chat_vk", "event_chat_max",
         # Словарь события (миграция 304): «спикер» / «номинант» / «участник».
