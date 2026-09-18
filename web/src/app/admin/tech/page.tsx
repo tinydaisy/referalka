@@ -187,6 +187,64 @@ function SpecsTab({ specs, rates, onChange }: any) {
     catch (e: any) { alert(e?.message || 'Не удалось') }
   }
 
+  /**
+   * Уволить — закрыть кабинет, оставив всё остальное.
+   *
+   * ⚠️ Это НЕ удаление: история начислений, закреплённые клиенты и проценты
+   * остаются на месте, человек просто не может войти. Обратимо кнопкой
+   * «вернуть».
+   */
+  async function fire(s: any) {
+    const back = !s.is_active
+    if (!confirm(back
+      ? `Вернуть ${s.name || s.email} к работе? Он снова сможет войти в кабинет.`
+      : `Уволить ${s.name || s.email}?\n\nКабинет закроется — войти он больше не сможет. `
+        + `История начислений и клиенты останутся. Решение обратимо.`)) return
+    try {
+      await api.adminTech.updateSpec(s.id, { is_active: back })
+      onChange()
+    } catch (e: any) { alert(e?.message || 'Не удалось') }
+  }
+
+  /**
+   * Удалить насовсем.
+   *
+   * ⚠️⚠️ У начислений ON DELETE CASCADE — вместе с человеком уходит ВСЯ его
+   * история выплат, и восстановить её нечем. Поэтому сервер при наличии
+   * начислений отвечает 409 и их числом; здесь мы показываем это человеческим
+   * текстом и требуем второго, осознанного подтверждения.
+   */
+  async function remove(s: any) {
+    const who = s.name || s.email
+    if (!confirm(`Удалить ${who} насовсем?\n\nЕсли нужно просто закрыть доступ — `
+                 + `лучше «уволить»: история сохранится.`)) return
+    try {
+      const r = await api.adminTech.deleteSpec(s.id)
+      alert(r.freed_clients
+        ? `Удалён. Клиентов освободилось: ${r.freed_clients} — раздайте их заново.`
+        : 'Удалён.')
+      onChange()
+      return
+    } catch (e: any) {
+      // 409 с разбором: у человека есть начисления.
+      const d = e?.detail || e?.data?.detail
+      if (d?.error !== 'has_accruals') {
+        alert(e?.message || 'Не удалось удалить')
+        return
+      }
+      const sum = rub(d.total_kopecks)
+      if (!confirm(`У ${who} ${d.accruals} начислений на ${sum}.\n\n`
+                   + `Удаление СОТРЁТ всю историю выплат — восстановить её будет `
+                   + `нечем. Точно удалять?\n\nОтмена — оставить и уволить.`)) return
+      try {
+        const r = await api.adminTech.deleteSpec(s.id, true)
+        alert(`Удалён вместе с историей (${r.deleted_accruals} начислений).`
+              + (r.freed_clients ? ` Клиентов освободилось: ${r.freed_clients}.` : ''))
+        onChange()
+      } catch (e2: any) { alert(e2?.message || 'Не удалось удалить') }
+    }
+  }
+
   return (
     <div className="space-y-5">
       {created && (
@@ -257,8 +315,18 @@ function SpecsTab({ specs, rates, onChange }: any) {
                          }} />
                 </td>
                 <td className="px-4 py-3">
-                  <button onClick={() => reset(s.id)}
-                          className="text-xs text-[#25455D] underline">новый пароль</button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button onClick={() => reset(s.id)}
+                            className="text-xs text-[#25455D] underline">новый пароль</button>
+                    {/* Уволить — тот же `is_active`, что и галочка «Работает»,
+                        но названный словом: галочку не читают как увольнение. */}
+                    <button onClick={() => fire(s)}
+                            className="text-xs text-gray-500 underline">
+                      {s.is_active ? 'уволить' : 'вернуть'}
+                    </button>
+                    <button onClick={() => remove(s)}
+                            className="text-xs text-red-600 underline">удалить</button>
+                  </div>
                 </td>
               </tr>
             ))}

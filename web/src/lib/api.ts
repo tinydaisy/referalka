@@ -1566,6 +1566,11 @@ export const api = {
       request(`/api/v1/admin/tech/specialists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     resetPassword: (id: number) =>
       request(`/api/v1/admin/tech/specialists/${id}/reset-password`, { method: 'POST' }),
+    // ⚠️ Без `force` сервер откажет (409), если у человека есть начисления:
+    // удаление сотрёт историю выплат, у неё ON DELETE CASCADE.
+    deleteSpec: (id: number, force = false) =>
+      request(`/api/v1/admin/tech/specialists/${id}${force ? '?force=true' : ''}`,
+              { method: 'DELETE' }),
     assign: (data: { client_id: number; spec_id: number | null; reason?: string }) =>
       request('/api/v1/admin/tech/assign', { method: 'POST', body: JSON.stringify(data) }),
     unassigned: () => request('/api/v1/admin/tech/unassigned'),

@@ -145,6 +145,59 @@ async def update_spec(
     return dict(row)
 
 
+@router.delete("/specialists/{spec_id}", summary="Удалить тех-специалиста")
+async def delete_spec(
+    spec_id: int,
+    force: bool = Query(False, description="Удалить вместе с историей начислений"),
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Удаляет человека насовсем.
+
+    ⚠️⚠️ У `tech_accruals` стоит ON DELETE CASCADE — удаление УНЕСЁТ ВСЮ ЕГО
+    ИСТОРИЮ НАЧИСЛЕНИЙ. Это деньги: сколько человеку начислено и что из этого
+    выплачено. Восстановить её нельзя ничем.
+
+    Поэтому: есть начисления → по умолчанию 409 с их числом и суммой, и
+    предложение отключить вместо удаления (`is_active = FALSE` — кабинет
+    закрыт, история цела). Удалить всё равно можно, но осознанно — `force=true`.
+
+    Клиенты не теряются: `clients.tech_specialist_id` объявлен ON DELETE SET
+    NULL, они просто становятся нераспределёнными.
+    """
+    spec = await db.fetchrow(
+        "SELECT id, email, name FROM tech_specialists WHERE id=$1", spec_id)
+    if not spec:
+        raise HTTPException(404, "Не найден")
+
+    stats = await db.fetchrow(
+        """SELECT COUNT(*) AS cnt, COALESCE(SUM(amount_kopecks), 0) AS total
+             FROM tech_accruals WHERE spec_id = $1""",
+        spec_id,
+    )
+    accruals = int(stats["cnt"] or 0)
+
+    if accruals and not force:
+        raise HTTPException(409, detail={
+            "error": "has_accruals",
+            "accruals": accruals,
+            "total_kopecks": int(stats["total"] or 0),
+            "message": (
+                f"У этого человека {accruals} начислений — удаление сотрёт всю "
+                f"историю выплат. Лучше отключите его: кабинет закроется, "
+                f"а история останется."
+            ),
+        })
+
+    # Сколько клиентов осиротеет — вернём в ответе, чтобы их сразу перераспределили.
+    freed = await db.fetchval(
+        "SELECT COUNT(*) FROM clients WHERE tech_specialist_id = $1", spec_id)
+
+    await db.execute("DELETE FROM tech_specialists WHERE id=$1", spec_id)
+    return {"ok": True, "deleted_accruals": accruals,
+            "freed_clients": int(freed or 0)}
+
+
 @router.post("/specialists/{spec_id}/reset-password", summary="Новый пароль")
 async def reset_password(
     spec_id: int,
