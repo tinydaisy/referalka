@@ -569,18 +569,48 @@ function RatesTab({ rates, fixTiers, qualTiers, onChange }: any) {
 function AssignTab({ specs, onChange }: any) {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  // ⚠️⚠️ ПЕРЕЗАКРЕПЛЕНИЕ (18.09.2026). Раньше экран умел ровно одно — раздать
+  // клиентов, у которых ответственного ещё нет. Уже закреплённого передать
+  // другому было НЕЛЬЗЯ: список его не показывал, хотя движок это умел.
+  // Административные решения бывают разные — внедренец уволился, ушёл в
+  // отпуск, клиента забрали, — и передавать надо в любой момент.
+  const [scope, setScope] = useState<'free' | 'busy' | 'all'>('free')
+  const [q, setQ] = useState('')
 
+  // ⚠️ Поиск с задержкой: без неё запрос уходит на каждую букву.
   useEffect(() => {
-    api.adminTech.unassigned()
-      .then((r: any) => setItems(r.clients || []))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+    let alive = true
+    setLoading(true)
+    const t = setTimeout(() => {
+      api.adminTech.unassigned({ scope, q })
+        .then((r: any) => { if (alive) setItems(r.clients || []) })
+        .catch(() => { if (alive) setItems([]) })
+        .finally(() => { if (alive) setLoading(false) })
+    }, q ? 350 : 0)
+    return () => { alive = false; clearTimeout(t) }
+  }, [scope, q])
 
-  async function assign(clientId: number, specId: number) {
+  async function assign(clientId: number, specId: number | null) {
+    const c = items.find(i => i.id === clientId)
+    // ⚠️ У ЗАКРЕПЛЁННОГО спрашиваем подтверждение: это уже не раздача, а
+    // отъём клиента у живого человека — вместе с фиксом за обслуживание.
+    if (c?.tech_specialist_id) {
+      const to = specId ? (specs.find((s: any) => s.id === specId)?.name || 'другого') : null
+      const msg = specId
+        ? `Передать «${c.name || c.email}» от ${c.owner_name} к ${to}?\n\n`
+          + 'Фикс за обслуживание с этого момента пойдёт новому. Уже начисленное '
+          + 'прежнему остаётся — оно за сделанную работу.'
+        : `Снять «${c.name || c.email}» с ${c.owner_name}?\n\nКлиент останется без ответственного.`
+      if (!confirm(msg)) return
+    }
     try {
       await api.adminTech.assign({ client_id: clientId, spec_id: specId })
-      setItems(list => list.filter(i => i.id !== clientId))
+      // ⚠️ Перечитываем СПИСОК, а не вычёркиваем строку на глаз: при
+      // перезакреплении клиент из списка не исчезает, у него меняется
+      // ответственный. Раньше строку убирали сразу после ответа — и экран
+      // показывал успех даже тогда, когда передача падала с 500.
+      const r: any = await api.adminTech.unassigned({ scope, q })
+      setItems(r.clients || [])
       onChange()
     } catch (e: any) { alert(e?.message || 'Не удалось') }
   }
@@ -592,13 +622,28 @@ function AssignTab({ specs, onChange }: any) {
   // произошло»: список и проверка обязаны совпадать.
   const active = specs.filter((s: any) => s.is_active && s.takes_clients)
 
-  if (loading) return <div className="text-sm text-gray-400">Загружаем…</div>
-
+  // ⚠️ Раннего `return` при загрузке НЕТ: он снёс бы поле поиска вместе с
+  // фокусом, и набрать фразу целиком стало бы невозможно — каждая буква
+  // перерисовывала бы экран. Состояние загрузки показываем строкой в шапке.
   return (
     <div className="rounded-xl bg-white shadow-sm">
       <div className="border-b border-gray-100 px-4 py-3">
-        <div className="text-sm font-semibold text-gray-800">
-          Без ответственного — {items.length}
+        <div className="flex flex-wrap items-center gap-2">
+          {([['free', 'Без ответственного'], ['busy', 'Закреплённые'], ['all', 'Все']] as const)
+            .map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setScope(v)}
+                      className={`rounded-lg px-3 py-1.5 text-sm ${scope === v
+                        ? 'bg-gray-900 text-white'
+                        : 'border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                {label}
+              </button>
+            ))}
+          <input value={q} onChange={e => setQ(e.target.value)}
+                 placeholder="Поиск по имени, почте, телеграму"
+                 className="min-w-[220px] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+        </div>
+        <div className="mt-2 text-sm font-semibold text-gray-800">
+          {loading ? 'Загружаем…' : `Показано — ${items.length}`}
         </div>
         <p className="mt-0.5 text-xs text-gray-500">
           Остывшие показаны наравне с остальными: именно с ними работают ради оживления.
@@ -609,7 +654,11 @@ function AssignTab({ specs, onChange }: any) {
         </p>
       </div>
       {!items.length ? (
-        <div className="p-8 text-center text-sm text-gray-500">Все клиенты распределены.</div>
+        <div className="p-8 text-center text-sm text-gray-500">
+          {q ? 'Никого не нашли — попробуйте другой запрос.'
+             : scope === 'free' ? 'Все клиенты распределены.'
+             : 'Пока никого нет.'}
+        </div>
       ) : (
         <table className="w-full text-sm">
           <tbody>
@@ -628,14 +677,46 @@ function AssignTab({ specs, onChange }: any) {
                 </td>
                 <td className="px-4 py-3 text-gray-600">{c.tariff_slug || '—'}</td>
                 <td className="px-4 py-3 text-gray-600">{c.payments_count} оплат</td>
+                {/* Кто ведёт сейчас — иначе при перезакреплении не видно,
+                    у кого забираем. */}
                 <td className="px-4 py-3">
-                  <select defaultValue="" onChange={e => e.target.value && assign(c.id, Number(e.target.value))}
-                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
-                    <option value="">Кому передать…</option>
-                    {active.map((s: any) => (
-                      <option key={s.id} value={s.id}>{s.name || s.email}</option>
-                    ))}
-                  </select>
+                  {c.owner_name
+                    ? <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
+                        Ведёт: {c.owner_name}
+                      </span>
+                    : <span className="text-xs text-gray-400">Без ответственного</span>}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {/* ⚠️ `value`, а НЕ `defaultValue`: список перечитывается
+                        после передачи, и выбор обязан показывать того, кто
+                        ведёт клиента сейчас. С defaultValue он оставался бы на
+                        «Кому передать…» даже у закреплённого. */}
+                    <select value={c.tech_specialist_id || ''}
+                            onChange={e => assign(c.id, e.target.value ? Number(e.target.value) : null)}
+                            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
+                      <option value="">Кому передать…</option>
+                      {/* ⚠️ Текущий ответственный показывается ДАЖЕ если он в
+                          отпуске или уволен и в списке выбора его нет: иначе
+                          `value` не нашёл бы своего пункта, и закреплённый
+                          клиент выглядел бы ничьим — ровно у тех, кого надо
+                          передать в первую очередь. */}
+                      {c.tech_specialist_id && !active.some((s: any) => s.id === c.tech_specialist_id) && (
+                        <option value={c.tech_specialist_id}>
+                          {c.owner_name} (сейчас не берёт клиентов)
+                        </option>
+                      )}
+                      {active.map((s: any) => (
+                        <option key={s.id} value={s.id}>{s.name || s.email}</option>
+                      ))}
+                    </select>
+                    {c.tech_specialist_id && (
+                      <button type="button" onClick={() => assign(c.id, null)}
+                              className="whitespace-nowrap rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+                        Снять
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

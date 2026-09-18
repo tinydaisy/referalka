@@ -248,16 +248,49 @@ async def assign(
     return {"ok": True}
 
 
-@router.get("/unassigned", summary="Клиенты без ответственного")
+@router.get("/unassigned", summary="Клиенты для распределения")
 async def unassigned(
+    scope: str = "free",
+    q: str = "",
+    spec_id: Optional[int] = None,
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Кого ещё не распределили.
+    """Кого распределяем.
 
     ⚠️ Показываем ВСЕХ без ответственного, включая остывших: среди них как раз и
     ищут, кого можно оживить, а спрятанные они не попадутся никому на глаза.
+
+    ⚠️⚠️ ПЕРЕЗАКРЕПЛЕНИЕ (18.09.2026). Раньше отдавались ТОЛЬКО клиенты без
+    ответственного, и уже закреплённого нельзя было передать другому: его не
+    было в списке. Сам движок (`assign_client`) перезакрепление умел всегда —
+    не хватало ровно этого списка. Административные решения бывают разные:
+    внедренец уволился, ушёл в отпуск, клиента забрали на другого — передать
+    надо уметь в любой момент, а не только при первом распределении.
+
+    `scope`: `free` — без ответственного (как было, умолчание),
+             `busy` — уже закреплённые, `all` — все.
+    `q` — поиск по имени, почте и телеграму. `spec_id` — чьих показывать.
     """
+    scope = scope if scope in ("free", "busy", "all") else "free"
+    # ⚠️ Условие и параметры собираются ВМЕСТЕ: при сборке строки отдельно от
+    # значений легко разъезжаются номера $1/$2 — и запрос молча фильтрует не по
+    # тому полю.
+    where = ["c.is_active", "NOT c.is_system_service", "NOT c.is_tech_test"]
+    args: list = []
+    if scope == "free":
+        where.append("c.tech_specialist_id IS NULL")
+    elif scope == "busy":
+        where.append("c.tech_specialist_id IS NOT NULL")
+    if spec_id is not None:
+        args.append(spec_id)
+        where.append(f"c.tech_specialist_id = ${len(args)}")
+    if (q or "").strip():
+        args.append(f"%{q.strip()}%")
+        n = len(args)
+        where.append(
+            f"(c.name ILIKE ${n} OR c.email ILIKE ${n} OR c.telegram_username ILIKE ${n})")
+
     rows = await db.fetch(
         # ⚠️ «Привёл» отдаём ВМЕСТЕ со списком: при передаче админ должен
         # видеть, кому пойдут деньги. Ответственный (кого выбираем здесь) и
@@ -268,6 +301,9 @@ async def unassigned(
                   t.slug AS tariff_slug, cs.expires_at, cs.source AS sub_source,
                   c.referred_by_tech_id,
                   ref.name AS referred_by_name,
+                  c.tech_specialist_id,
+                  own.name AS owner_name,
+                  c.tech_assigned_at,
                   (SELECT COUNT(*) FROM subscription_orders so
                     WHERE so.client_id = c.id AND so.status='paid'
                       AND so.amount_paid_card_kopecks > 0) AS payments_count
@@ -275,14 +311,13 @@ async def unassigned(
              LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
              LEFT JOIN tariffs t ON t.id = cs.tariff_id
              LEFT JOIN tech_specialists ref ON ref.id = c.referred_by_tech_id
-            WHERE c.tech_specialist_id IS NULL
-              AND c.is_active
-              AND NOT c.is_system_service
-              -- ⚠️ Тестовые кабинеты самих техспецов (миграция 403) в
-              -- распределение не идут: их брали в работу как живых лидов и
-              -- пытались оживить.
-              AND NOT c.is_tech_test
-            ORDER BY c.created_at DESC LIMIT 500"""
+             LEFT JOIN tech_specialists own ON own.id = c.tech_specialist_id
+            -- ⚠️ Тестовые кабинеты самих техспецов (миграция 403) в
+            -- распределение не идут: их брали в работу как живых лидов и
+            -- пытались оживить.
+            WHERE """ + " AND ".join(where) + """
+            ORDER BY c.created_at DESC LIMIT 500""",
+        *args,
     )
     return {"clients": [dict(r) for r in rows]}
 

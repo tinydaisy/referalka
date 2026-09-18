@@ -1591,7 +1591,15 @@ export const api = {
               { method: 'DELETE' }),
     assign: (data: { client_id: number; spec_id: number | null; reason?: string }) =>
       request('/api/v1/admin/tech/assign', { method: 'POST', body: JSON.stringify(data) }),
-    unassigned: () => request('/api/v1/admin/tech/unassigned'),
+    // scope: free — без ответственного (умолчание), busy — закреплённые, all — все.
+    unassigned: (p?: { scope?: string; q?: string; spec_id?: number | null }) => {
+      const s = new URLSearchParams()
+      if (p?.scope) s.set('scope', p.scope)
+      if (p?.q) s.set('q', p.q)
+      if (p?.spec_id) s.set('spec_id', String(p.spec_id))
+      const qs = s.toString()
+      return request(`/api/v1/admin/tech/unassigned${qs ? `?${qs}` : ''}`)
+    },
     rates: () => request('/api/v1/admin/tech/rates'),
     setRate: (kind: string, data: any) =>
       request(`/api/v1/admin/tech/rates/${kind}`, { method: 'PATCH', body: JSON.stringify(data) }),
