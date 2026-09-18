@@ -140,6 +140,13 @@ type SpeakerMe = {
   photo_url: string | null
   // Точка лица на фото — по ней кадрируется превью (см. lib/photoFocal).
   photo_focal?: string | null
+  // ⚠️ Приближение кадра, СВОЁ для каждой формы (миграция 451). Без этих полей
+  // в типе сборка падала: `zooms={me}` не имел с `CropZooms` ни одного общего
+  // поля. Кабинет спикера правит те же настройки, что и кабинет организатора —
+  // спикер подгоняет свой кадр сам, организатор видит на афише ровно это.
+  crop_zoom_circle?: number | null
+  crop_zoom_square?: number | null
+  crop_zoom_portrait?: number | null
   // poster_url убран миграцией 121: афиши теперь библиотека на стороне клиента,
   // спикер их только просматривает в разделе «Материалы».
   photo_folder_url: string | null
@@ -1209,8 +1216,8 @@ export default function SpeakerCabinetPage() {
                 url={me.photo_url}
                 value={me.photo_focal ?? null}
                 onChange={v => update({ photo_focal: v })}
-                zooms={me as any}
-                onZoomChange={z => update(z as any)}
+                zooms={me}
+                onZoomChange={z => update(z)}
                 hint="Так ваше фото встанет на афишах события и в карточках. Подгоните каждую форму — организатор увидит ровно это."
               />
             </div>
