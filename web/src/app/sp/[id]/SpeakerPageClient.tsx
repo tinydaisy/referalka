@@ -73,7 +73,9 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
   // такого адреса нет в библиотеке: иначе один и тот же файл показался бы
   // дважды подряд, и организатор гадал бы, чем они отличаются.
   const logoLib = data.logos || []
-  const inLib = (url: string | null) => !!url && logoLib.some(l => l.url === url)
+  function inLib(url: string | null) {
+    return !!url && logoLib.some(l => l.url === url)
+  }
   const logos: Logo[] = [
     ...logoLib,
     // `brand_logo_url` — ОСНОВНОЙ (светлый) знак, он рисуется на тёмном фоне;
