@@ -68,10 +68,29 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     setLoading(true)
     api.posterLayout.get(eventId, o)
       .then((r: any) => {
-        setLayout({ ...r.layout, orientation: o })
+        // ⚠️⚠️ ПОДСТАВЛЯЕМ ПОДСКАЗКИ В САМИ ПОЛЯ, а не только в placeholder.
+        // Серая подсказка не является значением: клиент видел название события
+        // бледным текстом, думал что оно подставится, и получал пустую афишу.
+        // Заполняем ТОЛЬКО пустые поля — уже вписанное клиентом не трогаем.
+        const sg = r.suggested || {}
+        const L = { ...r.layout, orientation: o }
+        const filled: any = {}
+        for (const k of ['title', 'subtitle', 'pill_text', 'pill_text_2'] as const) {
+          if (!String(L[k] ?? '').trim() && String(sg[k] ?? '').trim()) {
+            filled[k] = sg[k]
+          }
+        }
+        setLayout({ ...L, ...filled })
+        // ⚠️ Если что-то подставили — сразу сохраняем, иначе при следующем
+        // открытии поля снова окажутся пустыми, а клиент будет уверен, что
+        // название уже задано.
+        if (Object.keys(filled).length) {
+          const { orientation, ...body } = { ...L, ...filled }
+          api.posterLayout.save(eventId, o, body).catch(() => {})
+        }
         setTheme(r.theme || {})
         setPeople(r.people || [])
-        setSuggested(r.suggested || null)
+        setSuggested(sg)
         setErr(null)
       })
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить макет'))

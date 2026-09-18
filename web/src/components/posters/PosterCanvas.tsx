@@ -53,6 +53,10 @@ export type PosterLayout = {
   speakers_bottom?: number
   /** @deprecated Миграция 440: боковое поле задаётся margin_left/right в мм. */
   speakers_side?: number
+  /** Раскладка (миграция 454): full — текст сверху; left/right — колонками. */
+  layout_mode?: 'full' | 'left' | 'right'
+  speakers_width?: number
+  text_align?: 'left' | 'center' | 'right'
   mask_shape?: 'portrait' | 'square' | 'circle' | 'oval' | 'egg' | 'cutout'
   mask_radius?: number
   per_row?: number | null
@@ -194,6 +198,8 @@ export default function PosterCanvas({
   // ⚠️ Размеры КАРТОЧЕК и отступы — в процентах ШИРИНЫ рабочей области: тогда
   // карточка сохраняет пропорцию относительно ряда, а поля её не ломают.
   const px = (percent: number) => (percent * AW) / 100
+  /** Проценты ширины КОЛОНКИ спикеров — для карточек и подписей. */
+  const cpx = (percent: number) => (percent * AW * cols.sp.w) / 10000
 
   // ⚠️⚠️ КЕГЛЬ ТЕКСТА — ОТ ВЫСОТЫ ЛИСТА, а не от ширины. Одно и то же число,
   // посчитанное от ширины, давало РАЗНЫЙ по величине заголовок: на вертикальной
@@ -202,6 +208,20 @@ export default function PosterCanvas({
   // форматов отличается вдвое, а читаем мы текст относительно ВЫСОТЫ листа.
   // Теперь «8 %» одинаково выглядит на всех трёх форматах.
   const tx = (percent: number) => (percent * H) / 100
+
+  // ⚠️⚠️ РАСКЛАДКА В КОЛОНКИ (миграция 454). `full` — как было: текст сверху
+  // во всю ширину, спикеры под ним. `left`/`right` — спикеры занимают свою
+  // колонку сбоку, а логотипы и текст встают рядом. На горизонтальной афише
+  // это главное: иначе спикерам достаётся узкая полоса внизу, хотя по бокам
+  // полно места.
+  const mode = L.layout_mode ?? 'full'
+  const spW = Math.max(25, Math.min(80, L.speakers_width ?? 55))
+  // Ширина и левый край каждой колонки в процентах рабочей области.
+  const cols = mode === 'full'
+    ? { sp: { w: 100, x: 0 }, tx: { w: 100, x: 0 } }
+    : mode === 'left'
+      ? { sp: { w: spW, x: 0 }, tx: { w: 100 - spW, x: spW } }
+      : { sp: { w: spW, x: 100 - spW }, tx: { w: 100 - spW, x: 0 } }
 
   // Разделяем людей: партнёры-компании идут логотипами сверху, все остальные —
   // в сетку. Галочка `is_company` — единственный признак (миграция 425).
@@ -293,13 +313,17 @@ export default function PosterCanvas({
   // (0.14), а под ней ещё 0.03 отступа — блок оказывался выше отведённого
   // места ровно на эту разницу, и верхняя плашка обрезалась линией старта,
   // а нижний ряд уезжал за нижний край.
-  const badgeShare = (L.role_badge ?? 'pill') === 'pill' ? 0.17 : 0
+  // Плашка (0.18) + её отступ (0.03).
+  const badgeShare = (L.role_badge ?? 'pill') === 'pill' ? 0.21 : 0
   // Полная высота ряда в долях ШИРИНЫ карточки.
   const rowUnit = ratio + nameShare + badgeShare
 
   // Высота рабочей области в процентах её ШИРИНЫ — в этих же единицах задан
   // `rowUnit`, поэтому всё считается в одной системе.
-  const hPctOfW = (AH / AW) * 100
+  // ⚠️ Карточки считаются от ширины КОЛОНКИ спикеров, а не всей области:
+  // иначе в колонке 55 % они вылезут за её край.
+  const colW = AW * cols.sp.w / 100
+  const hPctOfW = (AH / colW) * 100
 
   // ⚠️ Отсчёт — ОТ РАБОЧЕЙ ОБЛАСТИ, а не от полотна: 45 % означает «45 % высоты
   // рабочей области», поэтому линия спикеров не съезжает при смене полей.
@@ -400,7 +424,10 @@ export default function PosterCanvas({
           пересечься они больше не могут по построению. */}
       {logoRow.length > 0 && (
         <div style={{
-          position: 'absolute', left: 0, right: 0,
+          // В колоночной раскладке логотипы стоят над ТЕКСТОМ, а не над всей
+          // афишей: иначе они висели бы над спикерами.
+          position: 'absolute',
+          left: `${cols.tx.x}%`, width: `${cols.tx.w}%`,
           top: `${L.partners_y ?? 5}%`,
           display: 'flex', alignItems: 'center', flexWrap: 'wrap',
           justifyContent: L.logos_align === 'left' ? 'flex-start'
@@ -423,8 +450,11 @@ export default function PosterCanvas({
       {/* Текстовый блок: пилюля, заголовок, подзаголовок. Всё можно выключить —
           тогда фон приезжает со своим готовым заголовком. */}
       <div style={{
-        position: 'absolute', left: 0, right: 0,
+        position: 'absolute',
+        left: `${cols.tx.x}%`, width: `${cols.tx.w}%`,
         top: `${L.text_top ?? 18}%`,
+        // Выравнивание блока внутри колонки (миграция 454).
+        textAlign: L.text_align ?? 'center',
       }}>
         {L.show_pill !== false && (pill1 || pill2) && (
           <div style={{ display: 'flex', justifyContent: 'center', gap: px(1.5), flexWrap: 'wrap', marginBottom: px(1.6) }}>
@@ -470,7 +500,7 @@ export default function PosterCanvas({
           рабочей области, поэтому нижний ряд упирается в ПОЛЕ, а не в край. */}
       <div style={{
         position: 'absolute',
-        left: 0, right: 0,
+        left: `${cols.sp.x}%`, width: `${cols.sp.w}%`,
         // ⚠️⚠️ БЛОК ЦЕНТРИРУЕТСЯ В ОТВЕДЁННОЙ ПОЛОСЕ, а не прижимается к её
         // верху. Прижатый блок при малом числе людей «уезжал вниз»: сверху
         // оставалась дыра между заголовком и лицами, снизу — ничего. Теперь
@@ -485,22 +515,22 @@ export default function PosterCanvas({
         overflow: 'hidden',
         // ⚠️ Промежутки — от ширины РАБОЧЕЙ ОБЛАСТИ (AW), а не полотна: иначе
         // при больших полях ряды расходились бы шире, чем задумано.
-        gap: cutout ? 0 : `${gapY * AW / 100}px`,
+        gap: cutout ? 0 : `${gapY * colW / 100}px`,
       }}>
         {rows.map((row, ri) => (
           <div key={ri} style={{
             display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
-            gap: `${gap * AW / 100}px`,
+            gap: `${gap * colW / 100}px`,
             // ⚠️ Наложение рядов — только у вырезанных людей: задний ряд
             // выглядывает из-за переднего, как в примере владельца. У карточек
             // с рамками это были бы наезжающие друг на друга прямоугольники.
-            marginTop: ri > 0 && cutout ? `-${(L.row_overlap ?? 0) * cardH * AW / 10000}px` : undefined,
+            marginTop: ri > 0 && cutout ? `-${(L.row_overlap ?? 0) * cardH * colW / 10000}px` : undefined,
             // Передние ряды поверх задних.
             position: 'relative', zIndex: ri + 1,
           }}>
             {row.map(p => (
-              <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit}
-                          wPct={cardW} wPx={cardW * AW / 100} hPx={cardH * AW / 100}
+              <PersonCard key={p.id} p={p} L={L} gold={gold} px={cpx} nameSize={nameSizeFit}
+                          wPct={cardW} wPx={cardW * colW / 100} hPx={cardH * colW / 100}
                           highlighted={p.role === 'headliner' || p.role === 'general_partner' || ORGANIZER_ROLES.includes(p.role)}
                           theme={th} label={label} />
             ))}
@@ -526,9 +556,13 @@ function defaultSpeakersTop(o: PosterOrientation): number {
   // при них блок людей занимает отведённую полосу целиком и никого не обрезает,
   // а фото выходит 170–230 px в готовом файле. Сверху остаётся место под
   // логотипы, заголовок и пилюлю.
-  if (o === 'horizontal') return 40
-  if (o === 'square') return 42
-  return 46
+  // ⚠️ У горизонтальной афиши высоты вдвое меньше, а текст занимает ту же
+  // долю листа — спикерам оставалось втрое меньше места, чем на квадратной,
+  // и всё (включая плашку роли) выходило мелким. Даём им больше: тексту
+  // хватает и 28 %, проверено расчётом.
+  if (o === 'horizontal') return 28
+  if (o === 'square') return 38
+  return 44
 }
 
 /**
@@ -817,7 +851,7 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
           оказывалась шире самой карточки и наезжала на соседей. */}
       {badge === 'pill' && (
         <div style={{
-          height: px(wPct * 0.14), marginBottom: px(wPct * 0.03),
+          height: px(wPct * 0.18), marginBottom: px(wPct * 0.03),
           display: 'flex', justifyContent: 'center', alignItems: 'center',
           // ⚠️ Плашка не должна вылезать за свою строку: с padding она бывает
           // выше контейнера, и тогда её срезает верхняя граница блока людей.
@@ -826,7 +860,7 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
           {showBadge && (
             <span style={{
               fontFamily: nameFont,
-              fontSize: px(Math.min(nameSize * 0.75, wPct * 0.1)), lineHeight: 1,
+              fontSize: px(Math.min(nameSize * 0.85, wPct * 0.13)), lineHeight: 1,
               padding: `${px(wPct * 0.02)}px ${px(wPct * 0.06)}px`,
               borderRadius: 9999,
               background: L.role_badge_color || gold,

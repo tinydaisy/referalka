@@ -482,6 +482,8 @@ export default function ConferenceSpeakerPage() {
         // Точка лица (миграция 434). ⚠️ Здесь ЯВНЫЙ список полей — забудешь
         // дописать, и отметка молча не сохранится.
         photo_focal: profile.photo_focal ?? null,
+        // Вид карточки: компания или человек (миграция 425).
+        is_company: (profile as any).is_company === true,
         // Приближение кадра по формам (миграция 451).
         crop_zoom_circle: profile.crop_zoom_circle ?? null,
         crop_zoom_square: profile.crop_zoom_square ?? null,
@@ -1310,6 +1312,25 @@ export default function ConferenceSpeakerPage() {
 
         <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">{t.fields.media}</h3>
+          {/* ⚠️ Галочка «Компания» — и здесь тоже (18.09.2026). Раньше она была
+              только в карточке коллаборатора, и организатор, правя спикера
+              отсюда, не мог переключить вид карточки вовсе. */}
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-gray-200 p-3">
+            <input
+              type="checkbox"
+              checked={(profile as any).is_company === true}
+              onChange={e => setProfile((p: any) => ({ ...p, is_company: e.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-gray-700">Компания</span>
+              <span className="mt-0.5 block text-xs text-gray-500">
+                Отметьте, если это организация, а не человек. У компании — два логотипа
+                (для тёмного и светлого фона), у человека — фото с точкой лица.
+              </span>
+            </span>
+          </label>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото для сайта</label>
             <FileUploader

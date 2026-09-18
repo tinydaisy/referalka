@@ -45,6 +45,10 @@ _FIELDS = (
     # Поля от края в мм (миграция 440) — задают рабочую область афиши.
     "margin_top", "margin_bottom", "margin_left", "margin_right",
     "speakers_top", "speakers_bottom", "speakers_side",
+    # Раскладка в колонки (миграция 454).
+    "layout_mode", "speakers_width", "text_align",
+    # Свободное размещение блоков (миграция 455).
+    "logos_x", "logos_w", "logos_dir", "text_x", "text_w", "speakers_x",
     "mask_shape", "mask_radius", "per_row", "gap", "gap_y", "row_overlap",
     "show_names", "name_order", "name_lines", "name_font", "name_size",
     "name_color", "name_shadow", "name_place",
@@ -78,6 +82,9 @@ _DEFAULTS = {
     "bg_url": None, "bg_dim": 0,
     "margin_top": 10, "margin_bottom": 10, "margin_left": 10, "margin_right": 10,
     "speakers_top": 46, "speakers_bottom": 97, "speakers_side": 5,
+    "layout_mode": "full", "speakers_width": 55, "text_align": "center",
+    "logos_x": 0, "logos_w": 100, "logos_dir": "row",
+    "text_x": 0, "text_w": 100, "speakers_x": 0,
     "mask_shape": "portrait", "mask_radius": 0, "per_row": None,
     "gap": 2, "gap_y": None, "row_overlap": 0,
     "show_names": True, "name_order": "first_last", "name_lines": 2,
@@ -110,7 +117,10 @@ _RANGES = {
     "margin_top": (0, 60), "margin_bottom": (0, 60),
     "margin_left": (0, 60), "margin_right": (0, 60),
     "speakers_top": (0, 95), "speakers_bottom": (5, 100),
-    "speakers_side": (0, 40), "mask_radius": (0, 50), "per_row": (1, 12),
+    "speakers_side": (0, 40), "speakers_width": (25, 80),
+    "logos_x": (0, 100), "logos_w": (10, 100),
+    "text_x": (0, 100), "text_w": (10, 100), "speakers_x": (0, 100),
+    "mask_radius": (0, 50), "per_row": (1, 12),
     "gap": (0, 20), "gap_y": (0, 20), "row_overlap": (0, 60), "name_size": (0.3, 8),
     "hl_border_w": (0, 3), "hl_glow": (0, 10),
     "title_size": (1, 20), "subtitle_size": (0.5, 12), "text_top": (0, 100),
@@ -132,6 +142,9 @@ _CHOICES = {
     "subtitle_align": ("left", "center", "right"),
     "pill_style": ("border", "filled", "underline", "plain"),
     "brand_logo_variant": ("light", "dark"),
+    "layout_mode": ("full", "left", "right"),
+    "text_align": ("left", "center", "right"),
+    "logos_dir": ("row", "column", "grid"),
     "logos_align": ("left", "center", "right"),
     "logos_variant": ("light", "dark"),
 }
@@ -140,7 +153,8 @@ _CHOICES = {
 _INT_FIELDS = {
     "bg_dim", "speakers_top", "speakers_bottom", "speakers_side", "mask_radius",
     "per_row", "row_overlap", "text_top", "pill_radius",
-    "brand_logo_x", "brand_logo_y", "name_lines",
+    "brand_logo_x", "brand_logo_y", "name_lines", "speakers_width",
+    "logos_x", "logos_w", "text_x", "text_w", "speakers_x",
 }
 
 
@@ -156,6 +170,17 @@ class LayoutIn(BaseModel):
     speakers_top: Optional[int] = None
     speakers_bottom: Optional[int] = None
     speakers_side: Optional[int] = None
+    # Раскладка в колонки (миграция 454).
+    layout_mode: Optional[str] = None
+    speakers_width: Optional[int] = None
+    text_align: Optional[str] = None
+    # Свободное размещение блоков (миграция 455).
+    logos_x: Optional[int] = None
+    logos_w: Optional[int] = None
+    logos_dir: Optional[str] = None
+    text_x: Optional[int] = None
+    text_w: Optional[int] = None
+    speakers_x: Optional[int] = None
     mask_shape: Optional[str] = None
     mask_radius: Optional[int] = None
     per_row: Optional[int] = None

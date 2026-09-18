@@ -142,9 +142,13 @@ async def complete_speaker_self_register(
         access_code = await _generate_unique_access_code(db)
         # Имя из contacts.name (бот upsert'нул имя из TG/VK при /start).
         collaborator_id = await db.fetchval(
+            # ⚠️ is_company = FALSE ЯВНО. Спикер, который записался сам, —
+            # это ЧЕЛОВЕК. NULL в этом поле трактуется как «компания» (так
+            # устроена карточка: `is_company !== false`), и человек получал
+            # форму с двумя логотипами вместо фото и точки лица.
             """INSERT INTO collaborators
-                 (contact_id, name, access_code, created_by_client_id)
-               VALUES ($1, $2, $3, $4)
+                 (contact_id, name, access_code, created_by_client_id, is_company)
+               VALUES ($1, $2, $3, $4, FALSE)
                RETURNING id""",
             contact_id, (contact_name or fallback_name).strip() or fallback_name,
             access_code, client_id,
