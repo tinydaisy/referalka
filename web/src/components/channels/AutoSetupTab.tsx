@@ -542,7 +542,7 @@ export default function AutoSetupTab() {
 
       const r = await api.tgAutosetup.start(
         username, title || undefined, effChannel || undefined,
-        state.existing_main_bot ? botRole : undefined)
+        state?.existing_main_bot ? botRole : undefined)
       if (r.payment_url) { window.location.href = r.payment_url; return }
       await load()
     } catch (e: any) {
