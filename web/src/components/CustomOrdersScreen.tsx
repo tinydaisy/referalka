@@ -27,6 +27,9 @@ type Order = {
   paid_at: string | null
   is_done: boolean
   lead_source: string
+  client_id: number | null
+  source_kind: string | null
+  source_title: string | null
   note: string | null
   request_text: string | null
   created_at: string
@@ -37,9 +40,19 @@ type PriceItem = { id: number; title: string; description?: string | null; price
 type Api = {
   list: (status?: string) => Promise<any>
   prices: () => Promise<any>
+  searchClients: (q: string) => Promise<any>
   create: (data: any) => Promise<any>
   update: (id: number, data: any) => Promise<any>
   remove?: (id: number) => Promise<any>
+}
+
+type FoundClient = {
+  id: number
+  name: string
+  brand: string | null
+  email: string
+  phone: string | null
+  source: { kind: string; title: string; email: string | null }
 }
 
 const STATUSES = ['all', 'draft', 'sent', 'paid', 'cancelled'] as const
@@ -110,7 +123,7 @@ export default function CustomOrdersScreen({ api }: { api: Api }) {
       </div>
 
       {creating && (
-        <OrderEditor prices={prices}
+        <OrderEditor api={api} prices={prices}
                      onCancel={() => setCreating(false)}
                      onSave={async data => {
                        await api.create(data)
@@ -185,7 +198,7 @@ function OrderCard({ order, prices, api, onChange }: {
 
   if (editing) {
     return (
-      <OrderEditor order={order} prices={prices}
+      <OrderEditor api={api} order={order} prices={prices}
                    onCancel={() => setEditing(false)}
                    onSave={async data => {
                      await api.update(order.id, data)
@@ -219,6 +232,16 @@ function OrderCard({ order, prices, api, onChange }: {
             <div className="text-sm text-gray-500 mt-0.5">
               {[order.client_name, order.client_email, order.client_phone]
                 .filter(Boolean).join(' · ')}
+            </div>
+          )}
+          {/* От кого пришёл клиент. ⚠️ Реферальный процент с персональных
+              заказов не платим — показываем, чтобы видеть источник. */}
+          {order.source_title && (
+            <div className="text-xs text-gray-400 mt-0.5">
+              Привёл: {order.source_title}
+              {order.lead_source === 'own' && (
+                <span className="ml-1.5 text-green-700">· свой клиент, 80 %</span>
+              )}
             </div>
           )}
         </div>
@@ -316,7 +339,119 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function OrderEditor({ order, prices, onSave, onCancel }: {
+/**
+ * Выбор клиента платформы с показом того, кто его привёл.
+ *
+ * ⚠️⚠️ ИСТОЧНИК МЫ ПОКАЗЫВАЕМ, А НЕ СПРАШИВАЕМ. Кто привёл клиента, уже
+ * записано в платформе; кнопка «свой / из базы» позволяла поставить ставку
+ * 80 % вместо 60 % одним кликом и ничем не проверялась. Ставку считает сервер.
+ *
+ * ⚠️ Партнёра показываем, хотя реферальный процент с персональных заказов не
+ * платим: видеть, от кого пришёл человек, полезно и без начисления.
+ */
+function ClientPicker({ api, value, onPick }: {
+  api: Api
+  value: FoundClient | null
+  onPick: (c: FoundClient | null) => void
+}) {
+  const [q, setQ] = useState('')
+  const [found, setFound] = useState<FoundClient[]>([])
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (q.trim().length < 2) { setFound([]); return }
+    // ⚠️ Пауза перед запросом: без неё поиск уходит на каждую букву.
+    const t = setTimeout(async () => {
+      setBusy(true)
+      try {
+        const d = await api.searchClients(q.trim())
+        setFound(d.clients || [])
+        setOpen(true)
+      } catch { setFound([]) }
+      finally { setBusy(false) }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [q])
+
+  if (value) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium" style={{ color: '#25455D' }}>
+              {value.name}
+              {value.brand && value.brand !== value.name && (
+                <span className="text-gray-400 font-normal"> · {value.brand}</span>
+              )}
+            </div>
+            <div className="text-sm text-gray-500">{value.email}</div>
+            <div className="mt-1 text-xs">
+              <span className="text-gray-400">Привёл: </span>
+              <span style={{ color: value.source.kind === 'tech' ? '#25455D' : '#6B7280' }}>
+                {value.source.title}
+                {value.source.email && ` · ${value.source.email}`}
+              </span>
+            </div>
+          </div>
+          <button type="button"
+                  onClick={() => { onPick(null); setQ(''); setFound([]) }}
+                  className="text-xs text-gray-500 underline">
+            выбрать другого
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <span className="block text-sm text-gray-700 mb-1">
+        Клиент — найдите в базе
+      </span>
+      <input value={q} onChange={e => setQ(e.target.value)}
+             onFocus={() => found.length && setOpen(true)}
+             placeholder="Имя, почта или название"
+             className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+      <span className="block text-xs text-gray-400 mt-1">
+        {busy ? 'Ищем…'
+          : 'Кто привёл клиента и какая из этого ставка — определится само.'}
+      </span>
+
+      {open && found.length > 0 && (
+        <div className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg
+                        border border-gray-200 bg-white shadow-lg">
+          {found.map(c => (
+            <button key={c.id} type="button"
+                    onClick={() => { onPick(c); setOpen(false) }}
+                    className="block w-full border-b border-gray-50 px-3 py-2 text-left
+                               last:border-0 hover:bg-gray-50">
+              <div className="text-sm font-medium text-gray-900">
+                {c.name}
+                {c.brand && c.brand !== c.name && (
+                  <span className="text-gray-400 font-normal"> · {c.brand}</span>
+                )}
+              </div>
+              <div className="text-xs text-gray-500">{c.email}</div>
+              <div className="text-xs text-gray-400">Привёл: {c.source.title}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {open && !busy && q.trim().length >= 2 && found.length === 0 && (
+        <div className="absolute z-20 mt-1 w-full rounded-lg border border-gray-200
+                        bg-white p-3 text-sm text-gray-500 shadow-lg">
+          Никого не нашли. Можно оформить заказ и без выбора клиента — тогда
+          заполните контакты руками.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OrderEditor({ api, order, prices, onSave, onCancel }: {
+  api: Api
   order?: Order
   prices: PriceItem[]
   onSave: (data: any) => Promise<void>
@@ -329,7 +464,10 @@ function OrderEditor({ order, prices, onSave, onCancel }: {
   const [email, setEmail] = useState(order?.client_email || '')
   const [phone, setPhone] = useState(order?.client_phone || '')
   const [note, setNote] = useState(order?.note || '')
-  const [leadSource, setLeadSource] = useState(order?.lead_source || 'pluson')
+  // Выбранный клиент платформы. ⚠️ Источник (кто привёл) и ставка из него
+  // ВЫЧИСЛЯЮТСЯ на сервере — здесь их не спрашиваем и не отправляем.
+  const [client, setClient] = useState<FoundClient | null>(null)
+  const [clientId, setClientId] = useState<number | null>(order?.client_id ?? null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -362,7 +500,7 @@ function OrderEditor({ order, prices, onSave, onCancel }: {
         client_email: email.trim() || null,
         client_phone: phone.trim() || null,
         note: note.trim() || null,
-        lead_source: leadSource,
+        client_id: clientId,
       })
     } catch (e: any) {
       setError(e?.message || 'Не удалось сохранить')
@@ -424,6 +562,21 @@ function OrderEditor({ order, prices, onSave, onCancel }: {
         </span>
       </label>
 
+      {/* Клиент выбирается ИЗ БАЗЫ, а не вводится руками: по нему сервер сам
+          определит, кто его привёл, и посчитает ставку внедренца. Поля ниже
+          подставятся, но их можно поправить — контактное лицо у заказа бывает
+          другое. */}
+      <ClientPicker api={api} value={client}
+                    onPick={c => {
+                      setClient(c)
+                      setClientId(c?.id ?? null)
+                      if (c) {
+                        if (!name.trim()) setName(c.name || '')
+                        if (!email.trim()) setEmail(c.email || '')
+                        if (!phone.trim()) setPhone(c.phone || '')
+                      }
+                    }} />
+
       <div className="grid sm:grid-cols-3 gap-3">
         <label className="block">
           <span className="block text-sm text-gray-700 mb-1">Имя клиента</span>
@@ -440,29 +593,6 @@ function OrderEditor({ order, prices, onSave, onCancel }: {
           <input value={phone} onChange={e => setPhone(e.target.value)}
                  className="w-full rounded-lg border border-gray-300 px-3 py-2" />
         </label>
-      </div>
-
-      {/* Чей лид — от этого зависит ставка внедренца по таблице: 60 % за
-          клиента из базы ПЛЮСОНА, 80 % за своего приведённого. Ставится ДО
-          оплаты: после неё начисление уже сделано. */}
-      <div>
-        <span className="block text-sm text-gray-700 mb-1.5">Откуда клиент</span>
-        <div className="flex flex-wrap gap-2">
-          {[['pluson', 'Из базы ПЛЮСОНА'], ['own', 'Свой, привёл внедренец']].map(([k, label]) => (
-            <button key={k} type="button" onClick={() => setLeadSource(k)}
-                    className={`px-3.5 py-2 rounded-lg text-sm transition-colors ${
-                      leadSource === k ? 'text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                    style={leadSource === k
-                      ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' }
-                      : undefined}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <span className="block text-xs text-gray-400 mt-1.5">
-          От этого считается доля внедренца по ставкам из таблицы.
-        </span>
       </div>
 
       <label className="block">

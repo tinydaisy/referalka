@@ -1500,6 +1500,9 @@ export const api = {
               { method: 'PATCH', body: JSON.stringify(data) }),
     remove: (id: number) =>
       request(`/api/v1/admin/custom-orders/${id}`, { method: 'DELETE' }),
+    // Поиск клиента платформы: вместе с ним приходит и тот, кто его привёл.
+    searchClients: (q: string) =>
+      request(`/api/v1/admin/custom-orders/clients/search?q=${encodeURIComponent(q)}`),
     // Прайс услуг — ориентир для сборки заказа.
     prices: () => request('/api/v1/admin/service-prices'),
     createPrice: (data: any) =>
@@ -1516,6 +1519,9 @@ export const api = {
     list: (status?: string) =>
       request(`/api/v1/tech/custom-orders${status ? `?status=${status}` : ''}`),
     prices: () => request('/api/v1/tech/custom-orders/prices'),
+    // ⚠️ Внедренцу ищет только среди ЕГО закреплённых клиентов — фильтр в SQL.
+    searchClients: (q: string) =>
+      request(`/api/v1/tech/custom-orders/clients/search?q=${encodeURIComponent(q)}`),
     create: (data: any) =>
       request('/api/v1/tech/custom-orders',
               { method: 'POST', body: JSON.stringify(data) }),

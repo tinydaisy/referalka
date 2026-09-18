@@ -53,11 +53,11 @@ class OrderIn(BaseModel):
     note: Optional[str] = None
     request_text: Optional[str] = None
     contact_id: Optional[int] = None
-    # ⚠️ Чей лид — от этого зависит СТАВКА техспеца: 60 % клиент из базы
-    # ПЛЮСОНА, 80 % свой приведённый. По умолчанию 'pluson' — меньшая ставка:
-    # ошибка в сторону занижения исправима доплатой, в сторону завышения —
-    # только спором с человеком.
-    lead_source: str = 'pluson'
+    # ⚠️⚠️ ЧЕЙ ЛИД НЕ СПРАШИВАЕМ — ВЫЧИСЛЯЕМ. Клиента выбирают из базы, а кто
+    # его привёл, там уже записано (`referred_by_tech_id` / `referred_by_client_id`).
+    # Спрашивать значило бы просить человека повторить известное системе — и
+    # ошибиться в свою пользу. Поэтому здесь id клиента, а не ставка.
+    client_id: Optional[int] = None
 
 
 class OrderPatch(BaseModel):
@@ -73,7 +73,7 @@ class OrderPatch(BaseModel):
     note: Optional[str] = None
     status: Optional[str] = None
     is_done: Optional[bool] = None
-    lead_source: Optional[str] = None
+    client_id: Optional[int] = None
 
 
 class PriceIn(BaseModel):
@@ -106,9 +106,10 @@ class PayIn(BaseModel):
 # Общее
 # ─────────────────────────────────────────────────────────────────────────
 
-_FIELDS = """id, number, title, items, amount, status, contact_id,
+_FIELDS = """id, number, title, items, amount, status, contact_id, client_id,
              client_name, client_email, client_phone, tech_specialist_id,
-             lead_source, payment_url, payment_provider, external_payment_id,
+             lead_source, source_kind, source_title, source_email,
+             payment_url, payment_provider, external_payment_id,
              paid_at, is_done, done_at, note, request_text,
              created_at, updated_at"""
 
@@ -118,19 +119,82 @@ def _order_number(order_id: int) -> str:
     return f"PZ-{order_id:06d}"
 
 
+async def _resolve_source(db, client_id: Optional[int],
+                          tech_id: Optional[int]) -> dict:
+    """Кто привёл клиента и какая из этого ставка.
+
+    ⚠️⚠️ СТАВКА 80 % — ТОЛЬКО ЕСЛИ КЛИЕНТА ПРИВЁЛ ЭТОТ ЖЕ ВНЕДРЕНЕЦ. Привёл
+    партнёр, другой внедренец или никто — это база ПЛЮСОНА, 60 %. Раньше выбор
+    стоял кнопкой, и 80 % ставились одним кликом без всякой проверки.
+
+    ⚠️ Данные о партнёре сохраняем СНИМКОМ: реферальный процент с персональных
+    заказов не платится, но видеть, от кого пришёл человек, полезно — и должно
+    остаться видно, даже если партнёра потом удалят.
+    """
+    empty = {"client_id": None, "lead_source": "pluson", "source_kind": None,
+             "source_title": None, "source_email": None,
+             "name": None, "email": None, "phone": None}
+    if not client_id:
+        return empty
+
+    row = await db.fetchrow(
+        """SELECT c.id, c.brand_name, c.email, c.phone,
+                  TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
+                  c.referred_by_tech_id, c.referred_by_client_id,
+                  t.name AS tech_name, t.email AS tech_email,
+                  p.brand_name AS partner_brand, p.email AS partner_email,
+                  TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person
+             FROM clients c
+             LEFT JOIN tech_specialists t ON t.id = c.referred_by_tech_id
+             LEFT JOIN clients p ON p.id = c.referred_by_client_id
+            WHERE c.id = $1""",
+        client_id,
+    )
+    if not row:
+        return empty
+
+    if row["referred_by_tech_id"]:
+        kind = "tech"
+        title = row["tech_name"] or row["tech_email"] or "внедренец"
+        email = row["tech_email"]
+    elif row["referred_by_client_id"]:
+        kind = "partner"
+        title = row["partner_person"] or row["partner_brand"] or "партнёр"
+        email = row["partner_email"]
+    else:
+        kind, title, email = "none", "из базы ПЛЮСОНА", None
+
+    own = bool(tech_id) and row["referred_by_tech_id"] == tech_id
+    return {
+        "client_id": row["id"],
+        "lead_source": "own" if own else "pluson",
+        "source_kind": kind, "source_title": title, "source_email": email,
+        "name": row["person"] or row["brand_name"] or row["email"],
+        "email": row["email"], "phone": row["phone"],
+    }
+
+
 async def _create(db, data: OrderIn, tech_id: Optional[int]) -> dict:
+    src = await _resolve_source(db, data.client_id, tech_id)
     row = await db.fetchrow(
         f"""INSERT INTO custom_orders
                 (title, items, amount, client_name, client_email, client_phone,
-                 note, request_text, contact_id, tech_specialist_id, lead_source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 note, request_text, contact_id, tech_specialist_id, lead_source,
+                 client_id, source_kind, source_title, source_email)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                    $12, $13, $14, $15)
          RETURNING {_FIELDS}""",
         (data.title or "").strip() or "Персональный заказ",
         (data.items or "").strip(),
         max(0, int(data.amount or 0)),
-        data.client_name, data.client_email, data.client_phone,
+        # Контакты берём из карточки клиента, но введённое руками не затираем:
+        # у заказа может быть другое контактное лицо.
+        (data.client_name or "").strip() or src["name"],
+        (data.client_email or "").strip() or src["email"],
+        (data.client_phone or "").strip() or src["phone"],
         data.note, data.request_text, data.contact_id, tech_id,
-        data.lead_source if data.lead_source in ("pluson", "own") else "pluson",
+        src["lead_source"], src["client_id"],
+        src["source_kind"], src["source_title"], src["source_email"],
     )
     # Номер ставим после вставки: он строится из id, которого до неё нет.
     await db.execute(
@@ -166,10 +230,15 @@ async def _patch(db, order_id: int, data: OrderPatch, *, tech_id: Optional[int])
         add("client_phone", data.client_phone)
     if "note" in fields:
         add("note", data.note)
-    if "lead_source" in fields and data.lead_source in ("pluson", "own"):
-        # ⚠️ Менять можно только ДО оплаты: после неё начисление уже сделано по
-        # прежней ставке, и смена источника разошлась бы с выплатой.
-        add("lead_source", data.lead_source)
+    if "client_id" in fields:
+        # ⚠️ Сменили клиента — пересчитываем источник и ставку, а не переносим
+        # старые: у нового клиента может быть другой приведший.
+        src = await _resolve_source(db, data.client_id, tech_id)
+        add("client_id", src["client_id"])
+        add("lead_source", src["lead_source"])
+        add("source_kind", src["source_kind"])
+        add("source_title", src["source_title"])
+        add("source_email", src["source_email"])
     if "status" in fields and data.status in ("draft", "sent", "cancelled"):
         # ⚠️ `paid` руками не ставим: этот статус приходит только от платёжной
         # системы. Иначе заказ можно «оплатить» кнопкой, и деньги разойдутся
@@ -271,6 +340,93 @@ async def admin_delete(
 # ─────────────────────────────────────────────────────────────────────────
 # Прайс услуг
 # ─────────────────────────────────────────────────────────────────────────
+
+async def _search_clients(db, q: str, limit: int = 20) -> list[dict]:
+    """Поиск клиента платформы для заказа — вместе с тем, КТО ЕГО ПРИВЁЛ.
+
+    ⚠️⚠️ ИСТОЧНИК НЕ СПРАШИВАЕМ, А ВЫЧИСЛЯЕМ. Кто привёл клиента, уже записано:
+    `referred_by_tech_id` — внедренец, `referred_by_client_id` — партнёр.
+    Спрашивать «свой или из базы» значило бы просить человека повторить то, что
+    система и так знает, — и ошибиться в свою пользу.
+
+    Правило ставки: 80 % только если клиента привёл ЭТОТ ЖЕ внедренец. Привёл
+    партнёр, другой внедренец или никто — считаем как базу ПЛЮСОНА, 60 %.
+
+    ⚠️ Партнёра показываем, хотя реферальный процент с персональных заказов не
+    платим: видеть, от кого пришёл человек, полезно и без начисления.
+    """
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    like = f"%{q.lower()}%"
+    rows = await db.fetch(
+        """SELECT c.id, c.brand_name, c.email, c.phone,
+                  TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
+                  c.referred_by_tech_id, c.referred_by_client_id,
+                  t.name AS tech_name, t.email AS tech_email,
+                  p.brand_name AS partner_brand, p.email AS partner_email,
+                  TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person
+             FROM clients c
+             LEFT JOIN tech_specialists t ON t.id = c.referred_by_tech_id
+             LEFT JOIN clients p ON p.id = c.referred_by_client_id
+            WHERE LOWER(c.email) LIKE $1
+               OR LOWER(COALESCE(c.brand_name, '')) LIKE $1
+               OR LOWER(COALESCE(c.name, '')) LIKE $1
+               OR LOWER(COALESCE(c.last_name, '')) LIKE $1
+            ORDER BY c.id DESC LIMIT $2""",
+        like, limit,
+    )
+
+    out = []
+    for r in rows:
+        if r["referred_by_tech_id"]:
+            src = {"kind": "tech", "id": r["referred_by_tech_id"],
+                   "title": r["tech_name"] or r["tech_email"] or "внедренец",
+                   "email": r["tech_email"]}
+        elif r["referred_by_client_id"]:
+            src = {"kind": "partner", "id": r["referred_by_client_id"],
+                   "title": (r["partner_person"] or r["partner_brand"]
+                             or "партнёр"),
+                   "email": r["partner_email"]}
+        else:
+            src = {"kind": "none", "id": None, "title": "из базы ПЛЮСОНА",
+                   "email": None}
+        out.append({
+            "id": r["id"],
+            "name": r["person"] or r["brand_name"] or r["email"],
+            "brand": r["brand_name"],
+            "email": r["email"],
+            "phone": r["phone"],
+            "referred_by_tech_id": r["referred_by_tech_id"],
+            "source": src,
+        })
+    return out
+
+
+@router.get("/clients/search", summary="Поиск клиента для заказа")
+async def admin_search_clients(
+    q: str = Query("", min_length=0),
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    return {"clients": await _search_clients(db, q)}
+
+
+@tech_router.get("/clients/search", summary="Поиск клиента для заказа")
+async def tech_search_clients(
+    q: str = Query("", min_length=0),
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️ Внедренец ищет ТОЛЬКО среди своих закреплённых клиентов: общий поиск
+    по базе платформы отдал бы ему чужих — это чужие контакты."""
+    spec_id = int(user["sub"])
+    rows = await _search_clients(db, q, limit=50)
+    mine = await db.fetch(
+        "SELECT id FROM clients WHERE tech_specialist_id = $1", spec_id)
+    allowed = {r["id"] for r in mine}
+    return {"clients": [c for c in rows if c["id"] in allowed]}
+
 
 @price_router.get("", summary="Прайс услуг")
 async def prices_list(
