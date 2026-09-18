@@ -176,6 +176,8 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
         # этом файле уже расползались и разъезжались по формату.
         """SELECT id, """ + DISPLAY_NAME_SQL("clients") + """ AS name, telegram_username,
                   brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
+                  -- Текст о проекте (миграция 446): плашка над блоком основателя.
+                  brand_bio,
                   owner_photo_url, owner_positioning, owner_achievements,
                   -- Точки лица на фото (миграция 434).
                   owner_photo_focal, profile_photo_focal,
@@ -1387,6 +1389,10 @@ class ProfileUpdate(BaseModel):
     profile_photo_url:  Optional[str]  = None       # фото бренда
     positioning:        Optional[str]  = None       # позиционирование бренда
     achievements:       Optional[list] = None       # [{label, value}] факты бренда
+    # ⚠️ Рассказ о ПРОЕКТЕ (миграция 446) — устроен один в один как `bio`
+    # основателя: те же теги, тот же лимит 1500. Разница только в том, про кого
+    # текст: `brand_bio` — «мы», `bio` — «я».
+    brand_bio:          Optional[str]  = None       # текст о бренде/проекте
     # Основатель (имя берётся из clients.name — не редактируется в UI)
     owner_photo_url:    Optional[str]  = None
     # Точки лица на фото (миграция 434) в формате CSS object-position.
@@ -1449,6 +1455,7 @@ async def get_my_profile(
     row = await db.fetchrow(
         """SELECT id, name, telegram_username, email,
                   brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
+                  brand_bio,
                   owner_photo_url, owner_positioning, owner_achievements,
                   -- Точки лица на фото (миграция 434).
                   owner_photo_focal, profile_photo_focal,
@@ -1496,6 +1503,9 @@ async def update_my_profile(
             _bad.append(f"{_label} (не больше 140 символов)")
     if getattr(data, "bio", None) and len(data.bio) > 1500:
         _bad.append("регалии (не больше 1500 символов)")
+    # Текст о бренде (миграция 446) — тот же лимит, что у регалий основателя.
+    if getattr(data, "brand_bio", None) and len(data.brand_bio) > 1500:
+        _bad.append("текст о бренде (не больше 1500 символов)")
     for _fld, _label in (("owner_achievements", "регалии основателя"),
                          ("achievements", "регалии бренда")):
         _items = getattr(data, _fld, None)
@@ -1527,6 +1537,7 @@ async def update_my_profile(
     if "profile_photo_url" in fs: add("profile_photo_url", data.profile_photo_url or None)
     if "positioning"       in fs: add("positioning",       data.positioning or None)
     if "achievements"      in fs: add("achievements",      data.achievements or [], jsonb=True)
+    if "brand_bio"         in fs: add("brand_bio",         data.brand_bio or None)
 
     if "owner_photo_url"    in fs: add("owner_photo_url",    data.owner_photo_url or None)
     # ⚠️ Пустая строка = «отметку сняли» → пишем NULL, иначе снятая отметка
@@ -1816,6 +1827,7 @@ async def update_my_profile(
                 WHERE id = ${len(args)}
                 RETURNING id,
                           brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
+                          brand_bio,
                           owner_photo_url, owner_positioning, owner_achievements,
                           -- Точки лица (миграция 434): без них форма после
                           -- сохранения получила бы пустые значения обратно.

@@ -260,10 +260,21 @@ def _socials_html(social: dict) -> str:
 
 
 def _about_html(client, brand: str) -> str:
-    """Вкладка «О проекте»: визитка бренда + блок основателя."""
+    """Вкладка «О проекте»: два подписанных раздела — основатель и бренд.
+
+    ⚠️ РАЗДЕЛЫ ПОДПИСАНЫ И ИДУТ В ЭТОМ ПОРЯДКЕ (решение владельца, 18.09.2026):
+    сначала «Информация об основателе» — человек, фото, регалии; следом
+    «Информация о проекте/бренде» — логотип и рассказ о проекте. Раньше обе
+    карточки шли без заголовков, и читалось это как один сплошной блок: фото
+    бренда сверху, фото человека снизу, а где кончается «мы» и начинается «я» —
+    непонятно. Тексты в полях устроены так же: `bio` — про человека,
+    `brand_bio` — про проект (миграция 446).
+    """
     positioning = esc(client["positioning"] or "")
     brand_photo = client["profile_photo_url"] or client["brand_logo_url"]
     brand_facts = _facts_html(_jsonb_list(client.get("achievements")))
+    # Рассказ о проекте — теми же тегами, что и регалии основателя.
+    brand_bio = safe_html(client["brand_bio"] or "")
 
     owner_name = esc(client["owner_full_name"] or client["name"] or "")
     owner_pos = safe_html(client["owner_positioning"] or "")
@@ -299,11 +310,11 @@ def _about_html(client, brand: str) -> str:
         # текст рассыпается.
         bio_html = f'<div class="ow-bio">{bio}</div>' if bio else ""
         owner_block = f"""
+        <div class="sec-h">Информация об основателе</div>
         <div class="ab-card ow-card">
           <div class="ow-head">
             {owner_photo_html}
             <div>
-              <div class="ow-lbl">ОБ ОСНОВАТЕЛЕ</div>
               <div class="ow-name">{owner_name}</div>
               {owner_pos_html}
             </div>
@@ -313,14 +324,20 @@ def _about_html(client, brand: str) -> str:
           {socials}
         </div>"""
 
+    # ⚠️ Текст о бренде — в разделе бренда, а не под фактами основателя: иначе
+    # рассказ «мы делаем» оказывался подписан именем человека.
+    brand_bio_html = f'<div class="ow-bio">{brand_bio}</div>' if brand_bio else ""
+
     return f"""
+    {owner_block}
+    <div class="sec-h">Информация о проекте</div>
     <div class="ab-card">
       {brand_photo_html}
       <div class="ab-name">{esc(brand)}</div>
       {pos_html}
       {brand_facts}
-    </div>
-    {owner_block}"""
+      {brand_bio_html}
+    </div>"""
 
 
 @router.get("/o/{client_id}", include_in_schema=False)
@@ -337,7 +354,8 @@ async def events_list_page(
                   -- миниатюры, иначе режет макушку.
                   profile_photo_focal, owner_photo_focal,
                   achievements, owner_photo_url, owner_positioning, owner_achievements,
-                  bio, social_links
+                  -- bio — про основателя, brand_bio — про проект (мигр. 446).
+                  bio, brand_bio, social_links
              FROM clients WHERE id = $1""",
         client_id,
     )
@@ -462,7 +480,11 @@ async def events_list_page(
   .fact-l {{ font-size:11px; color:#7a8a99; margin-top:2px; line-height:1.25; }}
   .ow-head {{ display:flex; align-items:center; gap:12px; }}
   .ow-photo {{ width:60px; height:60px; border-radius:50%; object-fit:cover; border:2px solid #FFCFA4; flex-shrink:0; }}
-  .ow-lbl {{ font-size:11px; font-weight:800; color:#25455D; letter-spacing:1px; }}
+  /* Заголовок раздела вкладки «О проекте» — «Информация об основателе» /
+     «Информация о проекте». Пришёл на смену надписи ОБ ОСНОВАТЕЛЕ внутри
+     карточки: разделов стало два, и подписывать нужно оба одинаково. */
+  .sec-h {{ font-size:11px; font-weight:800; color:#25455D; letter-spacing:1px;
+    text-transform:uppercase; margin:2px 0 8px 4px; }}
   .ow-name {{ font-size:17px; font-weight:700; color:#25455D; margin-top:2px; }}
   .ow-pos {{ font-size:13px; color:#5a6b7d; margin:3px 0 0; }}
   /* ⚠️ Без white-space:pre-wrap — переносы строк уже превращены в <br>

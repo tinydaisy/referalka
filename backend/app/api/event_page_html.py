@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from app.database import get_db
 from app.services.collaborator_sort import order_by_sql
 from app.services.person_name import DISPLAY_NAME_SQL
+from app.services.safe_html import safe_html
 from app.services.client_domains import (
     client_public_link,
     client_public_url,
@@ -468,6 +469,8 @@ async def _load_venue(db, client_id):
         """SELECT brand_name, name, """ + DISPLAY_NAME_SQL("clients") + """ AS owner_full_name,
                   brand_logo_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements, bio,
+                  -- Рассказ о проекте (миграция 446): плашка над основателем.
+                  brand_bio,
                   -- Точка лица на фото основателя (миграция 434).
                   owner_photo_focal,
                   social_links
@@ -1614,7 +1617,13 @@ def _venue_panel(profile, offerings) -> str:
     owner_name = esc(profile["owner_full_name"] or profile["name"] or "")
     owner_role = esc(profile["owner_positioning"] or "")
     owner_ach = _parse_jsonb(profile["owner_achievements"])
-    bio = profile["bio"] or ""
+    # ⚠️ Через safe_html, а не сырым: поле клиент пишет руками с тегами, и до
+    # 18.09.2026 оно вставлялось в страницу как есть — вместе с чем угодно, что
+    # туда попадёт. safe_html оставляет разметку (<b>, списки) и убирает
+    # опасное. Соседние страницы (/o/{id}) так делали с самого начала.
+    bio = safe_html(profile["bio"] or "")
+    # Рассказ о проекте (миграция 446) — плашка НАД блоком основателя.
+    brand_bio = safe_html(profile["brand_bio"] or "")
     social = _parse_jsonb_obj(profile["social_links"])
 
     # Шапка бренда. Приоритет как в Mini App EcosystemTab:
@@ -1640,6 +1649,23 @@ def _venue_panel(profile, offerings) -> str:
 
     # Факты бренда
     out += _achievements_grid(brand_ach)
+
+    # ═══ Плашка «О бренде» — НАД основателем, раскрывается вниз ═══
+    # Пусто — не рисуем вовсе. Цвет и механика те же, что у тизера основателя
+    # ниже: обе плашки про «кто мы», разный вид читался бы как разная важность.
+    if brand_bio.strip():
+        out += (
+            '<div class="acc collapsed brand-acc">'
+            '<button class="brand-bio-h" data-acc="brandbio" type="button">'
+            '<span class="brand-bio-lbl">О бренде</span>'
+            '<span class="brand-bio-chev">⌄</span></button>'
+            # ⚠️ Свёрнутый вид — НЕ display:none, а обрезка по трём строкам:
+            # человек должен увидеть, о чём текст, до того как решит открыть.
+            # Поэтому у этого блока свой класс, а не общий .acc-body.
+            f'<div class="brand-bio-body" id="acc-brandbio">{brand_bio}</div>'
+            '<div class="brand-bio-more">Читать полностью</div>'
+            '</div>'
+        )
 
     # Карточка-тизер основателя (раскрываемый блок)
     has_owner = bool(owner_name or profile["owner_photo_url"]
@@ -2180,11 +2206,31 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .owner-acc.collapsed .owner-acc-body {{ display:none; }}
   .owner-photo {{ width:100%; max-height:360px; object-fit:cover; border-radius:16px; border:2px solid #FFCFA4;
     margin-bottom:14px; display:block; }}
+  /* ⚠️ Без white-space:pre-wrap — переносы уже превращены в <br> (safe_html,
+     с 18.09.2026). С ним между строками выходил двойной отступ. */
   .owner-bio {{ background:#fff; padding:14px; border-radius:14px; border:1px solid #f0f0f0;
     box-shadow:0 1px 4px rgba(37,69,93,.06); font-size:14px; color:#3a4a5a; line-height:1.55;
-    white-space:pre-wrap; margin-bottom:14px; }}
+    margin-bottom:14px; }}
   .owner-bio img {{ max-width:100%; border-radius:8px; }}
   .owner-bio a {{ color:#0088cc; }}
+  /* Плашка «О бренде» — тот же фон и рамка, что у тизера основателя. */
+  .brand-acc {{ background:#FFF1E2; border:1px solid #FFE0C2; border-radius:14px;
+    padding:12px; margin-bottom:14px; box-shadow:0 1px 4px rgba(37,69,93,.06); }}
+  .brand-bio-h {{ width:100%; display:flex; align-items:center; gap:8px; background:none;
+    border:none; padding:0; cursor:pointer; font-family:inherit; text-align:left; }}
+  .brand-bio-lbl {{ flex:1; font-size:11px; color:#25455D; font-weight:800; letter-spacing:1px;
+    text-transform:uppercase; }}
+  .brand-bio-chev {{ font-size:20px; color:#25455D; font-weight:600; line-height:1;
+    transition:transform .2s; }}
+  .brand-acc:not(.collapsed) .brand-bio-chev {{ transform:rotate(180deg); }}
+  .brand-bio-body {{ margin-top:8px; font-size:14px; color:#3a4a5a; line-height:1.55; }}
+  /* Свёрнуто — видно три строки, а не пусто: по ним понятно, о чём текст. */
+  .brand-acc.collapsed .brand-bio-body {{ overflow:hidden; display:-webkit-box;
+    -webkit-line-clamp:3; -webkit-box-orient:vertical; }}
+  .brand-bio-body img {{ max-width:100%; border-radius:8px; }}
+  .brand-bio-body a {{ color:#0088cc; }}
+  .brand-bio-more {{ margin-top:6px; font-size:12.5px; font-weight:700; color:#25455D; cursor:pointer; }}
+  .brand-acc:not(.collapsed) .brand-bio-more {{ display:none; }}
   .social-h {{ font-size:10px; color:#b86b00; font-weight:700; letter-spacing:1.5px; text-transform:uppercase;
     margin-bottom:8px; }}
   .socials-wrap {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }}
@@ -2250,8 +2296,10 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   }}
   function currentTab() {{ return (location.hash || '').replace('#','') || '{first_tab}'; }}
 
-  // Аккордеоны (Спикеры, Кабинет: подарки/топ/материалы, тизер основателя)
-  document.querySelectorAll('.acc-h, .owner-teaser').forEach(function(btn) {{
+  // Аккордеоны (Спикеры, Кабинет: подарки/топ/материалы, тизер основателя,
+  // плашка «О бренде» — у неё раскрывает и заголовок, и ссылка «Читать
+  // полностью» под обрезанным текстом)
+  document.querySelectorAll('.acc-h, .owner-teaser, .brand-bio-h, .brand-bio-more').forEach(function(btn) {{
     btn.addEventListener('click', function() {{
       btn.closest('.acc').classList.toggle('collapsed');
     }});

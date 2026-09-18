@@ -35,6 +35,7 @@ interface Profile {
   profile_photo_url?: string | null   // фото бренда
   positioning?: string | null         // позиционирование бренда
   achievements?: Achievement[]
+  brand_bio?: string | null           // рассказ о проекте (мигр. 446)
   // Основатель (имя берётся из clients.name — отдельной колонки нет)
   owner_photo_url?: string | null
   owner_photo_focal?: string | null   // точка лица: за что держаться при обрезке
@@ -284,6 +285,11 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'free' | 'paid'>('free')
   const [showOwner, setShowOwner] = useState(false)
+  // ⚠️ Текст о бренде раскрывается ЗДЕСЬ ЖЕ, вниз, а не отдельной страницей как
+  // у основателя. Он про то, что уже на экране (шапка бренда сверху и факты под
+  // ней), и ради пары абзацев уводить человека на другой экран незачем. У
+  // основателя своя страница оправдана: там большое фото, факты и соцсети.
+  const [showBrandBio, setShowBrandBio] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -394,6 +400,56 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ═══ Плашка «О бренде» — НАД основателем, раскрывается вниз ═══
+          Пусто — не рисуем вовсе (так же, как «Факты в цифрах» выше).
+          Цвет тот же, что у тизера основателя: обе плашки — про «кто мы»,
+          и разный фон читался бы как разные по важности блоки. */}
+      {!!(profile.brand_bio || '').trim() && (
+        <div style={{
+          background: 'rgba(var(--peach-rgb), 0.14)', borderRadius: 14,
+          border: '1px solid rgba(var(--peach-rgb), 0.35)',
+          boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
+          padding: 12, marginBottom: 14,
+        }}>
+          <button onClick={() => setShowBrandBio(v => !v)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                    background: 'transparent', border: 'none', padding: 0,
+                    textAlign: 'left', cursor: 'pointer', font: 'inherit',
+                  }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: DARK,
+                          fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase' }}>
+              О бренде
+            </div>
+            {/* Стрелка смотрит вниз, а в раскрытом виде — вверх: так видно,
+                что блок сворачивается обратно, а не ведёт куда-то дальше. */}
+            <span style={{ fontSize: 20, color: DARK, fontWeight: 600, lineHeight: 1,
+                           transform: showBrandBio ? 'rotate(180deg)' : 'none',
+                           transition: 'transform .2s' }}>⌄</span>
+          </button>
+          {/* ⚠️ Обрезка по строкам — на ОБЁРТКЕ, а не внутри EventDescription:
+              текст с тегами приходит своими абзацами и списками, и обрезать
+              надо всё разом. Свёрнуто видно 3 строки — этого хватает понять,
+              о чём текст, и не занимает пол-экрана. */}
+          <div style={showBrandBio ? { marginTop: 8 } : {
+            marginTop: 8, overflow: 'hidden',
+            display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
+          }}>
+            <EventDescription
+              text={profile.brand_bio}
+              style={{ fontSize: 14, color: '#3a4a5a', lineHeight: 1.55 }}
+            />
+          </div>
+          {!showBrandBio && (
+            <div onClick={() => setShowBrandBio(true)}
+                 style={{ marginTop: 6, fontSize: 12.5, fontWeight: 700,
+                          color: DARK, cursor: 'pointer' }}>
+              Читать полностью
+            </div>
+          )}
         </div>
       )}
 

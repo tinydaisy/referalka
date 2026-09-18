@@ -71,6 +71,7 @@ interface Profile {
   profile_photo_url?: string | null         // фото бренда
   positioning?: string | null               // позиционирование бренда
   achievements: Achievement[]               // факты в цифрах бренда
+  brand_bio?: string | null                 // текст о бренде/проекте (мигр. 446)
   // Основатель (имя берётся из clients.name — отдельной колонки больше нет)
   owner_photo_url?: string | null
   owner_positioning?: string | null
@@ -398,6 +399,20 @@ function MiniAppSettings() {
             + '\n\nПоправьте теги — поле подсвечено красным.')
       return
     }
+    // ⚠️ Регалии основателя и текст о бренде — тоже с тегами, и кривой тег там
+    // так же ломает вёрстку плашки: незакрытый <b> красит жирным всё до конца
+    // страницы. Раньше ошибка только подсвечивалась в поле и спокойно уезжала
+    // в базу — теперь не даём сохранить, как у приветствия.
+    for (const [fld, label] of [['bio', 'регалий основателя'],
+                                ['brand_bio', 'текста о бренде']] as const) {
+      const issues = findHtmlIssues((profile as any)[fld] || '')
+      if (issues.length) {
+        alert(`Не получится сохранить из-за ${label}:\n\n• `
+              + issues.map(i => i.message).join('\n• ')
+              + '\n\nПоправьте теги — поле подсвечено красным.')
+        return
+      }
+    }
     // Лимиты длины: не даём сохранить полотно — карточка каталога и страница
     // «Об основателе» рассчитаны на текст, а не на целый лендинг.
     const tooLong: string[] = []
@@ -407,6 +422,8 @@ function MiniAppSettings() {
       tooLong.push(`позиционирование бренда — на ${(profile.positioning || '').length - POSITIONING_LIMIT} символов длиннее`)
     if ((profile.bio || '').length > BIO_LIMIT)
       tooLong.push(`регалии — на ${(profile.bio || '').length - BIO_LIMIT} символов длиннее`)
+    if ((profile.brand_bio || '').length > BIO_LIMIT)
+      tooLong.push(`текст о бренде — на ${(profile.brand_bio || '').length - BIO_LIMIT} символов длиннее`)
     for (const [fld, label] of [['owner_achievements', 'фактах основателя'], ['achievements', 'фактах бренда']] as const) {
       const items = (profile as any)[fld] as Achievement[] | undefined
       if (items?.some(x => (x.label || '').length > ACH_LABEL_LIMIT)) {
@@ -429,6 +446,7 @@ function MiniAppSettings() {
         profile_photo_url: profile.profile_photo_url || null,
         positioning:       profile.positioning       || null,
         achievements:      cleanAch(profile.achievements),
+        brand_bio:         profile.brand_bio || null,
         // основатель
         owner_photo_url:    profile.owner_photo_url   || null,
         owner_positioning:  profile.owner_positioning || null,
@@ -673,6 +691,26 @@ function MiniAppSettings() {
               onChange={(idx, key, val) => updateAch('achievements', idx, key, val)}
               onRemove={idx => removeAch('achievements', idx)}
             />
+          </Section>
+
+          <Section
+            step={4}
+            title="О бренде"
+            hint="Рассказ о проекте: что делаете, для кого, чем отличаетесь. Показывается отдельной плашкой НАД блоком «Об основателе» — в Mini App и на странице организатора. Если оставить пустым — плашки не будет."
+          >
+            {/* ⚠️ Тот же редактор и тот же лимит, что у регалий основателя
+                (вкладка «Основатель», шаг 3): поля-близнецы, разница только в
+                том, про кого текст — «мы» или «я». Свой лимит здесь развёл бы
+                два одинаковых с виду поля по разным правилам. */}
+            <div className="max-w-2xl">
+              <HtmlTextArea
+                value={profile.brand_bio || ''}
+                onChange={v => update('brand_bio', v)}
+                placeholder="Чем занимается ваш проект, для кого он и что дают людям…"
+                rows={10}
+              />
+              <CharCount value={profile.brand_bio || ''} limit={BIO_LIMIT} />
+            </div>
           </Section>
         </>
       )}
