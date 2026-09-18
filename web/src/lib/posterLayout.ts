@@ -23,6 +23,12 @@ export type PosterPerson = {
   crop_zoom_circle?: number | null
   crop_zoom_square?: number | null
   crop_zoom_portrait?: number | null
+  crop_dx_circle?: number | null
+  crop_dy_circle?: number | null
+  crop_dx_square?: number | null
+  crop_dy_square?: number | null
+  crop_dx_portrait?: number | null
+  crop_dy_portrait?: number | null
   is_commercial?: boolean | null
   media_assets?: { platform?: string; subscribers?: number }[] | null
 }

@@ -198,6 +198,13 @@ class CollaboratorCreate(BaseModel):
     crop_zoom_circle: Optional[float] = None
     crop_zoom_square: Optional[float] = None
     crop_zoom_portrait: Optional[float] = None
+    # Сдвиг кадра (миграция 452): вбок и вверх/вниз, своё у каждой формы.
+    crop_dx_circle: Optional[float] = None
+    crop_dy_circle: Optional[float] = None
+    crop_dx_square: Optional[float] = None
+    crop_dy_square: Optional[float] = None
+    crop_dx_portrait: Optional[float] = None
+    crop_dy_portrait: Optional[float] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters
     # (CRUD `/api/v1/collaborators/{id}/posters`).
     photo_folder_url: Optional[str] = None
@@ -249,6 +256,13 @@ class CollaboratorUpdate(BaseModel):
     crop_zoom_circle: Optional[float] = None
     crop_zoom_square: Optional[float] = None
     crop_zoom_portrait: Optional[float] = None
+    # Сдвиг кадра (миграция 452): вбок и вверх/вниз, своё у каждой формы.
+    crop_dx_circle: Optional[float] = None
+    crop_dy_circle: Optional[float] = None
+    crop_dx_square: Optional[float] = None
+    crop_dy_square: Optional[float] = None
+    crop_dx_portrait: Optional[float] = None
+    crop_dy_portrait: Optional[float] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters.
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
@@ -296,7 +310,9 @@ def row_to_dict(row):
     # ⚠️ То же самое с приближением кадра (миграция 451): NUMERIC уезжает
     # строкой «1.60», а фронт на него УМНОЖАЕТ размер фото — на строке вышел бы
     # NaN, и фото в маске пропало бы вовсе.
-    for _z in ("crop_zoom_circle", "crop_zoom_square", "crop_zoom_portrait"):
+    for _z in ("crop_zoom_circle", "crop_zoom_square", "crop_zoom_portrait",
+               "crop_dx_circle", "crop_dy_circle", "crop_dx_square",
+               "crop_dy_square", "crop_dx_portrait", "crop_dy_portrait"):
         if d.get(_z) is not None:
             d[_z] = float(d[_z])
     return d
@@ -320,6 +336,8 @@ _COLLAB_SELECT = """
     c.logo_on_light_url,
     -- Приближение кадра в маске (миграция 451), своё у каждой формы.
     c.crop_zoom_circle, c.crop_zoom_square, c.crop_zoom_portrait,
+    c.crop_dx_circle, c.crop_dy_circle, c.crop_dx_square, c.crop_dy_square,
+    c.crop_dx_portrait, c.crop_dy_portrait,
     (SELECT url FROM collaborator_posters cp
        WHERE cp.collaborator_id = c.id
        ORDER BY cp.sort_order, cp.id

@@ -24,8 +24,8 @@
  */
 
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
-import { focalCssForPoster } from '@/lib/photoFocal'
-import { zoomOf, type CropShape } from '@/components/FocalPointPicker'
+import MaskedPhoto from '@/components/MaskedPhoto'
+import { type CropShape } from '@/lib/photoCrop'
 import {
   applyManualOrder, applyManualRows, splitRows, splitIntoRows, personLines,
   BADGE_LABELS, ORGANIZER_ROLES, type PosterPerson,
@@ -589,36 +589,50 @@ function cropShapeOf(shape?: string): CropShape {
   return 'portrait'
 }
 
-/**
- * Во сколько раз приблизить кадр внутри маски.
- *
- * ⚠️⚠️ БЕРЁМ НАСТРОЙКУ ИЗ КАРТОЧКИ ЧЕЛОВЕКА (миграция 451), а не константу.
- * Раньше приближение было зашито одинаковым для всех: у портрета по плечи
- * приближать нечего, а человека в полный рост и втрое мало. Теперь клиент
- * подгоняет каждую форму руками в карточке спикера, и афиша показывает ровно
- * то, что он там увидел.
- */
-function maskZoom(shape: string | undefined, p: PosterPerson): number {
-  return zoomOf(cropShapeOf(shape), p)
+/** Пропорция карточки (высота / ширина) по форме маски. */
+function shapeRatio(shape?: string): number {
+  switch (shape) {
+    case 'square':   return 1
+    case 'circle':   return 1
+    case 'oval':     return 1.25
+    case 'egg':      return 1.2
+    default:         return 1.35   // portrait — вертикальный прямоугольник
+  }
+}
+
+/** CSS-форма маски. */
+function maskCss(L: PosterLayout): React.CSSProperties {
+  switch (L.mask_shape) {
+    // ⚠️⚠️ КРУГ — ЭТО 50 %, А НЕ 9999px. На прямоугольной карточке `9999px`
+    // даёт «таблетку» — прямоугольник со скруглёнными торцами, что и было
+    // видно на экране. Круг получается только когда карточка КВАДРАТНАЯ
+    // (за это отвечает shapeRatio) и радиус задан в процентах.
+    case 'circle': return { borderRadius: '50%' }
+    // Овал — тот же 50 %, но карточка вытянута по высоте (shapeRatio 1.25).
+    case 'oval':   return { borderRadius: '50%' }
+    // Яйцо: снизу круглее, сверху уже — несимметричное скругление.
+    case 'egg':    return { borderRadius: '50% 50% 50% 50% / 60% 60% 40% 40%' }
+    case 'cutout': return {}
+    // ⚠️ Квадрат и прямоугольник отличаются ПРОПОРЦИЕЙ (shapeRatio: 1 против
+    // 1.35), а не скруглением. Радиус — общая настройка для обоих.
+    // `mask_radius` в % от ширины: у квадрата 50 % дадут круг, и это законно —
+    // клиент сам решает, насколько скруглить.
+    case 'square':
+    default:       return { borderRadius: `${L.mask_radius ?? 0}%` }
+  }
 }
 
 /**
- * Где держать лицо внутри маски.
+ * Форма маски → форма, для которой настроен кадр в карточке человека.
  *
- * ⚠️⚠️ У КРУГА И КВАДРАТА НОС — ПОСЕРЕДИНЕ (требование владельца). В
- * прямоугольной карточке лицо поднимают вверх: под ним ещё есть плечи и место
- * под подпись. В круге и квадрате это выглядит так, будто человек выглядывает
- * из-за края — центр там и есть правильное место.
+ * ⚠️ Овал и яйцо близки к кругу, поэтому берут его настройку: заводить им свои
+ * ползунки значило бы пять ручек на фото вместо трёх, а разница между кругом и
+ * овалом для кадрирования невелика.
  */
-function maskFocal(shape: string | undefined, focal?: string | null): string {
-  if (shape === 'circle' || shape === 'square' || shape === 'oval' || shape === 'egg') {
-    // Держим точку лица ровно в центре маски: по горизонтали берём отмеченную
-    // (лицо бывает сбоку), по вертикали — центр.
-    const m = (focal || '').match(/(-?[\d.]+)\s*%/)
-    const x = m ? Math.max(0, Math.min(100, Number(m[1]))) : 50
-    return `${Math.round(x)}% 50%`
-  }
-  return focalCssForPoster(focal)
+function cropShapeOf(shape?: string): CropShape {
+  if (shape === 'circle' || shape === 'oval' || shape === 'egg') return 'circle'
+  if (shape === 'square') return 'square'
+  return 'portrait'
 }
 
 function bgStyle(L: PosterLayout, th: PosterTheme): React.CSSProperties {
@@ -866,34 +880,34 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
           ? { boxShadow: `0 0 ${px(L.hl_glow ?? 1.5)}px ${px((L.hl_glow ?? 1.5) / 3)}px ${gold}` } : {}),
         boxSizing: 'border-box',
       }}>
-        {url && (
+        {url && (cutout ? (
+          // ⚠️ Вырезку НЕ режем и прижимаем к низу: человек стоит на афише,
+          // а не висит. Кадрирование к ней не применяется — у неё нет фона,
+          // который надо было бы обрезать.
           // eslint-disable-next-line @next/next/no-img-element
           <img src={url} alt=""
                style={{
                  width: '100%', height: '100%',
-                 // ⚠️ Вырезку НЕ режем (`contain`) и прижимаем к низу: человек
-                 // стоит на афише, а не висит. Обычное фото — `cover` с точкой
-                 // лица: правило «лицо не ниже середины карточки» вшито в
-                 // focalCssForPoster.
-                 objectFit: cutout ? 'contain' : 'cover',
-                 objectPosition: cutout ? 'bottom center' : maskFocal(L.mask_shape, focal),
-                 // ⚠️⚠️ У КРУГА И КВАДРАТА КАДР ПРИБЛИЖАЕТСЯ К ЛИЦУ. В них
-                 // помещается почти квадратный фрагмент снимка, и человек,
-                 // снятый в полный рост, превращался в фигурку с неразличимым
-                 // лицом. Масштабируем от точки лица — она остаётся на месте,
-                 // а лишнее (пол, потолок) уходит за края маски.
-                 // ⚠️⚠️ ЗУМ ОТ ЦЕНТРА: `object-position` уже поставил точку
-                 // лица в центр кадра, и origin по той же точке сдвинул бы
-                 // картинку второй раз — лицо уезжало вбок.
-                 ...(maskZoom(L.mask_shape, p) > 1 ? {
-                   transform: `scale(${maskZoom(L.mask_shape, p)})`,
-                   transformOrigin: 'center',
-                 } : {}),
-                 // Свечение вырезки — по контуру человека, а не по прямоугольнику.
-                 ...(cutout && on && (hl === 'glow' || hl === 'both')
+                 objectFit: 'contain', objectPosition: 'bottom center',
+                 ...(on && (hl === 'glow' || hl === 'both')
                    ? { filter: `drop-shadow(0 0 ${px(L.hl_glow ?? 1.5)}px ${gold})` } : {}),
                }} />
-        )}
+        ) : (
+          // ⚠️⚠️ ТОТ ЖЕ РАСЧЁТ, что в карточке спикера (`photoCrop`): отмеченная
+          // точка лица встаёт РОВНО В ЦЕНТР маски, применяются приближение и
+          // сдвиг, заданные клиентом. Раньше здесь был `object-position`, а он
+          // совмещает точку N % картинки с точкой N % МАСКИ, а не с центром —
+          // отсюда и уезжавший вбок нос.
+          <MaskedPhoto
+            url={url}
+            shape={cropShapeOf(L.mask_shape)}
+            focal={focal}
+            settings={p}
+            width={wPx}
+            height={hPx}
+            style={{ position: 'absolute', inset: 0 }}
+          />
+        ))}
 
         {/* Лента через угол — для прямоугольных карточек. */}
         {showBadge && badge === 'ribbon' && !cutout && (

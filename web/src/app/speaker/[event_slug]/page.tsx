@@ -147,6 +147,12 @@ type SpeakerMe = {
   crop_zoom_circle?: number | null
   crop_zoom_square?: number | null
   crop_zoom_portrait?: number | null
+  crop_dx_circle?: number | null
+  crop_dy_circle?: number | null
+  crop_dx_square?: number | null
+  crop_dy_square?: number | null
+  crop_dx_portrait?: number | null
+  crop_dy_portrait?: number | null
   // poster_url убран миграцией 121: афиши теперь библиотека на стороне клиента,
   // спикер их только просматривает в разделе «Материалы».
   photo_folder_url: string | null
@@ -289,6 +295,12 @@ type SpeakerMaterials = {
   crop_zoom_circle?: number | null
   crop_zoom_square?: number | null
   crop_zoom_portrait?: number | null
+  crop_dx_circle?: number | null
+  crop_dy_circle?: number | null
+  crop_dx_square?: number | null
+  crop_dy_square?: number | null
+  crop_dx_portrait?: number | null
+  crop_dy_portrait?: number | null
   // Афиша помеченная клиентом «Для рассылок по чат-боту» в этой конференции.
   // NULL → fallback на первую из библиотеки.
   broadcast_poster_url: string | null

@@ -16,52 +16,13 @@
  */
 
 import { useRef } from 'react'
-import { formatFocal, parseFocal, focalCss } from '@/lib/photoFocal'
+import { formatFocal, parseFocal } from '@/lib/photoFocal'
+import MaskedPhoto from '@/components/MaskedPhoto'
+import { zoomOf, offsetOf, type CropSettings, type CropShape } from '@/lib/photoCrop'
 
-/** Формы, для которых настраивается кадр. */
-export type CropShape = 'circle' | 'square' | 'portrait'
-
-export type CropZooms = {
-  crop_zoom_circle?: number | null
-  crop_zoom_square?: number | null
-  crop_zoom_portrait?: number | null
-}
-
-// ⚠️ Умолчание 1.0 — кадр БЕЗ приближения: голова помещается целиком, макушка
-// и волосы не срезаются. Прежние 1.6 обрезали часть головы у портретов,
-// снятых крупно. Приблизить клиент может сам ползунком — это его выбор, а
-// «по умолчанию ничего не отрезано» безопаснее.
-export const ZOOM_DEFAULT: Record<CropShape, number> = {
-  circle: 1,
-  square: 1,
-  portrait: 1,
-}
-
-const FIELD: Record<CropShape, keyof CropZooms> = {
-  circle: 'crop_zoom_circle',
-  square: 'crop_zoom_square',
-  portrait: 'crop_zoom_portrait',
-}
-
-/** Приближение для формы: заданное клиентом либо умолчание. */
-export function zoomOf(shape: CropShape, z?: CropZooms | null): number {
-  const v = z?.[FIELD[shape]]
-  const n = typeof v === 'string' ? Number(v) : v
-  return Number.isFinite(n) && (n as number) >= 1 ? (n as number) : ZOOM_DEFAULT[shape]
-}
-
-/**
- * Куда смотрит кадр внутри маски.
- *
- * ⚠️ У круга и квадрата точка лица стоит РОВНО ПО ЦЕНТРУ: иначе человек
- * выглядывает из-за края. У прямоугольника лицо поднимают вверх — под ним ещё
- * плечи и подпись.
- */
-export function cropPosition(shape: CropShape, focal?: string | null): string {
-  const { x, y } = parseFocal(focal)
-  if (shape === 'portrait') return focalCss(focal)
-  return `${Math.round(x)}% 50%`
-}
+export type { CropShape, CropSettings }
+/** Старое имя — чтобы не править все места разом. */
+export type CropZooms = CropSettings
 
 export default function FocalPointPicker({
   url, value, onChange, hint, zooms, onZoomChange,
@@ -130,10 +91,8 @@ export default function FocalPointPicker({
                 shape={shape}
                 url={url}
                 focal={value}
-                zoom={zoomOf(shape, zooms)}
-                onZoom={onZoomChange
-                  ? v => onZoomChange({ [FIELD[shape]]: v } as CropZooms)
-                  : undefined}
+                settings={zooms}
+                onChange={onZoomChange}
               />
             ))}
           </div>
@@ -157,44 +116,78 @@ const LABEL: Record<CropShape, string> = {
   portrait: 'Афиша',
 }
 
-/** Одна форма: превью + ползунок приближения под ним. */
-function ShapeTuner({ shape, url, focal, zoom, onZoom }: {
+/** Одна форма: превью, приближение и сдвиг. */
+function ShapeTuner({ shape, url, focal, settings, onChange }: {
   shape: CropShape
   url: string
   focal?: string | null
-  zoom: number
-  onZoom?: (v: number) => void
+  settings?: CropSettings | null
+  onChange?: (patch: CropSettings) => void
 }) {
-  const w = 86
-  const h = shape === 'portrait' ? 114 : 86
-  const pos = cropPosition(shape, focal)
+  const w = 96
+  const h = shape === 'portrait' ? 128 : 96
+  const zoom = zoomOf(shape, settings)
+  const { dx, dy } = offsetOf(shape, settings)
 
   return (
     <div className="text-center">
-      <div className="overflow-hidden border card-border bg-gray-100 mx-auto"
-           style={{ width: w, height: h, borderRadius: shape === 'circle' ? 9999 : 10 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="" className="w-full h-full"
-             style={{
-               objectFit: 'cover', objectPosition: pos,
-               // ⚠️⚠️ ЗУМ ОТ ЦЕНТРА, а не от точки лица. `object-position` УЖЕ
-               // поставил отмеченную точку в центр видимого кадра; если ещё и
-               // `transform-origin` задать той же точкой, сдвиг применится
-               // дважды и лицо уедет вбок (так и было у Вангуловой).
-               ...(zoom > 1 ? { transform: `scale(${zoom})`, transformOrigin: 'center' } : {}),
-             }} />
-      </div>
+      {/* ⚠️ Тот же компонент, что рисует афишу: точка лица попадает ровно в
+          центр маски — это видно здесь и ровно так будет на афише. */}
+      <MaskedPhoto
+        url={url}
+        shape={shape}
+        focal={focal}
+        settings={settings}
+        width={w}
+        height={h}
+        radius={shape === 'circle' ? '50%' : 10}
+        className="border card-border bg-gray-100 mx-auto"
+      />
       <p className="text-[10px] text-gray-400 mt-1">{LABEL[shape]}</p>
-      {onZoom && (
-        <div className="mt-1" style={{ width: w }}>
-          {/* Ползунок приближения. ⚠️ Шаг 0.05 — иначе кадр прыгает и
-              подогнать лицо точно не получается. */}
-          <input type="range" min={1} max={3} step={0.05} value={zoom}
-                 onChange={e => onZoom(Number(e.target.value))}
-                 className="w-full" />
-          <div className="text-[10px] text-gray-400">×{zoom.toFixed(2)}</div>
+
+      {onChange && (
+        <div className="mt-1 space-y-1" style={{ width: w }}>
+          <Slider label="крупнее" min={1} max={3} step={0.05} value={zoom}
+                  fmt={v => `×${v.toFixed(2)}`}
+                  onChange={v => onChange({ [`crop_zoom_${shape}`]: v } as CropSettings)} />
+          {/* Сдвиг — когда центр не то, что нужно: шляпа, высокая причёска. */}
+          <Slider label="вбок" min={-50} max={50} step={1} value={dx}
+                  fmt={v => `${v > 0 ? '+' : ''}${v}`}
+                  onChange={v => onChange({ [`crop_dx_${shape}`]: v } as CropSettings)} />
+          <Slider label="выше/ниже" min={-50} max={50} step={1} value={dy}
+                  fmt={v => `${v > 0 ? '+' : ''}${v}`}
+                  onChange={v => onChange({ [`crop_dy_${shape}`]: v } as CropSettings)} />
+          {(zoom !== 1 || dx !== 0 || dy !== 0) && (
+            <button type="button"
+                    onClick={() => onChange({
+                      [`crop_zoom_${shape}`]: 1,
+                      [`crop_dx_${shape}`]: 0,
+                      [`crop_dy_${shape}`]: 0,
+                    } as CropSettings)}
+                    className="text-[10px] text-gray-400 hover:text-gray-600 underline">
+              сбросить
+            </button>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Компактный ползунок с подписью и значением. */
+function Slider({ label, min, max, step, value, fmt, onChange }: {
+  label: string; min: number; max: number; step: number; value: number
+  fmt: (v: number) => string
+  onChange: (v: number) => void
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[10px] text-gray-400 leading-none">
+        <span>{label}</span><span>{fmt(value)}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+             onChange={e => onChange(Number(e.target.value))}
+             className="w-full" style={{ height: 14 }} />
     </div>
   )
 }
