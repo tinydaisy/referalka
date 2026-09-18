@@ -833,6 +833,17 @@ export const api = {
   // Автообзвоны через сервис Звонопёс (миграция 359). Гейт — фича calls.
   // Настройки подключения (ключ + номер + сценарии) и сами кампании обзвона.
   // Автонастройка Telegram «под ключ» — разовая услуга (миграция 364).
+  // «Шаг ноль»: подтверждение почты + вход хотя бы в одного бота поддержки.
+  // Ставится ПЕРЕД автонастройкой, чтобы с клиентом был рабочий канал связи:
+  // услуга в нескольких местах упирается в его действие, и без связи она
+  // встаёт молча (так вышло с заказами 8 и 13 в сентябре 2026).
+  supportOnboarding: {
+    get: () => request('/api/v1/clients/me/support-onboarding'),
+    resendEmail: () =>
+      request('/api/v1/clients/me/support-onboarding/resend-email',
+              { method: 'POST' }),
+  },
+
   tgAutosetup: {
     get: () => request('/api/v1/clients/me/tg-autosetup'),
     checkName: (username: string) =>
@@ -1563,6 +1574,27 @@ export const api = {
       return request(`/api/v1/clients/me/cover-templates/${kind}/render?${qs}`,
                      { method: 'POST' })
     },
+  },
+
+  // Генератор афиш события (миграция 435): фон + расстановка спикеров.
+  // ⚠️ Состав (спикеры, партнёры, фото) в макете НЕ хранится — он приходит в
+  // поле `people` прямо из карточек события: копия разошлась бы с составом,
+  // как только добавили спикера.
+  posterLayout: {
+    get: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}`),
+    save: (eventId: number, o: 'horizontal' | 'vertical' | 'square', data: any) =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}`, {
+        method: 'PUT', body: JSON.stringify(data),
+      }),
+    // ⚠️ Скачивание через тот же `downloadPdf` (он про любой файл, не только
+    // PDF): там уже разобран заголовок с кириллическим именем.
+    png: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>
+      downloadPdf(`/api/v1/events/${eventId}/poster-layout/${o}/png`, 'afisha.png'),
+    // Собрать афишу и сразу положить её в афиши события — чтобы не качать
+    // картинку и не загружать обратно руками.
+    render: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}/render`, { method: 'POST' }),
   },
 
   // Материалы, которые открывает КУПЛЕННЫЙ МОДУЛЬ (Коллабораторная и далее).

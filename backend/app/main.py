@@ -13,9 +13,11 @@ from app.middleware.email_verification_guard import email_verification_guard_mid
 from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public, request_forms, instagram_webhook, instagram_funnels, module_materials, cover_templates, cover_public, tech_cabinet, admin_tech, tech_materials, tech_dialogs, solutions, address_suggest, promo_codes
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
 from app.api import client_call_settings, call_campaigns
-from app.api import tg_autosetup, admin_tg_setup
+from app.api import tg_autosetup, admin_tg_setup, support_onboarding
 from app.api import partner_program, partner_public
 from app.api import platform_news
+# Генератор афиш события (миграция 435): макет + сборка картинки браузером.
+from app.api import event_posters_gen, poster_public
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
 from app.api import webinar_public
@@ -202,6 +204,11 @@ app.include_router(solutions.router, prefix="/api/v1")
 # Страница отрисовки обложки — её открывает Chromium по подписанному токену.
 # ⚠️ Без префикса: свой полный путь /api/v1/public/cover.
 app.include_router(cover_public.router)
+# Генератор афиш события (миграция 435).
+app.include_router(event_posters_gen.router, prefix="/api/v1")
+# Данные для страницы отрисовки афиши — её открывает Chromium по подписанному
+# токену. ⚠️ Без префикса: свой полный путь /api/v1/public/poster.
+app.include_router(poster_public.router)
 # Тех-специалисты (внедренцы, миграция 391) — ТРЕТИЙ тип входа помимо клиента
 # и админа: свой срез данных платформы по закреплённым клиентам.
 app.include_router(tech_cabinet.router, prefix="/api/v1")
@@ -277,6 +284,7 @@ app.include_router(call_campaigns.router,           prefix="/api/v1")           
 app.include_router(call_campaigns.public_router,    prefix="/api/v1")           # /api/v1/public/calls/webhook
 # Автонастройка Telegram «под ключ» — разовая услуга (миграция 364).
 app.include_router(tg_autosetup.router,             prefix="/api/v1")           # /api/v1/clients/me/tg-autosetup
+app.include_router(support_onboarding.router,       prefix="/api/v1")           # шаг ноль: почта + бот поддержки
 app.include_router(tg_autosetup.leadpay_webhook_router,  prefix="/api/v1")      # оплата услуги (LeadPay)
 app.include_router(tg_autosetup.prodamus_webhook_router, prefix="/api/v1")      # оплата услуги (Продамус)
 app.include_router(admin_tg_setup.router,           prefix="/api/v1")           # /api/v1/admin/tg-setup/*

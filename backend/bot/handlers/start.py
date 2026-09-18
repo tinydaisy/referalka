@@ -342,6 +342,18 @@ async def handle_start(message: Message, command: CommandObject):
         if await _send_question_prompt(message):
             return
 
+    # ⚠️⚠️ «ШАГ НОЛЬ»: человек пришёл из кабинета по ПОДПИСАННОЙ ссылке
+    # `?start=zero-<client_id>-<подпись>`. Отмечаем, что канал связи с ним
+    # заведён, — дальше автонастройка сможет до него достучаться.
+    #
+    # ⚠️ Личность берём ИЗ АПДЕЙТА (`message.from_user.id`), а client_id — из
+    # подписи. Ник не спрашиваем и не используем вовсе: в MAX ников нет, при
+    # регистрации его могут не указать, а введённый руками может оказаться
+    # чужим — и мы засчитали бы подписку не тому человеку.
+    if args.startswith("zero-"):
+        if await _mark_support_subscribed(message, args, platform="telegram"):
+            return
+
     # Воронка лид-магнита: прямой формат `/start m_<slug>` (для лид-магнита) или
     # `/start p_<slug>` (для пакета). Опционально с UTM/pid: `m_<slug>_pid<ref>_src<utm>`.
     # Бот сам создаёт funnel_run и запускает run_started. Это заменяет старый
@@ -2613,6 +2625,71 @@ async def _send_question_prompt(message: Message) -> bool:
     except Exception as e:  # noqa: BLE001
         log.warning("question prompt answer failed: %s", e)
         return False
+    return True
+
+
+async def _mark_support_subscribed(message: Message, param: str, *,
+                                   platform: str) -> bool:
+    """Записывает, что клиент зашёл в нашего бота поддержки («шаг ноль»).
+
+    ⚠️ Отметку ставим ТОЛЬКО если подпись в параметре сошлась: иначе любой
+    подставил бы в ссылку чужой client_id и закрыл бы шаг за другого человека.
+
+    ⚠️ Общая для всех площадок: `platform` передаёт вызывающий бот. Для MAX и
+    ВК код будет тот же — меняется только слаг.
+
+    Возвращает True, если приглашение отправлено и дальше payload разбирать не
+    надо.
+    """
+    try:
+        from app.services.support_link import parse_support_param
+        parsed = parse_support_param(param)
+    except Exception as e:  # noqa: BLE001
+        log.warning("support param parse failed: %s", e)
+        return False
+
+    client_id = parsed.get("client_id")
+    if not client_id:
+        # Подпись не сошлась — молча уходим в обычную обработку: ругаться на
+        # человека за испорченную ссылку бессмысленно, он её не набирал.
+        return False
+
+    user = message.from_user
+    if not user:
+        return False
+
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            # ⚠️ ON CONFLICT — повторный клик по ссылке норма: человек
+            # открывает бота не с первого раза. Обновляем id и время, а не
+            # плодим строки.
+            await db.execute(
+                """INSERT INTO client_support_subscriptions
+                       (client_id, platform_slug, platform_user_id, username, reason)
+                   VALUES ($1, $2, $3, $4, $5)
+                   ON CONFLICT (client_id, platform_slug) DO UPDATE
+                      SET platform_user_id = EXCLUDED.platform_user_id,
+                          username         = EXCLUDED.username,
+                          subscribed_at    = NOW()""",
+                client_id, platform, str(user.id),
+                (user.username or "").lstrip("@") or None,
+                parsed.get("reason") or "zero",
+            )
+    except Exception as e:  # noqa: BLE001
+        log.warning("support subscription save failed (client %s): %s", client_id, e)
+        return False
+
+    try:
+        await message.answer(
+            "✅ Готово — связь установлена.\n\n"
+            "Теперь мы сможем написать вам сюда, если по ходу настройки "
+            "что-то понадобится от вас. Возвращайтесь в кабинет и "
+            "продолжайте — шаг уже отмечен.",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("support subscription answer failed: %s", e)
     return True
 
 
