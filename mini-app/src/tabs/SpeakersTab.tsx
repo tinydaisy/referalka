@@ -1,7 +1,7 @@
 import EventDescription from '../components/EventDescription'
 import { useState, useEffect, useRef } from 'react'
 import { getSpeakers, getProgramPublic } from '../api'
-import { focalCss } from '../utils/photoFocal'
+import Avatar from '../components/Avatar'
 
 // «ДД.ММ.ГГГГ HH:MM–HH:MM МСК» из даты дня и времён сессии.
 function fmtSlot(dayDate?: string | null, t1?: string | null, t2?: string | null): string {
@@ -30,7 +30,10 @@ interface Speaker {
   name: string
   title?: string
   photo_url?: string
-  photo_focal?: string | null   // точка лица: за что держаться при обрезке
+  photo_focal?: string | null
+  crop_zoom_circle?: number | null
+  crop_dx_circle?: number | null
+  crop_dy_circle?: number | null   // точка лица: за что держаться при обрезке
   role?: string
   achievements?: string[] | null
   tg_channel_url?: string | null
@@ -306,15 +309,8 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                 transition: 'border-color 0.3s, box-shadow 0.3s',
               }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
-                <div style={{
-                  width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
-                  background: sp.photo_url ? `${focalCss(sp.photo_focal)}/cover url(${sp.photo_url})` : 'var(--gradient)',
-                  border: `2px solid ${PEACH}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: PEACH, fontWeight: 700, fontSize: 18,
-                }}>
-                  {!sp.photo_url && initials(sp.name)}
-                </div>
+                <Avatar person={sp} url={sp.photo_url} size={56} name={sp.name}
+                        border={`2px solid ${PEACH}`} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   {roleLabel && (
                     <span style={{

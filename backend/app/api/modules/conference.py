@@ -1367,6 +1367,10 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name,
                   sp.title, sp.photo_url, sp.photo_focal, sp.achievements,
+                  -- Кадр круглого аватара (мигр. 451, 452): настроен в карточке.
+                  sp.crop_zoom_circle::float8 AS crop_zoom_circle,
+                  sp.crop_dx_circle::float8 AS crop_dx_circle,
+                  sp.crop_dy_circle::float8 AS crop_dy_circle,
                   sp.tg_channel_url, sp.vk_url, sp.max_url,
                   sp.instagram_url, sp.website_url,
                   pu_tg.username AS personal_tg_username
@@ -2350,7 +2354,11 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
                   s.track_label, s.track_color, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
                   btrim(CASE WHEN COALESCE(btrim(col.last_name),'')='' THEN COALESCE(col.name,'') ELSE COALESCE(col.name,'')||' '||COALESCE(col.last_name,'') END) AS speaker_name, col.title AS speaker_title,
-                  col.photo_url, col.photo_focal, cse.role AS speaker_role
+                  col.photo_url, col.photo_focal,
+                  col.crop_zoom_circle::float8 AS crop_zoom_circle,
+                  col.crop_dx_circle::float8 AS crop_dx_circle,
+                  col.crop_dy_circle::float8 AS crop_dy_circle,
+                  cse.role AS speaker_role
            FROM conf_sessions s
            -- is_visible=FALSE → слот остаётся, скрытый спикер не показывается.
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id AND cse.is_visible = TRUE

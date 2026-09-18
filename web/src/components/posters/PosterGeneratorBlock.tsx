@@ -414,8 +414,14 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 боковой отступ теперь общий для всей афиши и задаётся выше в мм.
                 Две настройки одного отступа означали бы вопрос «почему спикеры
                 отступают не так, как заголовок». */}
-            <Range label="Промежуток между фото, %" value={layout.gap ?? 2} min={0} max={20}
+            <Range label="Между столбцами, %" value={layout.gap ?? 2} min={0} max={20}
+                   hint="Расстояние по горизонтали"
                    onChange={v => patch({ gap: v })} />
+            {/* ⚠️ Вертикальный промежуток отдельный: под фото идёт подпись, и
+                зазор между рядами визуально складывается с ней. */}
+            <Range label="Между рядами, %" value={layout.gap_y ?? layout.gap ?? 2} min={0} max={20}
+                   hint="Расстояние по вертикали"
+                   onChange={v => patch({ gap_y: v })} />
             <div className="mt-3">
               <div className="mb-1 text-xs text-gray-600">Сколько в ряду</div>
               <div className="flex items-center gap-2">

@@ -45,7 +45,7 @@ _FIELDS = (
     # Поля от края в мм (миграция 440) — задают рабочую область афиши.
     "margin_top", "margin_bottom", "margin_left", "margin_right",
     "speakers_top", "speakers_bottom", "speakers_side",
-    "mask_shape", "mask_radius", "per_row", "gap", "row_overlap",
+    "mask_shape", "mask_radius", "per_row", "gap", "gap_y", "row_overlap",
     "show_names", "name_order", "name_lines", "name_font", "name_size",
     "name_color", "name_shadow", "name_place",
     "hl_style", "hl_color", "hl_border_w", "hl_glow",
@@ -79,7 +79,7 @@ _DEFAULTS = {
     "margin_top": 10, "margin_bottom": 10, "margin_left": 10, "margin_right": 10,
     "speakers_top": 46, "speakers_bottom": 97, "speakers_side": 5,
     "mask_shape": "portrait", "mask_radius": 0, "per_row": None,
-    "gap": 2, "row_overlap": 0,
+    "gap": 2, "gap_y": None, "row_overlap": 0,
     "show_names": True, "name_order": "first_last", "name_lines": 2,
     "name_font": None, "name_size": 1.6, "name_color": None,
     "name_shadow": False, "name_place": "below",
@@ -111,7 +111,7 @@ _RANGES = {
     "margin_left": (0, 60), "margin_right": (0, 60),
     "speakers_top": (0, 95), "speakers_bottom": (5, 100),
     "speakers_side": (0, 40), "mask_radius": (0, 50), "per_row": (1, 12),
-    "gap": (0, 20), "row_overlap": (0, 60), "name_size": (0.3, 8),
+    "gap": (0, 20), "gap_y": (0, 20), "row_overlap": (0, 60), "name_size": (0.3, 8),
     "hl_border_w": (0, 3), "hl_glow": (0, 10),
     "title_size": (1, 20), "subtitle_size": (0.5, 12), "text_top": (0, 100),
     "pill_radius": (0, 50), "pill_border_w": (0, 2), "pill_size": (0.3, 8),
@@ -160,6 +160,8 @@ class LayoutIn(BaseModel):
     mask_radius: Optional[int] = None
     per_row: Optional[int] = None
     gap: Optional[float] = None
+    # Промежуток между РЯДАМИ (миграция 453). Пусто — как по горизонтали.
+    gap_y: Optional[float] = None
     row_overlap: Optional[int] = None
     show_names: Optional[bool] = None
     name_order: Optional[str] = None

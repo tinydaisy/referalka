@@ -3,7 +3,7 @@ import { getSessions, getSpeakers, getDays, getEventCollaborators, trackLinkClic
 import { useChatGate } from '../components/ChatGate'
 import EventDescription from '../components/EventDescription'
 import VipButton from '../components/VipButton'
-import { focalCss } from '../utils/photoFocal'
+import Avatar from '../components/Avatar'
 
 interface Session {
   id: number
@@ -17,6 +17,9 @@ interface Session {
   speaker_role?: string
   photo_url?: string
   photo_focal?: string | null   // точка лица: за что держаться при обрезке
+  crop_zoom_circle?: number | null
+  crop_dx_circle?: number | null
+  crop_dy_circle?: number | null
   track_label?: string
   track_color?: string
   gift_description?: string
@@ -37,6 +40,9 @@ interface Speaker {
   title?: string
   photo_url?: string
   photo_focal?: string | null   // точка лица: за что держаться при обрезке
+  crop_zoom_circle?: number | null
+  crop_dx_circle?: number | null
+  crop_dy_circle?: number | null
   role?: string
   achievements?: string[] | null
   tg_channel_url?: string | null
@@ -524,17 +530,9 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                   fontFamily: 'inherit',
                 }}
               >
-                <div style={{
-                  width: 56, height: 56, borderRadius: '50%', margin: '0 auto 4px',
-                  background: sp.photo_url
-                    ? `${focalCss(sp.photo_focal)}/cover url(${sp.photo_url})`
-                    : 'var(--gradient)',
-                  border: `1.5px solid ${PEACH}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: PEACH, fontWeight: 700, fontSize: 16,
-                }}>
-                  {!sp.photo_url && initials(sp.name)}
-                </div>
+                <Avatar person={sp} url={sp.photo_url} size={56} name={sp.name}
+                        border={`1.5px solid ${PEACH}`}
+                        style={{ margin: '0 auto 4px' }} />
                 <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--text)', fontWeight: 700,
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {firstName}
@@ -875,17 +873,9 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                                       fontFamily: 'inherit', textAlign: 'left',
                                     }}
                                   >
-                                    <div style={{
-                                      width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                                      background: s.photo_url
-                                        ? `${focalCss(s.photo_focal)}/cover url(${s.photo_url})`
-                                        : 'var(--gradient)',
-                                      border: `1.5px solid ${PEACH}`,
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      color: PEACH, fontWeight: 700, fontSize: 12,
-                                    }}>
-                                      {!s.photo_url && initials(s.speaker_name)}
-                                    </div>
+                                    <Avatar person={s} url={s.photo_url} size={32}
+                                            name={s.speaker_name}
+                                            border={`1.5px solid ${PEACH}`} />
                                     <div style={{ flex: 1, minWidth: 0,
                                                   display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                       <span style={{ color: 'var(--text)', fontSize: 12, fontWeight: 700 }}>
@@ -976,18 +966,7 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                   gap: 12,
                   cursor: onOpenSpeaker ? 'pointer' : 'default',
                 }}>
-                {c.photo_url ? (
-                  <img src={c.photo_url} alt=""
-                    style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover',
-                             objectPosition: focalCss(c.photo_focal), flexShrink: 0 }} />
-                ) : (
-                  <div style={{
-                    width: 56, height: 56, borderRadius: '50%',
-                    background: 'rgba(37,69,93,0.08)', flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: DARK, fontWeight: 700, fontSize: 14,
-                  }}>{c.name.slice(0, 2).toUpperCase()}</div>
-                )}
+                <Avatar person={c} url={c.photo_url} size={56} name={c.name} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: DARK, lineHeight: 1.2 }}>
                     {c.name}
@@ -1075,17 +1054,8 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
                   )}
                   {/* Шапка карточки */}
                   <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
-                    <div style={{
-                      width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
-                      background: sp.photo_url
-                        ? `${focalCss(sp.photo_focal)}/cover url(${sp.photo_url})`
-                        : 'var(--gradient)',
-                      border: `2px solid ${PEACH}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: PEACH, fontWeight: 700, fontSize: 18,
-                    }}>
-                      {!sp.photo_url && initials(sp.name)}
-                    </div>
+                    <Avatar person={sp} url={sp.photo_url} size={56} name={sp.name}
+                            border={`2px solid ${PEACH}`} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {roleLabel && (
                         <span style={{
