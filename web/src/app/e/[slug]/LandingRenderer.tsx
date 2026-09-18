@@ -431,6 +431,48 @@ export default function LandingRenderer({
         @media (min-width: 560px)  { .lp-grid { grid-template-columns: repeat(min(2, var(--lp-cols-lg, 3)), minmax(0, var(--lp-col-w, 1fr))); } }
         @media (min-width: 900px)  { .lp-grid { grid-template-columns: repeat(min(3, var(--lp-cols-lg, 3)), minmax(0, var(--lp-col-w, 1fr))); } }
         @media (min-width: 1160px) { .lp-grid { grid-template-columns: repeat(var(--lp-cols-lg, 3), minmax(0, var(--lp-col-w, 1fr))); } }
+        /* ⚠️⚠️ ХВОСТ СЕТКИ ПО ЦЕНТРУ (18.09.2026, правило владельца).
+           Последний ряд почти никогда не полный: 4 партнёра на 3 колонки —
+           четвёртый стоит внизу ОДИН и липнет к левому краю, как будто его
+           забыли. Это видно у любого блока карточек, где число людей не
+           делится на число колонок.
+
+           `justify-content: center` тут бессилен: он центрирует сетку
+           ЦЕЛИКОМ, а не отдельный ряд, и колонки «1fr» и так занимают всю
+           ширину. Grid центрировать хвост не умеет вовсе.
+
+           Поэтому ПЕРВУЮ карточку хвоста сажаем в другую колонку: при одной
+           недостающей — на полколонки правее (`translateX(50%)`), при двух —
+           на целую. Остальные карточки ряда стоят следом и едут за ней.
+
+           ⚠️ Класс вешает КОМПОНЕНТ (`gridTail`), посчитав остаток от
+           деления. Через CSS-переменную это сделать нельзя: `nth-last-child`
+           переменные не принимает — селекторы вычисляются раньше.
+
+           ⚠️ Сдвиг — `transform`, а НЕ `margin-left`: маргин у grid-элемента
+           съедает ширину самой ячейки, и хвостовая карточка стала бы уже
+           остальных. Трансформация же не меняет размеров и не трогает поток —
+           а соседей двигать и не надо, вся их компания едет тем же правилом.
+
+           ⚠️ Сдвигаем ВЕСЬ хвост (`.lp-tail-start ~ *` — и саму карточку, и
+           всё после неё), иначе вторая карточка ряда осталась бы на месте и
+           на неё наехала бы первая.
+
+           ⚠️ Только с 560px. Ниже колонок одна-две, там хвост и так по месту,
+           а сдвиг увёл бы карточку за край экрана. Полный сдвиг — с 900px:
+           до этого колонок максимум две, и «недобор в две колонки» невозможен. */
+        @media (min-width: 560px) {
+          .lp-grid.lp-tail-half > .lp-tail-start,
+          .lp-grid.lp-tail-half > .lp-tail-start ~ * {
+            transform: translateX(calc(50% + 0.625rem));
+          }
+        }
+        @media (min-width: 900px) {
+          .lp-grid.lp-tail-full > .lp-tail-start,
+          .lp-grid.lp-tail-full > .lp-tail-start ~ * {
+            transform: translateX(calc(100% + 1.25rem));
+          }
+        }
         /* Бегущая подсветка: в каждый момент выделена РОВНО ОДНА карточка —
            золотистая полупрозрачная заливка + свечение. Предыдущая гаснет
            до того, как загорится следующая, поэтому «огонёк» бежит по списку.
@@ -2578,12 +2620,17 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
   const { nameAlign, textAlign } = cardAligns(block, 'left')
   const ts = cardTextStyle(block, page)
 
-  const cards = list.map((s: any) => (
+  // Неполный последний ряд ставим по центру — см. gridTail.
+  const gridCols = Math.min(cols, list.length)
+  const tail = gridTail(list.length, gridCols)
+
+  const cards = list.map((s: any, i: number) => (
     <SpeakerCard key={s.id} s={s} page={page} cardStyle={cardStyle}
                  iconColor={iconColor} open={open} gift={gift}
                  nameAlign={nameAlign} textAlign={textAlign} ts={ts}
                  onToggle={() => setOpen(o => !o)}
-                 className={scroll ? 'w-[min(280px,75vw)] shrink-0 snap-start' : ''} />
+                 className={scroll ? 'w-[min(280px,75vw)] shrink-0 snap-start'
+                                   : (!scroll && i === tail.tailIndex ? 'lp-tail-start' : '')} />
   ))
 
   return scroll ? (
@@ -2591,8 +2638,8 @@ function SpeakersBlock({ list, block, page, cardStyle, iconColor }: any) {
       {cards}
     </div>
   ) : (
-    <div className="lp-grid grid gap-5"
-         style={{ ['--lp-cols-lg' as any]: Math.min(cols, list.length) }}>
+    <div className={`lp-grid grid gap-5 ${tail.cls}`}
+         style={{ ['--lp-cols-lg' as any]: gridCols }}>
       {cards}
     </div>
   )
@@ -2656,21 +2703,26 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
     scroller.current?.scrollBy({ left: dir * (cardW + 20), behavior: 'smooth' })
   }
 
-  const cards = list.map((p: any) => (
+  // Неполный последний ряд ставим по центру — см. gridTail.
+  const gridCols = Math.min(cols, list.length)
+  const tail = gridTail(list.length, gridCols)
+
+  const cards = list.map((p: any, i: number) => (
     <PartnerCard
       key={p.id} p={p} page={page} cardStyle={cardStyle} iconColor={iconColor}
       open={open} onToggle={() => setOpen(o => !o)}
       gift={gift} nameAlign={nameAlign} textAlign={textAlign} ts={ts}
       logoH={logoH}
-      className={scroll ? 'shrink-0 snap-start' : ''}
+      className={scroll ? 'shrink-0 snap-start'
+                        : (i === tail.tailIndex ? 'lp-tail-start' : '')}
       width={scroll ? cardW : undefined}
     />
   ))
 
   if (!scroll) {
     return (
-      <div className="lp-grid grid gap-5"
-           style={{ ['--lp-cols-lg' as any]: Math.min(cols, list.length) }}>
+      <div className={`lp-grid grid gap-5 ${tail.cls}`}
+           style={{ ['--lp-cols-lg' as any]: gridCols }}>
         {cards}
       </div>
     )
@@ -2800,6 +2852,41 @@ function cardAligns(block: any, fallback: 'left' | 'center') {
   return {
     nameAlign: ok(block.card_name_align) || fallback,
     textAlign: ok(block.card_text_align) || fallback,
+  }
+}
+
+/**
+ * Неполный последний ряд — по центру, а не прижатым влево.
+ *
+ * ⚠️⚠️ ОБЩЕЕ ДЛЯ ВСЕХ БЛОКОВ КАРТОЧЕК (правило владельца 18.09.2026): и
+ * спикеры, и партнёры, и на любом типе события. Оба блока рисуют одну и ту же
+ * сетку `lp-grid`, поэтому правило и живёт в одном месте — иначе пришлось бы
+ * чинить по отдельности и в одном месте оно бы отстало.
+ *
+ * Считаем, сколько карточек осталось в хвосте, и насколько ряд недобран:
+ *   4 карточки на 3 колонки → хвост 1, не хватает 2 → сдвиг на целую колонку;
+ *   5 карточек на 3 колонки → хвост 2, не хватает 1 → сдвиг на полколонки.
+ * Класс `lp-tail-start` помечает ПЕРВУЮ карточку хвоста — двигаем только её,
+ * остальные ряда едут следом сами.
+ *
+ * ⚠️ Возвращаем и `tailIndex`: по нему карточка узнаёт, она ли первая в
+ * хвосте. Считать это внутри карточки нельзя — она не знает ни своего номера,
+ * ни числа колонок.
+ */
+function gridTail(count: number, cols: number) {
+  // Ряд ровный (или всё в один ряд) — двигать нечего.
+  if (cols < 2 || count <= cols) return { cls: '', tailIndex: -1 }
+  const tail = count % cols
+  if (tail === 0) return { cls: '', tailIndex: -1 }
+  const missing = cols - tail
+  // ⚠️ Сдвиг задан двумя классами, а не числом: CSS считает его от ширины
+  // колонки, а она известна только браузеру. Недобор в одну колонку —
+  // полшага, в две — целый шаг. Недобор больше двух (6 колонок, 1 карточка в
+  // хвосте) встречается редко, и лишний шаг увёл бы карточку за край — там
+  // ограничиваемся целым шагом.
+  return {
+    cls: missing === 1 ? 'lp-tail-half' : 'lp-tail-full',
+    tailIndex: count - tail,
   }
 }
 
