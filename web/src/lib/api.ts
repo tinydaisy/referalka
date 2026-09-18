@@ -2268,6 +2268,12 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteRoom: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}`, { method: 'DELETE' }),
+    // Настройки комнаты — в другие дни (кроме названия, ключа трансляции и зума).
+    copySettings: (eventId: number, day: number, targetDays?: number[]) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/copy-settings`, {
+        method: 'POST',
+        body: JSON.stringify(targetDays ? { target_days: targetDays } : {}),
+      }),
     // Ссылку входа спикера (Zoom) — во все дни программы разом.
     copySpeakerJoinUrl: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/copy-speaker-join-url`, { method: 'POST' }),

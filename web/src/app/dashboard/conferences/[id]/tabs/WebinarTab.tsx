@@ -288,6 +288,32 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
     } finally { setZoomBusy(false) }
   }
 
+  const [copyingAll, setCopyingAll] = useState(false)
+
+  // Настройки этого дня — в остальные дни программы.
+  // ⚠️ Сначала СОХРАНЯЕМ текущий день: бэкенд копирует то, что лежит в базе, а
+  // не то, что набрано в форме. Иначе кнопка разнесла бы прошлые значения.
+  async function copySettingsToAllDays() {
+    if (daysCount < 2) return
+    if (!confirm(
+      `Скопировать настройки этого дня в остальные дни (${daysCount - 1} шт.)?\n\n` +
+      'Перенесутся: чат, реакции, форма входа, экран после эфира, тип трансляции.\n' +
+      'НЕ перенесутся: название дня, афиши, ключ трансляции и RTMP, ссылка входа ' +
+      'в зум и встреча Zoom — они свои у каждого дня.'
+    )) return
+    setCopyingAll(true)
+    try {
+      await api.webinar.upsertRoom(eventId, day.day_number, f)
+      const res = await api.webinar.copySettings(eventId, day.day_number)
+      alert(`Готово: настройки скопированы в ${res?.updated ?? 0} дн.`)
+      onSaved()
+    } catch (e: any) {
+      alert(e?.message || 'Не получилось скопировать')
+    } finally {
+      setCopyingAll(false)
+    }
+  }
+
   // Ссылку входа спикера — во все дни программы.
   // ⚠️ Сначала СОХРАНЯЕМ текущий день: бэкенд копирует то, что лежит в базе, а
   // не то, что набрано в поле. Без этого кнопка разнесла бы по дням прошлую
@@ -743,6 +769,14 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
           {saving ? 'Сохраняю…' : r ? 'Сохранить' : 'Создать комнату'}
         </button>
         {savedMsg && <span className="text-sm text-green-600">✓ Сохранено</span>}
+        {/* Настраивать каждый день заново — работа на ровном месте: отличаются
+            обычно только афиша и время. Показываем, когда дней больше одного. */}
+        {r && daysCount > 1 && (
+          <button type="button" onClick={copySettingsToAllDays} disabled={copyingAll || saving}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+            {copyingAll ? 'Копируем…' : 'Скопировать настройки в другие дни'}
+          </button>
+        )}
       </div>
     </div>
   )

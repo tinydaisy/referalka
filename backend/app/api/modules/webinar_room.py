@@ -576,6 +576,111 @@ async def delete_zoom_meeting(
     return {"ok": True, "deleted": True}
 
 
+# Какие настройки комнаты переносятся кнопкой «скопировать в другой день».
+#
+# ⚠️ БЕЛЫЙ СПИСОК, а не «всё кроме». Перечисление того, что НЕ копировать,
+# ошибается молча и в опасную сторону: новую колонку забудут исключить, и она
+# уедет в чужой день (так уже вышло бы с zoom_* — их добавили позже).
+#
+# НЕ копируется намеренно:
+#   title, opens_at, starts_at     — своё у каждого дня;
+#   stream_key, hls_url            — УНИКАЛЬНЫ, на них держится раскладка
+#                                    записей (см. PLAN.md, «Один Zoom на все дни»);
+#   speaker_join_url               — вход спикера, для него своя кнопка
+#                                    «скопировать во все дни»;
+#   zoom_*                         — встреча Zoom своя у каждого дня;
+#   status, room_state, stream_active, started_at, ended_at, current_session_id,
+#   chat_cleared_at                — текущее состояние эфира, не настройка;
+#   auto_recording_id              — конкретная запись для автовебинара.
+# Афиши живут не здесь (event_posters / conf_days), их это не касается вовсе.
+_COPYABLE_ROOM_FIELDS = (
+    "stream_type",
+    "hide_viewer_count", "chat_enabled", "premoderation",
+    "reaction_up_label", "reaction_down_label", "show_down_reaction",
+    "intro_text", "buttons_per_row",
+    "auth_mode", "auth_require_name", "auth_require_email",
+    "auth_require_phone", "auth_require_tg", "auth_intro_text",
+    "speaker_mode",
+    "redirect_url", "outro_offer_text", "outro_button_label", "outro_redirect_sec",
+    "auto_mode", "auto_delay_min", "auto_allow_seek",
+    "external_url",
+)
+
+
+class CopySettingsIn(BaseModel):
+    # Куда копировать. Пусто/не передано = во ВСЕ остальные дни события.
+    target_days: Optional[List[int]] = None
+
+
+@router.post("/{day_number}/copy-settings",
+             summary="Скопировать настройки этого дня в другие дни")
+async def copy_room_settings(
+    event_id: int, day_number: int,
+    # Тело необязательно: без него копируем во ВСЕ остальные дни.
+    data: Optional[CopySettingsIn] = None,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Переносит настройки комнаты этого дня в другие дни события.
+
+    Настраивать три дня подряд руками — работа на ровном месте: отличаются у
+    них обычно только афиша и время, а чат, реакции, форма входа и экран
+    завершения одинаковые.
+
+    ⚠️ НЕ переносятся: название, ключ трансляции и RTMP/HLS (уникальны у каждого
+    дня — на них держится раскладка записей), ссылка входа спикера в зум,
+    встреча Zoom, а также текущее состояние эфира. Список — `_COPYABLE_ROOM_FIELDS`.
+
+    Дни без комнаты тоже получают настройки — комната создаётся со СВОИМ ключом
+    потока. Иначе копирование молча пропускало бы ровно те дни, которые ещё не
+    открывали, а заметно это стало бы уже во время эфира.
+    """
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=False)
+
+    src = await db.fetchrow(
+        "SELECT * FROM webinar_rooms WHERE event_id=$1 AND day_number=$2",
+        event_id, day_number)
+    if not src:
+        raise HTTPException(status_code=404,
+                            detail="У этого дня ещё нет комнаты — сначала сохраните её.")
+
+    # Дни-получатели: заданные явно либо все остальные дни программы.
+    if data and data.target_days:
+        days = [d for d in data.target_days if d != day_number]
+    else:
+        rows = await db.fetch(
+            "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_number<>$2 "
+            "ORDER BY day_number", event_id, day_number)
+        days = [r["day_number"] for r in rows]
+    if not days:
+        return {"ok": True, "updated": 0, "days": []}
+
+    fields = [f for f in _COPYABLE_ROOM_FIELDS if f in src]
+    sets = ", ".join(f"{f}=${i + 3}" for i, f in enumerate(fields))
+    vals = [src[f] for f in fields]
+
+    updated = []
+    for dn in days:
+        res = await db.execute(
+            f"UPDATE webinar_rooms SET {sets}, updated_at=NOW() "
+            f"WHERE event_id=$1 AND day_number=$2",
+            event_id, dn, *vals)
+        if res and res.endswith(" 0"):
+            # Комнаты у дня нет — заводим со СВОИМ ключом потока (общий ключ
+            # склеил бы записи разных дней в один файл, см. PLAN.md).
+            key = ws.make_stream_key()
+            cols = ", ".join(fields)
+            ph = ", ".join(f"${i + 5}" for i in range(len(fields)))
+            await db.execute(
+                f"INSERT INTO webinar_rooms (event_id, day_number, stream_key, hls_url, {cols}) "
+                f"VALUES ($1,$2,$3,$4,{ph}) "
+                f"ON CONFLICT (event_id, day_number) DO NOTHING",
+                event_id, dn, key, ws.hls_url(key), *vals)
+        updated.append(dn)
+    return {"ok": True, "updated": len(updated), "days": updated}
+
+
 @router.post("/{day_number}/copy-speaker-join-url",
              summary="Скопировать ссылку входа спикера во все дни")
 async def copy_speaker_join_url(
