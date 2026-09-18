@@ -484,6 +484,8 @@ export default function ConferenceSpeakerPage() {
         photo_focal: profile.photo_focal ?? null,
         // Вид карточки: компания или человек (миграция 425).
         is_company: (profile as any).is_company === true,
+        // Логотип компании для светлого фона (миграция 450).
+        logo_on_light_url: (profile as any).logo_on_light_url ?? null,
         // Приближение кадра по формам (миграция 451).
         crop_zoom_circle: profile.crop_zoom_circle ?? null,
         crop_zoom_square: profile.crop_zoom_square ?? null,
@@ -1331,6 +1333,70 @@ export default function ConferenceSpeakerPage() {
             </span>
           </label>
 
+          {/* ⚠️⚠️ БЛОК ИДЕНТИЧЕН карточке коллаборатора: у компании два логотипа
+              (тёмный и светлый фон), у человека — фото с точкой лица и
+              настройкой кадра. Поля и настройки обязаны совпадать везде —
+              иначе клиент правит спикера отсюда и не находит того, что видел
+              в другом разделе. */}
+          {(profile as any).is_company === true ? (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Логотип для ТЁМНОГО фона
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Основной знак — им подписывают афиши на тёмном фоне. Обычно светлый или цветной.
+                </p>
+                <FileUploader
+                  mode="single"
+                  kind="speaker_photo"
+                  collaboratorId={profile.id}
+                  value={profile.photo_url || null}
+                  onChange={u => setProfile((p: any) => ({ ...p, photo_url: u || '' }))}
+                  accept="image/*"
+                  aspectClass="aspect-video"
+                  emptyText="Перетащите сюда логотип"
+                  buttonLabel="Загрузить"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Логотип для СВЕТЛОГО фона
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Тёмная версия того же знака. Не загрузите — на светлой афише возьмётся основной,
+                  и он может слиться с фоном.
+                </p>
+                <FileUploader
+                  mode="single"
+                  kind="speaker_photo"
+                  collaboratorId={profile.id}
+                  value={(profile as any).logo_on_light_url || null}
+                  onChange={u => setProfile((p: any) => ({ ...p, logo_on_light_url: u || '' }))}
+                  accept="image/*"
+                  aspectClass="aspect-video"
+                  emptyText="Перетащите сюда логотип"
+                  buttonLabel="Загрузить"
+                />
+              </div>
+              {/* ⚠️ Кадр настраивается и у ЛОГОТИПА: в круглой маске знак
+                  обрезается по краям, и его надо уметь отдалить (масштаб
+                  меньше 1) и подвинуть. */}
+              {profile.photo_url && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Как логотип встанет в маске</label>
+                  <FocalPointPicker
+                    url={profile.photo_url}
+                    value={(profile as any).photo_focal ?? null}
+                    onChange={v => setProfile((p: any) => ({ ...p, photo_focal: v }))}
+                    zooms={profile}
+                    onZoomChange={z => setProfile((p: any) => ({ ...p, ...z }))}
+                    hint="Масштаб меньше 1 отдаляет — так логотип вписывается в круг целиком."
+                  />
+                </div>
+              )}
+            </>
+          ) : (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото для сайта</label>
             <FileUploader
@@ -1344,9 +1410,6 @@ export default function ConferenceSpeakerPage() {
               emptyText="Перетащите сюда фото"
               buttonLabel="Загрузить"
             />
-            {/* Точка лица (миграция 434): по ней кадрируются ВСЕ миниатюры —
-                на сайте, в Mini App и на афишах. Без неё кадр режется от центра,
-                и на снимке в полный рост голова уезжает за верхний край. */}
             {profile.photo_url && (
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Где лицо на фото</label>
@@ -1361,6 +1424,8 @@ export default function ConferenceSpeakerPage() {
               </div>
             )}
           </div>
+          )}
+
           <div>
             <div className="flex items-center justify-between mb-1.5 gap-3">
               <label className="block text-sm font-medium text-gray-700">Индивидуальные афиши</label>

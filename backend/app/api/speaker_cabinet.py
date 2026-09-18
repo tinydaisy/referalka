@@ -278,7 +278,7 @@ async def get_me(
                   c.photo_focal, c.crop_zoom_circle, c.crop_zoom_square,
                   c.crop_zoom_portrait, c.crop_dx_circle, c.crop_dy_circle,
                   c.crop_dx_square, c.crop_dy_square, c.crop_dx_portrait,
-                  c.crop_dy_portrait,
+                  c.crop_dy_portrait, c.is_company, c.logo_on_light_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   -- Заодно уважаем per-event выбор афиши (cse.poster_id).
                   (SELECT url FROM collaborator_posters cp
@@ -557,6 +557,9 @@ class CabinetUpdate(BaseModel):
     crop_dy_square: Optional[float] = None
     crop_dx_portrait: Optional[float] = None
     crop_dy_portrait: Optional[float] = None
+    # Компания и её логотип для светлого фона (мигр. 425, 450).
+    is_company: Optional[bool] = None
+    logo_on_light_url: Optional[str] = None
     # poster_url убран миграцией 121 — афиши теперь в библиотеке (collaborator_posters).
     # Спикер видит свою библиотеку в Материалах и может скачать любую афишу.
     photo_folder_url: Optional[str] = None
@@ -675,7 +678,7 @@ async def patch_me(
                       "photo_focal", "crop_zoom_circle", "crop_zoom_square",
                       "crop_zoom_portrait", "crop_dx_circle", "crop_dy_circle",
                       "crop_dx_square", "crop_dy_square", "crop_dx_portrait",
-                      "crop_dy_portrait",
+                      "crop_dy_portrait", "is_company", "logo_on_light_url",
                       "photo_folder_url", "video_folder_url",
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]

@@ -147,7 +147,7 @@ function ShapeTuner({ shape, url, focal, settings, onChange }: {
 
       {onChange && (
         <div className="mt-1 space-y-1" style={{ width: w }}>
-          <Slider label="крупнее" min={1} max={3} step={0.05} value={zoom}
+          <Slider label="масштаб" min={0.3} max={3} step={0.05} value={zoom}
                   fmt={v => `×${v.toFixed(2)}`}
                   onChange={v => onChange({ [`crop_zoom_${shape}`]: v } as CropSettings)} />
           {/* Сдвиг — когда центр не то, что нужно: шляпа, высокая причёска. */}

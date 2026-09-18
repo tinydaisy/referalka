@@ -147,6 +147,9 @@ type SpeakerMe = {
   crop_zoom_circle?: number | null
   crop_zoom_square?: number | null
   crop_zoom_portrait?: number | null
+  /** Компания (мигр. 425) и её второй логотип (мигр. 450). */
+  is_company?: boolean | null
+  logo_on_light_url?: string | null
   crop_dx_circle?: number | null
   crop_dy_circle?: number | null
   crop_dx_square?: number | null
@@ -295,6 +298,9 @@ type SpeakerMaterials = {
   crop_zoom_circle?: number | null
   crop_zoom_square?: number | null
   crop_zoom_portrait?: number | null
+  /** Компания (мигр. 425) и её второй логотип (мигр. 450). */
+  is_company?: boolean | null
+  logo_on_light_url?: string | null
   crop_dx_circle?: number | null
   crop_dy_circle?: number | null
   crop_dx_square?: number | null
@@ -640,7 +646,10 @@ export default function SpeakerCabinetPage() {
     }
   }
 
-  const onUpload = async (kind: 'speaker_photo', file: File) => {
+  // ⚠️ `field` — в какое поле записать адрес. У компании их ДВА: основной
+  // логотип (photo_url, для тёмного фона) и версия для светлого.
+  const onUpload = async (kind: 'speaker_photo', file: File,
+                          field: 'photo_url' | 'logo_on_light_url' = 'photo_url') => {
     if (!token) return
     setUploading(kind); setError(null)
     try {
@@ -654,7 +663,7 @@ export default function SpeakerCabinetPage() {
       })
       const d = await readJson(r)
       if (!r.ok) { setError(d.detail || 'Ошибка загрузки'); return }
-      update({ photo_url: d.url })
+      update({ [field]: d.url } as any)
     } catch (e: any) {
       setError(String(e.message || e))
     } finally {
@@ -958,8 +967,14 @@ export default function SpeakerCabinetPage() {
   }
 
   // Карточка для фото/афиши: превью + кнопки «Раскрыть», «Скачать», «Загрузить новое»
-  function ImageCard({ url, kind, label, focal }: { url: string | null, kind: 'speaker_photo', label: string, focal?: string | null }) {
-    const fileInputId = `up-${kind}`
+  function ImageCard({ url, kind, label, focal, field = 'photo_url' }: {
+    url: string | null, kind: 'speaker_photo', label: string, focal?: string | null,
+    /** Куда записать адрес: у компании два логотипа. */
+    field?: 'photo_url' | 'logo_on_light_url',
+  }) {
+    // ⚠️ id включает ПОЛЕ, а не только kind: у двух загрузчиков на странице
+    // совпал бы id, и клик по второму открывал бы первый.
+    const fileInputId = `up-${kind}-${field}`
     return (
       <div>
         <label style={labelCss}>{label}</label>
@@ -1001,7 +1016,7 @@ export default function SpeakerCabinetPage() {
               style={{ display: 'none' }}
               onChange={(e) => {
                 const f = e.target.files?.[0]
-                if (f) onUpload(kind, f)
+                if (f) onUpload(kind, f, field)
                 e.target.value = ''
               }}
             />
@@ -1221,16 +1236,34 @@ export default function SpeakerCabinetPage() {
               (`FocalPointPicker`), а не своя копия. Спикер настраивает себя сам,
               и правка кода обязана работать в обоих местах одинаково — иначе у
               организатора всё хорошо, а у спикера тихо сломано. */}
+          {/* ⚠️ У КОМПАНИИ — второй логотип (мигр. 450). Поля обязаны совпадать
+              с кабинетом организатора: спикер правит себя сам, и «здесь есть, а
+              там нет» превращается в вопрос, почему логотип не тот. */}
+          {me.is_company === true && (
+            <div style={{ marginTop: 14 }}>
+              <label style={labelCss}>Логотип для светлого фона</label>
+              <div style={{ fontSize: 11, color: '#7a8c9c', marginBottom: 6, lineHeight: 1.5 }}>
+                Тёмная версия знака. Основной логотип (выше) — для тёмного фона.
+              </div>
+              <ImageCard url={me.logo_on_light_url || null} kind="speaker_photo"
+                         label="Логотип для светлого фона" field="logo_on_light_url" />
+            </div>
+          )}
+
           {me.photo_url && (
             <div style={{ marginTop: 14 }}>
-              <label style={labelCss}>Где лицо на фото</label>
+              <label style={labelCss}>
+                {me.is_company === true ? 'Как логотип встанет в маске' : 'Где лицо на фото'}
+              </label>
               <FocalPointPicker
                 url={me.photo_url}
                 value={me.photo_focal ?? null}
                 onChange={v => update({ photo_focal: v })}
                 zooms={me}
                 onZoomChange={z => update(z)}
-                hint="Так ваше фото встанет на афишах события и в карточках. Подгоните каждую форму — организатор увидит ровно это."
+                hint={me.is_company === true
+                  ? 'Масштаб меньше 1 отдаляет — так логотип вписывается в круг целиком.'
+                  : 'Так ваше фото встанет на афишах события и в карточках. Подгоните каждую форму — организатор увидит ровно это.'}
               />
             </div>
           )}

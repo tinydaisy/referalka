@@ -50,7 +50,8 @@ export function circleCropStyle(
   natH?: number,
 ): React.CSSProperties {
   const { x: fx, y: fy } = parseFocal(p?.photo_focal)
-  const zoom = Math.max(1, Math.min(3, num(p?.crop_zoom_circle, 1)))
+  // Меньше 1 — отдалить (нужно логотипам, чтобы знак влез целиком).
+  const zoom = Math.max(0.3, Math.min(3, num(p?.crop_zoom_circle, 1)))
   const dx = Math.max(-50, Math.min(50, num(p?.crop_dx_circle, 0)))
   const dy = Math.max(-50, Math.min(50, num(p?.crop_dy_circle, 0)))
 
@@ -62,9 +63,10 @@ export function circleCropStyle(
 
   let left = size / 2 - W * (fx / 100) + (dx / 100) * size
   let top = size / 2 - H * (fy / 100) + (dy / 100) * size
-  // Не отходим от краёв: иначе в рамке остаётся пустота.
-  left = Math.min(0, Math.max(size - W, left))
-  top = Math.min(0, Math.max(size - H, top))
+  // Прижимаем к краям только если картинка больше рамки: при зуме меньше 1
+  // пустота по краям — это намеренно (логотип вписан целиком).
+  if (W >= size) left = Math.min(0, Math.max(size - W, left))
+  if (H >= size) top = Math.min(0, Math.max(size - H, top))
 
   return {
     position: 'absolute',

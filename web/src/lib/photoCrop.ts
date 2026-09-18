@@ -48,10 +48,16 @@ function num(v: unknown, fallback: number): number {
   return typeof n === 'number' && Number.isFinite(n) ? n : fallback
 }
 
-/** Приближение для формы. 1 — кадр как есть, голова целиком. */
+/**
+ * Масштаб кадра. 1 — как есть (маска заполнена целиком).
+ *
+ * ⚠️ Меньше 1 — ОТДАЛИТЬ: по краям появится пустота. Человеку это не нужно, а
+ * логотипу наоборот: знак вписывается в круг целиком, а при зуме 1 он уже
+ * обрезан по краям (маска берёт cover, то есть с запасом).
+ */
 export function zoomOf(shape: CropShape, s?: CropSettings | null): number {
   const v = num(s?.[`crop_zoom_${shape}` as keyof CropSettings], 1)
-  return Math.max(1, Math.min(3, v))
+  return Math.max(0.3, Math.min(3, v))
 }
 
 /** Ручной сдвиг кадра в процентах размера маски. */
@@ -107,11 +113,11 @@ export function cropStyle(
   // целиком. Хочет клиент точного центра — увеличивает зум, тогда запас
   // появляется и прижимать не приходится.
   //
-  // ⚠️ Порядок важен: сначала не пускаем левее/выше нуля, потом не пускаем
-  // правее/ниже края. При зуме 1 картинка ровно по размеру маски, и оба
-  // ограничения дают одно и то же — ноль.
-  left = Math.min(0, Math.max(maskW - W, left))
-  top = Math.min(0, Math.max(maskH - H, top))
+  // ⚠️ Прижимаем к краям ТОЛЬКО когда картинка больше маски. При зуме меньше 1
+  // она специально меньше — пустота по краям и есть то, ради чего отдаляли
+  // (вписать логотип целиком). Прижимать там нечего и незачем.
+  if (W >= maskW) left = Math.min(0, Math.max(maskW - W, left))
+  if (H >= maskH) top = Math.min(0, Math.max(maskH - H, top))
 
   return {
     position: 'absolute',
