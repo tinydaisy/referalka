@@ -2863,7 +2863,6 @@ function PartnerCard({
   // вёрстки значило бы чинить их по отдельности.
   const giftsRaw: any[] = gift?.show && Array.isArray(p.gifts) ? p.gifts : []
   const gifts: string[] = giftsRaw.map((g: any) => String(g || '').trim()).filter(Boolean)
-  const url = p.partner_url || p.website_url
 
   // ⚠️ Партнёром бывает и КОМПАНИЯ, и ЧЕЛОВЕК — вид карточки разный:
   //   компания — белое поле, логотип вписан ЦЕЛИКОМ, ничего не режется;
@@ -2959,10 +2958,14 @@ function PartnerCard({
   const cls = `flex flex-col overflow-hidden ${className}`
   const style = { ...cardStyle, ...(width ? { width: `min(${width}px, 72vw)` } : {}) }
 
-  return url
-    ? <a href={url} target="_blank" rel="noreferrer"
-         className={`${cls} transition-transform hover:scale-[1.02]`} style={style}>{inner}</a>
-    : <div className={cls} style={style}>{inner}</div>
+  // ⚠️ Карточка партнёра НЕ кликабельна — даже когда у партнёра заполнен сайт
+  // (правило владельца 18.09.2026). На лендинге кликабельны только кнопки CTA:
+  // задача страницы — довести до регистрации, а ссылка на сайт партнёра уводит
+  // с неё насовсем. Раньше карточка с заполненным `website_url` превращалась в
+  // <a target="_blank">, и лендинг вёл себя по-разному у разных клиентов —
+  // у кого сайт вписан, у того карточка ссылка. Поле «Сайт» остаётся в карточке
+  // партнёра для кабинета и рассылок, на лендинг оно больше не влияет.
+  return <div className={cls} style={style}>{inner}</div>
 }
 
 /**
