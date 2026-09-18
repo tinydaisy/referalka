@@ -55,12 +55,13 @@ _FIELDS = (
     "hl_style", "hl_color", "hl_border_w", "hl_glow",
     "role_badge", "role_badge_color", "role_badge_text_color",
     "title", "title_2", "title_2_color", "title_2_newline",
-    "subtitle", "show_title", "show_subtitle",
+    "subtitle", "subtitle_2", "subtitle_2_color", "subtitle_2_newline",
+    "show_title", "show_subtitle",
     "title_font", "title_size", "title_color", "title_metallic",
     "title_underline", "title_align",
     "subtitle_font", "subtitle_size", "subtitle_color", "subtitle_metallic",
     "subtitle_underline", "subtitle_align",
-    "text_top",
+    "text_top", "gap_pill_title", "gap_title_subtitle",
     "show_pill", "pill_text", "pill_text_2", "pill_style", "pill_radius",
     "pill_border_color", "pill_border_color_2", "pill_border_w",
     "pill_bg_color", "pill_text_color", "pill_font", "pill_size",
@@ -88,21 +89,23 @@ _DEFAULTS = {
     "mask_shape": "portrait", "mask_radius": 0, "per_row": None,
     "gap": 2, "gap_y": None, "row_overlap": 0,
     "show_names": True, "name_order": "first_last", "name_lines": 2,
-    "name_font": None, "name_size": 1.6, "name_color": None,
+    "name_font": None, "name_size": 15, "name_color": None,
     "name_shadow": False, "name_place": "below",
     "hl_style": "border", "hl_color": None, "hl_border_w": 0.3, "hl_glow": 1.5,
     "role_badge": "pill", "role_badge_color": None, "role_badge_text_color": None,
     "title": None, "title_2": None, "title_2_color": None, "title_2_newline": True,
-    "subtitle": None, "show_title": True, "show_subtitle": True,
-    "title_font": None, "title_size": 7, "title_color": None,
+    "subtitle": None, "subtitle_2": None, "subtitle_2_color": None,
+    "subtitle_2_newline": False,
+    "show_title": True, "show_subtitle": True,
+    "title_font": None, "title_size": 76, "title_color": None,
     "title_metallic": True, "title_underline": "none", "title_align": "center",
-    "subtitle_font": None, "subtitle_size": 2.6, "subtitle_color": None,
+    "subtitle_font": None, "subtitle_size": 28, "subtitle_color": None,
     "subtitle_metallic": False, "subtitle_underline": "none", "subtitle_align": "center",
-    "text_top": 18,
+    "text_top": 18, "gap_pill_title": 18, "gap_title_subtitle": 14,
     "show_pill": True, "pill_text": None, "pill_text_2": None,
     "pill_style": "border", "pill_radius": 50,
     "pill_border_color": None, "pill_border_color_2": None, "pill_border_w": 0.15,
-    "pill_bg_color": None, "pill_text_color": None, "pill_font": None, "pill_size": 2,
+    "pill_bg_color": None, "pill_text_color": None, "pill_font": None, "pill_size": 22,
     "show_brand_logo": True, "brand_logo_variant": "light",
     "brand_logo_x": 50, "brand_logo_y": 5, "brand_logo_size": 6,
     "show_partners": True, "partners_y": 5, "partners_size": 5,
@@ -121,10 +124,14 @@ _RANGES = {
     "logos_x": (0, 100), "logos_w": (10, 100),
     "text_x": (0, 100), "text_w": (10, 100), "speakers_x": (0, 100),
     "mask_radius": (0, 50), "per_row": (1, 12),
-    "gap": (0, 20), "gap_y": (0, 20), "row_overlap": (0, 60), "name_size": (0.3, 8),
+    "gap": (0, 20), "gap_y": (0, 20), "row_overlap": (0, 60),
+    # Размер имени — % ШИРИНЫ КАРТОЧКИ (мигр. 435 хранила % афиши; см. код).
+    "name_size": (5, 40),
     "hl_border_w": (0, 3), "hl_glow": (0, 10),
-    "title_size": (1, 20), "subtitle_size": (0.5, 12), "text_top": (0, 100),
-    "pill_radius": (0, 50), "pill_border_w": (0, 2), "pill_size": (0.3, 8),
+    # Кегли — в ПИКСЕЛЯХ полотна (миграция 457).
+    "title_size": (20, 200), "subtitle_size": (10, 90), "text_top": (0, 100),
+    "gap_pill_title": (0, 200), "gap_title_subtitle": (0, 200),
+    "pill_radius": (0, 50), "pill_border_w": (0, 2), "pill_size": (8, 70),
     "brand_logo_x": (0, 100), "brand_logo_y": (0, 100), "brand_logo_size": (1, 30),
     "partners_y": (0, 100), "partners_size": (1, 20),
     "logos_gap": (0, 20),
@@ -209,6 +216,10 @@ class LayoutIn(BaseModel):
     title_2_color: Optional[str] = None
     title_2_newline: Optional[bool] = None
     subtitle: Optional[str] = None
+    # Вторая часть подзаголовка своим цветом (миграция 458).
+    subtitle_2: Optional[str] = None
+    subtitle_2_color: Optional[str] = None
+    subtitle_2_newline: Optional[bool] = None
     show_title: Optional[bool] = None
     show_subtitle: Optional[bool] = None
     title_font: Optional[str] = None
@@ -224,6 +235,9 @@ class LayoutIn(BaseModel):
     subtitle_underline: Optional[str] = None
     subtitle_align: Optional[str] = None
     text_top: Optional[int] = None
+    # Отступы между текстовыми блоками, px (миграция 458).
+    gap_pill_title: Optional[float] = None
+    gap_title_subtitle: Optional[float] = None
     show_pill: Optional[bool] = None
     pill_text: Optional[str] = None
     pill_text_2: Optional[str] = None

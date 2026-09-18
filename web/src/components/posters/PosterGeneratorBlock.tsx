@@ -506,7 +506,8 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                           onChange={v => patch({ name_place: v as any })}
                           options={[['below', 'Под фото'], ['over', 'Поверх фото']]} />
                 </div>
-                <Range label="Размер, % ширины афиши" value={layout.name_size ?? 1.6} min={0.3} max={8}
+                <Range label="Размер имени" value={layout.name_size ?? 15} min={5} max={40}
+                       hint="Доля от карточки спикера. Длинные фамилии ужимаются сами, чтобы влезть"
                        onChange={v => patch({ name_size: v })} />
                 <ColorRow label="Цвет подписи" value={layout.name_color}
                           onChange={v => patch({ name_color: v })} />
@@ -605,7 +606,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                     </>
                   )}
                 </div>
-                <Range label="Размер, % высоты" value={layout.title_size ?? 7} min={1} max={20}
+                <Range label="Размер, px" value={layout.title_size ?? 76} min={20} max={200}
                        onChange={v => patch({ title_size: v })} />
                 <ColorRow label="Цвет" value={layout.title_color}
                           placeholder="цвет бренда"
@@ -638,7 +639,30 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                             placeholder={suggested?.subtitle || 'Подзаголовок'}
                             onChange={e => patch({ subtitle: e.target.value })}
                             className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-                  <Range label="Размер, % высоты" value={layout.subtitle_size ?? 2.6} min={0.5} max={12}
+                  {/* ⚠️ Вторая часть ПОДЗАГОЛОВКА своим цветом (мигр. 458) —
+                      как у заголовка: часть текста выделяют цветом. */}
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="text-xs text-gray-600 mb-1">
+                      Вторая часть — другим цветом
+                    </div>
+                    <textarea value={layout.subtitle_2 || ''} rows={2}
+                              placeholder="необязательно"
+                              onChange={e => patch({ subtitle_2: e.target.value })}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+                    {!!layout.subtitle_2 && (
+                      <>
+                        <ColorRow label="Цвет второй части" value={layout.subtitle_2_color}
+                                  placeholder="как первая часть"
+                                  onChange={v => patch({ subtitle_2_color: v })} />
+                        <div className="mt-2">
+                          <Choice value={layout.subtitle_2_newline === true ? 'new' : 'same'}
+                                  onChange={v => patch({ subtitle_2_newline: v === 'new' })}
+                                  options={[['same', 'В подбор'], ['new', 'С новой строки']]} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <Range label="Размер, px" value={layout.subtitle_size ?? 28} min={10} max={90}
                          onChange={v => patch({ subtitle_size: v })} />
                   <ColorRow label="Цвет" value={layout.subtitle_color}
                             placeholder="цвет бренда"
@@ -654,6 +678,14 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
               )}
             </div>
 
+            {/* ⚠️ Расстояния между строками текста: были зашиты в код, и
+                подвинуть их было нельзя — на плотном макете слипались. */}
+            <Range label="Отступ от пилюли до заголовка, px"
+                   value={layout.gap_pill_title ?? 18} min={0} max={200}
+                   onChange={v => patch({ gap_pill_title: v })} />
+            <Range label="Отступ от заголовка до подзаголовка, px"
+                   value={layout.gap_title_subtitle ?? 14} min={0} max={200}
+                   onChange={v => patch({ gap_title_subtitle: v })} />
             <Range label="Высота текстового блока, %" value={layout.text_top ?? 18} min={0} max={100}
                    onChange={v => patch({ text_top: v })} />
           </Card>
@@ -713,7 +745,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 <ColorRow label="Цвет текста" value={layout.pill_text_color}
                           placeholder="белый"
                           onChange={v => patch({ pill_text_color: v })} />
-                <Range label="Размер, % высоты" value={layout.pill_size ?? 2} min={0.3} max={8}
+                <Range label="Размер, px" value={layout.pill_size ?? 22} min={8} max={70}
                        onChange={v => patch({ pill_size: v })} />
               </>
             )}

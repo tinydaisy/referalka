@@ -56,6 +56,13 @@ export type PosterLayout = {
   /** Раскладка (миграция 454): full — текст сверху; left/right — колонками. */
   layout_mode?: 'full' | 'left' | 'right'
   speakers_width?: number
+  /** Свободное размещение блоков (миграция 455) — интерфейс к ним будет позже. */
+  logos_x?: number
+  logos_w?: number
+  logos_dir?: 'row' | 'column' | 'grid'
+  text_x?: number
+  text_w?: number
+  speakers_x?: number
   text_align?: 'left' | 'center' | 'right'
   mask_shape?: 'portrait' | 'square' | 'circle' | 'oval' | 'egg' | 'cutout'
   mask_radius?: number
@@ -85,6 +92,10 @@ export type PosterLayout = {
   title_2_color?: string | null
   title_2_newline?: boolean
   subtitle?: string | null
+  /** Вторая часть подзаголовка — своим цветом (миграция 458). */
+  subtitle_2?: string | null
+  subtitle_2_color?: string | null
+  subtitle_2_newline?: boolean
   show_title?: boolean
   show_subtitle?: boolean
   title_font?: string | null
@@ -100,6 +111,9 @@ export type PosterLayout = {
   subtitle_underline?: 'none' | 'line' | 'gradient'
   subtitle_align?: 'left' | 'center' | 'right'
   text_top?: number
+  /** Отступы между текстовыми блоками, px полотна (миграция 458). */
+  gap_pill_title?: number
+  gap_title_subtitle?: number
   show_pill?: boolean
   pill_text?: string | null
   pill_text_2?: string | null
@@ -201,13 +215,16 @@ export default function PosterCanvas({
   /** Проценты ширины КОЛОНКИ спикеров — для карточек и подписей. */
   const cpx = (percent: number) => (percent * AW * cols.sp.w) / 10000
 
-  // ⚠️⚠️ КЕГЛЬ ТЕКСТА — ОТ ВЫСОТЫ ЛИСТА, а не от ширины. Одно и то же число,
-  // посчитанное от ширины, давало РАЗНЫЙ по величине заголовок: на вертикальной
-  // афише 3 % высоты листа (текст терялся крошечной строчкой), на
-  // горизонтальной — 10 % (нормально). Разброс втрое из-за того, что ширина у
-  // форматов отличается вдвое, а читаем мы текст относительно ВЫСОТЫ листа.
-  // Теперь «8 %» одинаково выглядит на всех трёх форматах.
-  const tx = (percent: number) => (percent * H) / 100
+  // ⚠️⚠️ КЕГЛЬ ТЕКСТА — ПРОСТО ПИКСЕЛИ. Проценты высоты листа давали разброс:
+  // одно значение 2.6 превращалось в 42 px на горизонтальной афише и 75 px на
+  // вертикальной — «то слишком большой, то слишком маленький», и подобрать
+  // нормальный размер было нельзя. Каждый формат настраивается отдельно, так
+  // что пиксели здесь честнее и понятнее: что задали, то и получите.
+  //
+  // ⚠️ Значения хранятся в единицах полотна (1920×1080 и т.п.), а снимок
+  // делается в 1.5 раза крупнее — в готовом файле буква будет в 1.5 раза
+  // больше указанного. Это нормально: пропорции сохраняются.
+  const tx = (pxSize: number) => pxSize
 
   // ⚠️⚠️ РАСКЛАДКА В КОЛОНКИ (миграция 454). `full` — как было: текст сверху
   // во всю ширину, спикеры под ним. `left`/`right` — спикеры занимают свою
@@ -370,7 +387,14 @@ export default function PosterCanvas({
   const cardH = cardW * ratio
   // Кегль подписи: либо заданный клиентом, либо ужатый под карточку — иначе
   // на плотной сетке фамилии наезжают друг на друга.
-  const nameSizeFit = Math.min(L.name_size ?? 1.6, cardW * 0.19)
+  // ⚠️⚠️ РАЗМЕР ИМЕНИ — ДОЛЯ КАРТОЧКИ, а не процент афиши. Раньше значение
+  // резалось потолком `cardW * 0.19`: при карточке 8 % потолок 1.52, а
+  // умолчание 1.6 — ползунок упирался в него, и ВСЯ ВЕРХНЯЯ ПОЛОВИНА ШКАЛЫ
+  // ничего не меняла. Клиент двигал ручку и не видел реакции.
+  //
+  // Теперь `name_size` — это проценты ШИРИНЫ КАРТОЧКИ (15 % = кегль в шестую
+  // часть её ширины). Понятнее и работает на всём диапазоне.
+  const nameSizeFit = cardW * (L.name_size ?? 15) / 100
 
   const bodyFont = brandFontCss(th.lp_font_body || 'Roboto', label(th.lp_font_body))
 
@@ -457,7 +481,7 @@ export default function PosterCanvas({
         textAlign: L.text_align ?? 'center',
       }}>
         {L.show_pill !== false && (pill1 || pill2) && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: px(1.5), flexWrap: 'wrap', marginBottom: px(1.6) }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: px(1.5), flexWrap: 'wrap', marginBottom: L.gap_pill_title ?? 18 }}>
             {[pill1, pill2].filter(Boolean).map((txt, i) => (
               <Pill key={i} text={txt as string} L={L} px={px} tx={tx} gold={gold} font={brandFontCss(L.pill_font || th.lp_font_body, label(L.pill_font || th.lp_font_body))} />
             ))}
@@ -472,7 +496,7 @@ export default function PosterCanvas({
             newline2={L.title_2_newline !== false}
             align={L.title_align || 'center'}
             font={brandFontCss(L.title_font || th.lp_font_heading || 'BebasNeue', label(L.title_font || th.lp_font_heading))}
-            sizePx={tx(L.title_size ?? 7)}
+            sizePx={tx(L.title_size ?? 76)}
             color={L.title_color || th.lp_color_heading || GOLD}
             metallic={L.title_metallic !== false}
             underline={L.title_underline || 'none'}
@@ -486,7 +510,7 @@ export default function PosterCanvas({
               text={L.subtitle}
               align={L.subtitle_align || 'center'}
               font={brandFontCss(L.subtitle_font || th.lp_font_body || 'Roboto', label(L.subtitle_font || th.lp_font_body))}
-              sizePx={tx(L.subtitle_size ?? 2.6)}
+              sizePx={tx(L.subtitle_size ?? 28)}
               color={L.subtitle_color || th.lp_color_body || '#FFFFFF'}
               metallic={!!L.subtitle_metallic}
               underline={L.subtitle_underline || 'none'}
@@ -744,7 +768,7 @@ function Pill({ text, L, px, tx, gold, font }: {
 
   // ⚠️ Отступы внутри пилюли — доля от ЕЁ КЕГЛЯ, а не от ширины афиши:
   // иначе на горизонтальном формате пилюля раздувалась вдвое при том же тексте.
-  const fs = tx(L.pill_size ?? 2)
+  const fs = tx(L.pill_size ?? 22)
   // ⚠️⚠️ СКРУГЛЕНИЕ — ДОЛЯ ОТ ВЫСОТЫ ПИЛЮЛИ, а не пиксели полотна. Раньше
   // «50» означало 50 px на афише шириной 1920 — глазом почти не видно, и
   // настройка выглядела нерабочей. Теперь 50 % = полукруглые торцы, как и
@@ -927,6 +951,7 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
         {L.name_place === 'over' && lines.length > 0 && (
           <NameBlock lines={lines} roleText={showBadge && badge === 'suffix' ? roleText : null}
                      L={L} px={px} font={nameFont} color={nameColor} size={nameSize}
+                     cardWPct={wPct}
                      style={{ position: 'absolute', left: 0, right: 0, bottom: px(wPct * 0.05) }} />
         )}
       </div>
@@ -935,13 +960,14 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
       {L.name_place !== 'over' && lines.length > 0 && (
         <NameBlock lines={lines} roleText={showBadge && badge === 'suffix' ? roleText : null}
                    L={L} px={px} font={nameFont} color={nameColor} size={nameSize}
+                   cardWPct={wPct}
                    style={{ marginTop: px(wPct * 0.06) }} />
       )}
     </div>
   )
 }
 
-function NameBlock({ lines, roleText, L, px, font, color, style, size }: {
+function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct }: {
   lines: string[]
   roleText: string | null
   L: PosterLayout
@@ -952,14 +978,25 @@ function NameBlock({ lines, roleText, L, px, font, color, style, size }: {
   /** Кегль, уже ужатый под карточку: на плотной сетке заданный клиентом
    *  размер не влез бы и фамилии наехали бы друг на друга. */
   size: number
+  /** Ширина карточки в тех же единицах, что и `size` — для авто-ужатия. */
+  cardWPct: number
 }) {
   // ⚠️ Тень обязательна у вырезанных спикеров: подпись ложится прямо на людей
   // и фон, и на светлой одежде белые буквы пропадают.
   const shadow = L.name_shadow || L.mask_shape === 'cutout' || L.name_place === 'over'
+  // Коэффициент ужатия под ширину карточки (см. комментарий ниже).
+  const longest = lines.reduce((n, l) => Math.max(n, l.length), 0)
+  const needW = longest * size * 0.55      // в тех же % , что и size
+  const fitK = needW > cardWPct && cardWPct > 0 ? cardWPct / needW : 1
   return (
     <div style={{
       textAlign: 'center', fontFamily: font, color,
-      fontSize: px(size), lineHeight: 1.15,
+      // ⚠️⚠️ ДЛИННАЯ ФАМИЛИЯ УЖИМАЕТСЯ САМА. «Барвинская» и «Кондраченко» не
+      // влезали в карточку по ширине и переносились по слогам в столбик.
+      // Прикидываем ширину самой длинной строки (для кириллицы средняя буква
+      // ≈ 0.55 кегля) и, если она шире карточки, уменьшаем кегль ровно во
+      // столько раз. Короткие имена при этом не трогаются.
+      fontSize: px(size * fitK), lineHeight: 1.15,
       fontWeight: 700,
       // ⚠️ Тень — доля от КЕГЛЯ, а не фикс: на мелких подписях фиксированная
       // тень размазывала бы буквы в пятно.
