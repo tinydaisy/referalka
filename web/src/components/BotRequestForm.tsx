@@ -16,13 +16,11 @@
  * `start`, и знать об этом должно одно место, а не каждая форма.
  */
 import { useState } from 'react'
+import { PlatformLogo } from './PlatformLogo'
 
 type Platform = { slug: string; label: string; enabled: boolean; url: string }
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
-
-// Иконка площадки — эмодзи, чтобы не тянуть картинки на публичную страницу.
-const ICONS: Record<string, string> = { telegram: '✈️', max: '🅼', vk: 'ВК' }
 
 export default function BotRequestForm({
   kind = 'service',
@@ -89,7 +87,9 @@ export default function BotRequestForm({
           {live.map(p => (
             <a key={p.slug} href={p.url} target="_blank" rel="noreferrer"
                className="btn-gold inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold">
-              <span aria-hidden>{ICONS[p.slug] || '💬'}</span>
+              {/* Цвет переопределён на тёмный: фирменный синий Telegram на
+                  золотой кнопке не читается. */}
+              <PlatformLogo slug={p.slug} size={18} color="#25455D" />
               {p.label}
             </a>
           ))}
@@ -103,6 +103,7 @@ export default function BotRequestForm({
               <span key={p.slug}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg
                                bg-gray-100 text-gray-400 text-xs">
+                <PlatformLogo slug={p.slug} size={14} color="#9CA3AF" />
                 {p.label} — скоро
               </span>
             ))}
