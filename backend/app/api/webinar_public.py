@@ -287,6 +287,44 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         room_state = room.get("room_state") or "created"
         is_live = room.get("status") == "live" and room_state == "open"
 
+        # ── Следующий день программы (для экрана «эфир завершён») ──
+        # Считаем ТОЙ ЖЕ логикой, что {next_day_mention} в рассылках: следующий
+        # НОМЕР дня (day+1), а «завтра/дата» — по разнице дат с текущим днём.
+        # Так формулировка на странице и в письме совпадают.
+        next_day_info = None
+        try:
+            _nd = await conn.fetchrow(
+                """SELECT d.day_number, d.day_date, d.title,
+                          (SELECT cs.start_time FROM conf_sessions cs
+                            WHERE cs.event_id = d.event_id AND cs.day = d.day_number
+                              AND cs.start_time IS NOT NULL
+                            ORDER BY cs.sort_order, cs.start_time LIMIT 1) AS start_time
+                     FROM conf_days d
+                    WHERE d.event_id = $1 AND d.day_number = $2""",
+                ev["id"], day + 1)
+            if _nd and _nd["day_date"]:
+                _cur = await conn.fetchval(
+                    "SELECT day_date FROM conf_days WHERE event_id=$1 AND day_number=$2",
+                    ev["id"], day)
+                _diff = (_nd["day_date"] - _cur).days if _cur else 999
+                _MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                           "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+                _when = "завтра" if _diff == 1 else f"{_nd['day_date'].day} {_MONTHS[_nd['day_date'].month - 1]}"
+                _time = str(_nd["start_time"])[:5] if _nd["start_time"] else ""
+                next_day_info = {
+                    "day_number": _nd["day_number"],
+                    "title": _nd["title"],
+                    "when": _when,
+                    "time": _time,
+                    # Готовая фраза — чтобы фронт не собирал её второй раз и
+                    # формулировка не разъехалась с рассылками.
+                    "mention": (f"Встречаемся {_when} в {_time} МСК на День {_nd['day_number']}."
+                                if _time else f"Встречаемся {_when} на День {_nd['day_number']}."),
+                }
+        except Exception:
+            # Нет программы по дням (обычное мероприятие) — просто без блока.
+            next_day_info = None
+
         # Время старта для обратного отсчёта: явное opens_at, иначе старт дня программы
         # (conf_days.day_date + open_time), трактуем как МСК.
         opens_at_iso = room["opens_at"].isoformat() if room.get("opens_at") else None
@@ -358,6 +396,14 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                 "chat_enabled": room.get("chat_enabled"),
                 "premoderation": room.get("premoderation"),
                 "redirect_url": (room.get("redirect_url") or "").strip() or None,
+                # Экран «эфир завершён» (миграция 441). Кнопка и автопереход
+                # ведут на тот же redirect_url.
+                "outro_offer_text": (room.get("outro_offer_text") or "").strip() or None,
+                "outro_button_label": (room.get("outro_button_label") or "").strip() or None,
+                "outro_redirect_sec": room.get("outro_redirect_sec"),
+                # Следующий день программы — чтобы пришедший после эфира узнал,
+                # когда встречаемся снова. Нет следующего дня → None, блок скрыт.
+                "next_day": next_day_info,
                 "reaction_up_label": room.get("reaction_up_label"),
                 "reaction_down_label": room.get("reaction_down_label"),
                 "show_down_reaction": room.get("show_down_reaction"),

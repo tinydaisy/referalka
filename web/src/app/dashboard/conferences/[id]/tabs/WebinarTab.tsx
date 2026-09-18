@@ -237,6 +237,11 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
     chat_enabled: r?.chat_enabled ?? true,
     premoderation: r?.premoderation || false,
     redirect_url: r?.redirect_url || '',
+    // Экран «эфир завершён» (миграция 441). ⚠️ Значения НЕ пустые по умолчанию:
+    // пустое поле с подсказкой не даёт понять, покажется что-то в итоге или нет.
+    outro_offer_text: r?.outro_offer_text ?? 'А пока у нас для вас предложение',
+    outro_button_label: r?.outro_button_label ?? 'Смотреть предложение',
+    outro_redirect_sec: r?.outro_redirect_sec ?? 15,
     reaction_up_label: r?.reaction_up_label || 'Огонь',
     reaction_down_label: r?.reaction_down_label || 'Слабо',
     show_down_reaction: r?.show_down_reaction ?? true,
@@ -315,6 +320,9 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
       chat_enabled: rr?.chat_enabled ?? true,
       premoderation: rr?.premoderation || false,
       redirect_url: rr?.redirect_url || '',
+      outro_offer_text: rr?.outro_offer_text ?? 'А пока у нас для вас предложение',
+      outro_button_label: rr?.outro_button_label ?? 'Смотреть предложение',
+      outro_redirect_sec: rr?.outro_redirect_sec ?? 15,
       reaction_up_label: rr?.reaction_up_label || 'Огонь',
       reaction_down_label: rr?.reaction_down_label || 'Слабо',
       show_down_reaction: rr?.show_down_reaction ?? true,
@@ -351,6 +359,9 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
           chat_enabled: rr.chat_enabled ?? true,
           premoderation: rr.premoderation ?? false,
           redirect_url: rr.redirect_url ?? '',
+          outro_offer_text: rr.outro_offer_text ?? 'А пока у нас для вас предложение',
+          outro_button_label: rr.outro_button_label ?? 'Смотреть предложение',
+          outro_redirect_sec: rr.outro_redirect_sec ?? 15,
           reaction_up_label: rr.reaction_up_label ?? 'Огонь',
           reaction_down_label: rr.reaction_down_label ?? 'Слабо',
           show_down_reaction: rr.show_down_reaction ?? true,
@@ -645,9 +656,50 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
         <p className="text-xs text-gray-500 mt-1">Формы заявок всегда идут на всю ширину — раскладка касается только кнопок.</p>
       </div>
 
-      <div>
-        <label className="label">Ссылка после завершения эфира</label>
-        <input className="input" value={f.redirect_url} onChange={e => setF({ ...f, redirect_url: e.target.value })} placeholder="https://... (куда перебросить зрителя)" />
+      {/* Что видит зритель, когда эфир уже кончился. Раньше тут была одна
+          ссылка и молчаливый переход через 4 секунды: пришедший после эфира
+          не узнавал ни про следующий день, ни про предложение. */}
+      <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+        <div className="font-semibold text-sm">Экран после завершения эфира</div>
+        <p className="text-xs text-gray-500 -mt-1">
+          Если у события есть следующий день — на этом экране сам появится
+          «Встречаемся завтра в 11:00 МСК на День 2». Задавать ничего не нужно,
+          у последнего дня строки не будет.
+        </p>
+
+        <div>
+          <label className="label">Ссылка перехода</label>
+          <input className="input" value={f.redirect_url}
+                 onChange={e => setF({ ...f, redirect_url: e.target.value })}
+                 placeholder="https://... (куда перебросить зрителя)" />
+          <p className="text-[11px] text-gray-400 mt-1">
+            Туда ведёт и кнопка, и автопереход. Пусто — экран покажет только
+            «Спасибо, что были с нами» и следующий день.
+          </p>
+        </div>
+
+        <div>
+          <label className="label">Подводка к предложению</label>
+          <input className="input" value={f.outro_offer_text}
+                 onChange={e => setF({ ...f, outro_offer_text: e.target.value })} />
+        </div>
+
+        <div>
+          <label className="label">Надпись на кнопке</label>
+          <input className="input" value={f.outro_button_label}
+                 onChange={e => setF({ ...f, outro_button_label: e.target.value })} />
+        </div>
+
+        <div>
+          <label className="label">Автопереход через (секунд)</label>
+          <input type="number" min={0} max={600} className="input w-32"
+                 value={f.outro_redirect_sec}
+                 onChange={e => setF({ ...f, outro_redirect_sec: Math.max(0, Math.min(600, Number(e.target.value) || 0)) })} />
+          <p className="text-[11px] text-gray-400 mt-1">
+            На экране идёт видимый обратный отсчёт. <b>0</b> — не переводить
+            автоматически, только по кнопке.
+          </p>
+        </div>
       </div>
 
       <div>

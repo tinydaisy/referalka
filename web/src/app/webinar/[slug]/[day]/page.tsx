@@ -301,9 +301,13 @@ export default function WebinarRoomPage() {
         case 'room_opened': load(); break      // комната открыта — появится форма/плеер
         case 'room_reset': load(); break        // «начать заново» — вернуться к отсчёту
         case 'stream_paused': load(); break     // эфир завершён, но комната открыта — «пауза»
-        case 'stream_ended':                    // комната закрыта — редирект
-          if (msg.redirect_url) window.location.href = msg.redirect_url
-          else load()
+        case 'stream_ended':                    // комната закрыта
+          // ⚠️ НЕ уводим по ссылке сразу. Раньше здесь был мгновенный
+          // window.location.href — и зритель, досидевший до конца эфира,
+          // улетал, не увидев ни «встречаемся завтра», ни предложения.
+          // Перезагружаем страницу: покажется экран завершения, а уже он
+          // переведёт по своему счётчику (outro_redirect_sec).
+          load()
           break
         case 'participant_removed':
           if ((contactId && msg.contact_id === contactId) || (msg.session_key && msg.session_key === sessionKey)) {
@@ -353,9 +357,12 @@ export default function WebinarRoomPage() {
         const d = await res.json()
         const prev = roomRef.current  // актуальный room (не stale из замыкания)
         if (!prev?.room) return
-        // Редирект — ТОЛЬКО когда комната закрыта (не при паузе эфира).
-        if (d.room?.room_state === 'closed') {
-          if (d.room?.redirect_url) { window.location.href = d.room.redirect_url; return }
+        // ⚠️ Комната закрыта — ПОКАЗЫВАЕМ экран завершения, а не уводим сразу.
+        // Уведёт он сам, по своему счётчику: иначе зритель не увидит ни
+        // «встречаемся завтра», ни предложения. (Резервный путь на случай
+        // отвалившегося веб-сокета — логика та же, что у stream_ended.)
+        if (d.room?.room_state === 'closed' && prev.room.room_state !== 'closed') {
+          setRoom(d); return
         }
         // Что могло измениться на пульте ведущего — сравниваем и обновляем без F5:
         //  • статус/состояние комнаты
@@ -392,8 +399,11 @@ export default function WebinarRoomPage() {
   if (roomState === 'closed') {
     return (
       <PreStartScreen brand={room.brand} poster={room.poster_url} title={webinarTitle}
-        heading="Вебинар завершён" sub={rm.redirect_url ? 'Сейчас переведём вас по ссылке…' : 'Спасибо, что были с нами!'}
-        redirectUrl={rm.redirect_url} slug={slug} day={day} isClosed />
+        heading="Вебинар завершён"
+        sub={rm.redirect_url ? '' : 'Спасибо, что были с нами!'}
+        redirectUrl={rm.redirect_url} slug={slug} day={day} isClosed
+        offerText={rm.outro_offer_text} buttonLabel={rm.outro_button_label}
+        redirectSec={rm.outro_redirect_sec} nextDay={room.room?.next_day} />
     )
   }
 
@@ -1014,12 +1024,20 @@ function Centered({ children }: { children: React.ReactNode }) {
 // Экран до старта / после закрытия: логотип + название вебинара + афиша + отсчёт.
 // slug/day/isClosed нужны, чтобы closed-экран сам пинговал состояние: если комнату
 // переоткрыли (open/created) — перезагрузиться и показать форму/отсчёт, а не «завершён».
-function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectUrl, slug, day, isClosed }: any) {
+function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectUrl, slug, day, isClosed,
+                          offerText, buttonLabel, redirectSec, nextDay }: any) {
+  // Секунды до автоперехода. 0 (или отсутствие ссылки) — не переводим вовсе:
+  // уйдёт только по кнопке. Раньше здесь было 4 секунды хардкодом — человек не
+  // успевал прочитать ни про следующий день, ни про предложение.
+  const delay = (typeof redirectSec === 'number' ? redirectSec : 15)
+  const [left, setLeft] = useState<number>(delay)
   useEffect(() => {
-    if (!redirectUrl) return
-    const t = setTimeout(() => { window.location.href = redirectUrl }, 4000)
-    return () => clearTimeout(t)
-  }, [redirectUrl])
+    if (!redirectUrl || delay <= 0) return
+    setLeft(delay)
+    const tick = setInterval(() => setLeft(v => (v > 0 ? v - 1 : 0)), 1000)
+    const t = setTimeout(() => { window.location.href = redirectUrl }, delay * 1000)
+    return () => { clearTimeout(t); clearInterval(tick) }
+  }, [redirectUrl, delay])
   // closed-экран: раз в 8 сек проверяем — вдруг комнату переоткрыли.
   useEffect(() => {
     if (!isClosed || !slug || day == null) return
@@ -1047,8 +1065,35 @@ function PreStartScreen({ brand, poster, title, heading, sub, opensAt, redirectU
       {heading && <p className="text-lg text-white/90 mb-1 max-w-xl whitespace-pre-wrap">{heading}</p>}
       {sub && <p className="text-sm text-white/60 mb-3">{sub}</p>}
       {opensAt && <Countdown opensAt={opensAt} />}
+
+      {/* Следующий день программы — человеку, пришедшему после эфира, важнее
+          всего узнать, когда встречаемся снова. Фразу собирает бэк той же
+          логикой, что {next_day_mention} в рассылках: формулировки совпадают.
+          Последний день → nextDay = null, блока нет. */}
+      {nextDay?.mention && (
+        <div className="mt-4 rounded-2xl px-4 py-3 max-w-md w-full"
+             style={{ background: 'rgba(255,207,164,0.12)', border: '1px solid rgba(255,207,164,0.35)' }}>
+          <p className="text-sm font-semibold" style={{ color: '#FFCFA4' }}>{nextDay.mention}</p>
+          {nextDay.title && <p className="text-xs text-white/60 mt-1">{nextDay.title}</p>}
+        </div>
+      )}
+
+      {/* Предложение + кнопка. Показываем ТОЛЬКО при заданной ссылке: кнопка
+          в никуда бессмысленна. Кнопка и автопереход ведут в одно место. */}
       {redirectUrl && (
-        <a href={redirectUrl} className="mt-4 underline text-sm" style={{ color: '#FFCFA4' }}>Перейти сейчас</a>
+        <div className="mt-5 flex flex-col items-center gap-2.5 w-full max-w-md">
+          {offerText && <p className="text-sm text-white/80">{offerText}</p>}
+          <a href={redirectUrl}
+             className="w-full rounded-xl px-5 py-3 text-sm font-semibold text-center"
+             style={{ background: '#FFCFA4', color: '#0a1520' }}>
+            {buttonLabel || 'Смотреть предложение'}
+          </a>
+          {delay > 0 && (
+            <p className="text-xs text-white/40">
+              {left > 0 ? `Перейдём автоматически через ${left} сек` : 'Переходим…'}
+            </p>
+          )}
+        </div>
       )}
     </div>
   )

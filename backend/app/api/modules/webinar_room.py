@@ -75,6 +75,12 @@ class RoomUpsert(BaseModel):
     chat_enabled: Optional[bool] = None
     premoderation: Optional[bool] = None
     redirect_url: Optional[str] = None
+    # Экран «эфир завершён» (миграция 441): подводка к предложению, надпись на
+    # кнопке и через сколько секунд автопереход. Кнопка и автопереход ведут на
+    # один и тот же redirect_url.
+    outro_offer_text: Optional[str] = None
+    outro_button_label: Optional[str] = None
+    outro_redirect_sec: Optional[int] = None
     reaction_up_label: Optional[str] = None
     reaction_down_label: Optional[str] = None
     show_down_reaction: Optional[bool] = None
@@ -259,6 +265,9 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "chat_enabled": r.get("chat_enabled"),
         "premoderation": r.get("premoderation"),
         "redirect_url": r.get("redirect_url"),
+        "outro_offer_text": r.get("outro_offer_text"),
+        "outro_button_label": r.get("outro_button_label"),
+        "outro_redirect_sec": r.get("outro_redirect_sec"),
         "reaction_up_label": r.get("reaction_up_label"),
         "reaction_down_label": r.get("reaction_down_label"),
         "show_down_reaction": r.get("show_down_reaction"),
