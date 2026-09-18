@@ -30,6 +30,7 @@ type Order = {
   client_id: number | null
   source_kind: string | null
   source_title: string | null
+  owner_tech_title: string | null
   note: string | null
   request_text: string | null
   created_at: string
@@ -53,6 +54,9 @@ type FoundClient = {
   email: string
   phone: string | null
   source: { kind: string; title: string; email: string | null }
+  // За кем клиент числится. ⚠️ Не то же, что «привёл»: привести мог один, а
+  // вести закреплён другой.
+  owner: { id: number; title: string | null; email: string | null } | null
 }
 
 const STATUSES = ['all', 'draft', 'sent', 'paid', 'cancelled'] as const
@@ -236,9 +240,12 @@ function OrderCard({ order, prices, api, onChange }: {
           )}
           {/* От кого пришёл клиент. ⚠️ Реферальный процент с персональных
               заказов не платим — показываем, чтобы видеть источник. */}
-          {order.source_title && (
+          {(order.source_title || order.owner_tech_title) && (
             <div className="text-xs text-gray-400 mt-0.5">
-              Привёл: {order.source_title}
+              {order.source_title && <>Привёл: {order.source_title}</>}
+              {order.owner_tech_title && (
+                <>{order.source_title && ' · '}В базе у: {order.owner_tech_title}</>
+              )}
               {order.lead_source === 'own' && (
                 <span className="ml-1.5 text-green-700">· свой клиент, 80 %</span>
               )}
@@ -393,6 +400,16 @@ function ClientPicker({ api, value, onPick }: {
                 {value.source.email && ` · ${value.source.email}`}
               </span>
             </div>
+            {/* Кто ВЕДЁТ — отдельная строка: привести мог партнёр, а
+                закреплён клиент за конкретным внедренцем. */}
+            <div className="text-xs">
+              <span className="text-gray-400">В базе у: </span>
+              <span style={{ color: value.owner ? '#25455D' : '#9CA3AF' }}>
+                {value.owner
+                  ? `${value.owner.title}${value.owner.email ? ` · ${value.owner.email}` : ''}`
+                  : 'ни за кем не закреплён'}
+              </span>
+            </div>
           </div>
           <button type="button"
                   onClick={() => { onPick(null); setQ(''); setFound([]) }}
@@ -433,7 +450,10 @@ function ClientPicker({ api, value, onPick }: {
                 )}
               </div>
               <div className="text-xs text-gray-500">{c.email}</div>
-              <div className="text-xs text-gray-400">Привёл: {c.source.title}</div>
+              <div className="text-xs text-gray-400">
+                Привёл: {c.source.title}
+                {' · '}В базе у: {c.owner?.title || 'никого'}
+              </div>
             </button>
           ))}
         </div>

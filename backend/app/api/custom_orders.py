@@ -109,6 +109,7 @@ class PayIn(BaseModel):
 _FIELDS = """id, number, title, items, amount, status, contact_id, client_id,
              client_name, client_email, client_phone, tech_specialist_id,
              lead_source, source_kind, source_title, source_email,
+             owner_tech_id, owner_tech_title,
              payment_url, payment_provider, external_payment_id,
              paid_at, is_done, done_at, note, request_text,
              created_at, updated_at"""
@@ -133,6 +134,7 @@ async def _resolve_source(db, client_id: Optional[int],
     """
     empty = {"client_id": None, "lead_source": "pluson", "source_kind": None,
              "source_title": None, "source_email": None,
+             "owner_tech_id": None, "owner_tech_title": None,
              "name": None, "email": None, "phone": None}
     if not client_id:
         return empty
@@ -143,10 +145,13 @@ async def _resolve_source(db, client_id: Optional[int],
                   c.referred_by_tech_id, c.referred_by_client_id,
                   t.name AS tech_name, t.email AS tech_email,
                   p.brand_name AS partner_brand, p.email AS partner_email,
-                  TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person
+                  TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person,
+                  c.tech_specialist_id,
+                  o.name AS owner_tech_name, o.email AS owner_tech_email
              FROM clients c
              LEFT JOIN tech_specialists t ON t.id = c.referred_by_tech_id
              LEFT JOIN clients p ON p.id = c.referred_by_client_id
+             LEFT JOIN tech_specialists o ON o.id = c.tech_specialist_id
             WHERE c.id = $1""",
         client_id,
     )
@@ -169,6 +174,11 @@ async def _resolve_source(db, client_id: Optional[int],
         "client_id": row["id"],
         "lead_source": "own" if own else "pluson",
         "source_kind": kind, "source_title": title, "source_email": email,
+        # ⚠️ Ответственный — снимком: клиента могут передать другому, а в
+        # заказе должно остаться видно, за кем он числился на момент заказа.
+        "owner_tech_id": row["tech_specialist_id"],
+        "owner_tech_title": (row["owner_tech_name"] or row["owner_tech_email"]
+                             if row["tech_specialist_id"] else None),
         "name": row["person"] or row["brand_name"] or row["email"],
         "email": row["email"], "phone": row["phone"],
     }
@@ -180,9 +190,10 @@ async def _create(db, data: OrderIn, tech_id: Optional[int]) -> dict:
         f"""INSERT INTO custom_orders
                 (title, items, amount, client_name, client_email, client_phone,
                  note, request_text, contact_id, tech_specialist_id, lead_source,
-                 client_id, source_kind, source_title, source_email)
+                 client_id, source_kind, source_title, source_email,
+                 owner_tech_id, owner_tech_title)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                    $12, $13, $14, $15)
+                    $12, $13, $14, $15, $16, $17)
          RETURNING {_FIELDS}""",
         (data.title or "").strip() or "Персональный заказ",
         (data.items or "").strip(),
@@ -195,6 +206,7 @@ async def _create(db, data: OrderIn, tech_id: Optional[int]) -> dict:
         data.note, data.request_text, data.contact_id, tech_id,
         src["lead_source"], src["client_id"],
         src["source_kind"], src["source_title"], src["source_email"],
+        src["owner_tech_id"], src["owner_tech_title"],
     )
     # Номер ставим после вставки: он строится из id, которого до неё нет.
     await db.execute(
@@ -239,6 +251,8 @@ async def _patch(db, order_id: int, data: OrderPatch, *, tech_id: Optional[int])
         add("source_kind", src["source_kind"])
         add("source_title", src["source_title"])
         add("source_email", src["source_email"])
+        add("owner_tech_id", src["owner_tech_id"])
+        add("owner_tech_title", src["owner_tech_title"])
     if "status" in fields and data.status in ("draft", "sent", "cancelled"):
         # ⚠️ `paid` руками не ставим: этот статус приходит только от платёжной
         # системы. Иначе заказ можно «оплатить» кнопкой, и деньги разойдутся
@@ -365,10 +379,13 @@ async def _search_clients(db, q: str, limit: int = 20) -> list[dict]:
                   c.referred_by_tech_id, c.referred_by_client_id,
                   t.name AS tech_name, t.email AS tech_email,
                   p.brand_name AS partner_brand, p.email AS partner_email,
-                  TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person
+                  TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person,
+                  c.tech_specialist_id,
+                  o.name AS owner_tech_name, o.email AS owner_tech_email
              FROM clients c
              LEFT JOIN tech_specialists t ON t.id = c.referred_by_tech_id
              LEFT JOIN clients p ON p.id = c.referred_by_client_id
+             LEFT JOIN tech_specialists o ON o.id = c.tech_specialist_id
             WHERE LOWER(c.email) LIKE $1
                OR LOWER(COALESCE(c.brand_name, '')) LIKE $1
                OR LOWER(COALESCE(c.name, '')) LIKE $1
@@ -399,6 +416,14 @@ async def _search_clients(db, q: str, limit: int = 20) -> list[dict]:
             "phone": r["phone"],
             "referred_by_tech_id": r["referred_by_tech_id"],
             "source": src,
+            # ⚠️ ВЕДЁТ — НЕ ТО ЖЕ, ЧТО ПРИВЁЛ. Клиента мог привести один
+            # внедренец (или партнёр), а вести его закреплён другой. Ставку
+            # определяет тот, кто ПРИВЁЛ, но знать ответственного нужно:
+            # именно он делает работу по заказу.
+            "owner": ({"id": r["tech_specialist_id"],
+                       "title": r["owner_tech_name"] or r["owner_tech_email"],
+                       "email": r["owner_tech_email"]}
+                      if r["tech_specialist_id"] else None),
         })
     return out
 
