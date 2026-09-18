@@ -9,6 +9,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
+import TechFaqScreen from '@/components/TechFaqScreen'
 
 const rub = (kop?: number | null) =>
   `${Math.round((kop || 0) / 100).toLocaleString('ru-RU')} ₽`
@@ -49,7 +50,7 @@ const sortRates = (rates: any[]) =>
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
     })
 
-type Tab = 'specs' | 'assign' | 'dialogs' | 'rates' | 'bonus' | 'money'
+type Tab = 'specs' | 'assign' | 'dialogs' | 'rates' | 'bonus' | 'money' | 'faq'
 
 
 // ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента, поэтому
@@ -99,7 +100,8 @@ function AdminTechPageInner() {
         {([['specs', 'Люди'], ['assign', 'Клиенты'],
            ['rates', 'Ставки и вилки'], ['bonus', 'Премии'],
            ['dialogs', 'Диалоги бота'],
-           ['money', 'Начисления']] as [Tab, string][]).map(([id, label]) => (
+           ['money', 'Начисления'],
+           ['faq', 'Частые вопросы']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
                   className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
                     tab === id ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -118,6 +120,9 @@ function AdminTechPageInner() {
                                     onChange={() => setTick(t => t + 1)} />}
       {tab === 'dialogs' && <DialogsTab specs={specs} />}
       {tab === 'money' && <MoneyTab specs={specs} />}
+      {/* ⚠️ Экран ОБЩИЙ с кабинетом внедренца: база вопросов одна на всех,
+          отличается только набор методов (`adminFaq` против `techFaq`). */}
+      {tab === 'faq' && <TechFaqScreen api={api.adminFaq} />}
     </div>
   )
 }

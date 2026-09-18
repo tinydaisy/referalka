@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList } from 'lucide-react'
+import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList, HelpCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const NAV = [
@@ -26,6 +26,9 @@ const NAV = [
   // Персональные заказы (миграция 439): внедренец собирает услугу под
   // клиента и отдаёт ссылку на оплату. Видит ТОЛЬКО свои — фильтр в SQL.
   { href: '/tech/custom-orders', label: 'Персональные заказы', icon: ClipboardList },
+  // Частые вопросы (миграция 460): ОБЩАЯ база готовых ответов — завёл один,
+  // видят все. Ответ копируется кнопкой и сразу отправляется клиенту.
+  { href: '/tech/faq', label: 'Частые вопросы', icon: HelpCircle },
 ]
 
 export default function TechLayout({ children }: { children: React.ReactNode }) {

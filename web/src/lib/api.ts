@@ -1498,6 +1498,31 @@ export const api = {
               { method: 'POST', body: JSON.stringify(data) }),
   },
 
+  // ⚠️ Частые вопросы (миграция 460) — ОБЩАЯ база: завёл один, видят все.
+  // Два набора методов на одну сущность, как у персональных заказов: пути
+  // разные (`/tech/faq` и `/admin/tech/faq`), экран один (TechFaqScreen).
+  techFaq: {
+    list: (q?: string) =>
+      request(`/api/v1/tech/faq${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    create: (data: { question: string; answer: string }) =>
+      request('/api/v1/tech/faq', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: { question?: string; answer?: string }) =>
+      request(`/api/v1/tech/faq/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: number) =>
+      request(`/api/v1/tech/faq/${id}`, { method: 'DELETE' }),
+  },
+
+  adminFaq: {
+    list: (q?: string) =>
+      request(`/api/v1/admin/tech/faq${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    create: (data: { question: string; answer: string }) =>
+      request('/api/v1/admin/tech/faq', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: { question?: string; answer?: string }) =>
+      request(`/api/v1/admin/tech/faq/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: number) =>
+      request(`/api/v1/admin/tech/faq/${id}`, { method: 'DELETE' }),
+  },
+
   // Управление тех-специалистами — только для админа.
   // Персональные заказы (миграция 439): произвольная услуга, произвольная цена.
   // ⚠️ ДВА набора методов на одну сущность — `customOrders` для админки и

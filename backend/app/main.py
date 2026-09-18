@@ -10,7 +10,7 @@ from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
 from app.middleware.email_verification_guard import email_verification_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, client_brand_logos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public, request_forms, instagram_webhook, instagram_funnels, module_materials, cover_templates, cover_public, tech_cabinet, admin_tech, tech_materials, tech_dialogs, solutions, address_suggest, promo_codes, custom_orders, bot_requests
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, client_speaker_photos, client_brand_logos, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats, pluson_connect, medialift, medialift_cabinet_html, analytics, event_landing, event_landing_public, client_landing_theme, client_domains_api, client_storage, surveys, surveys_public, analytics_dashboards, products, product_orders, products_public, product_landing, product_landing_public, plusson_bonus_public, platform_legal, speaker_signup_public, request_forms, instagram_webhook, instagram_funnels, module_materials, cover_templates, cover_public, tech_cabinet, admin_tech, tech_materials, tech_dialogs, solutions, address_suggest, promo_codes, custom_orders, bot_requests, tech_faq
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
 from app.api import client_call_settings, call_campaigns, client_zoom_settings
 from app.api import tg_autosetup, admin_tg_setup, support_onboarding
@@ -220,6 +220,11 @@ app.include_router(admin_tech.router,   prefix="/api/v1")
 app.include_router(tech_materials.router, prefix="/api/v1")
 # Диалоги внедренца: переписка с теми, кто написал в @pluson_bot (мигр. 392).
 app.include_router(tech_dialogs.router,   prefix="/api/v1")
+# Частые вопросы техспецов (миграция 460): ОБЩАЯ база готовых ответов —
+# завёл один, видят все. Два роутера, потому что раздел открыт и админке,
+# и кабинету внедренца; логика одна, отличается только вход.
+app.include_router(tech_faq.router,       prefix="/api/v1")
+app.include_router(tech_faq.tech_router,  prefix="/api/v1")
 # ⚠️⚠️ ПЕРСОНАЛЬНЫЕ ЗАКАЗЫ (миграция 439): произвольная услуга, произвольная
 # цена. Заводит и владелец, и техспец — потому два роутера с разными правами и
 # фильтром по tech_specialist_id в SQL. Реквизиты НАШИ, ПЛЮСОНА: услугу
