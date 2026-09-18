@@ -182,6 +182,28 @@ export function applyManualRows(
 }
 
 /**
+ * Разложить людей на ЗАДАННОЕ число рядов.
+ *
+ * ⚠️ Остаток раскидываем по ВЕРХНИМ рядам, а не оставляем «хвост» в последнем.
+ * 13 человек на 3 ряда — это 5+4+4, а не 5+5+3: сверху стоят те, кто важнее
+ * (ряды идут по порядку), и верхний ряд логично сделать не короче нижнего.
+ * Заодно ряды выходят почти одинаковой длины, и сетка не выглядит рваной.
+ */
+export function splitIntoRows<T>(items: T[], rowCount: number): T[][] {
+  const n = Math.max(1, Math.min(rowCount, items.length || 1))
+  const base = Math.floor(items.length / n)
+  const extra = items.length % n
+  const out: T[][] = []
+  let i = 0
+  for (let r = 0; r < n; r++) {
+    const take = base + (r < extra ? 1 : 0)
+    out.push(items.slice(i, i + take))
+    i += take
+  }
+  return out.filter(r => r.length)
+}
+
+/**
  * Разбивка на ряды.
  *
  * ⚠️ Последний неполный ряд ЦЕНТРИРУЕТСЯ самой вёрсткой (justify-content:

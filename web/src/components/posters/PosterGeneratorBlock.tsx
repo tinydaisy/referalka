@@ -19,7 +19,7 @@ import { api } from '@/lib/api'
 import { ensureBrandFonts } from '@/lib/brandStyle'
 import FileUploader from '@/components/FileUploader'
 import PosterCanvas, { POSTER_SIZE, type PosterLayout, type PosterOrientation, type PosterTheme } from './PosterCanvas'
-import { applyManualOrder, applyManualRows, ORGANIZER_ROLES, subscribersOf, type PosterPerson } from '@/lib/posterLayout'
+import { applyManualOrder, applyManualRows, splitIntoRows, ORGANIZER_ROLES, subscribersOf, type PosterPerson } from '@/lib/posterLayout'
 
 /** Вкладки настроек. ⚠️ Через useUrlTab, а не useState: правило проекта —
  *  обновление страницы не должно сбрасывать на первую вкладку. */
@@ -196,6 +196,15 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     list.splice(to, 0, moved)
     patch({ logos_order: list })
     setDragLogo(null)
+  }
+
+  /** Разложить всех спикеров на заданное число рядов. */
+  function setRowCount(n: number) {
+    // ⚠️ Берём людей В ТЕКУЩЕМ ПОРЯДКЕ (как они идут по рядам сейчас), а не
+    // заново из авторасстановки: клиент мог уже переставить кого-то местами,
+    // и смена числа рядов не должна это стирать.
+    const flat = rowsView.flat()
+    patch({ speaker_rows: splitIntoRows(flat, n).map(r => r.map(p => p.id)) })
   }
 
   function onDropPartner(targetId: number) {
@@ -736,6 +745,8 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             onOverRow={setOverRow}
             onDropToRow={(ri) => { if (dragId != null) moveToRow(dragId, ri); setDragId(null); setOverRow(null) }}
             onReset={() => patch({ speaker_rows: [] })}
+            onSetRowCount={setRowCount}
+            total={rowsView.reduce((n, r) => n + r.length, 0)}
           />
           </>)}
           </div>
@@ -948,8 +959,10 @@ function SpeakerRowsEditor({
   onOverRow: (ri: number | null) => void
   onDropToRow: (ri: number) => void
   onReset: () => void
+  /** Разложить всех на заданное число рядов. */
+  onSetRowCount: (n: number) => void
+  total: number
 }) {
-  const total = rows.reduce((n, r) => n + r.length, 0)
 
   return (
     <Card title="Спикеры по рядам">
@@ -958,6 +971,25 @@ function SpeakerRowsEditor({
         Сколько людей положите в ряд, столько в нём и будет: ряды могут быть разной длины.
         {!manual && <> Сейчас расстановка автоматическая — перетащите кого-нибудь, чтобы задать свою.</>}
       </p>
+
+      {/* ⚠️ КОЛИЧЕСТВО РЯДОВ задаётся кнопкой, а не только перетаскиванием:
+          разложить 13 человек на 3 ряда вручную — это тринадцать перетаскиваний.
+          Кнопка раскладывает сразу, а дальше клиент правит руками кого надо.
+          Порядок людей при этом СОХРАНЯЕТСЯ — перестановки не сбрасываются. */}
+      {total > 1 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-600">Разложить на</span>
+          {Array.from({ length: Math.min(6, total) }, (_, i) => i + 1).map(n => (
+            <button key={n} type="button" onClick={() => onSetRowCount(n)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                      rows.length === n
+                        ? 'bg-[#25455D] text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {n} {n === 1 ? 'ряд' : n < 5 ? 'ряда' : 'рядов'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {organizers.length > 0 && (
         <div className="mb-3 rounded-lg bg-gray-50 px-3 py-2">
