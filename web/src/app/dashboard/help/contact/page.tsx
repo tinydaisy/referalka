@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { LifeBuoy, ExternalLink } from 'lucide-react'
 import { SUPPORT_CHANNELS } from '@/lib/support'
+import { PlatformLogo } from '@/components/PlatformLogo'
 
 const BRAND = '#25455D'
 
@@ -41,11 +42,13 @@ export default function SupportContactPage() {
             rel="noopener noreferrer"
             className="group flex items-center gap-3 p-4 bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300 transition-all"
           >
+            {/* ⚠️ Логотип площадки, а не первая буква названия: «T» и «M» в
+                кружке читались как заглушка. Компонент общий — PlatformLogo. */}
             <div
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0"
+              className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
               style={{ background: ch.color }}
             >
-              {ch.label[0]}
+              <PlatformLogo slug={ch.key} size={24} color="#fff" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-semibold text-gray-900 flex items-center gap-1.5">

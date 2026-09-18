@@ -19,8 +19,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import { PlatformLogo, PLATFORM_COLORS } from '@/components/PlatformLogo'
 import {
   MailCheck, Mail, Check, ExternalLink, Loader2, ShieldCheck, RefreshCw,
+  ArrowRight,
 } from 'lucide-react'
 
 const BRAND = '#25455D'
@@ -158,8 +160,10 @@ export default function StepZeroPreviewPage() {
             {!emailDone && (
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <button onClick={resend} disabled={sending}
-                        className="btn-gold px-4 py-2 text-sm font-semibold disabled:opacity-50">
-                  {sending ? 'Отправляем…' : 'Отправить письмо'}
+                        className="btn-gold px-4 py-2 text-sm font-semibold disabled:opacity-50 inline-flex items-center gap-2">
+                  {sending
+                    ? <><Loader2 size={15} className="animate-spin" /> Отправляем…</>
+                    : <><Mail size={15} /> Отправить письмо</>}
                 </button>
                 <button onClick={() => load(true)}
                         className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1.5">
@@ -196,11 +200,17 @@ export default function StepZeroPreviewPage() {
                   <a key={p.slug} href={p.url} target="_blank" rel="noopener noreferrer"
                      className="group flex items-center gap-3 p-3 rounded-xl border bg-white hover:shadow-md transition-all"
                      style={{ borderColor: p.subscribed ? '#86efac' : '#e5e7eb' }}>
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 font-bold ${
-                      p.subscribed
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-500'}`}>
-                      {p.subscribed ? <Check size={17} /> : p.label[0]}
+                    {/* ⚠️ Плашка в фирменном цвете площадки с её логотипом —
+                        как на странице «Написать в тех.поддержку». Первая
+                        буква названия читалась как заглушка. Пройденная
+                        площадка отмечается галочкой поверх зелёного. */}
+                    <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                         style={{ background: p.subscribed
+                           ? '#16a34a'
+                           : (PLATFORM_COLORS[p.slug] || '#25455D') }}>
+                      {p.subscribed
+                        ? <Check size={22} className="text-white" />
+                        : <PlatformLogo slug={p.slug} size={24} color="#fff" />}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold text-gray-900 flex items-center gap-1.5 text-sm">
@@ -220,8 +230,9 @@ export default function StepZeroPreviewPage() {
                      человек должен видеть, что она будет. */
                   <div key={p.slug}
                        className="flex items-center gap-3 p-3 rounded-xl border border-dashed border-gray-200 bg-gray-50">
-                    <div className="w-9 h-9 rounded-lg bg-gray-100 text-gray-400 flex items-center justify-center shrink-0 font-bold">
-                      {p.label[0]}
+                    {/* Логотип приглушён — площадка ещё не подключена. */}
+                    <div className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                      <PlatformLogo slug={p.slug} size={22} color="#9ca3af" />
                     </div>
                     <div className="min-w-0">
                       <div className="font-semibold text-gray-500 text-sm">{p.label}</div>
@@ -259,8 +270,8 @@ export default function StepZeroPreviewPage() {
                 В рабочем варианте этот экран будет стоять ПЕРЕД вкладкой
                 автонастройки, а не вести на неё ссылкой. */}
             <Link href="/dashboard/autosetup"
-                  className="btn-gold inline-block px-5 py-2.5 text-base font-semibold">
-              Продолжить настройку
+                  className="btn-gold inline-flex items-center gap-2 px-5 py-2.5 text-base font-semibold">
+              Продолжить настройку <ArrowRight size={17} />
             </Link>
           </>
         ) : (

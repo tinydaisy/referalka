@@ -20,7 +20,7 @@ import {
 } from '@/lib/autosetupSteps'
 import {
   AlertTriangle, ArrowRight, Check, Clock, Copy, Loader2, XCircle,
-  MessageSquare, Sparkles, Users,
+  MessageSquare, RotateCw, Sparkles, Users,
 } from 'lucide-react'
 
 type Step = { at: string; step: string; ok: boolean; text: string }
@@ -1331,12 +1331,13 @@ export default function AutoSetupTab() {
                     сбивать с толку: человек видит, что бот у него, и решает,
                     что кнопка не про него. Называем по тому, что осталось. */}
                 <button onClick={transferNow} disabled={transferring}
-                        className="btn-gold px-5 py-2.5 text-base font-semibold disabled:opacity-50">
+                        className="btn-gold px-5 py-2.5 text-base font-semibold disabled:opacity-50 inline-flex items-center gap-2">
                   {transferring
-                    ? 'Доделываем…'
-                    : order.steps?.bot_transferred
-                      ? 'Доделать — права на группу'
-                      : 'Доделать настройку'}
+                    ? <><Loader2 size={16} className="animate-spin" /> Доделываем…</>
+                    : <><RotateCw size={16} />
+                        {order.steps?.bot_transferred
+                          ? 'Доделать — права на группу'
+                          : 'Доделать настройку'}</>}
                 </button>
                 <Link href={SUPPORT_URL} className="text-sm underline text-gray-600">
                   {SUPPORT_LABEL}
