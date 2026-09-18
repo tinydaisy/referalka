@@ -1857,12 +1857,27 @@ export const api = {
     list: () => request('/api/v1/clients/me/speaker-photos'),
     create: (data: { url: string; label?: string }) =>
       request('/api/v1/clients/me/speaker-photos', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: number, data: { label?: string; sort_order?: number; is_primary?: boolean }) =>
+    update: (id: number, data: { label?: string; sort_order?: number; is_primary?: boolean; focal?: string | null }) =>
       request(`/api/v1/clients/me/speaker-photos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     reorder: (ids: number[]) =>
       request('/api/v1/clients/me/speaker-photos/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
     delete: (id: number) =>
       request(`/api/v1/clients/me/speaker-photos/${id}`, { method: 'DELETE' }),
+  },
+  // Библиотека логотипов бренда (миграция 449): горизонтальный, квадратный,
+  // только знак, монохром — организатор берёт нужную версию на /sp/{код}.
+  // ⚠️ Устроено один в один как speakerPhotos: одинаковая форма у двух
+  // библиотек — чтобы не разбираться дважды ни клиенту, ни в коде.
+  brandLogos: {
+    list: () => request('/api/v1/clients/me/brand-logos'),
+    create: (data: { url: string; label?: string; on_dark?: boolean }) =>
+      request('/api/v1/clients/me/brand-logos', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: { label?: string; on_dark?: boolean; sort_order?: number; is_primary?: boolean }) =>
+      request(`/api/v1/clients/me/brand-logos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    reorder: (ids: number[]) =>
+      request('/api/v1/clients/me/brand-logos/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
+    delete: (id: number) =>
+      request(`/api/v1/clients/me/brand-logos/${id}`, { method: 'DELETE' }),
   },
   referralProgram: {
     // Отчёт по рефералам события: живой срез по referrer_ref_code.

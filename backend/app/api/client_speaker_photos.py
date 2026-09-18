@@ -25,7 +25,7 @@ from app.services import r2_storage
 
 router = APIRouter(prefix="/api/v1/clients/me/speaker-photos", tags=["Фото спикера"])
 
-_SELECT = "id, url, label, is_primary, sort_order, created_at"
+_SELECT = "id, url, label, is_primary, sort_order, focal, created_at"
 
 
 class PhotoCreate(BaseModel):
@@ -37,6 +37,10 @@ class PhotoUpdate(BaseModel):
     label: Optional[str] = None
     sort_order: Optional[int] = None
     is_primary: Optional[bool] = None
+    # ⚠️ Точка лица (миграция 434) в формате CSS object-position. Колонка была
+    # заведена и читалась фронтом, но ни отдавалась, ни записывалась — отмеченная
+    # точка никуда не доезжала, и кадрирование всегда шло по умолчанию.
+    focal: Optional[str] = None
 
 
 class ReorderRequest(BaseModel):
@@ -107,7 +111,10 @@ async def update_photo(
                 client_id,
             )
 
-        updates = {k: getattr(data, k) for k in fs if k in ("label", "sort_order", "is_primary")}
+        updates = {k: getattr(data, k) for k in fs
+                   if k in ("label", "sort_order", "is_primary", "focal")}
+        if not updates:
+            raise HTTPException(status_code=422, detail="Нечего менять")
         parts = [f"{k} = ${i + 3}" for i, k in enumerate(updates.keys())]
         row = await db.fetchrow(
             f"""UPDATE client_speaker_photos

@@ -16,6 +16,7 @@ import SafeHtml from '@/components/SafeHtml'
 import { focalCss } from '@/lib/photoFocal'
 
 type Photo = { id: number; url: string; label: string | null; is_primary: boolean; focal?: string | null }
+type Logo = { id: number; url: string; label: string | null; on_dark: boolean; is_primary: boolean }
 type Channel = { name: string; url: string; platform: string }
 type Achievement = { label?: string; value?: string }
 type MediaAsset = { platform?: string; subscribers?: number }
@@ -30,9 +31,15 @@ interface Data {
   owner_positioning: string | null
   owner_achievements: Achievement[]
   bio: string | null
+  /** Позиционирование БРЕНДА — не путать с owner_positioning (про человека). */
+  positioning: string | null
+  /** Рассказ о проекте (миграция 446). */
+  brand_bio: string | null
   social_links: Record<string, any>
   media_assets: MediaAsset[]
   photos: Photo[]
+  /** Библиотека версий знака (миграция 449). */
+  logos: Logo[]
 }
 
 const DARK = 'linear-gradient(45deg, #25455D, #0a1520)'
@@ -60,6 +67,32 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
   const achievements = (data.owner_achievements || []).filter(a => a?.value || a?.label)
   const channels = collectChannels(data.social_links || {})
 
+  // ⚠️ Логотипы собираем из ДВУХ источников. Библиотека (миграция 449) — то,
+  // что клиент загрузил для организаторов; два рабочих поля бренда — знак,
+  // который и так стоит в шапках и на афишах. Второе добавляем только если
+  // такого адреса нет в библиотеке: иначе один и тот же файл показался бы
+  // дважды подряд, и организатор гадал бы, чем они отличаются.
+  const logoLib = data.logos || []
+  const inLib = (url: string | null) => !!url && logoLib.some(l => l.url === url)
+  const logos: Logo[] = [
+    ...logoLib,
+    // `brand_logo_url` — ОСНОВНОЙ (светлый) знак, он рисуется на тёмном фоне;
+    // `brand_logo_light_url` — ТЁМНАЯ версия «для светлого фона» (так поле и
+    // подписано в кабинете). ⚠️ Слово light в названии колонки вводит в
+    // заблуждение — смотреть надо на подпись, иначе организатор скачает не тот.
+    ...(data.brand_logo_url && !inLib(data.brand_logo_url)
+      ? [{ id: -1, url: data.brand_logo_url, label: 'Для тёмного фона', on_dark: true, is_primary: false }]
+      : []),
+    ...(data.brand_logo_light_url && !inLib(data.brand_logo_light_url)
+      ? [{ id: -2, url: data.brand_logo_light_url, label: 'Для светлого фона', on_dark: false, is_primary: false }]
+      : []),
+  ]
+
+  // Есть ли вообще что показать в разделе бренда — иначе заголовок повиснет
+  // над пустотой.
+  const hasBrandInfo = !!(data.brand_name || data.positioning
+                          || data.brand_bio || logos.length)
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Шапка */}
@@ -80,9 +113,11 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
               )}
             </div>
           </div>
-          {data.owner_positioning && (
-            <p className="mt-4 text-base sm:text-lg text-white/80 max-w-2xl">{data.owner_positioning}</p>
-          )}
+          {/* ⚠️ Позиционирование основателя из шапки УБРАНО (решение владельца
+              18.09.2026): его место — под именем человека в разделе
+              «Информация о спикере». В шапке оно стояло рядом с логотипом
+              бренда, и было не разобрать, к кому относится — к человеку или к
+              проекту. Здесь остаётся только связка «знак → имя → бренд». */}
           {/* Персиковым — это главная подсказка, ради чего страницу открыли. */}
           <p className="mt-5 text-sm font-medium" style={{ color: ACCENT }}>
             Материалы для организаторов — скачивайте и копируйте, что нужно
@@ -91,6 +126,18 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
       </header>
 
       <main className="max-w-4xl mx-auto px-5 sm:px-8 py-8 sm:py-12 space-y-8">
+
+        {/* ═══════════ ИНФОРМАЦИЯ О СПИКЕРЕ ═══════════
+            ⚠️ Страница поделена на два раздела (решение владельца 18.09.2026).
+            Раньше блоки шли вперемешку — логотипы бренда вклинивались между
+            фото человека и его регалиями, и было не понять, где кончается
+            «я» и начинается «мы». Порядок такой же, как на витрине
+            организатора: сначала человек, потом проект. */}
+        <GroupHeading
+          title="Информация о спикере"
+          name={displayName}
+          subtitle={data.owner_positioning}
+        />
 
         {/* Фото */}
         {photos.length > 0 && (
@@ -107,28 +154,6 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
                   </div>
                 </div>
               ))}
-            </div>
-          </Section>
-        )}
-
-        {/* Логотипы — каждый на своём фоне */}
-        {(data.brand_logo_url || data.brand_logo_light_url) && (
-          <Section title="Логотипы">
-            {/* ⚠️ НЕ перепутать, они были наоборот и организатор скачивал не тот
-                знак: `brand_logo_url` — ОСНОВНОЙ (светлый) знак, он и рисуется
-                на тёмном фоне; `brand_logo_light_url` — ТЁМНАЯ версия «для
-                светлого фона» (так поле и подписано в кабинете). Имя колонки
-                вводит в заблуждение — смотреть надо на подпись, а не на слово
-                light в названии. */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {data.brand_logo_url && (
-                <LogoCard url={data.brand_logo_url} name={displayName}
-                          caption="Для тёмного фона" background={DARK} />
-              )}
-              {data.brand_logo_light_url && (
-                <LogoCard url={data.brand_logo_light_url} name={displayName}
-                          caption="Для светлого фона" background="#ffffff" bordered />
-              )}
             </div>
           </Section>
         )}
@@ -153,7 +178,10 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
             иначе организатор увидит сырые теги. Копируется при этом чистый текст:
             он вставляет его в свою афишу, теги там не нужны. */}
         {data.bio && (
-          <Section title="О спикере" action={<CopyBtn text={stripTags(data.bio)} label="Скопировать" />}>
+          {/* ⚠️ «Биография», а не «О спикере»: раздел выше теперь и так
+              называется «Информация о спикере», и два похожих заголовка подряд
+              читались как повтор. */}
+          <Section title="Биография" action={<CopyBtn text={stripTags(data.bio)} label="Скопировать" />}>
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <SafeHtml html={data.bio} className="text-sm text-gray-700 leading-relaxed rich-text" />
             </div>
@@ -187,12 +215,86 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
         {/* ⚠️ Блок «Охваты» убран по решению владельца: цифры подписчиков из
             media_assets вводили в заблуждение — они вносятся вручную, устаревают
             и выглядели как заявленный охват. Организатору для афиши они не нужны. */}
+
+        {/* ═══════════ ИНФОРМАЦИЯ О БРЕНДЕ ═══════════ */}
+        {hasBrandInfo && (
+          <>
+            {/* ⚠️ Отступ больше обычного: здесь страница переходит с «я» на
+                «мы», и переход должен читаться глазом, а не только по тексту
+                заголовка. */}
+            <div className="pt-4">
+              <GroupHeading
+                title="Информация о бренде"
+                name={data.brand_name}
+                subtitle={data.positioning}
+              />
+            </div>
+
+            {/* Логотипы — каждый на своей подложке */}
+            {logos.length > 0 && (
+              <Section title="Логотипы">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {logos.map(l => (
+                    <LogoCard key={l.id} url={l.url}
+                              name={data.brand_name || displayName}
+                              caption={l.label || (l.on_dark ? 'Для тёмного фона' : 'Для светлого фона')}
+                              background={l.on_dark ? DARK : '#ffffff'}
+                              bordered={!l.on_dark} />
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Текст о проекте. ⚠️ Как и био, хранится с разметкой — выводим
+                через SafeHtml, а копируется чистый текст: организатор вставит
+                его в свой анонс, теги там не нужны. */}
+            {data.brand_bio && (
+              <Section title="О проекте"
+                       action={<CopyBtn text={stripTags(data.brand_bio)} label="Скопировать" />}>
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <SafeHtml html={data.brand_bio}
+                            className="text-sm text-gray-700 leading-relaxed rich-text" />
+                </div>
+              </Section>
+            )}
+          </>
+        )}
       </main>
 
       <footer className="py-8 text-center text-xs text-gray-400">
         Страница собрана в{' '}
         <a href="https://pluson.ru" className="hover:text-gray-600">iViSiON: ПЛЮСОН</a>
       </footer>
+    </div>
+  )
+}
+
+/**
+ * Заголовок большого раздела: «Информация о спикере» / «Информация о бренде».
+ *
+ * Под ним — к кому раздел относится: у спикера имя человека и его
+ * позиционирование, у бренда название проекта и позиционирование бренда.
+ * ⚠️ Позиционирование стоит ИМЕННО ЗДЕСЬ, а не в шапке страницы: в шапке оно
+ * соседствовало с логотипом бренда, и было не разобрать, чьё оно.
+ */
+function GroupHeading({ title, name, subtitle }: {
+  title: string; name?: string | null; subtitle?: string | null
+}) {
+  return (
+    <div className="border-b-2 pb-3" style={{ borderColor: ACCENT }}>
+      <p className="text-xs font-bold uppercase tracking-widest" style={{ color: '#25455D' }}>
+        {title}
+      </p>
+      {name && (
+        <h2 className="mt-1.5 text-2xl sm:text-3xl font-bold" style={{ color: '#25455D' }}>
+          {name}
+        </h2>
+      )}
+      {subtitle && (
+        <p className="mt-1.5 text-sm sm:text-base text-gray-600 max-w-2xl leading-relaxed">
+          {subtitle}
+        </p>
+      )}
     </div>
   )
 }

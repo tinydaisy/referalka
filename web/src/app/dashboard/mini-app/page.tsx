@@ -21,6 +21,7 @@ import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTg
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
 import SpeakerPhotosField from '@/components/SpeakerPhotosField'
+import BrandLogosField from '@/components/BrandLogosField'
 import { api } from '@/lib/api'
 import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import { useMe } from '@/hooks/useMe'
@@ -637,6 +638,15 @@ function MiniAppSettings() {
                   buttonLabel="Загрузить логотип"
                   aspectClass="aspect-square"
                 />
+              </div>
+
+              {/* Библиотека версий знака (миграция 449) — отдельно от двух
+                  полей выше. Те два — РАБОЧИЙ логотип платформы: он идёт в
+                  шапки, афиши, обложки и письма, и подменять его набором
+                  вариантов нельзя. Библиотека — витрина для организатора:
+                  сколько угодно версий с подписями, забрать нужную. */}
+              <div className="pt-4 border-t border-gray-100">
+                <BrandLogosField />
               </div>
             </div>
           </Section>

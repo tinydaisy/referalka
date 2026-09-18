@@ -236,6 +236,10 @@ async def public_speaker_page(client_ref: str, db: asyncpg.Connection = Depends(
                   owner_photo_url, owner_positioning, owner_achievements,
                   -- Точка лица (миграция 434): по ней кадрируется фото в визитке.
                   owner_photo_focal,
+                  -- Раздел «Информация о бренде»: позиционирование бренда
+                  -- (не путать с owner_positioning — оно про человека) и
+                  -- рассказ о проекте (миграция 446).
+                  positioning, brand_bio,
                   bio, social_links, media_assets
              FROM clients
             WHERE {'id = $1::int' if by_id else 'speaker_page_slug = $1'}
@@ -247,8 +251,19 @@ async def public_speaker_page(client_ref: str, db: asyncpg.Connection = Depends(
 
     client_id = row["id"]
     photos = await db.fetch(
-        """SELECT id, url, label, is_primary
+        # ⚠️ `focal` (миграция 434) — точка лица. Фронт её ждёт и подставляет в
+        # object-position, но в выборке её не было: кадрирование молча работало
+        # по умолчанию, и отмеченная клиентом точка никуда не доезжала.
+        """SELECT id, url, label, is_primary, focal
              FROM client_speaker_photos
+            WHERE client_id = $1
+            ORDER BY sort_order, id""",
+        client_id
+    )
+    # Библиотека логотипов бренда (миграция 449) — раздел «О проекте».
+    logos = await db.fetch(
+        """SELECT id, url, label, on_dark, is_primary
+             FROM client_brand_logos
             WHERE client_id = $1
             ORDER BY sort_order, id""",
         client_id
@@ -259,6 +274,7 @@ async def public_speaker_page(client_ref: str, db: asyncpg.Connection = Depends(
     d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
     d["media_assets"]       = _parse_jsonb(d.get("media_assets"), [])
     d["photos"]             = [dict(p) for p in photos]
+    d["logos"]              = [dict(l) for l in logos]
     return d
 
 
