@@ -26,7 +26,7 @@
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
 import { focalCssForPoster } from '@/lib/photoFocal'
 import {
-  applyManualOrder, splitRows, personLines, bestPerRow,
+  applyManualOrder, applyManualRows, splitRows, personLines, bestPerRow,
   BADGE_LABELS, ORGANIZER_ROLES, type PosterPerson,
 } from '@/lib/posterLayout'
 
@@ -110,6 +110,10 @@ export type PosterLayout = {
   partners_y?: number
   partners_size?: number
   speaker_order?: number[]
+  /** Ряды спикеров (миграция 445): сколько положили в ряд — столько и будет. */
+  speaker_rows?: number[][]
+  /** Порядок логотипов партнёров (миграция 445). */
+  partner_order?: number[]
 }
 
 export type PosterTheme = {
@@ -170,14 +174,24 @@ export default function PosterCanvas({
   const AW = Math.max(1, W - mLeft - mRight)
   const AH = Math.max(1, H - mTop - mBottom)
 
-  // ⚠️ Кегли и размеры — в процентах ШИРИНЫ РАБОЧЕЙ ОБЛАСТИ (не полотна):
-  // тогда буква сохраняет размер относительно карточки, а поля её не ломают.
+  // ⚠️ Размеры КАРТОЧЕК и отступы — в процентах ШИРИНЫ рабочей области: тогда
+  // карточка сохраняет пропорцию относительно ряда, а поля её не ломают.
   const px = (percent: number) => (percent * AW) / 100
+
+  // ⚠️⚠️ КЕГЛЬ ТЕКСТА — ОТ ВЫСОТЫ ЛИСТА, а не от ширины. Одно и то же число,
+  // посчитанное от ширины, давало РАЗНЫЙ по величине заголовок: на вертикальной
+  // афише 3 % высоты листа (текст терялся крошечной строчкой), на
+  // горизонтальной — 10 % (нормально). Разброс втрое из-за того, что ширина у
+  // форматов отличается вдвое, а читаем мы текст относительно ВЫСОТЫ листа.
+  // Теперь «8 %» одинаково выглядит на всех трёх форматах.
+  const tx = (percent: number) => (percent * H) / 100
 
   // Разделяем людей: партнёры-компании идут логотипами сверху, все остальные —
   // в сетку. Галочка `is_company` — единственный признак (миграция 425).
   const visible = people.filter(p => p.photo_url || p.cutout_photo_url)
-  const companies = visible.filter(p => p.is_company)
+  // ⚠️ Порядок логотипов партнёров задаёт клиент перетаскиванием. Кого в списке
+  // нет — в конец, а не выбрасываем: новый партнёр иначе не попал бы на афишу.
+  const companies = orderByIds(visible.filter(p => p.is_company), L.partner_order)
   const persons = visible.filter(p => !p.is_company)
 
   // Организаторы — всегда отдельной строкой сверху блока людей.
@@ -222,10 +236,21 @@ export default function PosterCanvas({
   // в ряд читаются, на узкой вертикальной то же число превращает лица в горошины.
   // Без потолка расчёт выдавал «по 11 в ряд» — длинную ленту в два ряда.
   const maxPerRow = L.orientation === 'horizontal' ? 8 : L.orientation === 'square' ? 7 : 5
-  const perRow = L.per_row || bestPerRow(others.length, availH, {
-    gap, rowUnit, extraRows: hasOrganizers ? 1 : 0, max: maxPerRow,
-  })
-  const rows = splitRows(others, perRow)
+
+  // ⚠️⚠️ РУЧНЫЕ РЯДЫ ГЛАВНЕЕ РАСЧЁТА (миграция 445). Клиент разложил людей по
+  // рядам перетаскиванием — значит так и рисуем, СКОЛЬКО ПОЛОЖИЛИ В РЯД,
+  // СТОЛЬКО И БУДЕТ. Ряды разной длины это норма, а не ошибка: так и верстают
+  // афиши. Пересчитывать их «как удобнее» нельзя — человек уедет обратно.
+  const manualRows = (L.speaker_rows?.length ?? 0) > 0
+  const rows = manualRows
+    ? applyManualRows(others, L.speaker_rows!)
+    : splitRows(others, L.per_row || bestPerRow(others.length, availH, {
+        gap, rowUnit, extraRows: hasOrganizers ? 1 : 0, max: maxPerRow,
+      }))
+
+  // ⚠️ Размер карточки задаёт САМЫЙ ДЛИННЫЙ ряд: по нему считается, сколько
+  // помещается в ширину. Возьми среднее — длинный ряд вылез бы за поля.
+  const perRow = Math.max(1, ...rows.map(r => r.length), organizers.length)
 
   // ⚠️⚠️ РАЗМЕР КАРТОЧКИ ОГРАНИЧЕН И ШИРИНОЙ, И ВЫСОТОЙ — берём меньшее.
   // Только по ширине считать нельзя: на горизонтальной афише под людей
@@ -330,7 +355,7 @@ export default function PosterCanvas({
         {L.show_pill !== false && (L.pill_text || L.pill_text_2) && (
           <div style={{ display: 'flex', justifyContent: 'center', gap: px(1.5), flexWrap: 'wrap', marginBottom: px(1.6) }}>
             {[L.pill_text, L.pill_text_2].filter(Boolean).map((txt, i) => (
-              <Pill key={i} text={txt as string} L={L} px={px} gold={gold} font={brandFontCss(L.pill_font || th.lp_font_body, label(L.pill_font || th.lp_font_body))} />
+              <Pill key={i} text={txt as string} L={L} px={px} tx={tx} gold={gold} font={brandFontCss(L.pill_font || th.lp_font_body, label(L.pill_font || th.lp_font_body))} />
             ))}
           </div>
         )}
@@ -340,7 +365,7 @@ export default function PosterCanvas({
             text={L.title}
             align={L.title_align || 'center'}
             font={brandFontCss(L.title_font || th.lp_font_heading || 'BebasNeue', label(L.title_font || th.lp_font_heading))}
-            sizePx={px(L.title_size ?? 6)}
+            sizePx={tx(L.title_size ?? 7)}
             color={L.title_color || th.lp_color_heading || GOLD}
             metallic={L.title_metallic !== false}
             underline={L.title_underline || 'none'}
@@ -354,7 +379,7 @@ export default function PosterCanvas({
               text={L.subtitle}
               align={L.subtitle_align || 'center'}
               font={brandFontCss(L.subtitle_font || th.lp_font_body || 'Roboto', label(L.subtitle_font || th.lp_font_body))}
-              sizePx={px(L.subtitle_size ?? 2.4)}
+              sizePx={tx(L.subtitle_size ?? 2.6)}
               color={L.subtitle_color || th.lp_color_body || '#FFFFFF'}
               metallic={!!L.subtitle_metallic}
               underline={L.subtitle_underline || 'none'}
@@ -433,6 +458,14 @@ function defaultSpeakersTop(o: PosterOrientation): number {
   return 32
 }
 
+/** Расставляет по заданному порядку id; кого нет в списке — в конец. */
+function orderByIds<T extends { id: number }>(items: T[], order?: number[]): T[] {
+  if (!order?.length) return items
+  const pos = new Map(order.map((id, i) => [id, i]))
+  const known = items.filter(x => pos.has(x.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!)
+  return [...known, ...items.filter(x => !pos.has(x.id))]
+}
+
 /** Пропорция карточки (высота / ширина) по форме маски. */
 function shapeRatio(shape?: string): number {
   switch (shape) {
@@ -499,9 +532,11 @@ function Heading({ text, align, font, sizePx, color, metallic, underline, px }: 
         // Ровная линия — обычной рамкой снизу. Градиентная рисуется ОТДЕЛЬНЫМ
         // элементом ниже (на самом тексте свойство background уже занято
         // металлическим переливом, второй фон туда не положить).
+        // ⚠️ Подчёркивание — доля от КЕГЛЯ: на узкой афише линия, посчитанная
+        // от ширины, выходила толще самих букв.
         ...(underline === 'line' ? {
-          paddingBottom: px(0.5),
-          borderBottom: `${Math.max(2, px(0.15))}px solid ${color}`,
+          paddingBottom: sizePx * 0.18,
+          borderBottom: `${Math.max(2, sizePx * 0.05)}px solid ${color}`,
         } : {}),
       }}>{text}</span>
       {/* ⚠️ Градиентную линию рисуем ОТДЕЛЬНЫМ элементом: на самом тексте уже
@@ -509,8 +544,8 @@ function Heading({ text, align, font, sizePx, color, metallic, underline, px }: 
           положить — они на одном свойстве. */}
       {underline === 'gradient' && (
         <div style={{
-          height: Math.max(2, px(0.15)),
-          margin: `${px(0.5)}px auto 0`,
+          height: Math.max(2, sizePx * 0.05),
+          margin: `${sizePx * 0.18}px auto 0`,
           width: '55%',
           background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
         }} />
@@ -520,23 +555,31 @@ function Heading({ text, align, font, sizePx, color, metallic, underline, px }: 
 }
 
 /** Пилюля с датой / форматом события. */
-function Pill({ text, L, px, gold, font }: {
+function Pill({ text, L, px, tx, gold, font }: {
   text: string
   L: PosterLayout
+  /** Проценты ШИРИНЫ области — для рамок и отступов. */
   px: (n: number) => number
+  /** Проценты ВЫСОТЫ листа — для кегля: он должен читаться одинаково
+   *  на узкой и широкой афише. */
+  tx: (n: number) => number
   gold: string
   font: string
 }) {
   const style = L.pill_style || 'border'
   const textColor = L.pill_text_color || '#FFFFFF'
-  const bw = Math.max(1, px(L.pill_border_w ?? 0.15))
+  // Толщина рамки — тоже от кегля: иначе на широком формате рамка вдвое толще.
+  const bw = Math.max(1, tx(L.pill_border_w ?? 0.15))
   const c1 = L.pill_border_color || gold
   const c2 = L.pill_border_color_2
 
+  // ⚠️ Отступы внутри пилюли — доля от ЕЁ КЕГЛЯ, а не от ширины афиши:
+  // иначе на горизонтальном формате пилюля раздувалась вдвое при том же тексте.
+  const fs = tx(L.pill_size ?? 2)
   const base: React.CSSProperties = {
-    fontFamily: font, fontSize: px(L.pill_size ?? 1.8),
+    fontFamily: font, fontSize: fs,
     color: textColor, lineHeight: 1.2,
-    padding: `${px(0.6)}px ${px(1.6)}px`,
+    padding: `${fs * 0.42}px ${fs * 1.0}px`,
     display: 'inline-block', whiteSpace: 'nowrap',
   }
 
@@ -544,7 +587,7 @@ function Pill({ text, L, px, gold, font }: {
 
   if (style === 'underline') {
     return (
-      <span style={{ ...base, padding: `0 0 ${px(0.4)}px`, borderBottom: `${bw}px solid ${c1}` }}>{text}</span>
+      <span style={{ ...base, padding: `0 0 ${fs * 0.28}px`, borderBottom: `${bw}px solid ${c1}` }}>{text}</span>
     )
   }
 

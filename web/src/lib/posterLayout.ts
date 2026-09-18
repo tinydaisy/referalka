@@ -140,6 +140,48 @@ export function bestPerRow(
 }
 
 /**
+ * Ряды спикеров, заданные РУКАМИ (миграция 445).
+ *
+ * ⚠️ СКОЛЬКО ПОЛОЖИЛИ В РЯД — СТОЛЬКО И БУДЕТ. Ряды разной длины это норма:
+ * так и верстают афиши — сверху двое хедлайнеров крупно, ниже пятеро плотнее.
+ * Выравнивать ряды по одной длине нельзя, иначе перетаскивание теряет смысл:
+ * человек уедет обратно, как только пересчитается разбивка.
+ *
+ * ⚠️ Кого в рядах нет — ДОПИСЫВАЕМ в последний ряд, а не выбрасываем. Иначе
+ * спикер, добавленный после расстановки, молча не попал бы на афишу.
+ * Кого уже нет в событии — убираем.
+ */
+export function applyManualRows(
+  people: PosterPerson[],
+  rows: number[][],
+): PosterPerson[][] {
+  const byId = new Map(people.map(p => [p.id, p]))
+  const used = new Set<number>()
+  const out: PosterPerson[][] = []
+
+  for (const row of rows || []) {
+    const line: PosterPerson[] = []
+    for (const id of row || []) {
+      const p = byId.get(id)
+      // Человека могли удалить из события — тогда просто пропускаем.
+      if (!p || used.has(id)) continue
+      used.add(id)
+      line.push(p)
+    }
+    if (line.length) out.push(line)
+  }
+
+  const rest = people.filter(p => !used.has(p.id))
+  if (rest.length) {
+    // Новые люди — в последний ряд, чтобы не создавать ряд из одного человека
+    // при каждом добавлении. Если рядов ещё нет вовсе — новый ряд.
+    if (out.length) out[out.length - 1].push(...rest)
+    else out.push(rest)
+  }
+  return out
+}
+
+/**
  * Разбивка на ряды.
  *
  * ⚠️ Последний неполный ряд ЦЕНТРИРУЕТСЯ самой вёрсткой (justify-content:

@@ -13,12 +13,24 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { GripVertical } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ensureBrandFonts } from '@/lib/brandStyle'
 import FileUploader from '@/components/FileUploader'
 import PosterCanvas, { POSTER_SIZE, type PosterLayout, type PosterOrientation, type PosterTheme } from './PosterCanvas'
-import { applyManualOrder, ORGANIZER_ROLES, subscribersOf, type PosterPerson } from '@/lib/posterLayout'
+import { applyManualOrder, applyManualRows, ORGANIZER_ROLES, subscribersOf, type PosterPerson } from '@/lib/posterLayout'
+
+/** Вкладки настроек. ⚠️ Через useUrlTab, а не useState: правило проекта —
+ *  обновление страницы не должно сбрасывать на первую вкладку. */
+type SetTab = 'bg' | 'speakers' | 'text' | 'logos' | 'order'
+const SET_TABS: { key: SetTab; label: string }[] = [
+  { key: 'bg',       label: 'Фон и поля' },
+  { key: 'speakers', label: 'Спикеры' },
+  { key: 'text',     label: 'Заголовок и дата' },
+  { key: 'logos',    label: 'Логотип и партнёры' },
+  { key: 'order',    label: 'Порядок по рядам' },
+]
 
 const ORIENTATIONS: { key: PosterOrientation; label: string; ratio: string }[] = [
   { key: 'vertical',   label: 'Вертикальная', ratio: '9:16' },
@@ -39,6 +51,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [dragId, setDragId] = useState<number | null>(null)
   // Пунктир границы полей — подсказка редактора, в макете не хранится.
   const [showMargins, setShowMargins] = useState(false)
+  const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','order'])
+  const [dragPartner, setDragPartner] = useState<number | null>(null)
+  // Ряд, в который сейчас тащат — подсвечиваем, иначе непонятно, куда упадёт.
+  const [overRow, setOverRow] = useState<number | null>(null)
 
   // ⚠️ Файл фирменных шрифтов подключён только на публичных страницах; в
   // кабинете его надо добавить самим, иначе в предпросмотре запасной шрифт.
@@ -106,6 +122,53 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     return applyManualOrder(persons, layout?.speaker_order || [])
   }, [people, layout?.speaker_order])
 
+  // Партнёры-компании в порядке, заданном клиентом.
+  const companies = useMemo(() => {
+    const list = people.filter(p => p.is_company && (p.photo_url || p.cutout_photo_url))
+    const order = layout?.partner_order || []
+    if (!order.length) return list
+    const pos = new Map(order.map((id, i) => [id, i]))
+    return [...list.filter(p => pos.has(p.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!),
+            ...list.filter(p => !pos.has(p.id))]
+  }, [people, layout?.partner_order])
+
+  const organizers = useMemo(
+    () => people.filter(p => !p.is_company && ORGANIZER_ROLES.includes(p.role)),
+    [people],
+  )
+
+  // ⚠️ Ряды для редактора считаем ТЕМ ЖЕ способом, что и полотно
+  // (applyManualRows), иначе в списке одно, а на афише другое.
+  const rowsView = useMemo(() => {
+    if (!layout) return []
+    const rows = layout.speaker_rows || []
+    if (rows.length) return applyManualRows(draggable, rows)
+    // Ряды ещё не задавали — показываем как один ряд: клиент растащит его сам.
+    return draggable.length ? [draggable] : []
+  }, [draggable, layout?.speaker_rows])
+
+  function onDropPartner(targetId: number) {
+    if (dragPartner == null || dragPartner === targetId) { setDragPartner(null); return }
+    const list = companies.map(p => p.id)
+    const from = list.indexOf(dragPartner)
+    const to = list.indexOf(targetId)
+    if (from < 0 || to < 0) { setDragPartner(null); return }
+    const [moved] = list.splice(from, 1)
+    list.splice(to, 0, moved)
+    patch({ partner_order: list })
+    setDragPartner(null)
+  }
+
+  /** Переносит спикера в другой ряд (или внутри ряда). */
+  function moveToRow(personId: number, rowIndex: number) {
+    const rows = rowsView.map(r => r.map(p => p.id))
+    // Сначала убираем человека отовсюду, потом кладём в целевой ряд.
+    const cleaned = rows.map(r => r.filter(id => id !== personId))
+    while (cleaned.length <= rowIndex) cleaned.push([])
+    cleaned[rowIndex].push(personId)
+    patch({ speaker_rows: cleaned.filter(r => r.length) })
+  }
+
   function onDrop(targetId: number) {
     if (dragId == null || dragId === targetId) { setDragId(null); return }
     const list = draggable.map(p => p.id)
@@ -148,8 +211,11 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
 
       <div className="flex flex-col xl:flex-row gap-6">
         {/* Предпросмотр. ⚠️ Обёртка нужного размера: transform не меняет
-            занимаемое место, и без неё под афишей осталась бы пустота. */}
-        <div className="shrink-0">
+            занимаемое место, и без неё под афишей осталась бы пустота.
+            ⚠️ ЛИПНЕТ К ВЕРХУ при прокрутке (`sticky`): настройки длинные, и без
+            этого клиент, правя нижние разделы, переставал видеть, что меняется.
+            На узком экране обычный поток — там колонки идут друг под другом. */}
+        <div className="shrink-0 xl:sticky xl:top-4 xl:self-start">
           <div style={{ width: size.w * scale, height: size.h * scale }}
                className="overflow-hidden rounded-xl shadow-sm border card-border bg-gray-50">
             <PosterCanvas layout={layout} theme={theme} people={people} scale={scale}
@@ -177,7 +243,25 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         </div>
 
         {/* Настройки. */}
-        <div className="flex-1 min-w-0 space-y-4">
+        <div className="flex-1 min-w-0">
+          {/* ⚠️ Настройки ВКЛАДКАМИ, а не одной длинной колонкой: раньше нижние
+              разделы уезжали далеко вниз, и правя их клиент уже не видел
+              превью — приходилось скроллить туда-сюда на каждое движение
+              ползунка. Оформление то же, что у вкладок чатов TG/VK/MAX. */}
+          <div className="flex flex-wrap gap-1 border-b border-gray-200 mb-4">
+            {SET_TABS.map(t => (
+              <button key={t.key} type="button" onClick={() => setTab(t.key)}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                        tab === t.key
+                          ? 'border-[#25455D] text-[#25455D]'
+                          : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+          {tab === 'bg' && (<>
           <Card title="Фон">
             <FileUploader
               mode="single"
@@ -217,6 +301,9 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </div>
           </Card>
 
+          </>)}
+
+          {tab === 'speakers' && (<>
           <Card title="Где стоят спикеры">
             <Range label="Начинать с высоты, %" value={layout.speakers_top ?? 45} min={0} max={95}
                    hint="Линия, ниже которой начинается блок людей — чтобы они не легли на рисунок фона"
@@ -350,6 +437,9 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </div>
           </Card>
 
+          </>)}
+
+          {tab === 'text' && (<>
           <Card title="Заголовок и подзаголовок">
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={layout.show_title !== false}
@@ -361,7 +451,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 <input value={layout.title || ''} placeholder="Название события"
                        onChange={e => patch({ title: e.target.value })}
                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-                <Range label="Размер, %" value={layout.title_size ?? 6} min={1} max={20}
+                <Range label="Размер, % высоты" value={layout.title_size ?? 7} min={1} max={20}
                        onChange={v => patch({ title_size: v })} />
                 <ColorRow label="Цвет" value={layout.title_color}
                           placeholder="цвет бренда"
@@ -394,7 +484,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                             placeholder="Подзаголовок"
                             onChange={e => patch({ subtitle: e.target.value })}
                             className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
-                  <Range label="Размер, %" value={layout.subtitle_size ?? 2.4} min={0.5} max={12}
+                  <Range label="Размер, % высоты" value={layout.subtitle_size ?? 2.6} min={0.5} max={12}
                          onChange={v => patch({ subtitle_size: v })} />
                   <ColorRow label="Цвет" value={layout.subtitle_color}
                             placeholder="цвет бренда"
@@ -451,94 +541,126 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 )}
                 <ColorRow label="Цвет текста" value={layout.pill_text_color}
                           onChange={v => patch({ pill_text_color: v })} />
-                <Range label="Размер, %" value={layout.pill_size ?? 1.8} min={0.3} max={8}
+                <Range label="Размер, % высоты" value={layout.pill_size ?? 2} min={0.3} max={8}
                        onChange={v => patch({ pill_size: v })} />
               </>
             )}
           </Card>
 
-          <Card title="Логотипы">
+          </>)}
+
+          {tab === 'logos' && (<>
+          <Card title="Логотип бренда">
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={layout.show_brand_logo !== false}
                      onChange={e => patch({ show_brand_logo: e.target.checked })} />
-              Логотип бренда
+              Показывать логотип бренда
             </label>
             {layout.show_brand_logo !== false && (
               <>
-                <Choice value={layout.brand_logo_variant || 'light'}
-                        onChange={v => patch({ brand_logo_variant: v as any })}
-                        options={[['light', 'Для тёмного фона'], ['dark', 'Для светлого фона']]} />
+                <div className="mt-3">
+                  <div className="mb-1 text-xs text-gray-600">Какой логотип брать</div>
+                  {/* ⚠️ Выбор по фону, а не «светлый/тёмный логотип»: клиент
+                      думает про свою афишу, а не про файл. На тёмном фоне нужен
+                      светлый логотип — подпись говорит именно это. */}
+                  <Choice value={layout.brand_logo_variant || 'light'}
+                          onChange={v => patch({ brand_logo_variant: v as any })}
+                          options={[['light', 'Для тёмного фона'], ['dark', 'Для светлого фона']]} />
+                </div>
+                <Range label="Размер области под логотип, % ширины"
+                       value={layout.brand_logo_size ?? 6} min={1} max={30}
+                       hint="Логотип вписывается в эту высоту целиком, пропорции не искажаются"
+                       onChange={v => patch({ brand_logo_size: v })} />
                 <Range label="По горизонтали, %" value={layout.brand_logo_x ?? 50} min={0} max={100}
+                       hint="50 % — по центру"
                        onChange={v => patch({ brand_logo_x: v })} />
                 <Range label="По вертикали, %" value={layout.brand_logo_y ?? 5} min={0} max={100}
                        onChange={v => patch({ brand_logo_y: v })} />
-                <Range label="Размер, %" value={layout.brand_logo_size ?? 6} min={1} max={30}
-                       onChange={v => patch({ brand_logo_size: v })} />
-              </>
-            )}
-            <label className="flex items-center gap-2 text-sm text-gray-700 mt-4 pt-4 border-t border-gray-100">
-              <input type="checkbox" checked={layout.show_partners !== false}
-                     onChange={e => patch({ show_partners: e.target.checked })} />
-              Логотипы партнёров сверху
-            </label>
-            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-              Сюда попадают партнёры с галочкой «Компания». Партнёры-люди идут в общую
-              сетку со спикерами — со своим фото.
-            </p>
-            {layout.show_partners !== false && (
-              <>
-                <Range label="Высота, %" value={layout.partners_y ?? 5} min={0} max={100}
-                       onChange={v => patch({ partners_y: v })} />
-                <Range label="Размер, %" value={layout.partners_size ?? 5} min={1} max={20}
-                       onChange={v => patch({ partners_size: v })} />
               </>
             )}
           </Card>
+
+          <Card title="Партнёры">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={layout.show_partners !== false}
+                     onChange={e => patch({ show_partners: e.target.checked })} />
+              Показывать логотипы партнёров
+            </label>
+            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Сюда попадают партнёры с галочкой «Компания» в карточке. Партнёр-человек идёт
+              в общую сетку со спикерами — со своим фото, а не логотипом.
+            </p>
+            {layout.show_partners !== false && (
+              <>
+                <Range label="Размер области под логотипы, % ширины"
+                       value={layout.partners_size ?? 5} min={1} max={20}
+                       onChange={v => patch({ partners_size: v })} />
+                <Range label="Высота, %" value={layout.partners_y ?? 5} min={0} max={100}
+                       onChange={v => patch({ partners_y: v })} />
+
+                {/* Порядок партнёров — перетаскиванием, как и спикеров. */}
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="text-xs text-gray-600 mb-2">
+                    Порядок логотипов — перетащите за ⠿
+                  </div>
+                  {companies.length === 0 ? (
+                    <p className="text-sm text-gray-400">
+                      У события нет партнёров-компаний с логотипом.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {companies.map(c => (
+                        <PersonChip key={c.id} p={c}
+                                    isDragging={dragPartner === c.id}
+                                    onDragStart={() => setDragPartner(c.id)}
+                                    onDragOver={e => e.preventDefault()}
+                                    onDrop={() => onDropPartner(c.id)} />
+                      ))}
+                    </div>
+                  )}
+                  {layout.partner_order?.length ? (
+                    <button onClick={() => patch({ partner_order: [] })}
+                            className="text-xs text-gray-400 hover:text-gray-600 underline mt-3">
+                      Вернуть порядок как в карточках события
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            )}
+          </Card>
+          </>)}
+
+          {tab === 'order' && (<>
+          <SpeakerRowsEditor
+            rows={rowsView}
+            organizers={organizers}
+            manual={(layout.speaker_rows?.length ?? 0) > 0}
+            dragId={dragId}
+            overRow={overRow}
+            onDragStart={setDragId}
+            onDragEnd={() => { setDragId(null); setOverRow(null) }}
+            onOverRow={setOverRow}
+            onDropToRow={(ri) => { if (dragId != null) moveToRow(dragId, ri); setDragId(null); setOverRow(null) }}
+            onReset={() => patch({ speaker_rows: [] })}
+          />
+          </>)}
+          </div>
         </div>
       </div>
 
-      {/* Порядок спикеров — перетаскиванием, как блоки лендинга. */}
-      <Card title="Порядок спикеров">
-        <p className="text-xs text-gray-500 mb-3 leading-relaxed">
-          Перетащите за ⠿, чтобы поменять порядок — афиша перестроится сразу.
-          Организаторы всегда стоят сверху по центру, их порядок не меняется.
-          {!layout.speaker_order?.length && (
-            <> Сейчас порядок автоматический: самые крупные по подписчикам — по краям,
-            ближе к организаторам, коммерческие — в середине.</>
-          )}
-        </p>
-        {layout.speaker_order?.length ? (
-          <button onClick={() => patch({ speaker_order: [] })}
-                  className="text-xs text-gray-400 hover:text-gray-600 underline mb-3">
-            Вернуть автоматический порядок
-          </button>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          {draggable.map(p => (
-            <PersonChip key={p.id} p={p}
-                        isDragging={dragId === p.id}
-                        onDragStart={() => setDragId(p.id)}
-                        onDragOver={e => e.preventDefault()}
-                        onDrop={() => onDrop(p.id)} />
-          ))}
-          {draggable.length === 0 && (
-            <p className="text-sm text-gray-400">
-              У события пока нет спикеров с фотографиями.
-            </p>
-          )}
-        </div>
-      </Card>
     </div>
   )
 }
 
 /** Карточка человека в списке перетаскивания. */
-function PersonChip({ p, isDragging, onDragStart, onDragOver, onDrop }: {
+function PersonChip({ p, isDragging, onDragStart, onDragOver, onDrop, onDragEnd }: {
   p: PosterPerson
   isDragging: boolean
   onDragStart: () => void
   onDragOver: (e: React.DragEvent) => void
   onDrop: () => void
+  /** Нужен рядам: по окончании перетаскивания снимаем подсветку. */
+  onDragEnd?: () => void
 }) {
   // ⚠️ `draggable` включается ТОЛЬКО когда мышь на ручке ⠿ — тот же приём, что
   // у блоков лендинга: иначе браузер тащит карточку при выделении текста.
@@ -548,7 +670,7 @@ function PersonChip({ p, isDragging, onDragStart, onDragOver, onDrop }: {
     <div
       draggable={canDrag}
       onDragStart={onDragStart}
-      onDragEnd={() => setCanDrag(false)}
+      onDragEnd={() => { setCanDrag(false); onDragEnd?.() }}
       onDragOver={onDragOver}
       onDrop={onDrop}
       className={`flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 transition-shadow ${
@@ -685,5 +807,109 @@ function FontPicker({ theme, value, onChange }: {
         {fonts.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
       </select>
     </div>
+  )
+}
+
+
+/**
+ * Спикеры ПО РЯДАМ — перетаскиванием между рядами.
+ *
+ * ⚠️⚠️ СКОЛЬКО ПОЛОЖИЛИ В РЯД — СТОЛЬКО И БУДЕТ (миграция 445). Ряды разной
+ * длины это норма: так и верстают афиши — сверху двое крупно, ниже пятеро
+ * плотнее. Выравнивать ряды автоматикой нельзя, иначе перетаскивание теряет
+ * смысл: человек уедет обратно при следующем пересчёте.
+ *
+ * ⚠️ Показываем ИМЕННО РЯДЫ, а не общий список: клиент должен видеть ту же
+ * структуру, что получится на афише.
+ */
+function SpeakerRowsEditor({
+  rows, organizers, manual, dragId, overRow,
+  onDragStart, onDragEnd, onOverRow, onDropToRow, onReset,
+}: {
+  rows: PosterPerson[][]
+  organizers: PosterPerson[]
+  manual: boolean
+  dragId: number | null
+  overRow: number | null
+  onDragStart: (id: number) => void
+  onDragEnd: () => void
+  onOverRow: (ri: number | null) => void
+  onDropToRow: (ri: number) => void
+  onReset: () => void
+}) {
+  const total = rows.reduce((n, r) => n + r.length, 0)
+
+  return (
+    <Card title="Спикеры по рядам">
+      <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+        Перетащите человека за ⠿ в нужный ряд — афиша перестроится сразу.
+        Сколько людей положите в ряд, столько в нём и будет: ряды могут быть разной длины.
+        {!manual && <> Сейчас расстановка автоматическая — перетащите кого-нибудь, чтобы задать свою.</>}
+      </p>
+
+      {organizers.length > 0 && (
+        <div className="mb-3 rounded-lg bg-gray-50 px-3 py-2">
+          <div className="text-[11px] text-gray-500 mb-1.5">
+            Организаторы — всегда отдельной строкой сверху по центру
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {organizers.map(p => (
+              <PersonChip key={p.id} p={p} isDragging={false}
+                          onDragStart={() => {}} onDragOver={e => e.preventDefault()}
+                          onDrop={() => {}} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {total === 0 ? (
+        <p className="text-sm text-gray-400">У события пока нет спикеров с фотографиями.</p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((row, ri) => (
+            <div key={ri}
+                 onDragOver={e => { e.preventDefault(); onOverRow(ri) }}
+                 onDragLeave={() => onOverRow(null)}
+                 onDrop={() => onDropToRow(ri)}
+                 className={`rounded-xl border-2 border-dashed px-3 py-2.5 transition-colors ${
+                   overRow === ri ? 'border-[#FFCFA4] bg-[#FFCFA4]/10' : 'border-gray-200'}`}>
+              <div className="text-[11px] text-gray-400 mb-1.5">
+                Ряд {ri + 1} — {row.length} чел.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {row.map(p => (
+                  <PersonChip key={p.id} p={p}
+                              isDragging={dragId === p.id}
+                              onDragStart={() => onDragStart(p.id)}
+                              onDragEnd={onDragEnd}
+                              onDragOver={e => e.preventDefault()}
+                              onDrop={() => onDropToRow(ri)} />
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* ⚠️ Пустой ряд снизу — единственный способ СОЗДАТЬ новый ряд
+              перетаскиванием. Без него клиент мог бы только перекладывать
+              людей между уже существующими. */}
+          <div onDragOver={e => { e.preventDefault(); onOverRow(rows.length) }}
+               onDragLeave={() => onOverRow(null)}
+               onDrop={() => onDropToRow(rows.length)}
+               className={`rounded-xl border-2 border-dashed px-3 py-3 text-center text-xs transition-colors ${
+                 overRow === rows.length
+                   ? 'border-[#FFCFA4] bg-[#FFCFA4]/10 text-[#25455D]'
+                   : 'border-gray-200 text-gray-400'}`}>
+            Перетащите сюда, чтобы создать новый ряд
+          </div>
+        </div>
+      )}
+
+      {manual && (
+        <button onClick={onReset}
+                className="text-xs text-gray-400 hover:text-gray-600 underline mt-3">
+          Вернуть автоматическую расстановку
+        </button>
+      )}
+    </Card>
   )
 }

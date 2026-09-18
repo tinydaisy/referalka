@@ -63,6 +63,10 @@ _FIELDS = (
     "brand_logo_size",
     "show_partners", "partners_y", "partners_size",
     "speaker_order",
+    # Ряды спикеров (миграция 445): [[id,id],[id,id,id]].
+    "speaker_rows",
+    # Порядок логотипов партнёров (миграция 445).
+    "partner_order",
 )
 
 # ⚠️ Должны совпадать с DEFAULT и CHECK в миграции 435: разойдутся — клиент
@@ -79,19 +83,19 @@ _DEFAULTS = {
     "hl_style": "border", "hl_color": None, "hl_border_w": 0.3, "hl_glow": 1.5,
     "role_badge": "pill", "role_badge_color": None, "role_badge_text_color": None,
     "title": None, "subtitle": None, "show_title": True, "show_subtitle": True,
-    "title_font": None, "title_size": 6, "title_color": None,
+    "title_font": None, "title_size": 7, "title_color": None,
     "title_metallic": True, "title_underline": "none", "title_align": "center",
-    "subtitle_font": None, "subtitle_size": 2.4, "subtitle_color": None,
+    "subtitle_font": None, "subtitle_size": 2.6, "subtitle_color": None,
     "subtitle_metallic": False, "subtitle_underline": "none", "subtitle_align": "center",
     "text_top": 18,
     "show_pill": True, "pill_text": None, "pill_text_2": None,
     "pill_style": "border", "pill_radius": 50,
     "pill_border_color": None, "pill_border_color_2": None, "pill_border_w": 0.15,
-    "pill_bg_color": None, "pill_text_color": None, "pill_font": None, "pill_size": 1.8,
+    "pill_bg_color": None, "pill_text_color": None, "pill_font": None, "pill_size": 2,
     "show_brand_logo": True, "brand_logo_variant": "light",
     "brand_logo_x": 50, "brand_logo_y": 5, "brand_logo_size": 6,
     "show_partners": True, "partners_y": 5, "partners_size": 5,
-    "speaker_order": [],
+    "speaker_order": [], "speaker_rows": [], "partner_order": [],
 }
 
 # Границы числовых полей — те же, что в CHECK миграции.
@@ -201,6 +205,9 @@ class LayoutIn(BaseModel):
     partners_y: Optional[int] = None
     partners_size: Optional[float] = None
     speaker_order: Optional[list[int]] = None
+    # Ряды спикеров (миграция 445). Ряды разной длины — это норма.
+    speaker_rows: Optional[list[list[int]]] = None
+    partner_order: Optional[list[int]] = None
 
 
 def _clamp(v, lo, hi, default, as_int=False):
@@ -230,8 +237,13 @@ def _norm(data: dict) -> dict:
     # ⚠️ Порядок спикеров — массив ЦЕЛЫХ id. Строки и мусор отсеиваем здесь:
     # иначе они доедут до вёрстки и просто не совпадут ни с одним спикером,
     # а человек будет видеть, что перетаскивание «не работает».
-    if "speaker_order" in out:
-        raw = out["speaker_order"] or []
+    # ⚠️ Оба списка — массивы целых id. Строки и мусор отсеиваем здесь: иначе
+    # они доедут до вёрстки и не совпадут ни с одним человеком, а клиент решит,
+    # что перетаскивание «не работает».
+    for _key in ("speaker_order", "partner_order"):
+        if _key not in out:
+            continue
+        raw = out[_key] or []
         clean: list[int] = []
         for x in raw if isinstance(raw, list) else []:
             try:
@@ -240,7 +252,31 @@ def _norm(data: dict) -> dict:
                 continue
             if n not in clean:
                 clean.append(n)
-        out["speaker_order"] = clean
+        out[_key] = clean
+    # ⚠️ Ряды (миграция 445): массив массивов id. Чистим так же — мусор до
+    # вёрстки доехать не должен. ПУСТЫЕ РЯДЫ ВЫБРАСЫВАЕМ: ряд, из которого
+    # утащили последнего человека, иначе остался бы дырой в сетке.
+    if "speaker_rows" in out:
+        raw = out["speaker_rows"] or []
+        seen: set[int] = set()
+        rows: list[list[int]] = []
+        for row in raw if isinstance(raw, list) else []:
+            if not isinstance(row, list):
+                continue
+            clean_row: list[int] = []
+            for x in row:
+                try:
+                    n = int(x)
+                except (TypeError, ValueError):
+                    continue
+                # ⚠️ Один человек не может стоять в двух рядах сразу.
+                if n in seen:
+                    continue
+                seen.add(n)
+                clean_row.append(n)
+            if clean_row:
+                rows.append(clean_row)
+        out["speaker_rows"] = rows
     return out
 
 
@@ -413,6 +449,8 @@ async def save_layout(
     # speaker_order уходит в jsonb — asyncpg ждёт строку.
     import json
     merged["speaker_order"] = json.dumps(merged.get("speaker_order") or [])
+    merged["speaker_rows"] = json.dumps(merged.get("speaker_rows") or [])
+    merged["partner_order"] = json.dumps(merged.get("partner_order") or [])
 
     cols = ", ".join(_FIELDS)
     ph = ", ".join(f"${i + 3}" for i in range(len(_FIELDS)))
