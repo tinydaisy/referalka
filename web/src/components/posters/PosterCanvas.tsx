@@ -513,10 +513,13 @@ export default function PosterCanvas({
           />
         )}
 
-        {L.show_subtitle !== false && !!L.subtitle && (
-          <div style={{ marginTop: px(1.2) }}>
+        {L.show_subtitle !== false && !!subtitleText && (
+          <div style={{ marginTop: L.gap_title_subtitle ?? 14 }}>
             <Heading
-              text={L.subtitle}
+              text={subtitleText}
+              text2={L.subtitle_2 || null}
+              color2={L.subtitle_2_color || L.subtitle_color || th.lp_color_body || '#FFFFFF'}
+              newline2={L.subtitle_2_newline === true}
               align={L.subtitle_align || 'center'}
               font={brandFontCss(L.subtitle_font || th.lp_font_body || 'Roboto', label(L.subtitle_font || th.lp_font_body))}
               sizePx={tx(L.subtitle_size ?? 28)}
