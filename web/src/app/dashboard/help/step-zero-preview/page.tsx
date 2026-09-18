@@ -252,12 +252,16 @@ export default function StepZeroPreviewPage() {
               Готово — можно приступать
             </div>
             <div className="text-sm text-green-700 mb-3">
-              Почта подтверждена, связь с вами есть. В рабочем варианте здесь
-              откроется автонастройка.
+              Почта подтверждена, связь с вами есть — шаг пройден.
             </div>
-            <button className="btn-gold px-5 py-2.5 text-base font-semibold" disabled>
+            {/* ⚠️ Кнопка ЖИВАЯ и ведёт в автонастройку: заглушка с `disabled`
+                читалась как поломка — «оба шага зелёные, а кнопка серая».
+                В рабочем варианте этот экран будет стоять ПЕРЕД вкладкой
+                автонастройки, а не вести на неё ссылкой. */}
+            <Link href="/dashboard/autosetup"
+                  className="btn-gold inline-block px-5 py-2.5 text-base font-semibold">
               Продолжить настройку
-            </button>
+            </Link>
           </>
         ) : (
           <div className="text-sm text-gray-500">

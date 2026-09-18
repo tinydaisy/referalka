@@ -1055,6 +1055,69 @@ async def _handle_max_merge(
         )
 
 
+async def _mark_max_support_subscribed(
+    payload: str, *, user_id: int, chat_id: int, bot_token: str,
+    username: str = "",
+) -> bool:
+    """«Шаг ноль» в MAX: отмечаем, что клиент зашёл в бота поддержки.
+
+    ⚠️ Зеркало телеграмной `_mark_support_subscribed` из bot/handlers/start.py —
+    разбор параметра и проверка подписи общие (`support_link`), различается
+    только способ отправки ответа: у MAX свой транспорт.
+
+    ⚠️ Отметку ставим ТОЛЬКО при сошедшейся подписи, иначе любой подставил бы
+    чужой client_id и закрыл шаг за другого человека.
+    """
+    try:
+        from ..services.support_link import parse_support_param
+        parsed = parse_support_param(payload)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX support param parse failed: {e}")
+        return False
+
+    client_id = parsed.get("client_id")
+    if not client_id:
+        # Подпись не сошлась — молча уходим в обычную обработку: человек
+        # ссылку не набирал, ругаться на него не за что.
+        return False
+
+    pool = await get_pool()
+    if not pool:
+        return False
+    try:
+        async with pool.acquire() as conn:
+            # ⚠️ ON CONFLICT — повторный клик норма: человек открывает бота
+            # не с первого раза. Обновляем, а не плодим строки.
+            await conn.execute(
+                """INSERT INTO client_support_subscriptions
+                       (client_id, platform_slug, platform_user_id, username, reason)
+                   VALUES ($1, 'max', $2, $3, $4)
+                   ON CONFLICT (client_id, platform_slug) DO UPDATE
+                      SET platform_user_id = EXCLUDED.platform_user_id,
+                          username         = EXCLUDED.username,
+                          subscribed_at    = NOW()""",
+                client_id, str(user_id),
+                (username or "").lstrip("@") or None,
+                parsed.get("reason") or "zero",
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX support subscription save failed (client {client_id}): {e}")
+        return False
+
+    try:
+        await max_send_message(
+            chat_id,
+            "✅ Готово — связь установлена.\n\n"
+            "Теперь мы сможем написать вам сюда, если по ходу настройки "
+            "что-то понадобится от вас. Возвращайтесь в кабинет и "
+            "продолжайте — шаг уже отмечен.",
+            token=bot_token,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX support subscription answer failed: {e}")
+    return True
+
+
 async def _handle_max_partner_invite(
     payload: str, user_id: int, chat_id: int, bot_token: str,
     client_id_override: int | None,
@@ -1206,6 +1269,22 @@ async def _process_start(
                 btn = tg_inline_to_max_keyboard([[{"text": vip["vip_label"], "url": vip["vip_target"]}]])
                 await max_send_message(chat_id, msg_text, token=bot_token, buttons=btn)
         return
+
+    # ⚠️⚠️ «ШАГ НОЛЬ»: подписанная ссылка из кабинета `?start=zero-<cid>-<подпись>`.
+    #
+    # ⚠️ Код ОБЩИЙ с Telegram (`support_link.parse_support_param`) — разбор и
+    # проверка подписи в одном месте на все площадки. Здесь только врезка:
+    # у MAX своя точка входа, и 18.09.2026 шаг сработал в Telegram и не
+    # сработал в MAX именно потому, что врезку сделали лишь в боте TG.
+    #
+    # ⚠️ Ник в MAX не используется вовсе (его у площадки может не быть) —
+    # человека опознаёт `user_id` из апдейта, client_id берётся из подписи.
+    if payload and payload.startswith("zero-"):
+        if await _mark_max_support_subscribed(
+            payload, user_id=user_id, chat_id=chat_id,
+            bot_token=bot_token, username=username,
+        ):
+            return
 
     # Кнопка «Чат события» с веб-страницы /event/{slug}: `/start evchat_<event_id>`.
     # Ведём сразу на «вступить в чат» — проверка подписки + выдача чат-ссылок
