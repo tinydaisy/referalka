@@ -86,9 +86,14 @@ function AdminTechPageInner() {
   return (
     <div className="p-4 md:p-8">
       <h1 className="mb-1 text-2xl font-bold text-gray-900">Тех-специалисты</h1>
-      <p className="mb-5 text-sm text-gray-500">
+      <p className="mb-4 text-sm text-gray-500">
         Внедренцы: кто есть, кто кого ведёт и сколько кому причитается.
       </p>
+
+      {/* Адрес входа в кабинет внедренца. Он нужен каждый раз, когда заводят
+          нового человека — а искать его было негде: кабинет живёт на своём
+          разделе, из админки туда ссылки не было вовсе. */}
+      <TechLoginLink />
 
       <div className="mb-5 flex gap-2">
         {([['specs', 'Люди'], ['assign', 'Клиенты'],
@@ -113,6 +118,48 @@ function AdminTechPageInner() {
                                     onChange={() => setTick(t => t + 1)} />}
       {tab === 'dialogs' && <DialogsTab specs={specs} />}
       {tab === 'money' && <MoneyTab specs={specs} />}
+    </div>
+  )
+}
+
+/**
+ * Адрес входа в кабинет внедренца — под рукой, с кнопкой «скопировать».
+ *
+ * ⚠️ Адрес строится от ТЕКУЩЕГО домена (`window.location.origin`), а не зашит
+ * строкой «pluson.ru»: тот же экран открывают на dev-сервере, и зашитый прод
+ * отправил бы человека не туда. На сервере рендера `window` нет — до первой
+ * отрисовки в браузере показываем относительный путь.
+ */
+function TechLoginLink() {
+  const [origin, setOrigin] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => { setOrigin(window.location.origin) }, [])
+
+  const url = `${origin}/tech/login`
+
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-gray-700">
+          Вход в кабинет внедренца
+        </div>
+        <a href="/tech/login" target="_blank" rel="noreferrer"
+           className="text-sm font-mono underline" style={{ color: '#25455D' }}>
+          {url || '/tech/login'}
+        </a>
+        <div className="mt-0.5 text-xs text-gray-400">
+          Отправьте эту ссылку человеку вместе с почтой и паролем из вкладки «Люди».
+        </div>
+      </div>
+      <button onClick={() => {
+                navigator.clipboard?.writeText(url)
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1800)
+              }}
+              className="ml-auto rounded-lg bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300">
+        {copied ? 'Скопировано' : 'Скопировать'}
+      </button>
     </div>
   )
 }
