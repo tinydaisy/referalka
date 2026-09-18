@@ -411,6 +411,64 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1 }: { e
               <button onClick={regen} className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
                 <RefreshCw size={12} /> Перегенерировать ключ
               </button>
+
+              {/* Куда эти два значения вставить в Zoom. Без инструкции поля
+                  выглядят как «технические данные непонятно для чего»:
+                  в самом Zoom они называются иначе (Stream URL / Stream Key),
+                  а трансляция включается не в настройках, а из идущей встречи. */}
+              <div className="rounded-xl bg-blue-50 border border-blue-200 p-3.5 space-y-2.5">
+                <p className="text-sm font-semibold text-blue-900">Куда вставить это в Zoom</p>
+
+                <div className="space-y-1.5 text-xs text-blue-900 leading-relaxed">
+                  <p className="font-medium">Один раз — включить возможность трансляции:</p>
+                  <ol className="list-decimal list-inside space-y-1 ml-0.5">
+                    <li>Откройте <b>zoom.us</b> → войдите в аккаунт → <b>Настройки</b> (Settings).</li>
+                    <li>Вкладка <b>Встреча</b> (Meeting) → раздел <b>На встрече (расширенные)</b> —
+                        англ. «In Meeting (Advanced)».</li>
+                    <li>
+                      Включите <b>Прямая трансляция встреч</b> (Allow livestreaming of meetings)
+                      и поставьте галочку <b>Пользовательская служба трансляции</b>
+                      (Custom Live Streaming Service).
+                    </li>
+                  </ol>
+                  <p className="text-[11px] text-blue-700">
+                    Нужен платный тариф Zoom — на бесплатном трансляции нет.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5 text-xs text-blue-900 leading-relaxed">
+                  <p className="font-medium">Перед каждым эфиром — запустить трансляцию:</p>
+                  <ol className="list-decimal list-inside space-y-1 ml-0.5">
+                    <li>Начните встречу Zoom (ту, куда заходят спикеры).</li>
+                    <li>
+                      Внизу нажмите <b>Подробнее</b> (More, три точки) →
+                      <b> Прямой эфир</b> → <b>Пользовательская служба трансляции</b>.
+                    </li>
+                    <li>
+                      В открывшемся окне заполните три поля:
+                      <div className="mt-1.5 space-y-1 rounded-lg bg-white/70 border border-blue-200 p-2">
+                        <p><b>URL трансляции</b> (Stream URL) — RTMP-адрес выше</p>
+                        <p><b>Ключ трансляции</b> (Stream Key) — ключ выше</p>
+                        <p><b>URL страницы трансляции</b> (Live streaming page URL) —
+                           «Ссылка на комнату дня (для зрителей)» — она выше на этой
+                           же странице</p>
+                      </div>
+                    </li>
+                    <li>Нажмите <b>Начать трансляцию</b> (Go Live!) — и подождите 20–30 секунд.</li>
+                  </ol>
+                </div>
+
+                <p className="text-xs text-blue-900 leading-relaxed">
+                  Как поток дойдёт — кнопка <b>«Начать эфир»</b> на вкладке
+                  <b> «Пульт ведущего»</b> загорится сама. Зрители увидят картинку только после нажатия этой
+                  кнопки: сам поток из Zoom эфир не открывает.
+                </p>
+
+                <p className="text-[11px] text-blue-700 leading-relaxed">
+                  Через OBS — то же самое: <b>Настройки → Вещание</b>, сервис
+                  «Настраиваемый», в «Сервер» RTMP-адрес, в «Ключ потока» ключ.
+                </p>
+              </div>
             </>
           ) : (
             <p className="text-sm text-gray-500">Сохраните комнату — появятся RTMP-адрес и ключ.</p>
