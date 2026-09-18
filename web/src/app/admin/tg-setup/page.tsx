@@ -930,7 +930,12 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
             </div>
           )}
 
+          {/* ⚠️ Общая обёртка обязательна: внутри {mode === 'manual' && (…)}
+              лежат ТРИ блока подряд — поля, плашка-предупреждение и кнопки.
+              JSX-выражение допускает только один корневой элемент, без этого
+              div сборка падает на втором. */}
           {mode === 'manual' && (
+        <div>
         <div className="space-y-3">
           <Input label="Телефон" value={phone} onChange={setPhone} placeholder="998700388279" />
           <Input label="Пометка" value={title} onChange={setTitle} placeholder="Узбекистан, партия 02.09" />
