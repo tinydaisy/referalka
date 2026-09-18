@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import asyncpg
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from typing import Optional
 
@@ -306,14 +306,25 @@ async def upload_session(account_id: int, file: UploadFile = File(...),
 # ─────────────────────────────────────────────────────────────────────────
 @router.post("/accounts/upload-bundle")
 async def upload_bundle(files: list[UploadFile] = File(...),
+                        proxy: str = Form(""),
                         admin=Depends(get_current_admin), db=Depends(get_db)):
     """Заводит аккаунты из комплекта файлов продавца (zip / .session / .json).
 
     ⚠️ Сразу ПРОВЕРЯЕМ живость сессии — иначе панель скажет «подключён» о
     мёртвом файле, и это вскроется только когда услуга упадёт на клиенте.
 
-    ⚠️ Прокси берём у СУЩЕСТВУЮЩЕЙ записи, если номер уже заведён: иностранный
-    номер без прокси не подключится вовсе (запрет в `connect`).
+    ⚠️⚠️ ПРОКСИ ПРИХОДИТ ВМЕСТЕ С ФАЙЛАМИ И НАЗНАЧАЕТСЯ ДО ПЕРВОГО
+    ПОДКЛЮЧЕНИЯ (18.09.2026). Раньше прокси брался ТОЛЬКО у существующей
+    записи — а у нового номера записи ещё нет, значит `proxy = None`, и первая
+    же проверка сессии шла напрямую, **с российского IP сервера**. Для
+    узбекского номера это вход из чужой страны — ровно то, за что Telegram
+    ограничивает и банит. В мейлере поэтому прокси вынесен в ОТДЕЛЬНЫЙ ПЕРВЫЙ
+    ШАГ мастера: «прокси нужен ДО первого подключения аккаунта» (там на этом
+    02.09 сгорел канадский аккаунт).
+
+    ⚠️ Прокси можно прислать НЕСКОЛЬКО (по одному в строке): раздаём по одному
+    на аккаунт, а если их меньше — по кругу. У уже заведённого номера свой
+    прокси не перетираем: он привязан к аккаунту и менялся вручную.
     """
     from app.services.tg_account_connect import session_is_alive, unpack_bundle
 
@@ -335,7 +346,11 @@ async def upload_bundle(files: list[UploadFile] = File(...),
     session_dir.mkdir(parents=True, exist_ok=True)
     results = []
 
-    for b in bundles:
+    # ⚠️ Список прокси: по одному в строке, пустые и мусорные строки отбрасываем.
+    # Раздаём по кругу — прокси может быть меньше, чем аккаунтов.
+    proxy_list = [p.strip() for p in (proxy or "").splitlines() if p.strip()]
+
+    for idx, b in enumerate(bundles):
         row = await db.fetchrow(
             "SELECT id, proxy, twofa_password FROM tg_setup_accounts WHERE phone=$1",
             b.phone,
@@ -346,8 +361,13 @@ async def upload_bundle(files: list[UploadFile] = File(...),
         target.write_bytes(b.session_bytes or b"")
         target.chmod(0o600)
 
-        proxy = (row["proxy"] if row else None) or None
-        alive, note = await session_is_alive(base, b.phone, proxy)
+        # ⚠️⚠️ ПРОКСИ ВЫБИРАЕМ ДО ПОДКЛЮЧЕНИЯ, иначе первая же проверка уйдёт
+        # с IP сервера. У существующего аккаунта свой прокси в приоритете —
+        # его выставляли руками под конкретный номер.
+        proxy_for_acc = (row["proxy"] if row else None) or None
+        if not proxy_for_acc and proxy_list:
+            proxy_for_acc = proxy_list[idx % len(proxy_list)]
+        alive, note = await session_is_alive(base, b.phone, proxy_for_acc)
 
         if not alive:
             # ⚠️ Мёртвый файл НЕ оставляем: он молча занял бы место рабочего,
@@ -364,9 +384,11 @@ async def upload_bundle(files: list[UploadFile] = File(...),
                           twofa_password=COALESCE($3, twofa_password),
                           title=COALESCE($4, title),
                           username=COALESCE($5, username),
+                          -- ⚠️ Свой прокси не перетираем: он привязан к номеру.
+                          proxy=COALESCE(proxy, $6),
                           updated_at=NOW()
                     WHERE id=$1""",
-                row["id"], base, twofa, b.title, b.username,
+                row["id"], base, twofa, b.title, b.username, proxy_for_acc,
             )
             account_id = row["id"]
         else:
@@ -374,14 +396,16 @@ async def upload_bundle(files: list[UploadFile] = File(...),
                 """INSERT INTO tg_setup_accounts
                        (phone, title, username, twofa_password, session_path,
                         max_slots, is_active, health,
-                        daily_bot_limit, min_create_gap_min)
-                    VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'unknown', $7, $8)
+                        daily_bot_limit, min_create_gap_min, proxy)
+                    VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'unknown', $7, $8, $9)
                  RETURNING id""",
                 b.phone, b.title, b.username, twofa, base,
                 DEFAULT_MAX_SLOTS, DEFAULT_DAILY_LIMIT, DEFAULT_GAP_MIN,
+                proxy_for_acc,
             )
         results.append({"phone": b.phone, "ok": True, "note": note,
-                        "id": account_id, "twofa_found": bool(b.twofa)})
+                        "id": account_id, "twofa_found": bool(b.twofa),
+                        "proxy": proxy_for_acc or ""})
 
     return {"ok": True, "results": results, "errors": errors}
 

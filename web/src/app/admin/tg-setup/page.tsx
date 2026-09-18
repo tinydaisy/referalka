@@ -18,8 +18,8 @@
 import { useEffect, useRef, useState, Suspense } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import {
-  AlertTriangle, Check, HelpCircle, Loader2, PauseCircle, PlayCircle, Plus,
-  RefreshCw, KeyRound, Settings2, Trash2, Upload, X,
+  AlertTriangle, ArrowRight, Check, HelpCircle, Loader2, PauseCircle,
+  PlayCircle, Plus, RefreshCw, KeyRound, Settings2, Trash2, Upload, X,
 } from 'lucide-react'
 
 interface Account {
@@ -715,7 +715,30 @@ function shortProxy(p: string): string {
   return m ? `${m[1]}:${m[2]}` : p.slice(0, 40)
 }
 
+/**
+ * Добавление аккаунтов — мастер из ДВУХ ШАГОВ.
+ *
+ * ⚠️⚠️ ШАГ 1 — ПРОКСИ, И ЭТО НЕ ПРИДИРКА К ПОРЯДКУ. Прокси обязан быть задан
+ * ДО первого подключения: как только файл сессии попадает на сервер, мы этой
+ * же сессией проверяем её живость — и без прокси запрос уходит с российского
+ * IP сервера. Для узбекского номера это вход из чужой страны, то есть ровно
+ * то, за что Telegram ограничивает и банит. В мейлере на этом 02.09 сгорел
+ * канадский аккаунт, поэтому там прокси тоже вынесен отдельным первым шагом.
+ *
+ * ⚠️ ШАГ 2 — ФАЙЛЫ. Четыре способа, все ведут в одну ручку `upload-bundle`:
+ * разбор не угадывает структуру архива, а группирует по цифрам из имени
+ * файла — продавцы раскладывают как попало.
+ *
+ * ⚠️ TDATA в списке НЕТ намеренно: `unpack_bundle` его не разбирает. Обещать
+ * в интерфейсе то, чего бэкенд не умеет, — хуже, чем не показывать вовсе.
+ */
 function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [step, setStep] = useState<1 | 2>(1)
+  const [mode, setMode] = useState<'zip' | 'pair' | 'session' | 'manual'>('zip')
+  const [files, setFiles] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [report, setReport] = useState<string[] | null>(null)
+
   const [phone, setPhone] = useState('')
   const [title, setTitle] = useState('')
   const [twofa, setTwofa] = useState('')
@@ -747,23 +770,172 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
     }
   }
 
+  /**
+   * Загрузка файлов пачкой.
+   *
+   * ⚠️ Прокси уходит ВМЕСТЕ с файлами, одним запросом: сервер назначает его
+   * аккаунту ДО того, как первый раз подключится этой сессией. Отдельным
+   * запросом «сначала файлы, потом прокси» было бы поздно.
+   *
+   * ⚠️ Отчёт показываем В ОКНЕ, а не в `alert`: при пачке из десяти аккаунтов
+   * его надо читать построчно, а системное окно обрезает и не даёт скопировать.
+   */
+  async function upload() {
+    if (!files.length) return
+    setUploading(true)
+    setReport(null)
+    try {
+      const token = localStorage.getItem('plusson_admin_token')
+        || localStorage.getItem('plusson_token')
+      const fd = new FormData()
+      files.forEach(f => fd.append('files', f))
+      fd.append('proxy', proxy)
+      const r = await fetch(`${API}/api/v1/admin/tg-setup/accounts/upload-bundle`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd,
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`)
+      const lines = (data.results || []).map((x: any) =>
+        `${x.ok ? '✅' : '❌'} +${x.phone} — ${x.note}`
+        + (x.twofa_found ? ' · пароль из комплекта' : '')
+        + (x.proxy ? ' · прокси назначен' : ' · БЕЗ ПРОКСИ'))
+      const errs = (data.errors || []).map((e: string) => `⚠️ ${e}`)
+      setReport([...lines, ...errs])
+      if ((data.results || []).some((x: any) => x.ok)) onSaved()
+    } catch (e: any) {
+      setReport([`❌ ${e.message}`])
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     // ⚠️ Клик по затемнению НЕ закрывает окно — иначе теряются введённые данные.
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+           onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-lg text-gray-900">Новый сервисный аккаунт</h3>
+          <h3 className="font-bold text-lg text-gray-900">
+            {step === 1 ? 'Шаг 1 из 2 — прокси' : 'Шаг 2 из 2 — аккаунты'}
+          </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={20} /></button>
         </div>
 
+        {/* ─────────── ШАГ 1: ПРОКСИ ─────────── */}
+        {step === 1 && (
+          <div>
+            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 mb-4">
+              <label className="block text-sm font-semibold text-amber-900 mb-1">
+                🌍 Прокси — по одному в строке
+              </label>
+              <textarea value={proxy} onChange={e => setProxy(e.target.value)}
+                        rows={5} spellCheck={false}
+                        placeholder="socks5://логин:пароль@хост:порт"
+                        className="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm font-mono" />
+              <div className="text-xs text-amber-900 mt-2 leading-relaxed">
+                <b>Прокси нужен ДО первого подключения.</b> Как только файл
+                сессии попадает на сервер, мы сразу проверяем её живость — и без
+                прокси этот запрос уйдёт с российского IP сервера. Для
+                иностранного номера это вход из чужой страны и почти верная
+                блокировка.
+                <br /><b>Сколько прокси, столько и аккаунтов</b> — раздадим по
+                одному на каждый. Прокси меньше — распределим по кругу.
+                <br />У уже заведённого номера свой прокси не трогаем.
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setStep(2)}
+                      className="btn-gold px-5 py-2.5 inline-flex items-center gap-2">
+                Далее <ArrowRight size={16} />
+              </button>
+              {/* ⚠️ Пропуск оставлен: у российских номеров прокси не нужен,
+                  и запирать на нём весь мастер нельзя. */}
+              <button onClick={() => { setProxy(''); setStep(2) }}
+                      className="text-sm text-gray-500 hover:text-gray-800 px-2">
+                Пропустить (без прокси)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─────────── ШАГ 2: ФАЙЛЫ ─────────── */}
+        {step === 2 && (
+        <div>
+          <button onClick={() => setStep(1)}
+                  className="text-xs text-gray-500 hover:text-gray-800 mb-3">
+            ← вернуться к прокси
+          </button>
+          <div className={`text-xs mb-4 px-3 py-2 rounded-lg ${
+            proxy.trim()
+              ? 'bg-green-50 text-green-800 border border-green-200'
+              : 'bg-amber-50 text-amber-900 border border-amber-200'}`}>
+            {proxy.trim()
+              ? `🌍 Прокси: ${proxy.split('\n').filter(l => l.trim()).length} — раздадим по аккаунтам`
+              : '⚠️ Без прокси. Иностранные аккаунты почти наверняка не подключатся.'}
+          </div>
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Как добавляем аккаунт
+          </label>
+          <select value={mode} onChange={e => { setMode(e.target.value as any); setFiles([]); setReport(null) }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-4">
+            <option value="zip">📦 Архивы .zip как есть — разберём сами</option>
+            <option value="pair">Файлы .json + .session (купленный аккаунт)</option>
+            <option value="session">Только файлы .session</option>
+            <option value="manual">Вписать номер вручную (без файлов)</option>
+          </select>
+
+          {mode !== 'manual' && (
+            <div className="mb-4">
+              <input type="file" multiple
+                     accept={mode === 'zip' ? '.zip'
+                       : mode === 'pair' ? '.json,.session' : '.session'}
+                     onChange={e => { setFiles(Array.from(e.target.files || [])); setReport(null) }}
+                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+              <p className="text-xs text-gray-500 mt-1.5 leading-relaxed">
+                {mode === 'zip' && <>Кидайте как скачали — распаковывать и сортировать не нужно.
+                  Внутри сами найдём <code>.session</code>, <code>.json</code> и пароль
+                  двухфакторки, в любой структуре папок. Можно сразу несколько архивов.</>}
+                {mode === 'pair' && <>Телефон, имя, ник и пароль двухфакторки возьмём
+                  из <code>.json</code> — вводить ничего не нужно. Можно закинуть
+                  пачкой: 10 <code>.json</code> + 10 <code>.session</code>, пары найдём по имени файла.</>}
+                {mode === 'session' && <>Телефон берём из имени файла
+                  (<code>998700388276.session</code>) — внутри его нет. Пароль
+                  двухфакторки потом впишите на карточке.</>}
+              </p>
+              {files.length > 0 && (
+                <p className="text-xs text-gray-700 mt-2">
+                  Выбрано файлов: <b>{files.length}</b>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Отчёт о загрузке — в окне, чтобы можно было прочитать построчно. */}
+          {report && (
+            <div className="mb-4 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-800 whitespace-pre-line max-h-48 overflow-y-auto font-mono">
+              {report.join('\n')}
+            </div>
+          )}
+
+          {mode !== 'manual' && (
+            <div className="flex gap-2">
+              <button onClick={onClose} className="btn-primary flex-1 py-2.5">Закрыть</button>
+              <button onClick={upload} disabled={uploading || !files.length}
+                      className="btn-gold flex-1 py-2.5 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+                {uploading
+                  ? <><Loader2 size={16} className="animate-spin" /> Загружаем…</>
+                  : <><Upload size={16} /> Загрузить</>}
+              </button>
+            </div>
+          )}
+
+          {mode === 'manual' && (
         <div className="space-y-3">
           <Input label="Телефон" value={phone} onChange={setPhone} placeholder="998700388279" />
           <Input label="Пометка" value={title} onChange={setTitle} placeholder="Узбекистан, партия 02.09" />
           <Input label="Пароль двухфакторки" value={twofa} onChange={setTwofa}
                  hint="Нужен, чтобы передавать ботов клиентам" />
-          <Input label="Прокси" value={proxy} onChange={setProxy}
-                 placeholder="socks5://логин:пароль@хост:порт"
-                 hint="Иностранному номеру прокси обязателен" />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Слотов</label>
             <input type="number" min={1} max={20} value={slots}
@@ -806,9 +978,10 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         </div>
 
         <div className="mt-5 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900">
-          После создания загрузите файл сессии Telethon. ⚠️ Аккаунт не должен
-          использоваться где-то ещё (например в мейлере) — Telegram сломает ключ,
-          если одна сессия работает с двух серверов.
+          Заведём пустую карточку — файл сессии загрузите после, кнопкой
+          «Сессия» или «Комплект». ⚠️ Аккаунт не должен использоваться где-то
+          ещё (например в мейлере) — Telegram сломает ключ, если одна сессия
+          работает с двух серверов.
         </div>
 
         <div className="flex gap-2 mt-5">
@@ -817,6 +990,10 @@ function AddAccountModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
             {saving ? 'Сохраняем…' : 'Добавить'}
           </button>
         </div>
+        </div>
+          )}
+        </div>
+        )}
       </div>
     </div>
   )
