@@ -194,6 +194,10 @@ class CollaboratorCreate(BaseModel):
     # Логотип компании для СВЕТЛОГО фона (миграция 450). Основной photo_url —
     # для тёмного. Только у карточек с галочкой «Компания».
     logo_on_light_url: Optional[str] = None
+    # Приближение кадра в маске (миграция 451) — своё у каждой формы.
+    crop_zoom_circle: Optional[float] = None
+    crop_zoom_square: Optional[float] = None
+    crop_zoom_portrait: Optional[float] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters
     # (CRUD `/api/v1/collaborators/{id}/posters`).
     photo_folder_url: Optional[str] = None
@@ -241,6 +245,10 @@ class CollaboratorUpdate(BaseModel):
     cutout_photo_focal: Optional[str] = None
     # Логотип компании для светлого фона (миграция 450).
     logo_on_light_url: Optional[str] = None
+    # Приближение кадра в маске (миграция 451) — своё у каждой формы.
+    crop_zoom_circle: Optional[float] = None
+    crop_zoom_square: Optional[float] = None
+    crop_zoom_portrait: Optional[float] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters.
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
@@ -285,6 +293,12 @@ def row_to_dict(row):
     # строкой «2.0». Фронту нужно число, чтобы сравнивать и форматировать.
     if d.get("avg_brought") is not None:
         d["avg_brought"] = float(d["avg_brought"])
+    # ⚠️ То же самое с приближением кадра (миграция 451): NUMERIC уезжает
+    # строкой «1.60», а фронт на него УМНОЖАЕТ размер фото — на строке вышел бы
+    # NaN, и фото в маске пропало бы вовсе.
+    for _z in ("crop_zoom_circle", "crop_zoom_square", "crop_zoom_portrait"):
+        if d.get(_z) is not None:
+            d[_z] = float(d[_z])
     return d
 
 
@@ -304,6 +318,8 @@ _COLLAB_SELECT = """
     c.cutout_photo_focal,
     -- Логотип компании для светлого фона (миграция 450).
     c.logo_on_light_url,
+    -- Приближение кадра в маске (миграция 451), своё у каждой формы.
+    c.crop_zoom_circle, c.crop_zoom_square, c.crop_zoom_portrait,
     (SELECT url FROM collaborator_posters cp
        WHERE cp.collaborator_id = c.id
        ORDER BY cp.sort_order, cp.id

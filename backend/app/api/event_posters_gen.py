@@ -467,6 +467,9 @@ async def _people(db: asyncpg.Connection, event_id: int) -> list[dict]:
                   c.is_company, c.media_assets,
                   -- Логотип компании для светлого фона (миграция 450).
                   c.logo_on_light_url,
+                  -- Приближение кадра по формам (миграция 451): афиша обязана
+                  -- показать ровно то, что клиент настроил в карточке.
+                  c.crop_zoom_circle, c.crop_zoom_square, c.crop_zoom_portrait,
                   ec.role, ec.is_commercial, ec.sort_order
              FROM event_collaborators ec
              JOIN collaborators c ON c.id = ec.speaker_id
@@ -480,6 +483,10 @@ async def _people(db: asyncpg.Connection, event_id: int) -> list[dict]:
     for r in rows:
         d = dict(r)
         # media_assets приходит из jsonb — asyncpg отдаёт строкой.
+        # ⚠️ NUMERIC уезжает строкой, а фронт на него УМНОЖАЕТ размер фото.
+        for _z in ("crop_zoom_circle", "crop_zoom_square", "crop_zoom_portrait"):
+            if d.get(_z) is not None:
+                d[_z] = float(d[_z])
         ma = d.get("media_assets")
         if isinstance(ma, str):
             import json

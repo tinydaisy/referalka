@@ -140,6 +140,10 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         cutout_photo_focal: form.cutout_photo_focal ?? null,
         // Логотип компании для светлого фона (миграция 450).
         logo_on_light_url: form.logo_on_light_url ?? null,
+        // Приближение кадра по формам (миграция 451).
+        crop_zoom_circle: form.crop_zoom_circle ?? null,
+        crop_zoom_square: form.crop_zoom_square ?? null,
+        crop_zoom_portrait: form.crop_zoom_portrait ?? null,
         photo_folder_url: form.photo_folder_url,
         video_folder_url: form.video_folder_url,
         video_url: form.video_url || null,
@@ -463,7 +467,9 @@ export default function CollaborationPage({ params }: { params: { id: string } }
                   url={form.photo_url}
                   value={form.photo_focal ?? null}
                   onChange={v => setForm((f: any) => ({ ...f, photo_focal: v }))}
-                  hint="Точка используется везде, где фото обрезается: карточки на сайте, Mini App, афиши."
+                  zooms={form}
+                  onZoomChange={z => setForm((f: any) => ({ ...f, ...z }))}
+                  hint="Эти настройки берёт афиша: круглая, квадратная и прямоугольная маски встанут ровно так, как видно здесь."
                 />
               </div>
             )}

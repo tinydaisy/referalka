@@ -25,6 +25,7 @@
 
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
 import { focalCssForPoster } from '@/lib/photoFocal'
+import { zoomOf, type CropShape } from '@/components/FocalPointPicker'
 import {
   applyManualOrder, applyManualRows, splitRows, splitIntoRows, personLines,
   BADGE_LABELS, ORGANIZER_ROLES, type PosterPerson,
@@ -274,7 +275,11 @@ export default function PosterCanvas({
   const nameShare = L.show_names === false || L.name_place === 'over'
     ? 0
     : 0.16 * (L.name_lines ?? 2)
-  const badgeShare = (L.role_badge ?? 'pill') === 'pill' ? 0.14 : 0
+  // ⚠️⚠️ Плашка роли + ЕЁ ОТСТУП. В расчёте учитывали только саму плашку
+  // (0.14), а под ней ещё 0.03 отступа — блок оказывался выше отведённого
+  // места ровно на эту разницу, и верхняя плашка обрезалась линией старта,
+  // а нижний ряд уезжал за нижний край.
+  const badgeShare = (L.role_badge ?? 'pill') === 'pill' ? 0.17 : 0
   // Полная высота ряда в долях ШИРИНЫ карточки.
   const rowUnit = ratio + nameShare + badgeShare
 
@@ -572,17 +577,29 @@ function maskCss(L: PosterLayout): React.CSSProperties {
 }
 
 /**
+ * Форма маски → форма, для которой настроен кадр в карточке человека.
+ *
+ * ⚠️ Овал и яйцо близки к кругу, поэтому берут его настройку: заводить им свои
+ * ползунки значило бы пять ручек на фото вместо трёх, а разница между кругом и
+ * овалом для кадрирования невелика.
+ */
+function cropShapeOf(shape?: string): CropShape {
+  if (shape === 'circle' || shape === 'oval' || shape === 'egg') return 'circle'
+  if (shape === 'square') return 'square'
+  return 'portrait'
+}
+
+/**
  * Во сколько раз приблизить кадр внутри маски.
  *
- * ⚠️ Круг и квадрат показывают почти квадратный фрагмент фото. Портрет в рост
- * в таком фрагменте — фигурка целиком, лица не разобрать (жалоба владельца:
- * «кружок и квадрат всегда надо крупнее»). Прямоугольная карточка вытянута и
- * так берёт человека по пояс — ей приближение не нужно.
+ * ⚠️⚠️ БЕРЁМ НАСТРОЙКУ ИЗ КАРТОЧКИ ЧЕЛОВЕКА (миграция 451), а не константу.
+ * Раньше приближение было зашито одинаковым для всех: у портрета по плечи
+ * приближать нечего, а человека в полный рост и втрое мало. Теперь клиент
+ * подгоняет каждую форму руками в карточке спикера, и афиша показывает ровно
+ * то, что он там увидел.
  */
-function maskZoom(shape?: string): number {
-  if (shape === 'circle' || shape === 'square') return 1.6
-  if (shape === 'oval' || shape === 'egg') return 1.35
-  return 1
+function maskZoom(shape: string | undefined, p: PosterPerson): number {
+  return zoomOf(cropShapeOf(shape), p)
 }
 
 /**
@@ -820,12 +837,15 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
         <div style={{
           height: px(wPct * 0.14), marginBottom: px(wPct * 0.03),
           display: 'flex', justifyContent: 'center', alignItems: 'center',
+          // ⚠️ Плашка не должна вылезать за свою строку: с padding она бывает
+          // выше контейнера, и тогда её срезает верхняя граница блока людей.
+          overflow: 'visible',
         }}>
           {showBadge && (
             <span style={{
               fontFamily: nameFont,
               fontSize: px(Math.min(nameSize * 0.75, wPct * 0.1)), lineHeight: 1,
-              padding: `${px(wPct * 0.025)}px ${px(wPct * 0.06)}px`,
+              padding: `${px(wPct * 0.02)}px ${px(wPct * 0.06)}px`,
               borderRadius: 9999,
               background: L.role_badge_color || gold,
               color: L.role_badge_text_color || '#1b2a36',
@@ -862,8 +882,8 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
                  // снятый в полный рост, превращался в фигурку с неразличимым
                  // лицом. Масштабируем от точки лица — она остаётся на месте,
                  // а лишнее (пол, потолок) уходит за края маски.
-                 ...(maskZoom(L.mask_shape) > 1 ? {
-                   transform: `scale(${maskZoom(L.mask_shape)})`,
+                 ...(maskZoom(L.mask_shape, p) > 1 ? {
+                   transform: `scale(${maskZoom(L.mask_shape, p)})`,
                    transformOrigin: maskFocal(L.mask_shape, focal),
                  } : {}),
                  // Свечение вырезки — по контуру человека, а не по прямоугольнику.

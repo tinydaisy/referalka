@@ -482,6 +482,10 @@ export default function ConferenceSpeakerPage() {
         // Точка лица (миграция 434). ⚠️ Здесь ЯВНЫЙ список полей — забудешь
         // дописать, и отметка молча не сохранится.
         photo_focal: profile.photo_focal ?? null,
+        // Приближение кадра по формам (миграция 451).
+        crop_zoom_circle: profile.crop_zoom_circle ?? null,
+        crop_zoom_square: profile.crop_zoom_square ?? null,
+        crop_zoom_portrait: profile.crop_zoom_portrait ?? null,
         photo_folder_url: profile.photo_folder_url,
         video_folder_url: profile.video_folder_url,
         tg_channel_url: profile.tg_channel_url,
@@ -1323,7 +1327,9 @@ export default function ConferenceSpeakerPage() {
                   url={profile.photo_url}
                   value={(profile as any).photo_focal ?? null}
                   onChange={v => setProfile((p: any) => ({ ...p, photo_focal: v }))}
-                  hint="Точка используется везде, где фото обрезается: карточки на сайте, Mini App, афиши."
+                  zooms={profile}
+                  onZoomChange={z => setProfile((p: any) => ({ ...p, ...z }))}
+                  hint="Эти настройки берёт афиша: круглая, квадратная и прямоугольная маски встанут ровно так, как видно здесь."
                 />
               </div>
             )}

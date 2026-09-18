@@ -19,6 +19,10 @@ export type PosterPerson = {
   is_company?: boolean | null
   /** Логотип компании для СВЕТЛОГО фона (миграция 450). */
   logo_on_light_url?: string | null
+  /** Приближение кадра по формам (миграция 451) — настраивается в карточке. */
+  crop_zoom_circle?: number | null
+  crop_zoom_square?: number | null
+  crop_zoom_portrait?: number | null
   is_commercial?: boolean | null
   media_assets?: { platform?: string; subscribers?: number }[] | null
 }
