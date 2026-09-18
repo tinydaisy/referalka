@@ -198,8 +198,10 @@ VPN на сервере (выход с российского IP): [documentatio
 | Оплаты, заказы, эквайринг, промокоды | [PAYMENTS.md](documentation/architecture/PAYMENTS.md) |
 | Сертификаты, nginx, HTTP/2, отдача сайта | [INFRA-SSL-NGINX.md](documentation/architecture/INFRA-SSL-NGINX.md) |
 | Свой домен клиента и почта на его домене | [DOMAINS-MAIL.md](documentation/architecture/DOMAINS-MAIL.md) |
-| Автонастройка Telegram «под ключ» | [AUTOSETUP.md](documentation/architecture/AUTOSETUP.md) |
+| Автонастройка Telegram «под ключ», шаг ноль (почта + бот поддержки) | [BOTS-AND-MINIAPP.md](documentation/architecture/BOTS-AND-MINIAPP.md) |
 | Instagram, автообзвоны, новости платформы, инструкции, партнёрка | [INTEGRATIONS.md](documentation/architecture/INTEGRATIONS.md) |
+| Внедренцы: мотивация, ставки, три варианта сотрудничества | [IMPLEMENTER-SYSTEM.md](documentation/architecture/IMPLEMENTER-SYSTEM.md) |
+| Кабинет техспеца: что видит, как считаются деньги и премия | [TECH-CABINET.md](documentation/architecture/TECH-CABINET.md) |
 | Остальное | [MISC.md](documentation/architecture/MISC.md) |
 | История первых месяцев (апрель 2026) | [STATUS-HISTORY.md](documentation/architecture/STATUS-HISTORY.md) |
 
