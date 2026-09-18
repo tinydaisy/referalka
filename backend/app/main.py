@@ -16,8 +16,6 @@ from app.api import client_call_settings, call_campaigns
 from app.api import tg_autosetup, admin_tg_setup, support_onboarding
 from app.api import partner_program, partner_public
 from app.api import platform_news
-# Генератор афиш события (миграция 435): макет + сборка картинки браузером.
-from app.api import event_posters_gen, poster_public
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts, webinar_room
 from app.api import webinar_public
@@ -204,11 +202,6 @@ app.include_router(solutions.router, prefix="/api/v1")
 # Страница отрисовки обложки — её открывает Chromium по подписанному токену.
 # ⚠️ Без префикса: свой полный путь /api/v1/public/cover.
 app.include_router(cover_public.router)
-# Генератор афиш события (миграция 435).
-app.include_router(event_posters_gen.router, prefix="/api/v1")
-# Данные для страницы отрисовки афиши — её открывает Chromium по подписанному
-# токену. ⚠️ Без префикса: свой полный путь /api/v1/public/poster.
-app.include_router(poster_public.router)
 # Тех-специалисты (внедренцы, миграция 391) — ТРЕТИЙ тип входа помимо клиента
 # и админа: свой срез данных платформы по закреплённым клиентам.
 app.include_router(tech_cabinet.router, prefix="/api/v1")
