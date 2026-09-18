@@ -948,6 +948,7 @@ function FontPicker({ theme, value, onChange }: {
 function SpeakerRowsEditor({
   rows, organizers, manual, dragId, overRow,
   onDragStart, onDragEnd, onOverRow, onDropToRow, onReset,
+  onSetRowCount, total,
 }: {
   rows: PosterPerson[][]
   organizers: PosterPerson[]
