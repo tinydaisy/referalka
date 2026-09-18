@@ -23,7 +23,8 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.event_posters_gen import (
-    FEATURE, ORIENTATIONS, _people, _row, _suggested, _theme,
+    FEATURE, KINDS, ORIENTATIONS, _days, _people, _row, _sessions,
+    _suggested, _theme,
 )
 from app.database import get_db
 from app.services.event_access import is_event_owner
@@ -37,13 +38,17 @@ router = APIRouter(prefix="/api/v1/public/poster", tags=["Отрисовка а�
 async def poster_data(
     event: int = Query(..., description="Событие"),
     o: str = Query("vertical", description="Вид афиши"),
+    # Вид макета и, при необходимости, конкретный день или спикер.
+    kind: str = Query("common"),
+    day: Optional[int] = Query(None),
+    speaker: Optional[int] = Query(None),
     t: Optional[str] = Query(None, description="Подписанный токен предпросмотра"),
     db: asyncpg.Connection = Depends(get_db),
 ):
     client_id = preview_client_id(t)
     # ⚠️ Мусорный, просроченный или чужой токен — 404, а не 401: ручка публичная,
     # и по коду ответа не должно быть видно, существует событие или нет.
-    if not client_id or o not in ORIENTATIONS:
+    if not client_id or o not in ORIENTATIONS or kind not in KINDS:
         raise HTTPException(404, detail="Страница не найдена")
     if not await is_event_owner(db, event, client_id):
         raise HTTPException(404, detail="Страница не найдена")
@@ -54,9 +59,14 @@ async def poster_data(
         raise HTTPException(404, detail="Страница не найдена")
 
     return {
-        "layout": await _row(db, event, o),
+        "layout": await _row(db, event, o, kind),
         "theme": await _theme(db, client_id),
         "people": await _people(db, event),
+        "days": await _days(db, event),
+        "sessions": await _sessions(db, event),
+        # Что именно рисуем: конкретный день или конкретного спикера.
+        "day": day,
+        "speaker": speaker,
         # Те же подсказки, что в кабинете: иначе снимок вышел бы с пустым
         # заголовком там, где в предпросмотре стояло название события.
         "suggested": await _suggested(db, event),

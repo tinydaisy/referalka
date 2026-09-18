@@ -69,6 +69,11 @@ _FIELDS = (
     "brand_logo_size",
     "show_partners", "partners_y", "partners_size",
     "speaker_order",
+    # Индивидуальная афиша (миграция 459).
+    "ind_show_role", "ind_show_topic", "ind_show_time", "ind_show_event_title",
+    "ind_photo_size", "ind_photo_x", "ind_photo_y",
+    "ind_name_size", "ind_role_size", "ind_topic_size",
+    "ind_role_color", "ind_topic_color",
     # Ряды спикеров (миграция 445): [[id,id],[id,id,id]].
     "speaker_rows",
     # Порядок логотипов партнёров (миграция 445).
@@ -110,6 +115,11 @@ _DEFAULTS = {
     "brand_logo_x": 50, "brand_logo_y": 5, "brand_logo_size": 6,
     "show_partners": True, "partners_y": 5, "partners_size": 5,
     "speaker_order": [], "speaker_rows": [], "partner_order": [],
+    "ind_show_role": True, "ind_show_topic": True, "ind_show_time": True,
+    "ind_show_event_title": True,
+    "ind_photo_size": 45, "ind_photo_x": 50, "ind_photo_y": 55,
+    "ind_name_size": 54, "ind_role_size": 24, "ind_topic_size": 30,
+    "ind_role_color": None, "ind_topic_color": None,
     "logos_align": "center", "logos_gap": 2.5, "logos_variant": "light",
     "logos_hidden": [], "logos_order": [],
 }
@@ -121,6 +131,8 @@ _RANGES = {
     "margin_left": (0, 60), "margin_right": (0, 60),
     "speakers_top": (0, 95), "speakers_bottom": (5, 100),
     "speakers_side": (0, 40), "speakers_width": (25, 80),
+    "ind_photo_size": (10, 100), "ind_photo_x": (0, 100), "ind_photo_y": (0, 100),
+    "ind_name_size": (10, 200), "ind_role_size": (8, 100), "ind_topic_size": (8, 120),
     "logos_x": (0, 100), "logos_w": (10, 100),
     "text_x": (0, 100), "text_w": (10, 100), "speakers_x": (0, 100),
     "mask_radius": (0, 50), "per_row": (1, 12),
@@ -161,6 +173,7 @@ _INT_FIELDS = {
     "bg_dim", "speakers_top", "speakers_bottom", "speakers_side", "mask_radius",
     "per_row", "row_overlap", "text_top", "pill_radius",
     "brand_logo_x", "brand_logo_y", "name_lines", "speakers_width",
+    "ind_photo_size", "ind_photo_x", "ind_photo_y",
     "logos_x", "logos_w", "text_x", "text_w", "speakers_x",
 }
 
@@ -261,6 +274,19 @@ class LayoutIn(BaseModel):
     speaker_order: Optional[list[int]] = None
     # Ряды спикеров (миграция 445). Ряды разной длины — это норма.
     speaker_rows: Optional[list[list[int]]] = None
+    # Индивидуальная афиша (миграция 459).
+    ind_show_role: Optional[bool] = None
+    ind_show_topic: Optional[bool] = None
+    ind_show_time: Optional[bool] = None
+    ind_show_event_title: Optional[bool] = None
+    ind_photo_size: Optional[int] = None
+    ind_photo_x: Optional[int] = None
+    ind_photo_y: Optional[int] = None
+    ind_name_size: Optional[float] = None
+    ind_role_size: Optional[float] = None
+    ind_topic_size: Optional[float] = None
+    ind_role_color: Optional[str] = None
+    ind_topic_color: Optional[str] = None
     partner_order: Optional[list[int]] = None
     # Общая строка логотипов (миграция 446).
     logos_align: Optional[str] = None
@@ -385,7 +411,11 @@ def _num(row) -> dict:
     return out
 
 
-async def _row(db: asyncpg.Connection, event_id: int, orientation: str) -> dict:
+KINDS = ("common", "day", "individual")
+
+
+async def _row(db: asyncpg.Connection, event_id: int, orientation: str,
+               kind: str = "common") -> dict:
     """Макет из базы либо умолчания.
 
     ⚠️ Строку заранее НЕ создаём: она появляется при первом сохранении. Иначе
@@ -393,17 +423,23 @@ async def _row(db: asyncpg.Connection, event_id: int, orientation: str) -> dict:
     открывал.
     """
     row = await db.fetchrow(
-        "SELECT * FROM event_poster_layouts WHERE event_id = $1 AND orientation = $2",
-        event_id, orientation,
+        "SELECT * FROM event_poster_layouts "
+        " WHERE event_id = $1 AND orientation = $2 AND kind = $3",
+        event_id, orientation, kind,
     )
     if row:
         # ⚠️ Через _num: NUMERIC иначе уедет строкой и сломает расчёты на фронте.
         return _num(row)
-    return {
-        "event_id": event_id, "orientation": orientation,
+    base = {
+        "event_id": event_id, "orientation": orientation, "kind": kind,
         **_DEFAULTS,
         "speakers_top": _TOP_BY_ORIENTATION.get(orientation, _DEFAULTS["speakers_top"]),
     }
+    # ⚠️ У афиши ДНЯ подзаголовка нет: под названием идёт дата и время дня
+    # (решение владельца). У индивидуальной он тоже не нужен — там тема.
+    if kind in ("day", "individual"):
+        base["show_subtitle"] = False
+    return base
 
 
 # Месяцы для «23–24 апреля».
@@ -543,6 +579,84 @@ async def _people(db: asyncpg.Connection, event_id: int) -> list[dict]:
     return out
 
 
+async def _days(db: asyncpg.Connection, event_id: int) -> list[dict]:
+    """Дни события со спикерами каждого дня — для афиш по дням.
+
+    ⚠️ СПИКЕР В ДНЕ НЕ ДУБЛИРУЕТСЯ, даже если выступает дважды: на афише он
+    один человек, а не два выступления (требование владельца).
+
+    ⚠️ Время дня — ВРЕМЯ ПЕРВОГО ВЫСТУПЛЕНИЯ, а не поле `open_time`: оно часто
+    пустое, и в пилюле оказывалось «День 1 — 24.09 в », с оборванным хвостом.
+    """
+    rows = await db.fetch(
+        """SELECT d.day_number, d.day_date,
+                  COALESCE(NULLIF(d.open_time, ''),
+                           (SELECT MIN(NULLIF(s.start_time, ''))
+                              FROM conf_sessions s
+                             WHERE s.event_id = d.event_id AND s.day = d.day_number)
+                  ) AS start_time,
+                  ARRAY(
+                    SELECT DISTINCT s2.speaker_id
+                      FROM conf_sessions s2
+                     WHERE s2.event_id = d.event_id AND s2.day = d.day_number
+                       AND s2.speaker_id IS NOT NULL
+                  ) AS speaker_ids
+             FROM conf_days d
+            WHERE d.event_id = $1
+            ORDER BY d.day_number""",
+        event_id,
+    )
+    out = []
+    for r in rows:
+        d = r["day_date"]
+        # «День 1 — 24.09 в 11:00». Год не пишем: афиша живёт недели, не годы.
+        label = f"День {r['day_number']}"
+        if d:
+            label += f" — {d.day:02d}.{d.month:02d}"
+        if r["start_time"]:
+            label += f" в {r['start_time']}"
+        out.append({
+            "day": r["day_number"],
+            "date": d.isoformat() if d else None,
+            "start_time": r["start_time"],
+            "label": label,
+            "speaker_ids": list(r["speaker_ids"] or []),
+        })
+    return out
+
+
+async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
+    """Выступление каждого спикера: тема и время — для индивидуальных афиш.
+
+    ⚠️ Берём ПЕРВОЕ выступление человека: на афише одна тема и одно время, а
+    выступать он может дважды. Ключ — id коллаборатора.
+    """
+    rows = await db.fetch(
+        """SELECT DISTINCT ON (s.speaker_id)
+                  s.speaker_id, s.day, s.start_time, s.title,
+                  d.day_date
+             FROM conf_sessions s
+             LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
+            WHERE s.event_id = $1 AND s.speaker_id IS NOT NULL
+            ORDER BY s.speaker_id, s.day, s.start_time""",
+        event_id,
+    )
+    out: dict[str, dict] = {}
+    for r in rows:
+        dt = r["day_date"]
+        when = ""
+        if dt:
+            when = f"{dt.day:02d}.{dt.month:02d}"
+        if r["start_time"]:
+            when = f"{when} в {r['start_time']}" if when else r["start_time"]
+        out[str(r["speaker_id"])] = {
+            "topic": r["title"] or "",
+            "when": when,
+            "day": r["day"],
+        }
+    return out
+
+
 def _check_orientation(orientation: str) -> None:
     if orientation not in ORIENTATIONS:
         raise HTTPException(404, detail="Неизвестный вид афиши")
@@ -570,14 +684,21 @@ async def _guard(db: asyncpg.Connection, event_id: int, client_id: int) -> None:
 async def get_layout(
     event_id: int,
     orientation: str,
+    # Вид макета: общая афиша, афиша дня или индивидуальная (миграция 459).
+    kind: str = "common",
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
     _check_orientation(orientation)
+    if kind not in KINDS:
+        raise HTTPException(404, detail="Неизвестный вид афиши")
     client_id = int(user["sub"])
     await _guard(db, event_id, client_id)
     return {
-        "layout": await _row(db, event_id, orientation),
+        "layout": await _row(db, event_id, orientation, kind),
+        # Дни со спикерами и выступления — для афиш по дням и индивидуальных.
+        "days": await _days(db, event_id),
+        "sessions": await _sessions(db, event_id),
         "theme": await _theme(db, client_id),
         "people": await _people(db, event_id),
         # ⚠️ Отдаём ОТДЕЛЬНО от макета, а не подмешиваем в него: иначе
@@ -593,10 +714,13 @@ async def save_layout(
     event_id: int,
     orientation: str,
     data: LayoutIn,
+    kind: str = "common",
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
     _check_orientation(orientation)
+    if kind not in KINDS:
+        raise HTTPException(404, detail="Неизвестный вид афиши")
     client_id = int(user["sub"])
     await _guard(db, event_id, client_id)
     if await assistant_is_restricted(user):
@@ -605,7 +729,7 @@ async def save_layout(
     # ⚠️ `exclude_unset` — присланные поля отличаем от неприсланных: без него
     # каждое сохранение затирало бы всё остальное умолчаниями.
     payload = _norm(data.model_dump(exclude_unset=True))
-    cur = await _row(db, event_id, orientation)
+    cur = await _row(db, event_id, orientation, kind)
     merged = {f: payload.get(f, cur.get(f, _DEFAULTS[f])) for f in _FIELDS}
 
     # speaker_order уходит в jsonb — asyncpg ждёт строку.
@@ -617,30 +741,39 @@ async def save_layout(
     merged["logos_order"] = json.dumps(merged.get("logos_order") or [])
 
     cols = ", ".join(_FIELDS)
-    ph = ", ".join(f"${i + 3}" for i in range(len(_FIELDS)))
+    ph = ", ".join(f"${i + 4}" for i in range(len(_FIELDS)))
     upd = ", ".join(f"{f} = EXCLUDED.{f}" for f in _FIELDS)
     row = await db.fetchrow(
-        f"""INSERT INTO event_poster_layouts (event_id, orientation, {cols})
-            VALUES ($1, $2, {ph})
-            ON CONFLICT (event_id, orientation) DO UPDATE
+        f"""INSERT INTO event_poster_layouts (event_id, orientation, kind, {cols})
+            VALUES ($1, $2, $3, {ph})
+            ON CONFLICT (event_id, kind, orientation) DO UPDATE
               SET {upd}, updated_at = NOW()
             RETURNING *""",
-        event_id, orientation, *[merged[f] for f in _FIELDS],
+        event_id, orientation, kind, *[merged[f] for f in _FIELDS],
     )
     return _num(row)
 
 
-def _render_url(event_id: int, orientation: str, client_id: int) -> str:
+def _render_url(event_id: int, orientation: str, client_id: int,
+                kind: str = "common", day: int | None = None,
+                speaker_id: int | None = None) -> str:
     """Адрес страницы, которую откроет браузер для снимка.
 
     ⚠️ Адрес ПЛАТФОРМЫ, а не домен клиента: страница отрисовки живёт в кабинете
     и на свой домен не переезжает.
     """
-    qs = urlencode({
+    params = {
         "event": event_id,
         "o": orientation,
+        "kind": kind,
         "t": make_preview_token(client_id),
-    })
+    }
+    # Афиша конкретного дня или конкретного спикера.
+    if day is not None:
+        params["day"] = day
+    if speaker_id is not None:
+        params["speaker"] = speaker_id
+    qs = urlencode(params)
     return f"{platform_base_url().rstrip('/')}/poster-render?{qs}"
 
 
@@ -707,3 +840,100 @@ async def poster_render(
         event_id, saved["url"], orientation,
     )
     return saved
+
+
+@router.post("/events/{event_id}/poster-layout/{orientation}/render-all",
+             summary="Собрать все афиши вида и разложить по местам")
+async def poster_render_all(
+    event_id: int,
+    orientation: str,
+    kind: str = "common",
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Собирает СРАЗУ ВСЕ афиши выбранного вида и кладёт каждую куда следует.
+
+    ⚠️ ОДНА КНОПКА НА ВСЁ (требование владельца): у события бывает четыре дня и
+    полтора десятка спикеров — нажимать «собрать» на каждой афише отдельно это
+    двадцать нажатий и двадцать ожиданий.
+
+    Куда попадает результат:
+      common     — в общие афиши события (`event_posters`, day IS NULL);
+      day        — в афиши СВОЕГО дня (`event_posters.day = N`);
+      individual — в библиотеку афиш спикера (`collaborator_posters`) и
+                   отмечается как афиша этого события.
+    """
+    _check_orientation(orientation)
+    if kind not in KINDS:
+        raise HTTPException(404, detail="Неизвестный вид афиши")
+    client_id = int(user["sub"])
+    await _guard(db, event_id, client_id)
+    if await assistant_is_restricted(user):
+        raise HTTPException(403, detail="Сборка афиш доступна только владельцу кабинета")
+
+    made: list[dict] = []
+
+    async def _shot(day: int | None = None, speaker_id: int | None = None) -> bytes:
+        url = _render_url(event_id, orientation, client_id, kind, day, speaker_id)
+        try:
+            return await render_poster_png(url, orientation)
+        except PosterRenderError as e:
+            raise HTTPException(503, detail=str(e))
+
+    if kind == "common":
+        png = await _shot()
+        saved = await store_bytes(
+            db, client_id=client_id, data=png, kind="event_poster",
+            ext="png", content_type="image/png",
+            event_id=event_id, poster_type=orientation,
+        )
+        await db.execute(
+            "INSERT INTO event_posters (event_id, url, orientation, sort) VALUES ($1,$2,$3,0)",
+            event_id, saved["url"], orientation,
+        )
+        made.append({"what": "common", "url": saved["url"]})
+
+    elif kind == "day":
+        for d in await _days(db, event_id):
+            png = await _shot(day=d["day"])
+            saved = await store_bytes(
+                db, client_id=client_id, data=png, kind="event_poster",
+                ext="png", content_type="image/png",
+                event_id=event_id, poster_type=orientation,
+            )
+            # ⚠️ В афиши СВОЕГО дня: у `event_posters` для этого есть `day`.
+            await db.execute(
+                "INSERT INTO event_posters (event_id, url, orientation, sort, day)"
+                " VALUES ($1,$2,$3,0,$4)",
+                event_id, saved["url"], orientation, d["day"],
+            )
+            made.append({"what": f"day{d['day']}", "url": saved["url"]})
+
+    else:  # individual
+        ev_title = await db.fetchval("SELECT title FROM events WHERE id = $1", event_id) or "Событие"
+        people = [p for p in await _people(db, event_id) if not p.get("is_company")]
+        for p in people:
+            png = await _shot(speaker_id=p["id"])
+            saved = await store_bytes(
+                db, client_id=client_id, data=png, kind="speaker_poster",
+                ext="png", content_type="image/png",
+                collaborator_id=p["id"],
+            )
+            # В библиотеку афиш человека.
+            # ⚠️ С подписью: в библиотеке спикера лежат и загруженные вручную
+            # афиши, и по метке видно, какая пришла из генератора события.
+            row = await db.fetchrow(
+                "INSERT INTO collaborator_posters (collaborator_id, url, label, sort_order)"
+                " VALUES ($1,$2,$3,0) RETURNING id",
+                p["id"], saved["url"], f"{ev_title} ({orientation})",
+            )
+            # ⚠️ И сразу отмечаем её афишей ЭТОГО события: иначе клиенту
+            # пришлось бы руками проходить по всем карточкам и ставить галочку.
+            await db.execute(
+                "UPDATE event_collaborators SET poster_id = $1"
+                " WHERE event_id = $2 AND speaker_id = $3",
+                row["id"], event_id, p["id"],
+            )
+            made.append({"what": f"speaker{p['id']}", "url": saved["url"]})
+
+    return {"made": made, "count": len(made)}

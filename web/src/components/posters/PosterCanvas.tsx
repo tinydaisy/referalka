@@ -135,6 +135,21 @@ export type PosterLayout = {
   partners_y?: number
   partners_size?: number
   speaker_order?: number[]
+  /** Вид макета (миграция 459): общая афиша, афиша дня, афиша спикера. */
+  kind?: 'common' | 'day' | 'individual'
+  /** Настройки индивидуальной афиши (миграция 459). */
+  ind_show_role?: boolean
+  ind_show_topic?: boolean
+  ind_show_time?: boolean
+  ind_show_event_title?: boolean
+  ind_photo_size?: number
+  ind_photo_x?: number
+  ind_photo_y?: number
+  ind_name_size?: number
+  ind_role_size?: number
+  ind_topic_size?: number
+  ind_role_color?: string | null
+  ind_topic_color?: string | null
   /** Ряды спикеров (миграция 445): сколько положили в ряд — столько и будет. */
   speaker_rows?: number[][]
   /** Порядок логотипов партнёров (миграция 445). */
