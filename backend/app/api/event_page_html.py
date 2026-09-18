@@ -2223,7 +2223,14 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .brand-bio-chev {{ font-size:20px; color:#25455D; font-weight:600; line-height:1;
     transition:transform .2s; }}
   .brand-acc:not(.collapsed) .brand-bio-chev {{ transform:rotate(180deg); }}
-  .brand-bio-body {{ margin-top:8px; font-size:14px; color:#3a4a5a; line-height:1.55; }}
+  /* ⚠️ pre-line, а не pre-wrap и не «ничего». safe_html переводит переносы в
+     <br> ТОЛЬКО у текста без тегов: как только человек поставил хоть один
+     <b>, его пустые строки между абзацами остаются сырыми \\n, и без этого
+     правила весь рассказ слипается в одну простыню. pre-line сохраняет
+     переносы и при этом схлопывает лишние пробелы, не мешая <ul>/<li>
+     (в отличие от pre-wrap, который даёт двойной отступ). */
+  .brand-bio-body {{ margin-top:8px; font-size:14px; color:#3a4a5a; line-height:1.55;
+    white-space:pre-line; }}
   /* Свёрнуто — видно три строки, а не пусто: по ним понятно, о чём текст. */
   .brand-acc.collapsed .brand-bio-body {{ overflow:hidden; display:-webkit-box;
     -webkit-line-clamp:3; -webkit-box-orient:vertical; }}

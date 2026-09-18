@@ -438,9 +438,15 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
             marginTop: 8, overflow: 'hidden',
             display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
           }}>
+            {/* ⚠️ whiteSpace:'pre-line' — иначе абзацы слипаются. sanitizeHtml
+                переводит переносы в <br> только у текста БЕЗ тегов: поставил
+                человек один <b>, и пустые строки между абзацами остаются сырыми
+                \n. pre-line их сохраняет и при этом схлопывает лишние пробелы,
+                не мешая <ul>/<li> — в отличие от pre-wrap. */}
             <EventDescription
               text={profile.brand_bio}
-              style={{ fontSize: 14, color: '#3a4a5a', lineHeight: 1.55 }}
+              style={{ fontSize: 14, color: '#3a4a5a', lineHeight: 1.55,
+                       whiteSpace: 'pre-line' }}
             />
           </div>
           {!showBrandBio && (
