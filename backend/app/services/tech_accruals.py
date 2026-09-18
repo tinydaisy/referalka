@@ -662,10 +662,17 @@ async def assign_client(db: asyncpg.Connection, *, client_id: int,
         return
 
     async with db.transaction():
+        # ⚠️⚠️ ТИП У $2 ЗАДАН ЯВНО (`::int`) — без него передача падала с 500.
+        # `AmbiguousParameterError: could not determine data type of parameter $2`:
+        # один и тот же параметр стоит и в `SET`, и внутри `CASE WHEN $2 IS NULL`,
+        # и из второго места тип вывести неоткуда — Postgres отказывается
+        # выводить его вовсе, даже когда первое место однозначное. Передача
+        # клиента не работала ВООБЩЕ: экран показывал успех (строка исчезала из
+        # списка), а в базе не менялось ничего и история оставалась пустой.
         await db.execute(
             """UPDATE clients
-                  SET tech_specialist_id = $2,
-                      tech_assigned_at = CASE WHEN $2 IS NULL THEN NULL ELSE NOW() END
+                  SET tech_specialist_id = $2::int,
+                      tech_assigned_at = CASE WHEN $2::int IS NULL THEN NULL ELSE NOW() END
                 WHERE id = $1""",
             client_id, spec_id,
         )

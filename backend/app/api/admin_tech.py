@@ -259,14 +259,22 @@ async def unassigned(
     ищут, кого можно оживить, а спрятанные они не попадутся никому на глаза.
     """
     rows = await db.fetch(
+        # ⚠️ «Привёл» отдаём ВМЕСТЕ со списком: при передаче админ должен
+        # видеть, кому пойдут деньги. Ответственный (кого выбираем здесь) и
+        # приведший — РАЗНЫЕ люди: передача отдаёт новому фикс за обслуживание,
+        # а 10 % пожизненно остаются у приведшего и не переезжают никогда.
+        # Без этой подписи передача выглядит так, будто отдаёт клиента целиком.
         """SELECT c.id, c.name, c.email, c.telegram_username, c.created_at,
                   t.slug AS tariff_slug, cs.expires_at, cs.source AS sub_source,
+                  c.referred_by_tech_id,
+                  ref.name AS referred_by_name,
                   (SELECT COUNT(*) FROM subscription_orders so
                     WHERE so.client_id = c.id AND so.status='paid'
                       AND so.amount_paid_card_kopecks > 0) AS payments_count
              FROM clients c
              LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
              LEFT JOIN tariffs t ON t.id = cs.tariff_id
+             LEFT JOIN tech_specialists ref ON ref.id = c.referred_by_tech_id
             WHERE c.tech_specialist_id IS NULL
               AND c.is_active
               AND NOT c.is_system_service

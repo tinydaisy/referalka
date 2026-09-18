@@ -585,7 +585,12 @@ function AssignTab({ specs, onChange }: any) {
     } catch (e: any) { alert(e?.message || 'Не удалось') }
   }
 
-  const active = specs.filter((s: any) => s.is_active)
+  // ⚠️ В выпадающем списке ТОЛЬКО те, кто берёт новых клиентов. Раньше фильтр
+  // был лишь по `is_active`, а сервер требует ещё и `takes_clients` (отпуск,
+  // перегруз) — человек в отпуске был виден в списке, но передача на него
+  // отклонялась с 400. Со стороны это выглядит как «выбрал, а ничего не
+  // произошло»: список и проверка обязаны совпадать.
+  const active = specs.filter((s: any) => s.is_active && s.takes_clients)
 
   if (loading) return <div className="text-sm text-gray-400">Загружаем…</div>
 
@@ -598,6 +603,10 @@ function AssignTab({ specs, onChange }: any) {
         <p className="mt-0.5 text-xs text-gray-500">
           Остывшие показаны наравне с остальными: именно с ними работают ради оживления.
         </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Передача отдаёт новому <b>фикс за обслуживание</b>. 10 % за приведённого
+          клиента остаются у того, кто его привёл, — они не переезжают.
+        </p>
       </div>
       {!items.length ? (
         <div className="p-8 text-center text-sm text-gray-500">Все клиенты распределены.</div>
@@ -609,6 +618,13 @@ function AssignTab({ specs, onChange }: any) {
                 <td className="px-4 py-3">
                   <div className="font-medium text-gray-900">{c.name || 'Без имени'}</div>
                   <div className="text-xs text-gray-400">{c.email}</div>
+                  {/* ⚠️ Кому идут 10 % — видно ПРЯМО В СТРОКЕ, рядом с выбором
+                      нового ответственного: это разные люди и разные деньги. */}
+                  <div className="mt-0.5 text-xs text-gray-500">
+                    {c.referred_by_name
+                      ? <>Привёл: <b>{c.referred_by_name}</b> — ему 10 %</>
+                      : <span className="text-gray-400">Никто не приводил — 10 % никому</span>}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-gray-600">{c.tariff_slug || '—'}</td>
                 <td className="px-4 py-3 text-gray-600">{c.payments_count} оплат</td>
