@@ -10,8 +10,17 @@
  * разойдётся с предпросмотром на переносах длинных фамилий и на кегле — а
  * фамилий на афише два десятка.
  *
- * ⚠️ ВСЁ В ПРОЦЕНТАХ полотна. На экране редактора полотно уменьшено, в снимке —
- * настоящего размера; в пикселях раскладка поехала бы.
+ * ⚠️ ВСЁ В ПРОЦЕНТАХ, а не в пикселях. На экране редактора полотно уменьшено,
+ * в снимке — настоящего размера; в пикселях раскладка поехала бы.
+ *
+ * ⚠️⚠️ ПРОЦЕНТЫ СЧИТАЮТСЯ ОТ РАБОЧЕЙ ОБЛАСТИ, А НЕ ОТ ЛИСТА (миграция 440).
+ * Рабочая область — это лист минус поля, заданные клиентом в миллиметрах с
+ * четырёх сторон. Всё содержимое афиши лежит внутри неё, поэтому за поля не
+ * выходит НИЧЕГО: ни спикеры, ни их подписи, ни логотипы, ни заголовок. До
+ * этого от края отступал только блок спикеров, и то лишь по бокам — логотип с
+ * координатой 0 % упирался прямо в край, а подпись нижнего ряда ложилась на
+ * самый обрез. Снаружи области остаются ровно две вещи — фон и его
+ * затемнение: они рисуются до края листа.
  */
 
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
@@ -34,8 +43,14 @@ export type PosterLayout = {
   orientation: PosterOrientation
   bg_url?: string | null
   bg_dim?: number
+  /** Поля от края В МИЛЛИМЕТРАХ (миграция 440). За них не выходит ничего. */
+  margin_top?: number
+  margin_bottom?: number
+  margin_left?: number
+  margin_right?: number
   speakers_top?: number
   speakers_bottom?: number
+  /** @deprecated Миграция 440: боковое поле задаётся margin_left/right в мм. */
   speakers_side?: number
   mask_shape?: 'portrait' | 'square' | 'circle' | 'oval' | 'egg' | 'cutout'
   mask_radius?: number
@@ -115,7 +130,7 @@ export type PosterTheme = {
 const GOLD = '#FFCFA4'
 
 export default function PosterCanvas({
-  layout: L, theme: th, people, scale = 1,
+  layout: L, theme: th, people, scale = 1, showMargins = false,
 }: {
   layout: PosterLayout
   theme: PosterTheme
@@ -123,6 +138,10 @@ export default function PosterCanvas({
   people: PosterPerson[]
   /** Во сколько раз уменьшить на экране. В снимке всегда 1. */
   scale?: number
+  /** ⚠️ Пунктир границы полей — ТОЛЬКО экран редактора. В снимок не попадает:
+   *  страница отрисовки его не включает, и в макете он не хранится. Иначе
+   *  клиент однажды получил бы готовый файл с пунктиром поверх афиши. */
+  showMargins?: boolean
 }) {
   const size = POSTER_SIZE[L.orientation] || POSTER_SIZE.vertical
   const { w: W, h: H } = size
@@ -130,10 +149,30 @@ export default function PosterCanvas({
   const label = (k?: string | null) => th.fonts?.find(f => f.key === k)?.label
   const gold = L.hl_color || th.lp_color_heading || GOLD
 
-  // ⚠️ Кегли и отступы задаются в процентах, но CSS нужен px. Считаем от ШИРИНЫ
-  // полотна: тогда на горизонтальной и вертикальной афише буква одного размера
-  // относительно карточки, а не «на вертикальной вдвое мельче».
-  const px = (percent: number) => (percent * W) / 100
+  // ⚠️⚠️ РАБОЧАЯ ОБЛАСТЬ (миграция 440). Поля задаются в МИЛЛИМЕТРАХ со всех
+  // четырёх сторон, и за них не выходит НИЧЕГО: ни спикеры, ни их подписи, ни
+  // логотипы, ни заголовок. Всё, что ниже, считается внутри этой области, а не
+  // от края полотна — поэтому «50 % по горизонтали» это середина рабочей
+  // области, и при смене полей раскладка не разъезжается.
+  //
+  // ⚠️ Миллиметр считается от опорной ширины листа: 297 мм у горизонтальной
+  // афиши (A4 альбомная), 210 мм у вертикальной и квадратной (A4 книжная).
+  // Одно и то же «10 мм» даёт на них разную долю ширины — и это верно: на
+  // широком полотне то же поле в долях выглядело бы вдвое толще.
+  const sheetMm = L.orientation === 'horizontal' ? 297 : 210
+  const mmToPx = W / sheetMm
+  const mTop = (L.margin_top ?? 10) * mmToPx
+  const mBottom = (L.margin_bottom ?? 10) * mmToPx
+  const mLeft = (L.margin_left ?? 10) * mmToPx
+  const mRight = (L.margin_right ?? 10) * mmToPx
+  // Размеры рабочей области в пикселях. ⚠️ Не даём ей схлопнуться: клиент
+  // вправе выкрутить поля до 60 мм, и на узком полотне это больше половины.
+  const AW = Math.max(1, W - mLeft - mRight)
+  const AH = Math.max(1, H - mTop - mBottom)
+
+  // ⚠️ Кегли и размеры — в процентах ШИРИНЫ РАБОЧЕЙ ОБЛАСТИ (не полотна):
+  // тогда буква сохраняет размер относительно карточки, а поля её не ломают.
+  const px = (percent: number) => (percent * AW) / 100
 
   // Разделяем людей: партнёры-компании идут логотипами сверху, все остальные —
   // в сетку. Галочка `is_company` — единственный признак (миграция 425).
@@ -152,10 +191,11 @@ export default function PosterCanvas({
   const rows = splitRows(others, perRow)
 
   const cutout = L.mask_shape === 'cutout'
-  const sideGap = L.speakers_side ?? 5
   // ⚠️ Умолчание своё у каждого формата — как и на бэкенде (_TOP_BY_ORIENTATION).
   // Общие 45 % на горизонтальной афише оставляли людям треть высоты, и карточки
   // выходили втрое мельче, чем на макетах заказчика.
+  // ⚠️ Отсчёт — ОТ РАБОЧЕЙ ОБЛАСТИ, а не от полотна: 45 % означает «45 % высоты
+  // рабочей области», поэтому линия спикеров не съезжает при смене полей.
   const top = L.speakers_top ?? (L.orientation === 'horizontal' ? 33 : L.orientation === 'square' ? 38 : 45)
   const bottom = L.speakers_bottom ?? 97
   const gap = L.gap ?? 2
@@ -166,13 +206,15 @@ export default function PosterCanvas({
   // вылезали за нижний край — на экране редактора их обрезало, а в снимке
   // часть спикеров просто пропадала. Берём меньшее из двух.
   const ratio = cutout ? 2.0 : shapeRatio(L.mask_shape)
-  const avail = 100 - sideGap * 2
+  // Вся ширина рабочей области: боковых полей внутри неё уже нет — они учтены
+  // в самой области (прежний `speakers_side` отменён миграцией 440).
+  const avail = 100
   // По ширине: промежутки вычитаем ДО деления, иначе ряд вылезет за края.
   const byWidth = (avail - gap * (perRow - 1)) / Math.max(1, perRow)
 
-  // По высоте. Всё в процентах ШИРИНЫ полотна — в этих же единицах задан
-  // `ratio`, поэтому высоту полотна переводим в них же.
-  const hPctOfW = (H / W) * 100
+  // По высоте. Всё в процентах ШИРИНЫ рабочей области — в этих же единицах
+  // задан `ratio`, поэтому высоту области переводим в них же.
+  const hPctOfW = (AH / AW) * 100
   const rowsCount = rows.length + (organizers.length > 0 ? 1 : 0)
   // Наложение рядов уменьшает суммарную высоту — учитываем, иначе при плотной
   // группе вырезок карточки ужимались бы зря.
@@ -217,15 +259,38 @@ export default function PosterCanvas({
         ...bgStyle(L, th),
       }}
     >
-      {/* Затемнение — только поверх своей картинки. */}
+      {/* Затемнение — только поверх своей картинки. ⚠️ ВО ВЕСЬ ЛИСТ, не по
+          рабочей области: фон рисуется до края, и затемнение обязано покрывать
+          его целиком, иначе по краям остались бы светлые полосы. */}
       {!!L.bg_url && (L.bg_dim ?? 0) > 0 && (
         <div style={{ position: 'absolute', inset: 0, background: `rgba(0,0,0,${(L.bg_dim ?? 0) / 100})` }} />
+      )}
+
+      {/* ⚠️⚠️ РАБОЧАЯ ОБЛАСТЬ (миграция 440). Всё содержимое афиши лежит ВНУТРИ
+          этого слоя, поэтому за поля не выходит ничего — ни спикеры с
+          подписями, ни логотипы, ни заголовок. `overflow: hidden` — последняя
+          защита: если что-то всё же окажется шире, оно обрежется по полю, а не
+          повиснет на самом краю листа.
+          Фон и затемнение намеренно ОСТАЛИСЬ снаружи: они рисуются до края. */}
+      <div style={{
+        position: 'absolute',
+        left: mLeft, top: mTop, width: AW, height: AH,
+        overflow: 'hidden',
+      }}>
+
+      {/* Граница полей — только в редакторе, в снимок не попадает. */}
+      {showMargins && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          border: `${Math.max(1, AW / 400)}px dashed rgba(239,68,68,0.9)`,
+          pointerEvents: 'none', zIndex: 99,
+        }} />
       )}
 
       {/* Логотипы партнёров-компаний — рядком сверху. */}
       {L.show_partners !== false && companies.length > 0 && (
         <div style={{
-          position: 'absolute', left: `${sideGap}%`, right: `${sideGap}%`,
+          position: 'absolute', left: 0, right: 0,
           top: `${L.partners_y ?? 5}%`,
           display: 'flex', justifyContent: 'center', alignItems: 'center',
           gap: px(2.5), flexWrap: 'wrap',
@@ -254,7 +319,7 @@ export default function PosterCanvas({
       {/* Текстовый блок: пилюля, заголовок, подзаголовок. Всё можно выключить —
           тогда фон приезжает со своим готовым заголовком. */}
       <div style={{
-        position: 'absolute', left: `${sideGap}%`, right: `${sideGap}%`,
+        position: 'absolute', left: 0, right: 0,
         top: `${L.text_top ?? 18}%`,
       }}>
         {L.show_pill !== false && (L.pill_text || L.pill_text_2) && (
@@ -294,28 +359,31 @@ export default function PosterCanvas({
         )}
       </div>
 
-      {/* Блок людей. Начинается с заданной линии и растёт вниз. */}
+      {/* Блок людей. Начинается с заданной линии и растёт вниз — всё внутри
+          рабочей области, поэтому нижний ряд упирается в ПОЛЕ, а не в край. */}
       <div style={{
         position: 'absolute',
-        left: `${sideGap}%`, right: `${sideGap}%`,
+        left: 0, right: 0,
         top: `${top}%`,
         // ⚠️ Ограничиваем высоту и прячем лишнее: если спикеров больше, чем
-        // влезает, они полезли бы за нижний край полотна и на снимке пропали бы
-        // молча — клиент увидел бы это только в готовом файле.
+        // влезает, они полезли бы за нижнее поле и на снимке пропали бы молча —
+        // клиент увидел бы это только в готовом файле.
         maxHeight: `${Math.max(5, bottom - top)}%`,
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: cutout ? 0 : `${gap * W / 100}px`,
+        // ⚠️ Промежутки — от ширины РАБОЧЕЙ ОБЛАСТИ (AW), а не полотна: иначе
+        // при больших полях ряды расходились бы шире, чем задумано.
+        gap: cutout ? 0 : `${gap * AW / 100}px`,
       }}>
         {/* Организаторы — сверху по центру, всегда отдельной строкой. */}
         {organizers.length > 0 && (
           <div style={{
             display: 'flex', justifyContent: 'center',
-            gap: `${gap * W / 100}px`,
-            marginBottom: cutout ? 0 : `${gap * W / 100}px`,
+            gap: `${gap * AW / 100}px`,
+            marginBottom: cutout ? 0 : `${gap * AW / 100}px`,
           }}>
             {organizers.map(p => (
               <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit}
-                          wPct={cardW} hPx={cardH * W / 100} highlighted theme={th} label={label} />
+                          wPct={cardW} hPx={cardH * AW / 100} highlighted theme={th} label={label} />
             ))}
           </div>
         )}
@@ -323,23 +391,25 @@ export default function PosterCanvas({
         {rows.map((row, ri) => (
           <div key={ri} style={{
             display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
-            gap: `${gap * W / 100}px`,
+            gap: `${gap * AW / 100}px`,
             // ⚠️ Наложение рядов — только у вырезанных людей: задний ряд
             // выглядывает из-за переднего, как в примере владельца. У карточек
             // с рамками это были бы наезжающие друг на друга прямоугольники.
-            marginTop: ri > 0 && cutout ? `-${(L.row_overlap ?? 0) * cardH * W / 10000}px` : undefined,
+            marginTop: ri > 0 && cutout ? `-${(L.row_overlap ?? 0) * cardH * AW / 10000}px` : undefined,
             // Передние ряды поверх задних.
             position: 'relative', zIndex: ri + 1,
           }}>
             {row.map(p => (
               <PersonCard key={p.id} p={p} L={L} gold={gold} px={px} nameSize={nameSizeFit}
-                          wPct={cardW} hPx={cardH * W / 100}
+                          wPct={cardW} hPx={cardH * AW / 100}
                           highlighted={p.role === 'headliner' || p.role === 'general_partner'}
                           theme={th} label={label} />
             ))}
           </div>
         ))}
       </div>
+
+      </div>{/* конец рабочей области */}
     </div>
   )
 }

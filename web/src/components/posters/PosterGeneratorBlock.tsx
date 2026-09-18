@@ -37,6 +37,8 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [busy, setBusy] = useState<'' | 'png' | 'render'>('')
   const [err, setErr] = useState<string | null>(null)
   const [dragId, setDragId] = useState<number | null>(null)
+  // Пунктир границы полей — подсказка редактора, в макете не хранится.
+  const [showMargins, setShowMargins] = useState(false)
 
   // ⚠️ Файл фирменных шрифтов подключён только на публичных страницах; в
   // кабинете его надо добавить самим, иначе в предпросмотре запасной шрифт.
@@ -150,8 +152,14 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         <div className="shrink-0">
           <div style={{ width: size.w * scale, height: size.h * scale }}
                className="overflow-hidden rounded-xl shadow-sm border card-border bg-gray-50">
-            <PosterCanvas layout={layout} theme={theme} people={people} scale={scale} />
+            <PosterCanvas layout={layout} theme={theme} people={people} scale={scale}
+                          showMargins={showMargins} />
           </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500 mt-2">
+            <input type="checkbox" checked={showMargins}
+                   onChange={e => setShowMargins(e.target.checked)} />
+            Показать границу полей (в готовый файл не попадёт)
+          </label>
 
           <div className="flex flex-wrap items-center gap-3 mt-4">
             <button onClick={save} disabled={saving} className="btn-gold px-6 py-2.5 text-sm">
@@ -186,14 +194,39 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                    onChange={v => patch({ bg_dim: v })} />
           </Card>
 
+          <Card title="Поля от края">
+            <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+              Рабочая область афиши. За эти поля не выходит ничего — ни спикеры с подписями,
+              ни логотипы, ни заголовок.
+            </p>
+            <div className="grid grid-cols-2 gap-x-4">
+              <MmField label="Сверху"  value={layout.margin_top ?? 10}    onChange={v => patch({ margin_top: v })} />
+              <MmField label="Снизу"   value={layout.margin_bottom ?? 10} onChange={v => patch({ margin_bottom: v })} />
+              <MmField label="Слева"   value={layout.margin_left ?? 10}   onChange={v => patch({ margin_left: v })} />
+              <MmField label="Справа"  value={layout.margin_right ?? 10}  onChange={v => patch({ margin_right: v })} />
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <span className="text-xs text-gray-400 self-center mr-1">Сразу все:</span>
+              {[0, 5, 10, 15, 20].map(mm => (
+                <button key={mm} type="button"
+                        onClick={() => patch({ margin_top: mm, margin_bottom: mm, margin_left: mm, margin_right: mm })}
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition">
+                  {mm === 0 ? 'без полей' : `${mm} мм`}
+                </button>
+              ))}
+            </div>
+          </Card>
+
           <Card title="Где стоят спикеры">
             <Range label="Начинать с высоты, %" value={layout.speakers_top ?? 45} min={0} max={95}
                    hint="Линия, ниже которой начинается блок людей — чтобы они не легли на рисунок фона"
                    onChange={v => patch({ speakers_top: v })} />
             <Range label="Не ниже, %" value={layout.speakers_bottom ?? 97} min={5} max={100}
                    onChange={v => patch({ speakers_bottom: v })} />
-            <Range label="Поля по бокам, %" value={layout.speakers_side ?? 5} min={0} max={40}
-                   onChange={v => patch({ speakers_side: v })} />
+            {/* ⚠️ Бывшая настройка «Поля по бокам, %» убрана (миграция 440):
+                боковой отступ теперь общий для всей афиши и задаётся выше в мм.
+                Две настройки одного отступа означали бы вопрос «почему спикеры
+                отступают не так, как заголовок». */}
             <Range label="Промежуток между фото, %" value={layout.gap ?? 2} min={0} max={20}
                    onChange={v => patch({ gap: v })} />
             <div className="mt-3">
@@ -570,6 +603,28 @@ function Range({ label, value, min, max, hint, onChange }: {
       <input type="range" min={min} max={max} step={step} value={value} className="w-full"
              onChange={e => onChange(Number(e.target.value))} />
       {hint && <div className="mt-0.5 text-xs text-gray-400">{hint}</div>}
+    </div>
+  )
+}
+
+/** Поле в миллиметрах. Дробные значения допустимы (2.5 мм — законное поле). */
+function MmField({ label, value, onChange }: {
+  label: string; value: number; onChange: (v: number) => void
+}) {
+  return (
+    <div className="mt-2">
+      <div className="mb-1 text-xs text-gray-600">{label}</div>
+      <div className="flex items-center gap-1.5">
+        <input type="number" min={0} max={60} step={0.5} value={value}
+               onChange={e => {
+                 const n = Number(e.target.value)
+                 // ⚠️ Пустое поле даёт NaN — записав его, мы сломали бы всю
+                 // раскладку (ширина области стала бы NaN). Пусто = 0 мм.
+                 onChange(Number.isFinite(n) ? Math.max(0, Math.min(60, n)) : 0)
+               }}
+               className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm" />
+        <span className="text-xs text-gray-400">мм</span>
+      </div>
     </div>
   )
 }

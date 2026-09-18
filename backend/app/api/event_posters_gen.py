@@ -42,6 +42,8 @@ ORIENTATIONS = ("horizontal", "vertical", "square")
 # предупреждением открывается тот же кортеж в шаблонах обложек.
 _FIELDS = (
     "bg_url", "bg_dim",
+    # Поля от края в мм (миграция 440) — задают рабочую область афиши.
+    "margin_top", "margin_bottom", "margin_left", "margin_right",
     "speakers_top", "speakers_bottom", "speakers_side",
     "mask_shape", "mask_radius", "per_row", "gap", "row_overlap",
     "show_names", "name_order", "name_lines", "name_font", "name_size",
@@ -67,6 +69,7 @@ _FIELDS = (
 # увидит в форме одно, а база запишет другое (или отвергнет запись).
 _DEFAULTS = {
     "bg_url": None, "bg_dim": 0,
+    "margin_top": 10, "margin_bottom": 10, "margin_left": 10, "margin_right": 10,
     "speakers_top": 45, "speakers_bottom": 97, "speakers_side": 5,
     "mask_shape": "portrait", "mask_radius": 0, "per_row": None,
     "gap": 2, "row_overlap": 0,
@@ -93,7 +96,10 @@ _DEFAULTS = {
 
 # Границы числовых полей — те же, что в CHECK миграции.
 _RANGES = {
-    "bg_dim": (0, 90), "speakers_top": (0, 95), "speakers_bottom": (5, 100),
+    "bg_dim": (0, 90),
+    "margin_top": (0, 60), "margin_bottom": (0, 60),
+    "margin_left": (0, 60), "margin_right": (0, 60),
+    "speakers_top": (0, 95), "speakers_bottom": (5, 100),
     "speakers_side": (0, 40), "mask_radius": (0, 50), "per_row": (1, 12),
     "gap": (0, 20), "row_overlap": (0, 60), "name_size": (0.3, 8),
     "hl_border_w": (0, 3), "hl_glow": (0, 10),
@@ -129,6 +135,11 @@ class LayoutIn(BaseModel):
     """Тело сохранения макета. Все поля необязательные — шлём только изменённое."""
     bg_url: Optional[str] = None
     bg_dim: Optional[int] = None
+    # Поля от края в мм (миграция 440). Дробные допустимы: 2.5 мм — законное поле.
+    margin_top: Optional[float] = None
+    margin_bottom: Optional[float] = None
+    margin_left: Optional[float] = None
+    margin_right: Optional[float] = None
     speakers_top: Optional[int] = None
     speakers_bottom: Optional[int] = None
     speakers_side: Optional[int] = None
@@ -241,6 +252,23 @@ def _norm(data: dict) -> dict:
 _TOP_BY_ORIENTATION = {"horizontal": 33, "vertical": 45, "square": 38}
 
 
+def _num(row) -> dict:
+    """Record → dict, где NUMERIC превращён в обычное число.
+
+    ⚠️⚠️ ОБЯЗАТЕЛЬНО. asyncpg отдаёт NUMERIC как `Decimal`, а тот уезжает в JSON
+    СТРОКОЙ («10.0»). Фронт умножает поля и кегли на коэффициенты — на строке
+    это даёт NaN, и афиша рисуется пустой или схлопнутой. Полей NUMERIC здесь
+    много: поля от края, `gap`, `name_size`, `hl_border_w`, `hl_glow`, размеры
+    заголовка и пилюли.
+    """
+    from decimal import Decimal
+    out = dict(row)
+    for k, v in out.items():
+        if isinstance(v, Decimal):
+            out[k] = float(v)
+    return out
+
+
 async def _row(db: asyncpg.Connection, event_id: int, orientation: str) -> dict:
     """Макет из базы либо умолчания.
 
@@ -253,7 +281,8 @@ async def _row(db: asyncpg.Connection, event_id: int, orientation: str) -> dict:
         event_id, orientation,
     )
     if row:
-        return dict(row)
+        # ⚠️ Через _num: NUMERIC иначе уедет строкой и сломает расчёты на фронте.
+        return _num(row)
     return {
         "event_id": event_id, "orientation": orientation,
         **_DEFAULTS,
@@ -396,7 +425,7 @@ async def save_layout(
             RETURNING *""",
         event_id, orientation, *[merged[f] for f in _FIELDS],
     )
-    return dict(row)
+    return _num(row)
 
 
 def _render_url(event_id: int, orientation: str, client_id: int) -> str:
