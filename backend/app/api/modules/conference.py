@@ -2387,8 +2387,16 @@ async def list_days(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
+    # speaker_join_url — вход СПИКЕРА в зум, поле комнаты этого дня (миграция 433).
+    # Отдаём вместе с днём, чтобы превью рассылки «вы следующие» могло показать
+    # реальную ссылку: отдельного запроса комнат у страницы шаблонов нет.
     days = await db.fetch(
-        "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
+        """SELECT d.*,
+                  (SELECT wr.speaker_join_url FROM webinar_rooms wr
+                    WHERE wr.event_id = d.event_id AND wr.day_number = d.day_number)
+                  AS speaker_join_url
+             FROM conf_days d WHERE d.event_id = $1 ORDER BY d.day_number""",
+        event_id
     )
     return {"days": [dict(d) for d in days]}
 

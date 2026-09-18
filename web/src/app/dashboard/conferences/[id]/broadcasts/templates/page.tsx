@@ -1198,9 +1198,14 @@ export default function TemplatesPage() {
       // {speaker_time}/{speaker_date}/{speaker_datetime} — слот выступления спикера
       // (первая его сессия в программе). Не задано — строка убирается.
       const MONTHS_SLOT = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
-      const slot = [...confSessions]
+      // ⚠️ Сначала ищем слот ВЫБРАННОГО в превью дня, и только если его нет —
+      // первый по всей программе. У спикера с выступлениями в нескольких днях
+      // (Марго — в четырёх) превью показывало время чужого дня: выбран день 4
+      // (11:00–11:25), а в тексте стояло 11:00–11:30 из дня 1.
+      const allSlots = [...confSessions]
         .filter((s: any) => s.speaker_id === speaker.id)
-        .sort((a: any, b: any) => (a.day - b.day) || String(a.start_time || '').localeCompare(String(b.start_time || '')))[0]
+        .sort((a: any, b: any) => (a.day - b.day) || String(a.start_time || '').localeCompare(String(b.start_time || '')))
+      const slot = allSlots.find((s: any) => s.day === day) || allSlots[0]
       const slotStart = slot ? String(slot.start_time || '').slice(0, 5) : ''
       const slotEnd = slot ? String(slot.end_time || '').slice(0, 5) : ''
       const slotDayObj = slot ? confDaysData.find((x: any) => x.day_number === slot.day) : null
@@ -1221,6 +1226,65 @@ export default function TemplatesPage() {
         const re = new RegExp('\\{' + k + '\\}', 'g')
         if (out.match(re)) {
           out = v ? out.replace(re, v) : out.replace(new RegExp('^[^\\n]*\\{' + k + '\\}[^\\n]*\\n?', 'gm'), '')
+        }
+      }
+
+      // ── speakers_call: ник спикера, вход в зум и СЛЕДУЮЩИЙ по программе ──
+      // ⚠️ {speaker_tg_username} выше раскрывается только в ветке speaker_intro /
+      // expert_day, а «вы следующие» попадает в общий else — без этого блока ник,
+      // зум и «Готовится…» уходили в превью сырыми (как на скриншоте).
+      if (tplType === 'speakers_call') {
+        // Ник текущего спикера. Пусто → убираем только «(...)», а не строку:
+        // в заголовке рядом стоит {speaker_name}, он значимый.
+        if (!tgUrl) out = out.replace(/ \(\{speaker_tg_username\}\)/g, '')
+        out = out.replace(/\{speaker_tg_username\}/g, tgUrl)
+
+        // Вход спикера в зум — поле ДНЯ этого слота (webinar_rooms.speaker_join_url).
+        const joinDay = day
+        const joinUrl = String(
+          confDaysData.find((x: any) => x.day_number === joinDay)?.speaker_join_url || ''
+        ).trim()
+        out = joinUrl
+          ? out.replace(/\{speaker_join_url\}/g, joinUrl)
+          // Ссылка на отдельной строке под подписью «Ссылка для входа (Zoom):» —
+          // убираем и подпись, иначе останется заголовок без ссылки.
+          : out.replace(/^[^\n]*:[ \t]*\n[^\n]*\{speaker_join_url\}[^\n]*\n?/gm, '')
+               .replace(/^[^\n]*\{speaker_join_url\}[^\n]*\n?/gm, '')
+
+        // ⚠️ У спикера слоты бывают в НЕСКОЛЬКИХ днях (Марго — в четырёх), а
+        // общий `slot` выше берёт первый по всей программе. Для «вы следующие»
+        // нужен слот ВЫБРАННОГО в превью дня, иначе показывались бы время и
+        // сосед из другого дня. Нет слота в этом дне — падаем на общий.
+        const daySlot = [...confSessions]
+          .filter((x: any) => x.speaker_id === speaker.id && x.day === day)
+          .sort((a: any, b: any) => String(a.start_time || '').localeCompare(String(b.start_time || '')))[0]
+          || slot
+
+        // Следующий слот со спикером В ТОМ ЖЕ дне (как на бэке).
+        const nx = daySlot
+          ? [...confSessions]
+              .filter((x: any) => x.day === daySlot.day && x.speaker_id
+                && String(x.start_time || '') > String(daySlot.start_time || ''))
+              .sort((a: any, b: any) => String(a.start_time || '').localeCompare(String(b.start_time || '')))[0]
+          : null
+        const nxSpeaker = nx ? speakers.find((sp: any) => sp.id === nx.speaker_id) : null
+        const nxName = (nxSpeaker?.name || '').trim()
+        const nxRawTg = (nxSpeaker?.personal_tg_username || '').trim()
+        const nxTg = nxRawTg ? '@' + nxRawTg.replace(/^@+/, '') : ''
+        const nxStart = nx ? String(nx.start_time || '').slice(0, 5) : ''
+        const nxEnd = nx ? String(nx.end_time || '').slice(0, 5) : ''
+        const nxTime = nxStart ? (nxEnd ? `${nxStart}–${nxEnd} МСК` : `${nxStart} МСК`) : ''
+        if (!nxName) {
+          // Последний слот дня → строки «Готовится…» нет вовсе.
+          for (const k of ['next_speaker_name', 'next_speaker_tg_username', 'next_speaker_time']) {
+            out = out.replace(new RegExp('^[^\\n]*\\{' + k + '\\}[^\\n]*\\n?', 'gm'), '')
+          }
+        } else {
+          if (!nxTg) out = out.replace(/ \(\{next_speaker_tg_username\}\)/g, '')
+          out = out
+            .replace(/\{next_speaker_name\}/g, nxName)
+            .replace(/\{next_speaker_tg_username\}/g, nxTg)
+            .replace(/\{next_speaker_time\}/g, nxTime)
         }
       }
 
