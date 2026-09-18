@@ -46,6 +46,13 @@ interface Account {
   last_bot_created_at: string | null
   bots_created_total: number
   made_today: number
+  /** Когда включена двухфакторка — от неё отсчёт 7 дней до права передавать ботов. */
+  twofa_enabled_at: string | null
+  /** Последний вход в аккаунт — от него отсчёт 24 часов. */
+  last_login_at: string | null
+  /** Что мешает ПЕРЕДАВАТЬ ботов (создавать при этом может). Считает бэкенд. */
+  transfer_blockers: string[]
+  transfer_ready: boolean
   transferred_total: number
   cooldown_until: string | null
   /** Почему аккаунт сейчас не берёт заказы — считает БЭКЕНД (см. list_accounts). */
@@ -86,6 +93,26 @@ async function adminFetch(path: string, init: RequestInit = {}): Promise<any> {
     throw new Error(err.detail || `HTTP ${r.status}`)
   }
   return r.json()
+}
+
+/**
+ * Дата по-московски, коротко: «18.09 в 02:56».
+ *
+ * ⚠️ Год не показываем намеренно: эти даты живут неделями, а не годами, и
+ * длинная строка ломает вёрстку карточки на телефоне.
+ */
+function fmtDate(iso: string): string {
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return '—'
+    return d.toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Europe/Moscow',
+    }).replace(',', ' в')
+  } catch {
+    return '—'
+  }
 }
 
 const HEALTH: Record<string, { label: string; cls: string }> = {
@@ -523,6 +550,35 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
                      : '— без паузы'} />
             <Field label="Создано всего"
                    value={`${a.bots_created_total} · передано ${a.transferred_total}`} />
+            {/* ⚠️⚠️ ДВЕ ДАТЫ, ОТ КОТОРЫХ ЗАВИСИТ ПРАВО ПЕРЕДАВАТЬ БОТОВ.
+                Telegram требует: двухфакторка включена ≥7 дней назад И с
+                последнего входа прошло ≥24 часов. Аккаунт может исправно
+                СОЗДАВАТЬ ботов и при этом не мочь их ОТДАТЬ — это выяснялось
+                уже на живом клиенте, в конце услуги. Держим на виду. */}
+            <Field label="Двухфакторка включена"
+                   value={a.twofa_enabled_at ? fmtDate(a.twofa_enabled_at) : '— не указана'}
+                   warn={!a.twofa_enabled_at} />
+            <Field label="Последний вход"
+                   value={a.last_login_at ? fmtDate(a.last_login_at) : '— не указан'}
+                   warn={!a.last_login_at} />
+          </div>
+
+          {/* Готовность отдавать ботов — отдельно от готовности их создавать. */}
+          <div className="mt-2">
+            {a.transfer_ready ? (
+              <span className="inline-block px-2 py-0.5 rounded text-xs bg-green-50 text-green-800 border border-green-200">
+                ✓ Готов передавать ботов
+              </span>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {a.transfer_blockers?.map((r, i) => (
+                  <span key={i}
+                        className="px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-800 border border-amber-200">
+                    ⏳ {r}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ⚠️ Причины считает БЭКЕНД (list_accounts), а не браузер: правила
@@ -907,6 +963,12 @@ function EditLimitsModal({ account: a, onClose, onSaved }: {
   const [daily, setDaily] = useState(a.daily_bot_limit ?? 0)
   const [gap, setGap] = useState(a.min_create_gap_min ?? 0)
   const [proxy, setProxy] = useState(a.proxy || '')
+  // ⚠️ Даты готовности к передаче. В <input type="datetime-local"> формат без
+  // зоны и секунд — режем ISO до «ГГГГ-ММ-ДДTчч:мм», иначе поле остаётся пустым.
+  const [twofaAt, setTwofaAt] = useState(
+    a.twofa_enabled_at ? a.twofa_enabled_at.slice(0, 16) : '')
+  const [loginAt, setLoginAt] = useState(
+    a.last_login_at ? a.last_login_at.slice(0, 16) : '')
   const [saving, setSaving] = useState(false)
 
   async function save() {
@@ -917,6 +979,10 @@ function EditLimitsModal({ account: a, onClose, onSaved }: {
         body: JSON.stringify({
           max_slots: slots, daily_bot_limit: daily,
           min_create_gap_min: gap, proxy: proxy || null,
+          // ⚠️ Пустое поле шлём как null — «дату не знаем». Пустая строка
+          // упала бы валидацией datetime на бэкенде.
+          twofa_enabled_at: twofaAt || null,
+          last_login_at: loginAt || null,
         }),
       })
       onSaved()
@@ -969,6 +1035,40 @@ function EditLimitsModal({ account: a, onClose, onSaved }: {
           <Input label="Прокси" value={proxy} onChange={setProxy}
                  placeholder="socks5://логин:пароль@хост:порт"
                  hint="Иностранному номеру обязателен" />
+
+          {/* ⚠️⚠️ ДВЕ ДАТЫ ПРО ПЕРЕДАЧУ БОТОВ, А НЕ ПРО ИХ СОЗДАНИЕ.
+              Telegram не отдаёт бота, пока двухфакторке нет 7 дней, а входу —
+              24 часов. Аккаунт при этом спокойно создаёт ботов, и упираемся мы
+              в это уже в КОНЦЕ услуги, на живом клиенте. */}
+          <div className="pt-1">
+            <div className="text-xs font-semibold text-gray-700 mb-2">
+              Готовность передавать ботов
+            </div>
+            <label className="block mb-3">
+              <span className="text-xs text-gray-600">
+                Двухфакторка включена
+                <Hint text={"С какого момента на аккаунте включена двухфакторная защита.\n\n" +
+                            "Telegram разрешает передавать ботов только через 7 ДНЕЙ после включения. " +
+                            "Дату знает продавец аккаунта — спрашивайте при покупке: если он включил её перед самой продажей, неделя ещё не прошла.\n\n" +
+                            "Пусто — значит неизвестно, и аккаунт считается неготовым."} />
+              </span>
+              <input type="datetime-local" value={twofaAt}
+                     onChange={e => setTwofaAt(e.target.value)}
+                     className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </label>
+            <label className="block">
+              <span className="text-xs text-gray-600">
+                Последний вход в аккаунт
+                <Hint text={"Когда мы последний раз входили в этот аккаунт.\n\n" +
+                            "Telegram не отдаёт ботов в течение 24 ЧАСОВ после входа — и считает именно от входа, а не от попытки передачи. " +
+                            "На этом однажды потеряли сутки.\n\n" +
+                            "Ставится сама при входе по коду. После заливки чужого файла сессии впишите руками: когда в аккаунт заходили на самом деле."} />
+              </span>
+              <input type="datetime-local" value={loginAt}
+                     onChange={e => setLoginAt(e.target.value)}
+                     className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </label>
+          </div>
         </div>
 
         <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-xs text-gray-600">

@@ -88,6 +88,35 @@ async def list_accounts(admin=Depends(get_current_admin), db=Depends(get_db)):
                 left = int((ready - datetime.now(timezone.utc)).total_seconds() // 60) + 1
                 reasons.append(f"пауза ещё {left} мин")
         d["blocked_reasons"] = reasons
+
+        # ⚠️⚠️ ГОТОВНОСТЬ К ПЕРЕДАЧЕ БОТОВ — ОТДЕЛЬНО ОТ ОЧЕРЕДИ (18.09.2026).
+        # Аккаунт может исправно СОЗДАВАТЬ ботов и при этом не мочь их ОТДАТЬ:
+        # Telegram требует, чтобы двухфакторка была включена ≥7 дней назад, а с
+        # последнего входа прошло ≥24 часов. Это не мешает ему брать заказы,
+        # поэтому в `blocked_reasons` не идёт — но знать надо заранее, иначе
+        # упрёмся в это уже на живом клиенте.
+        #
+        # ⚠️ Второе условие однажды стоило суток на боте Светланы: ждали отсчёт
+        # от попытки передачи, а Telegram считал от ВХОДА, который случился
+        # позже. Поэтому показываем обе даты и остаток по каждой.
+        now = datetime.now(timezone.utc)
+        transfer: list[str] = []
+        if r["twofa_enabled_at"]:
+            ready_2fa = r["twofa_enabled_at"] + timedelta(days=7)
+            if ready_2fa > now:
+                left = int((ready_2fa - now).total_seconds() // 3600) + 1
+                transfer.append(f"двухфакторка дозревает: ещё {left} ч")
+        else:
+            transfer.append("не указана дата двухфакторки")
+        if r["last_login_at"]:
+            ready_login = r["last_login_at"] + timedelta(hours=24)
+            if ready_login > now:
+                left = int((ready_login - now).total_seconds() // 3600) + 1
+                transfer.append(f"после входа ждать ещё {left} ч")
+        else:
+            transfer.append("не указана дата входа")
+        d["transfer_blockers"] = transfer
+        d["transfer_ready"] = not transfer
         d["session_exists"] = bool(
             r["session_path"] and Path(str(r["session_path"]) + ".session").exists()
             or (r["session_path"] and Path(str(r["session_path"])).exists())
@@ -163,6 +192,12 @@ class AccountPatch(BaseModel):
     is_active: Optional[bool] = None
     daily_bot_limit: Optional[int] = None
     min_create_gap_min: Optional[int] = None
+    # ⚠️ Даты готовности к передаче ботов (миграция 441). Правятся РУКАМИ:
+    # дату двухфакторки знает только продавец аккаунта, а дату входа иногда
+    # приходится поправить после заливки чужой сессии — автоматика её там
+    # выставить не может, не соврав.
+    twofa_enabled_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
 
 
 @router.patch("/accounts/{account_id}")
@@ -178,7 +213,8 @@ async def update_account(account_id: int, data: AccountPatch,
     fs = data.model_fields_set
     fields, values = [], []
     for name in ("title", "twofa_password", "proxy", "max_slots", "is_active",
-                 "daily_bot_limit", "min_create_gap_min"):
+                 "daily_bot_limit", "min_create_gap_min",
+                 "twofa_enabled_at", "last_login_at"):
         if name not in fs:
             continue
         value = getattr(data, name)
@@ -248,6 +284,12 @@ async def upload_session(account_id: int, file: UploadFile = File(...),
     target.chmod(0o600)
 
     base = str(target)[: -len(".session")]
+    # ⚠️⚠️ ДАТУ ВХОДА ЗДЕСЬ СТАВИТЬ НЕЛЬЗЯ. Залитая сессия — это вход, который
+    # сделал КТО-ТО РАНЬШЕ (продавец или мы на другой машине), а не мы сейчас.
+    # Поставить `NOW()` значило бы соврать: суточный отсчёт Telegram идёт от
+    # НАСТОЯЩЕГО входа, и по фальшивой дате аккаунт выглядел бы готовым к
+    # передаче, не будучи им. Пусто — честнее: админка покажет «дата не
+    # указана», и её впишут руками, зная реальный момент входа.
     await db.execute(
         "UPDATE tg_setup_accounts SET session_path=$2, health='unknown', updated_at=NOW() "
         " WHERE id=$1", account_id, base,
@@ -436,6 +478,11 @@ async def _save_logged_in(db, res: dict, twofa: Optional[str] = None) -> None:
     exists = await db.fetchval(
         "SELECT id FROM tg_setup_accounts WHERE phone=$1", phone)
     if exists:
+        # ⚠️⚠️ ОТМЕТКА ВХОДА ОБЯЗАТЕЛЬНА (18.09.2026). Telegram не даёт передать
+        # бота в течение 24 часов ПОСЛЕ ВХОДА в аккаунт — и отсчёт идёт именно
+        # от входа, а не от попытки передачи. На боте Светланы на этом потеряли
+        # сутки: ждали не от того события. Ставим дату здесь, в единственной
+        # точке удачного входа, — иначе её забудут проставить руками.
         await db.execute(
             """UPDATE tg_setup_accounts
                   SET session_path=$2, health='unknown',
@@ -444,6 +491,7 @@ async def _save_logged_in(db, res: dict, twofa: Optional[str] = None) -> None:
                       tg_user_id=COALESCE($5, tg_user_id),
                       twofa_password=COALESCE($6, twofa_password),
                       health_note='Вошли по коду из SMS',
+                      last_login_at=NOW(),
                       updated_at=NOW()
                 WHERE id=$1""",
             exists, base, res.get("username"), res.get("title"),
@@ -451,12 +499,16 @@ async def _save_logged_in(db, res: dict, twofa: Optional[str] = None) -> None:
         )
     else:
         await db.execute(
+            # ⚠️ У НОВОГО аккаунта дату входа ставим сразу: суточный отсчёт
+            # Telegram уже пошёл. Дату двухфакторки НЕ выдумываем — её знает
+            # только продавец, и её вписывают руками в админке (неверная дата
+            # хуже пустой: по ней решат, что аккаунт готов отдавать ботов).
             """INSERT INTO tg_setup_accounts
                    (phone, title, username, tg_user_id, twofa_password,
                     session_path, max_slots, is_active, health, health_note,
-                    daily_bot_limit, min_create_gap_min)
+                    daily_bot_limit, min_create_gap_min, last_login_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, 'unknown',
-                        'Вошли по коду из SMS', $8, $9)""",
+                        'Вошли по коду из SMS', $8, $9, NOW())""",
             phone, res.get("title"), res.get("username"),
             res.get("tg_user_id"), twofa, base,
             DEFAULT_MAX_SLOTS, DEFAULT_DAILY_LIMIT, DEFAULT_GAP_MIN,
