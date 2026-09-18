@@ -160,18 +160,41 @@ export default function EventChatsField({
 
             <div className="mt-3">
               {selected ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm text-gray-800 font-medium">
-                    {selected.title || <span className="text-gray-400">Без названия</span>}
-                  </span>
-                  {selected.chat_id && (
-                    <span className="text-[11px] font-mono text-gray-400">{selected.chat_id}</span>
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-gray-800 font-medium">
+                      {selected.title || <span className="text-gray-400">Без названия</span>}
+                    </span>
+                    {selected.chat_id && (
+                      <span className="text-[11px] font-mono text-gray-400">{selected.chat_id}</span>
+                    )}
+                    <button type="button" onClick={() => setPicker(platform)}
+                            className="text-xs text-[#25455D] underline ml-1">Сменить чат</button>
+                    <button type="button" onClick={() => pickChat(platform, null)}
+                            className="text-xs text-gray-400 hover:text-red-500 underline">Убрать</button>
+                  </div>
+                  {/* ⚠️ Чат выбран, но без ссылки — площадки не будет ни в плитке
+                      «Чат» Mini App, ни в меню бота: и там и там список строится
+                      по chat_url (ChatGate.tsx), а не по факту выбора. Без этой
+                      строки догадаться невозможно: чат выбран, зелёная точка на
+                      вкладке горит, а у участников площадка отсутствует. */}
+                  {!selected.chat_url && (
+                    <div className="mt-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                      <p className="text-xs text-red-600 font-medium">
+                        У этого чата нет ссылки — {meta.label} не покажется участникам
+                        ни в Mini App, ни в меню бота.
+                      </p>
+                      <p className="text-xs text-red-600 mt-1">
+                        Добавьте ссылку в{' '}
+                        <a href="/dashboard/channels" target="_blank" className="underline">
+                          Каналы → «Группы/Каналы для рассылок»
+                        </a>
+                        {platform === 'telegram' && <> — в Telegram она в чате → Управление → Пригласительные ссылки</>}
+                        . Рассылки в этот чат при этом работают.
+                      </p>
+                    </div>
                   )}
-                  <button type="button" onClick={() => setPicker(platform)}
-                          className="text-xs text-[#25455D] underline ml-1">Сменить чат</button>
-                  <button type="button" onClick={() => pickChat(platform, null)}
-                          className="text-xs text-gray-400 hover:text-red-500 underline">Убрать</button>
-                </div>
+                </>
               ) : (
                 <button type="button" onClick={() => setPicker(platform)}
                         className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
@@ -300,6 +323,11 @@ function ChatPickerModal({ platform, chats, loading, currentRef, onPick, onClose
                 {c.title || <span className="text-gray-400">Без названия</span>}
               </div>
               {c.chat_id && <div className="text-[11px] font-mono text-gray-400">{c.chat_id}</div>}
+              {/* Предупреждаем ДО выбора, а не только после: иначе клиент выберет
+                  чат без ссылки и уйдёт со страницы уверенным, что всё готово. */}
+              {!c.chat_url && (
+                <div className="text-[11px] text-red-600 mt-0.5">без ссылки — кнопка «Чат» не покажется</div>
+              )}
             </button>
           ))}
         </div>

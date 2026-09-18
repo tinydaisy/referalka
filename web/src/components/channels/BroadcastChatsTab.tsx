@@ -362,6 +362,17 @@ function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
             </>
           )}
         </div>
+        {/* ⚠️ Чат без ссылки виден в кабинете, но кнопка «Чат» по нему НЕ появится
+            ни в Mini App, ни в меню бота: и там и там площадка берётся по наличию
+            chat_url (см. ChatGate.tsx). Молчать нельзя — клиент добавил чат,
+            видит его в списке и считает, что всё готово; так у клиента 191
+            TG-чат был выбран в событии, а участники видели только MAX. */}
+        {!chat.chat_url && (
+          <p className="mt-1 text-xs text-red-600">
+            Нет ссылки — кнопка «Чат» по этому чату не покажется ни в Mini App, ни в боте.
+            Добавьте ссылку через «Изменить»: в Telegram она в чате → Управление → Пригласительные ссылки.
+          </p>
+        )}
         <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-600 cursor-pointer select-none">
           <input
             type="checkbox"
