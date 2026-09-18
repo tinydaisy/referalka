@@ -26,7 +26,7 @@
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
 import { focalCssForPoster } from '@/lib/photoFocal'
 import {
-  applyManualOrder, splitRows, personLines, defaultPerRow,
+  applyManualOrder, splitRows, personLines, bestPerRow,
   BADGE_LABELS, ORGANIZER_ROLES, type PosterPerson,
 } from '@/lib/posterLayout'
 
@@ -187,51 +187,56 @@ export default function PosterCanvas({
     L.speaker_order || [],
   )
 
-  const perRow = L.per_row || defaultPerRow(others.length, L.orientation)
-  const rows = splitRows(others, perRow)
-
   const cutout = L.mask_shape === 'cutout'
-  // ⚠️ Умолчание своё у каждого формата — как и на бэкенде (_TOP_BY_ORIENTATION).
-  // Общие 45 % на горизонтальной афише оставляли людям треть высоты, и карточки
-  // выходили втрое мельче, чем на макетах заказчика.
-  // ⚠️ Отсчёт — ОТ РАБОЧЕЙ ОБЛАСТИ, а не от полотна: 45 % означает «45 % высоты
-  // рабочей области», поэтому линия спикеров не съезжает при смене полей.
-  const top = L.speakers_top ?? (L.orientation === 'horizontal' ? 33 : L.orientation === 'square' ? 38 : 45)
-  const bottom = L.speakers_bottom ?? 97
   const gap = L.gap ?? 2
-
-  // ⚠️⚠️ РАЗМЕР КАРТОЧКИ ОГРАНИЧЕН И ШИРИНОЙ, И ВЫСОТОЙ. Считать только по
-  // ширине нельзя: на горизонтальной афише (1920×1080) под людей остаётся
-  // всего около трети высоты полотна, и карточки, посчитанные по ширине,
-  // вылезали за нижний край — на экране редактора их обрезало, а в снимке
-  // часть спикеров просто пропадала. Берём меньшее из двух.
   const ratio = cutout ? 2.0 : shapeRatio(L.mask_shape)
-  // Вся ширина рабочей области: боковых полей внутри неё уже нет — они учтены
-  // в самой области (прежний `speakers_side` отменён миграцией 440).
-  const avail = 100
-  // По ширине: промежутки вычитаем ДО деления, иначе ряд вылезет за края.
-  const byWidth = (avail - gap * (perRow - 1)) / Math.max(1, perRow)
-
-  // По высоте. Всё в процентах ШИРИНЫ рабочей области — в этих же единицах
-  // задан `ratio`, поэтому высоту области переводим в них же.
-  const hPctOfW = (AH / AW) * 100
-  const rowsCount = rows.length + (organizers.length > 0 ? 1 : 0)
-  // Наложение рядов уменьшает суммарную высоту — учитываем, иначе при плотной
-  // группе вырезок карточки ужимались бы зря.
-  const overlapK = cutout ? 1 - (L.row_overlap ?? 0) / 100 : 1
-  const rowsK = Math.max(1, 1 + (rowsCount - 1) * overlapK)
-  const availH = Math.max(1, (bottom - top)) / 100 * hPctOfW
 
   // ⚠️ Подпись и плашка роли занимают высоту СВЕРХ фото, и вычитать их как
   // фиксированную величину нельзя: на шести рядах они съедали всё место, и
   // карточка ужималась до ниточки — фото исчезало, оставались одни буквы.
-  // Поэтому считаем их ДОЛЕЙ от карточки: мельче карточка — мельче подпись,
-  // как и должно быть на афише.
+  // Поэтому считаем их ДОЛЕЙ от карточки: мельче карточка — мельче подпись.
   const nameShare = L.show_names === false || L.name_place === 'over'
     ? 0
     : 0.16 * (L.name_lines ?? 2)
   const badgeShare = (L.role_badge ?? 'pill') === 'pill' ? 0.14 : 0
-  const rowUnit = ratio + nameShare + badgeShare   // полная высота ряда в долях ширины карточки
+  // Полная высота ряда в долях ШИРИНЫ карточки.
+  const rowUnit = ratio + nameShare + badgeShare
+
+  // Высота рабочей области в процентах её ШИРИНЫ — в этих же единицах задан
+  // `rowUnit`, поэтому всё считается в одной системе.
+  const hPctOfW = (AH / AW) * 100
+
+  // ⚠️ Отсчёт — ОТ РАБОЧЕЙ ОБЛАСТИ, а не от полотна: 45 % означает «45 % высоты
+  // рабочей области», поэтому линия спикеров не съезжает при смене полей.
+  const top = L.speakers_top ?? defaultSpeakersTop(L.orientation)
+  const bottom = L.speakers_bottom ?? 97
+  const availH = Math.max(1, bottom - top) / 100 * hPctOfW
+
+  const hasOrganizers = organizers.length > 0
+
+  // ⚠️⚠️ ЧИСЛО В РЯДУ ПОДБИРАЕТСЯ РАСЧЁТОМ (bestPerRow), а не берётся из
+  // угаданных констант. Прежние «по 4 / по 6 / по 7» не знали формы области, и
+  // на горизонтальной афише 11 человек занимали треть отведённого места —
+  // карточки выходили с ноготь, остальное пустовало.
+  // ⚠️ Потолок «сколько в ряд» — по ФОРМАТУ, а не общий: на широкой афише 8 лиц
+  // в ряд читаются, на узкой вертикальной то же число превращает лица в горошины.
+  // Без потолка расчёт выдавал «по 11 в ряд» — длинную ленту в два ряда.
+  const maxPerRow = L.orientation === 'horizontal' ? 8 : L.orientation === 'square' ? 7 : 5
+  const perRow = L.per_row || bestPerRow(others.length, availH, {
+    gap, rowUnit, extraRows: hasOrganizers ? 1 : 0, max: maxPerRow,
+  })
+  const rows = splitRows(others, perRow)
+
+  // ⚠️⚠️ РАЗМЕР КАРТОЧКИ ОГРАНИЧЕН И ШИРИНОЙ, И ВЫСОТОЙ — берём меньшее.
+  // Только по ширине считать нельзя: на горизонтальной афише под людей
+  // остаётся около трети высоты, и карточки вылезали бы за нижнее поле.
+  const byWidth = (100 - gap * (perRow - 1)) / Math.max(1, perRow)
+
+  const rowsCount = rows.length + (hasOrganizers ? 1 : 0)
+  // Наложение рядов уменьшает суммарную высоту — учитываем, иначе при плотной
+  // группе вырезок карточки ужимались бы зря.
+  const overlapK = cutout ? 1 - (L.row_overlap ?? 0) / 100 : 1
+  const rowsK = Math.max(1, 1 + (rowsCount - 1) * overlapK)
 
   const byHeight = Math.max(
     1,
@@ -414,6 +419,20 @@ export default function PosterCanvas({
   )
 }
 
+/**
+ * Линия, с которой начинаются спикеры, если клиент не задал сам.
+ *
+ * ⚠️ Отдаём людям БОЛЬШУЮ часть листа. Сверху идут логотипы, заголовок и
+ * пилюля — им хватает четверти высоты, а всё остальное должно достаться
+ * лицам: ради них афишу и смотрят. Прежние 45 % на вертикальной оставляли
+ * спикерам половину листа, и карточки выходили вдвое мельче возможного.
+ */
+function defaultSpeakersTop(o: PosterOrientation): number {
+  if (o === 'horizontal') return 26
+  if (o === 'square') return 30
+  return 32
+}
+
 /** Пропорция карточки (высота / ширина) по форме маски. */
 function shapeRatio(shape?: string): number {
   switch (shape) {
@@ -465,11 +484,17 @@ function Heading({ text, align, font, sizePx, color, metallic, underline, px }: 
 }) {
   return (
     <div style={{ textAlign: align }}>
+      {/* ⚠️⚠️ `inline-block` + `overflow-wrap: anywhere` СХЛОПЫВАЛИ ЗАГОЛОВОК
+          В СТОЛБИК ИЗ БУКВ: inline-block сжимается по содержимому, а «anywhere»
+          разрешает разрыв после ЛЮБОГО символа — браузер и рвал после каждой
+          буквы, получалась вертикальная полоска шириной в один знак.
+          Теперь блок занимает всю ширину рабочей области (`display: block`), а
+          перенос обычный, по словам. Длинное слово без пробелов ужимается
+          кеглем ниже, а не рубится посимвольно. */}
       <span style={{
-        display: 'inline-block',
+        display: 'block', width: '100%',
         fontFamily: font, fontSize: sizePx, lineHeight: 1.08,
-        // Длинное слово иначе вылезает за край полотна.
-        overflowWrap: 'anywhere',
+        overflowWrap: 'break-word',
         ...(metallic ? metallicTextStyle(color) : { color }),
         // Ровная линия — обычной рамкой снизу. Градиентная рисуется ОТДЕЛЬНЫМ
         // элементом ниже (на самом тексте свойство background уже занято

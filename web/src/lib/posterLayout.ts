@@ -87,30 +87,56 @@ export function applyManualOrder(people: PosterPerson[], order: number[]): Poste
 }
 
 /**
- * Сколько человек в ряду, если клиент не задал сам.
+ * Сколько человек в ряду — ПОДБИРАЕМ РАСЧЁТОМ, а не угадываем.
  *
- * ⚠️ Считаем от количества и формата, а не берём фиксированное число: 21 спикер
- * по 4 в ряд на горизонтальной афише даёт 6 рядов — карточки становятся
- * микроскопическими. На примерах владельца: горизонтальная 21 человек — по 7,
- * вертикальная — по 4.
+ * ⚠️⚠️ ЗДЕСЬ БЫЛИ КОНСТАНТЫ «по 4 / по 6 / по 7», подобранные на глаз, и они
+ * давали жуткий результат: на горизонтальной афише 11 человек занимали треть
+ * отведённого места, остальное пустовало, а карточки выходили с ноготь. Число
+ * в ряду нельзя выбрать, не зная ФОРМЫ области: в одну и ту же «по 6» на
+ * широкой и на узкой афише влезают карточки разного размера.
+ *
+ * Правильно — перебрать все варианты и взять тот, где карточка получается
+ * КРУПНЕЕ ВСЕГО. Вариантов максимум дюжина, перебор мгновенный.
+ *
+ * Размер карточки при `perRow` ограничен двумя величинами:
+ *   по ширине  — (100 − промежутки) / perRow;
+ *   по высоте  — (высота места − промежутки) / (число рядов × высота ряда).
+ * Берём меньшее из них, как и сама раскладка, — иначе подобрали бы вариант,
+ * который в реальности не влезает.
+ *
+ * Всё в процентах ШИРИНЫ рабочей области, `areaH` — её высота в тех же единицах.
  */
-export function defaultPerRow(count: number, orientation: string): number {
-  if (count <= 0) return 1
-  if (orientation === 'horizontal') {
-    if (count <= 4) return count
-    if (count <= 8) return 4
-    if (count <= 12) return 6
-    return 7
+export function bestPerRow(
+  count: number,
+  areaH: number,
+  opts: { gap?: number; rowUnit?: number; extraRows?: number; max?: number } = {},
+): number {
+  if (count <= 1) return 1
+  const gap = opts.gap ?? 2
+  // Полная высота ряда в долях ширины карточки: фото + подпись + плашка роли.
+  const rowUnit = opts.rowUnit ?? 1.81
+  // Строка организаторов стоит отдельно и тоже занимает высоту.
+  const extraRows = opts.extraRows ?? 0
+  const maxPerRow = Math.min(opts.max ?? 12, count)
+
+  let bestPr = 1
+  let bestCard = 0
+  for (let pr = 1; pr <= maxPerRow; pr++) {
+    const rows = Math.ceil(count / pr) + extraRows
+    const byWidth = (100 - gap * (pr - 1)) / pr
+    const byHeight = (areaH - gap * (rows - 1)) / (rowUnit * rows)
+    const card = Math.min(byWidth, byHeight)
+
+    // ⚠️ Строго БОЛЬШЕ, с запасом на копейки. Когда размер упирается в ширину,
+    // несколько вариантов дают одинаковую карточку — и тогда побеждает первый,
+    // то есть МЕНЬШЕЕ число в ряду. Это и нужно: 11 человек «по 6 в два ряда»
+    // читаются лучше, чем «по 8», а лица там ровно того же размера.
+    if (card > bestCard + 0.05) {
+      bestCard = card
+      bestPr = pr
+    }
   }
-  if (orientation === 'square') {
-    if (count <= 3) return count
-    if (count <= 8) return 4
-    return 5
-  }
-  // Вертикальная: узкая, больше 4 в ряд лица становятся неразличимы.
-  if (count <= 2) return count
-  if (count <= 6) return 3
-  return 4
+  return bestPr
 }
 
 /**
