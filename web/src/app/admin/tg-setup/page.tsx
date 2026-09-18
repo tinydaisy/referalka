@@ -540,8 +540,21 @@ function AccountCard({ account: a, checking, onCheck, onDelete, onChanged }: {
             </div>
           )}
 
+          {/* ⚠️⚠️ ОТВЕТ @SPAMBOT — ЦЕЛИКОМ, А НЕ ДВЕ СТРОКИ СЕРЫМ (18.09.2026).
+              Здесь стоял `line-clamp-2` и `text-gray-400`: самое важное —
+              ЗА ЧТО ограничение и КОГДА снимется — обрезалось ровно на этом
+              месте. Владелец видела «Не проверялся» и не могла понять, что с
+              аккаунтом, хотя ответ лежал в базе целиком.
+              `whitespace-pre-line` — Telegram присылает текст абзацами. */}
           {a.health_note && (
-            <div className="mt-2 text-xs text-gray-400 line-clamp-2">{a.health_note}</div>
+            <div className="mt-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2">
+              <div className="text-[11px] font-semibold text-gray-500 mb-1">
+                Ответ @SpamBot
+              </div>
+              <div className="text-xs text-gray-700 whitespace-pre-line break-words">
+                {a.health_note}
+              </div>
+            </div>
           )}
         </div>
 
