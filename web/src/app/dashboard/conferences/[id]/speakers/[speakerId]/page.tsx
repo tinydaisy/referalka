@@ -469,7 +469,13 @@ export default function ConferenceSpeakerPage() {
       }
       const achievements = achievementsText.split('\n').map(s => s.trim()).filter(Boolean)
       await api.collaborators.update(profile.id, {
-        name: profile.name,
+        // ⚠️⚠️ ШЛЁМ ИМЯ, А НЕ СКЛЕЙКУ. Здесь стояло `name: profile.name`, но в
+        // ответе API `name` — это «Фамилия Имя» одной строкой (_COLLAB_SELECT).
+        // То есть сохранение записывало склейку в поле имени: у спикера
+        // «Житкевич Светлана» имя становилось «Житкевич Светлана», а фамилия
+        // оставалась прежней — и при каждом сохранении фамилия дублировалась.
+        name: profile.first_name ?? profile.name,
+        last_name: profile.last_name || null,
         title: profile.title,
         achievements,
         photo_url: profile.photo_url,
@@ -1232,10 +1238,30 @@ export default function ConferenceSpeakerPage() {
 
         <div className="bg-white rounded-2xl border card-border shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">{t.fields.basicInfo}</h3>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.nameRequired}</label>
-            <input type="text" value={profile.name || ''} onChange={setP('name')}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          {/* ⚠️⚠️ ИМЯ И ФАМИЛИЯ — ДВА ОТДЕЛЬНЫХ ПОЛЯ (миграция 302).
+              Здесь стояло ОДНО поле, привязанное к `profile.name`, — а в ответе
+              API `name` это СКЛЕЙКА «Фамилия Имя» (см. _COLLAB_SELECT). То есть
+              поле показывало склейку и при сохранении записывало её целиком в
+              `name`, затирая разделение: у 184 из 304 спикеров фамилия лежит
+              отдельно в `last_name`, и в карточке её не было видно вовсе.
+              Настоящее имя приходит в `first_name`. */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Имя</label>
+              <input type="text" value={profile.first_name ?? profile.name ?? ''}
+                onChange={setP('first_name')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Фамилия</label>
+              <input type="text" value={profile.last_name || ''} onChange={setP('last_name')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              {/* ⚠️ У компаний и партнёров-организаций фамилии нет — поле
+                  необязательное, в отличие от имени. */}
+              <p className="text-xs text-gray-400 mt-1">
+                У компании можно оставить пустым
+              </p>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.position}</label>
