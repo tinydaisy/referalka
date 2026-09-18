@@ -814,6 +814,25 @@ export default function BlockCard({
                       На узком экране колонок будет меньше — вёрстка подстроится сама.
                     </p>
                   </Field>
+                  {/* ⚠️ Высота белого поля под логотипом (18.09.2026). Логотипы
+                      у партнёров чаще квадратные, а поле было жёстко 120px и
+                      горизонтальное — квадрат упирался в потолок высоты и висел
+                      мелким значком в пустоте. Теперь поле можно сделать
+                      квадратным, и все логотипы встают крупно и одинаково. */}
+                  {block.kind === 'partners' && (
+                    <Field label={`Высота поля с логотипом: ${block.logo_height || 120} px`}>
+                      <input type="range" min={80} max={320} step={10}
+                        value={block.logo_height || 120}
+                        onChange={e => onPatch({ logo_height: Number(e.target.value) })}
+                        className="w-full" />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Логотипы у партнёров обычно квадратные. Поставьте высоту
+                        побольше (около 220 px) — тогда поле станет почти
+                        квадратным и логотипы будут крупными, а не мелкими
+                        значками посреди белой плашки.
+                      </p>
+                    </Field>
+                  )}
                   {['values', 'difference', 'audience'].includes(block.kind) && (
                     <Field label={`Размер иконок: ${block.icon_size || 88} px`}>
                       <input type="range" min={24} max={200} step={4}

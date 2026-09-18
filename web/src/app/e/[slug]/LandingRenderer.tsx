@@ -2643,6 +2643,15 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
   const { nameAlign, textAlign } = cardAligns(block, 'center')
   const ts = cardTextStyle(block, page)
 
+  // ⚠️ Высота белого поля под логотипом — НАСТРОЙКА клиента (18.09.2026).
+  // Была жёстко 120px, и это перекашивало блок: логотипы у партнёров чаще
+  // КВАДРАТНЫЕ, а поле горизонтальное — квадрат упирался в потолок высоты и
+  // висел мелким значком посреди пустой плашки, тогда как широкий логотип
+  // занимал её целиком. Один и тот же блок выглядел так, будто у одних
+  // партнёров лого крупное, у других — «сверхмелкое». 120 — прежнее значение:
+  // у собранных лендингов вид не меняется сам по себе.
+  const logoH = Math.max(80, Math.min(320, Number(block.logo_height) || 120))
+
   const scrollBy = (dir: 1 | -1) => {
     scroller.current?.scrollBy({ left: dir * (cardW + 20), behavior: 'smooth' })
   }
@@ -2652,6 +2661,7 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
       key={p.id} p={p} page={page} cardStyle={cardStyle} iconColor={iconColor}
       open={open} onToggle={() => setOpen(o => !o)}
       gift={gift} nameAlign={nameAlign} textAlign={textAlign} ts={ts}
+      logoH={logoH}
       className={scroll ? 'shrink-0 snap-start' : ''}
       width={scroll ? cardW : undefined}
     />
@@ -2840,7 +2850,7 @@ function RoleBadge({ role, page, align = 'left' }: { role?: string; page: any; a
 
 function PartnerCard({
   p, page, cardStyle, iconColor, open, onToggle, className = '', width,
-  nameAlign = 'center', textAlign = 'center', gift, ts,
+  nameAlign = 'center', textAlign = 'center', gift, ts, logoH = 120,
 }: any) {
   // ⚠️ Должность и регалии РАЗДЕЛЕНЫ (16.09.2026). Раньше они склеивались в
   // один список `lines` и выравнивались одинаково — из-за этого нельзя было
@@ -2899,9 +2909,16 @@ function PartnerCard({
           узким горизонтальным, тёмным или с прозрачным фоном. */}
       {p.photo_url && !isPerson && (
         <div className="flex items-center justify-center bg-white p-5"
-             style={{ minHeight: 120 }}>
+             style={{ height: logoH }}>
+          {/* ⚠️ Потолок по высоте — от ВЫСОТЫ ПОЛЯ, а не жёсткие 90px: иначе
+              настройка высоты растила бы белую плашку, оставляя логотип
+              прежним, и пустоты становилось бы только больше.
+              ⚠️ `w-full` убран: он растягивал узкий горизонтальный логотип на
+              всю ширину карточки, и тот лез на паддинги. `object-contain`
+              сам впишет картинку в поле, сохранив пропорции. */}
           <img src={p.photo_url} alt={p.name} loading="lazy"
-               className="max-h-[90px] w-full object-contain" />
+               className="max-w-full object-contain"
+               style={{ maxHeight: '100%' }} />
         </div>
       )}
       {/* ⚠️ Выравнивание РАЗДЕЛЕНО (16.09.2026): здесь стоял жёсткий
