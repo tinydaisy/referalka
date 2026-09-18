@@ -324,3 +324,64 @@ def greeting_text_plain(html_text: str) -> str:
     """Простой strip HTML-тегов <b>/<i> для площадок без HTML (VK/MAX plain)."""
     import re
     return re.sub(r"</?[a-zA-Z][^>]*>", "", html_text or "")
+
+
+# Теги, которые Telegram принимает в parse_mode=HTML. Всё остальное он считает
+# ошибкой и отвергает СООБЩЕНИЕ ЦЕЛИКОМ. Список — из офиц. документации
+# (https://core.telegram.org/bots/api#html-style).
+TG_ALLOWED_TAGS = {
+    "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
+    "span", "tg-spoiler", "a", "code", "pre", "blockquote", "tg-emoji",
+}
+# ⚠️ Синонимы НЕ взаимозаменяемы: <b> закрывается только </b>, не </strong>.
+
+
+def validate_telegram_html(text: str) -> str | None:
+    """Проверяет HTML-разметку текста, который уйдёт в Telegram с parse_mode=HTML.
+
+    Возвращает понятное человеку описание ошибки или None, если всё хорошо.
+
+    ⚠️ Зачем: Telegram отвергает ВСЁ сообщение целиком при любой ошибке разметки
+    («can't parse entities»), и человек вместо приветствия клиента видит
+    системный фолбэк «Я бот ПЛЮСОН». Так уже случилось у клиента 197: в тексте
+    стоял один <b> и два </b> — лишний закрывающий тег скопировали из воронки.
+    Ровно та же авария раньше случалась из-за кривых URL кнопок — её закрыли
+    `normalize_button_url`, а текст того же сообщения остался без проверки.
+
+    Проверяем то же, что и Telegram: незакрытые теги, лишние закрывающие,
+    неправильный порядок вложенности и неизвестные теги.
+    """
+    import re
+
+    if not text:
+        return None
+
+    stack: list[tuple[str, int]] = []   # (тег, позиция) — что открыто и не закрыто
+    for m in re.finditer(r"<\s*(/?)\s*([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>", text):
+        closing, tag, _attrs = m.group(1), m.group(2).lower(), m.group(3)
+
+        if tag not in TG_ALLOWED_TAGS:
+            return (f"Тег <{tag}> Telegram не поддерживает. "
+                    f"Можно: {', '.join(sorted(TG_ALLOWED_TAGS))}.")
+
+        if not closing:
+            # <br>, <hr> и прочие одиночные теги Telegram тоже не принимает —
+            # они уже отсеяны проверкой выше, так что всё открытое обязано
+            # быть закрытым.
+            stack.append((tag, m.start()))
+            continue
+
+        if not stack:
+            return (f"Лишний закрывающий тег </{tag}> — для него нет "
+                    f"открывающего <{tag}>.")
+        open_tag, _pos = stack.pop()
+        if open_tag != tag:
+            return (f"Теги перепутаны местами: открыт <{open_tag}>, "
+                    f"а закрывается </{tag}>. Закрывайте в обратном порядке: "
+                    f"<{open_tag}>…</{open_tag}>.")
+
+    if stack:
+        names = ", ".join(f"<{t}>" for t, _ in stack)
+        return f"Не закрыт тег {names} — добавьте </{stack[-1][0]}>."
+
+    return None

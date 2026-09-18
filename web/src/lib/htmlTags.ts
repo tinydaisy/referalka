@@ -17,6 +17,20 @@ export const ALLOWED_HTML_TAGS = [
   'ul', 'ol', 'li', 'h2', 'h3', 'blockquote',
 ] as const
 
+/**
+ * Теги, разрешённые в тексте, который уходит В ТЕЛЕГРАМ (приветствие /start).
+ *
+ * ⚠️ Набор УЖЕ, чем у веб-полей: Telegram не понимает <br>, <p>, <ul>, <li>,
+ * <h2> — и отвергает ВСЁ сообщение целиком, а человек вместо приветствия
+ * клиента видит системный фолбэк «Я бот ПЛЮСОН». Список обязан совпадать с
+ * TG_ALLOWED_TAGS в backend/app/services/start_greeting.py: разойдутся —
+ * кабинет разрешит то, что бэкенд не сохранит, и человек попадёт в тупик.
+ */
+export const TELEGRAM_HTML_TAGS = [
+  'b', 'strong', 'i', 'em', 'u', 'ins', 's', 'strike', 'del',
+  'span', 'tg-spoiler', 'a', 'code', 'pre', 'blockquote', 'tg-emoji',
+] as const
+
 /** Теги без закрывающей пары — их не нужно закрывать. */
 const VOID_TAGS = new Set(['br'])
 
@@ -33,7 +47,10 @@ export interface HtmlIssue {
  *  2. незакрытый тег — «<b>текст» без «</b>»;
  *  3. неизвестный тег — опечатка вроде «<bb>» или запрещённый «<script>».
  */
-export function findHtmlIssues(text: string): HtmlIssue[] {
+export function findHtmlIssues(
+  text: string,
+  allowed: readonly string[] = ALLOWED_HTML_TAGS,
+): HtmlIssue[] {
   const src = text || ''
   if (!src.includes('<')) return []
 
@@ -46,7 +63,9 @@ export function findHtmlIssues(text: string): HtmlIssue[] {
   }
 
   // 1. Перевёрнутый закрывающий тег: <b/> вместо </b>
-  for (const m of src.matchAll(/<\s*([a-zA-Z][a-zA-Z0-9]*)\s*\/\s*>/g)) {
+  // ⚠️ Дефис в имени тега обязателен в шаблоне: у Telegram есть <tg-spoiler>
+  // и <tg-emoji>, без дефиса они читались бы как неизвестный тег «tg».
+  for (const m of src.matchAll(/<\s*([a-zA-Z][a-zA-Z0-9-]*)\s*\/\s*>/g)) {
     const tag = m[1].toLowerCase()
     if (VOID_TAGS.has(tag)) continue   // <br/> — законная запись
     add(`Тег «${m[0]}» написан задом наперёд — нужно «</${tag}>». Иначе жирным (или курсивом) станет весь текст после него.`)
@@ -54,13 +73,13 @@ export function findHtmlIssues(text: string): HtmlIssue[] {
 
   // 2 и 3. Разбираем теги по порядку, следим за парами.
   const stack: string[] = []
-  for (const m of src.matchAll(/<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(\/?)\s*>/g)) {
+  for (const m of src.matchAll(/<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9-]*)[^>]*?(\/?)\s*>/g)) {
     const closing = m[1] === '/'
     const tag = m[2].toLowerCase()
     const selfClosed = m[3] === '/'
 
-    if (!ALLOWED_HTML_TAGS.includes(tag as any)) {
-      add(`Тег «<${tag}>» не поддерживается. Можно: ${ALLOWED_HTML_TAGS.map(t => `<${t}>`).join(', ')}.`)
+    if (!allowed.includes(tag)) {
+      add(`Тег «<${tag}>» не поддерживается. Можно: ${allowed.map(t => `<${t}>`).join(', ')}.`)
       continue
     }
     if (VOID_TAGS.has(tag) || selfClosed) continue

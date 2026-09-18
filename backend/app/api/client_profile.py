@@ -1660,7 +1660,18 @@ async def update_my_profile(
                 _n = _def
             add(_f, max(_lo, min(_hi, _n)))
 
-    if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
+    # ⚠️ Текст приветствия уходит в Telegram с parse_mode=HTML, и Telegram
+    # отвергает ВСЁ сообщение целиком при кривой разметке — клиент вместо
+    # своего приветствия увидит системный фолбэк «Я бот ПЛЮСОН». Поэтому
+    # кривой текст НЕ СОХРАНЯЕМ ВОВСЕ: пусть человек починит его здесь, в
+    # кабинете, а не узнаёт об ошибке от своих подписчиков. Та же логика, что
+    # у normalize_button_url ниже (URL кнопок роняли сообщение точно так же).
+    if data.start_greeting_text is not None:
+        from app.services.start_greeting import validate_telegram_html
+        _html_err = validate_telegram_html(data.start_greeting_text or "")
+        if _html_err:
+            raise HTTPException(400, f"Ошибка разметки в тексте приветствия: {_html_err}")
+        add("start_greeting_text", data.start_greeting_text or None)
     if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
 

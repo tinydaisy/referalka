@@ -16,6 +16,7 @@ import { CharCount, overClass, POSITIONING_LIMIT, BIO_LIMIT, ACH_LABEL_LIMIT, AC
 import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import HtmlTextArea from '@/components/HtmlTextArea'
+import { TELEGRAM_HTML_TAGS, findHtmlIssues } from '@/lib/htmlTags'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
@@ -385,6 +386,16 @@ function MiniAppSettings() {
     if (badBtn) {
       alert(`Кнопка «${badBtn.label || 'без названия'}»: ссылка «${badBtn.url}» некорректна.\n\n`
             + 'Укажите полный адрес, например https://telegram.me/ваш_ник')
+      return
+    }
+    // Кривая разметка сломала бы всё приветствие ровно так же, как кривая
+    // ссылка выше: Telegram отвергает сообщение целиком, и человек видит
+    // системный текст ПЛЮСОНа вместо приветствия клиента. Не даём сохранить.
+    const htmlIssues = findHtmlIssues(profile.start_greeting_text || '', TELEGRAM_HTML_TAGS)
+    if (htmlIssues.length) {
+      alert('Не получится сохранить текст приветствия:\n\n• '
+            + htmlIssues.map(i => i.message).join('\n• ')
+            + '\n\nПоправьте теги — поле подсвечено красным.')
       return
     }
     // Лимиты длины: не даём сохранить полотно — карточка каталога и страница
@@ -1034,17 +1045,20 @@ function MiniAppSettings() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm text-gray-700 mb-1">Текст приветствия</label>
-                  <textarea
+                  {/* ⚠️ Проверка тегов обязательна: текст уходит в Telegram,
+                      а тот отвергает всё сообщение целиком при кривой разметке —
+                      человек вместо приветствия увидит системный текст ПЛЮСОНа.
+                      Набор тегов телеграмный (без <br>, <p>, списков). */}
+                  <HtmlTextArea
                     value={profile.start_greeting_text || ''}
-                    onChange={e => update('start_greeting_text', e.target.value)}
+                    onChange={v => update('start_greeting_text', v)}
                     rows={4}
+                    allowedTags={TELEGRAM_HTML_TAGS}
                     placeholder={`Пусто — будет показан стандартный текст:\n${DEFAULT_GREETING}`}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
                   />
                   <p className="text-xs text-gray-400 mt-1">
                     Можно использовать <code className="font-mono">{'{имя}'}</code> (имя человека) и
                     {' '}<code className="font-mono">{'{бренд}'}</code> (ваш бренд).
-                    Поддерживается HTML: <code className="font-mono">{'<b>жирный</b>'}</code>.
                   </p>
                 </div>
                 <div>

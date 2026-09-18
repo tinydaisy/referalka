@@ -2256,17 +2256,35 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         photo_url = client["owner_photo_url"] or client["profile_photo_url"]
 
         async def _send_text_safe() -> None:
-            """Приветствие клиента важнее кнопок. Если Telegram отверг клавиатуру
-            (кривой URL кастомной кнопки → «Wrong HTTP URL») — отправляем тот же
-            текст без кнопок. Ни при каких условиях не показываем системный
-            фолбэк «Я бот ПЛЮСОН» в боте клиента."""
+            """Приветствие клиента важнее кнопок и важнее разметки. Ни при каких
+            условиях не показываем системный фолбэк «Я бот ПЛЮСОН» в боте клиента.
+
+            Три ступени:
+              1. текст с кнопками и HTML — как задумано;
+              2. без кнопок — если Telegram отверг клавиатуру (кривой URL
+                 кастомной кнопки → «Wrong HTTP URL»);
+              3. ⚠️ БЕЗ parse_mode — если Telegram не смог разобрать разметку
+                 («can't parse entities»). Раньше вторая попытка шла с тем же
+                 parse_mode='HTML' и падала по той же причине — исключение
+                 улетало наверх, и человек видел фолбэк ПЛЮСОНа вместо
+                 приветствия клиента (клиент 197, 18.09.2026: лишний </b>).
+                 Теги при этом покажутся как текст — это некрасиво, но свой
+                 бренд на экране лучше чужого.
+            """
             try:
                 await message.answer(text, parse_mode="HTML", reply_markup=keyboard,
                                      disable_web_page_preview=True)
+                return
             except Exception as e:  # noqa: BLE001
                 log.warning("vip_start keyboard rejected (%s) — sending without buttons", e)
+            try:
                 await message.answer(text, parse_mode="HTML",
                                      disable_web_page_preview=True)
+            except Exception as e:  # noqa: BLE001
+                # Кнопок здесь уже не было — значит дело в разметке. Шлём как
+                # есть, без parse_mode: голый текст Telegram примет всегда.
+                log.warning("vip_start HTML rejected (%s) — sending as plain text", e)
+                await message.answer(text, disable_web_page_preview=True)
 
         TG_CAPTION_LIMIT = 1024
         if photo_url and len(text) <= TG_CAPTION_LIMIT:

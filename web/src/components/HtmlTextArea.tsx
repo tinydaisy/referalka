@@ -17,15 +17,22 @@ import { findHtmlIssues, ALLOWED_HTML_TAGS } from '@/lib/htmlTags'
 
 export default function HtmlTextArea({
   value, onChange, rows = 5, placeholder, className = '',
+  allowedTags = ALLOWED_HTML_TAGS,
 }: {
   value: string
   onChange: (v: string) => void
   rows?: number
   placeholder?: string
   className?: string
+  /**
+   * Набор разрешённых тегов. По умолчанию — веб-набор (там можно <br>, списки).
+   * Для текста, уходящего в Telegram, передавать TELEGRAM_HTML_TAGS: там набор
+   * уже, и лишний тег отвергает всё сообщение целиком.
+   */
+  allowedTags?: readonly string[]
 }) {
   const [showHelp, setShowHelp] = useState(false)
-  const issues = useMemo(() => findHtmlIssues(value), [value])
+  const issues = useMemo(() => findHtmlIssues(value, allowedTags), [value, allowedTags])
 
   return (
     <div className={className}>
@@ -62,7 +69,7 @@ export default function HtmlTextArea({
           <br />• новая строка — просто Enter, тег не нужен
           <br />
           <br />Каждый тег закрывается: открыли <code>&lt;b&gt;</code> — закройте <code>&lt;/b&gt;</code>.
-          Доступны: {ALLOWED_HTML_TAGS.map(t => `<${t}>`).join(', ')}.
+          Доступны: {allowedTags.map(t => `<${t}>`).join(', ')}.
         </div>
       )}
     </div>
