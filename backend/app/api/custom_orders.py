@@ -350,6 +350,12 @@ async def prices_delete(
 #
 # ⚠️ Техспец видит ТОЛЬКО свои заказы — фильтр по tech_specialist_id стоит в
 # SQL, а не в интерфейсе. Спрятанный пункт меню защитой не является.
+#
+# ⚠️⚠️ ID СПЕЦИАЛИСТА ЛЕЖИТ В `sub`, А НЕ В `id`. `get_current_tech` отдаёт
+# РАЗОБРАННЫЙ JWT, а не строку из базы: ключа `id` там нет вовсе, и `user["id"]`
+# роняет эндпоинт с KeyError — раздел открывается пустым с красной плашкой.
+# Так и вышло 18.09.2026. Образец рядом: `tech_cabinet.py` везде берёт
+# `int(user["sub"])`.
 
 @tech_router.get("", summary="Мои персональные заказы")
 async def tech_list(
@@ -358,7 +364,7 @@ async def tech_list(
     user: dict = Depends(get_current_tech),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    return {"orders": await _list(db, tech_id=user["id"], status=status, limit=limit)}
+    return {"orders": await _list(db, tech_id=int(user["sub"]), status=status, limit=limit)}
 
 
 @tech_router.get("/prices", summary="Прайс услуг для сборки заказа")
@@ -379,7 +385,7 @@ async def tech_create(
     user: dict = Depends(get_current_tech),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    return await _create(db, data, user["id"])
+    return await _create(db, data, int(user["sub"]))
 
 
 @tech_router.patch("/{order_id}", summary="Изменить свой заказ")
@@ -389,7 +395,7 @@ async def tech_patch(
     user: dict = Depends(get_current_tech),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    return await _patch(db, order_id, data, tech_id=user["id"])
+    return await _patch(db, order_id, data, tech_id=int(user["sub"]))
 
 
 # ─────────────────────────────────────────────────────────────────────────

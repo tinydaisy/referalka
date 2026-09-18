@@ -13,5 +13,15 @@ import { api } from '@/lib/api'
 import CustomOrdersScreen from '@/components/CustomOrdersScreen'
 
 export default function TechCustomOrdersPage() {
-  return <CustomOrdersScreen api={api.techCustomOrders} />
+  // ⚠️⚠️ ОТСТУПЫ ДАЁТ СТРАНИЦА, А НЕ ОБЩИЙ КОМПОНЕНТ. В кабинете внедренца
+  // `layout` отдаёт `<main>` БЕЗ полей — каждая страница оборачивается сама
+  // (`p-4 md:p-8`, см. соседние «Показатели» и «Начисления»). В админке
+  // наоборот: поля задаёт layout. Положи обёртку внутрь общего компонента — и
+  // в админке отступ удвоится. Без неё — текст липнет к краю, а кнопка уезжает
+  // за границу экрана (поймано 18.09.2026).
+  return (
+    <div className="p-4 md:p-8">
+      <CustomOrdersScreen api={api.techCustomOrders} />
+    </div>
+  )
 }
