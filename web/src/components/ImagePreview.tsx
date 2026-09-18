@@ -1,15 +1,19 @@
 'use client'
 import { useState } from 'react'
 import { X } from 'lucide-react'
+import { focalCss } from '@/lib/photoFocal'
 
-export function ImageThumb({ url, alt, className }: { url: string; alt?: string; className?: string }) {
+// `focal` передаём ТОЛЬКО для фото людей — миниатюра тогда держится за лицо.
+// У афиш и логотипов проп не задаётся, и кадрирование остаётся прежним.
+export function ImageThumb({ url, alt, className, focal }: { url: string; alt?: string; className?: string; focal?: string | null }) {
   const [open, setOpen] = useState(false)
   if (!url) return null
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}
         className={className || 'w-10 h-10 rounded-lg overflow-hidden border border-gray-200 shrink-0 hover:border-brand transition-colors'}>
-        <img src={url} alt={alt || ''} className="w-full h-full object-cover" />
+        <img src={url} alt={alt || ''} className="w-full h-full object-cover"
+          style={focal !== undefined ? { objectPosition: focalCss(focal) } : undefined} />
       </button>
       {open && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80"

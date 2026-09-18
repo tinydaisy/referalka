@@ -17,6 +17,7 @@ import LazyVideo from '@/components/LazyVideo'
 import SafeHtml from '@/components/SafeHtml'
 import SurveyBlock from './SurveyBlock'
 import { metallicGradient, shade } from '@/lib/brandStyle'
+import { focalCss } from '@/lib/photoFocal'
 
 interface Props {
   data: any
@@ -1981,6 +1982,8 @@ function BlockBody(props: any) {
               loading="lazy"
               className="w-full shrink-0 object-cover md:w-[360px]"
               style={{
+                // Держимся за лицо: фото организатора часто в полный рост.
+                objectPosition: focalCss(o.owner_photo_url ? o.owner_photo_focal : (o.brand_photo_focal || o.profile_photo_focal)),
                 aspectRatio: '4 / 5',
                 borderRadius: Math.max(radius, 12),
                 background: 'rgba(255,255,255,.06)',
@@ -2891,7 +2894,7 @@ function PartnerCard({
       {p.photo_url && isPerson && (
         <img src={p.photo_url} alt={p.name} loading="lazy"
              className="block w-full object-cover"
-             style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }} />
+             style={{ objectPosition: focalCss(p.photo_focal), aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }} />
       )}
       {/* ⚠️ Логотип на БЕЛОМ поле и целиком: у партнёров он может быть
           узким горизонтальным, тёмным или с прозрачным фоном. */}
@@ -2994,7 +2997,7 @@ function SpeakerCard({
           alt={s.name}
           loading="lazy"
           className="block w-full object-cover"
-          style={{ aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }}
+          style={{ objectPosition: focalCss(s.photo_focal), aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }}
         />
       )}
       {/* ⚠️ Имя с должностью и регалии выравниваются РАЗНЫМИ настройками
@@ -3153,7 +3156,7 @@ function ProgramBlock({
                 alt={s.speaker_name || ''}
                 loading="lazy"
                 className="h-14 w-14 shrink-0 rounded-full object-cover sm:h-16 sm:w-16"
-                style={{ background: 'rgba(255,255,255,.06)' }}
+                style={{ objectPosition: focalCss(s.speaker_photo_focal), background: 'rgba(255,255,255,.06)' }}
               />
             )}
 

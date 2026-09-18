@@ -91,6 +91,7 @@ async def _fetch_cards(
                c.tg_channel_url     AS tg_channel_url,
                c.tg_channel_id      AS tg_channel_id,
                c.photo_url          AS photo_url,
+               c.photo_focal        AS photo_focal,
                c.linked_client_id   AS linked_client_id,
                ec.gift_lead_magnet_id AS gift_lead_magnet_id,
                ct.ref_code          AS ref_code
@@ -125,6 +126,7 @@ async def _fill_recent(
                c.tg_channel_url     AS tg_channel_url,
                c.tg_channel_id      AS tg_channel_id,
                c.photo_url          AS photo_url,
+               c.photo_focal        AS photo_focal,
                c.linked_client_id   AS linked_client_id,
                ec.gift_lead_magnet_id AS gift_lead_magnet_id,
                ct.ref_code          AS ref_code

@@ -11,10 +11,11 @@
 import { useEffect, useState, useRef } from 'react'
 import { Loader2, Trash2, Upload, Star, Check, X, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { api } from '@/lib/api'
+import { focalCss } from '@/lib/photoFocal'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Photo = { id: number; url: string; label: string | null; is_primary: boolean; sort_order: number }
+type Photo = { id: number; url: string; label: string | null; is_primary: boolean; sort_order: number; focal?: string | null }
 
 export default function SpeakerPhotosField() {
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -137,7 +138,8 @@ export default function SpeakerPhotosField() {
             <div key={p.id} className={`rounded-xl overflow-hidden border bg-white ${
               p.is_primary ? 'border-[#FFCFA4] ring-2 ring-[#FFCFA4]/40' : 'border-gray-200'}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.url} alt={p.label || 'Фото'} className="w-full aspect-[3/4] object-cover" />
+              <img src={p.url} alt={p.label || 'Фото'} className="w-full aspect-[3/4] object-cover"
+                   style={{ objectPosition: focalCss(p.focal) }} />
 
               <div className="p-2 space-y-1.5">
                 {editingId === p.id ? (

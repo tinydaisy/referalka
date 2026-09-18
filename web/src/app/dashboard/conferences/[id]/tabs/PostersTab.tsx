@@ -3,10 +3,12 @@ import { useState, useEffect } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
+import { useMe } from '@/hooks/useMe'
 import FileUploader from '@/components/FileUploader'
 import AnnouncementTextsBlock from '@/components/AnnouncementTextsBlock'
 import MaterialsExportButton from '@/components/MaterialsExportButton'
 import DayPostersBlock from '@/components/DayPostersBlock'
+import PosterGeneratorBlock from '@/components/posters/PosterGeneratorBlock'
 
 type Orientation = 'horizontal' | 'vertical' | 'square'
 
@@ -23,7 +25,7 @@ const POSTER_TYPES: { key: Orientation; labelRu: string; labelEn: string; ratio:
   { key: 'square',     labelRu: 'Квадратные',      labelEn: 'Square',     ratio: '1:1',  aspect: 'aspect-square' },
 ]
 
-type SubTab = 'posters' | 'days' | 'materials'
+type SubTab = 'posters' | 'generator' | 'days' | 'materials'
 
 // Афиши конференции лежат в `event_posters` — единый источник истины,
 // общий с обычными мероприятиями. API: /events/{id}/referral/posters.
@@ -32,9 +34,15 @@ type SubTab = 'posters' | 'days' | 'materials'
 export default function PostersTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
   const { lang } = useLang()
   const [tab, setTab] = useUrlTab<SubTab>('sub', 'posters')
+  const { me } = useMe()
+  // Генератор афиш (миграции 435, 436) пока обкатывается — фича включена
+  // только в скрытом тарифе `admin`. ⚠️ Гейт по ФИЧЕ, не по id клиента:
+  // открыть возможность всем — это галочка в тарифе, без правки кода.
+  const hasGenerator = !!me?.features?.includes('poster_generator')
 
   const labels: Record<SubTab, string> = {
     posters:   lang === 'ru' ? 'Общие афиши' : 'Common posters',
+    generator: lang === 'ru' ? 'Генератор афиши' : 'Poster generator',
     days:      lang === 'ru' ? 'Дни события' : 'Event days',
     materials: lang === 'ru' ? 'Тексты анонсов' : 'Announcement texts',
   }
@@ -42,7 +50,9 @@ export default function PostersTab({ eventId, moduleSlug }: { eventId: number; m
   return (
     <div>
       <div className="border-b border-gray-200 mb-6 flex items-center gap-1 -mt-2">
-        {(['posters','days','materials'] as SubTab[]).map(t => (
+        {((hasGenerator
+            ? ['posters','generator','days','materials']
+            : ['posters','days','materials']) as SubTab[]).map(t => (
           <button key={t}
                   onClick={() => setTab(t)}
                   className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -58,7 +68,11 @@ export default function PostersTab({ eventId, moduleSlug }: { eventId: number; m
         </div>
       </div>
 
-      {tab === 'posters' && <PostersBlock eventId={eventId} />}
+      {/* ⚠️ Вкладка живёт в адресе (?sub=generator) — без проверки ЗДЕСЬ
+          генератор открылся бы по прямой ссылке, хотя кнопки в ряду нет.
+          При выключенной фиче показываем обычные афиши, а не пустой экран. */}
+      {(tab === 'posters' || (tab === 'generator' && !hasGenerator)) && <PostersBlock eventId={eventId} />}
+      {tab === 'generator' && hasGenerator && <PosterGeneratorBlock eventId={eventId} />}
       {tab === 'days' && <DayPostersBlock eventId={eventId} />}
       {tab === 'materials' && <AnnouncementTextsBlock eventId={eventId} />}
     </div>

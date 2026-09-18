@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Users, Star, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/api'
+import { focalCss } from '@/lib/photoFocal'
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
@@ -48,7 +49,7 @@ export default function CollabOrganizersTab({ eventId }: { eventId: number }) {
             className="w-full flex items-center gap-4 p-4 text-left hover:bg-gray-50 transition"
           >
             {o.photo_url
-              ? <img src={o.photo_url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+              ? <img src={o.photo_url} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" style={{ objectPosition: focalCss(o.photo_focal) }} />
               : <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 shrink-0"><Users className="w-5 h-5" /></div>}
 
             <div className="min-w-0 flex-1">

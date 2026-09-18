@@ -450,7 +450,8 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                   cl.id   AS client_id,
                   cl.name AS client_name,
                   cl.brand_name        AS client_brand_name,
-                  cl.profile_photo_url AS client_photo_url,
+                  cl.profile_photo_url   AS client_photo_url,
+                  cl.profile_photo_focal AS client_photo_focal,
                   cl.positioning       AS client_positioning
              FROM events e
              JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
@@ -509,6 +510,8 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                 "client_name":        item.get("client_name"),
                 "client_brand_name":  item.get("client_brand_name"),
                 "client_photo_url":   item.get("client_photo_url"),
+                # точка лица едет рядом со своим фото — без неё кадр режется от центра
+                "client_photo_focal": item.get("client_photo_focal"),
                 "client_positioning": item.get("client_positioning"),
                 "events": [],
             }
@@ -613,7 +616,8 @@ async def get_miniapp_me_leaders(
            SELECT cl.id AS client_id,
                   cl.name AS client_name,
                   cl.brand_name        AS client_brand_name,
-                  cl.profile_photo_url AS client_photo_url,
+                  cl.profile_photo_url   AS client_photo_url,
+                  cl.profile_photo_focal AS client_photo_focal,
                   cl.positioning       AS client_positioning,
                   l.last_at,
                   (SELECT COUNT(*) FROM events e
@@ -637,6 +641,8 @@ async def get_miniapp_me_leaders(
                 "client_name":       r["client_name"],
                 "client_brand_name": r["client_brand_name"],
                 "client_photo_url":  r["client_photo_url"],
+                # точка лица едет рядом со своим фото — без неё кадр режется от центра
+                "client_photo_focal": r["client_photo_focal"],
                 "client_positioning": r["client_positioning"],
                 "events_total":      int(r["events_total"]),
                 "via_lead_magnet":   bool(r["via_lead_magnet"]),

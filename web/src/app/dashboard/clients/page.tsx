@@ -10,6 +10,7 @@ import DialogChat from '@/components/DialogChat'
 // а форма одна (иначе разъедется список типов и вариантов).
 import ContactFieldForm from '@/components/ContactFieldForm'
 import { MoreHorizontal, Plus as PlusIcon, Upload } from 'lucide-react'
+import { focalCss } from '@/lib/photoFocal'
 
 interface Identity {
   platform_slug: string
@@ -787,7 +788,7 @@ export default function ContactsPage() {
               >
                 <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-white border border-amber-200 flex items-center justify-center">
                   {selected.collaborator.photo_url
-                    ? <img src={selected.collaborator.photo_url} alt={selected.collaborator.name} className="w-full h-full object-cover" />
+                    ? <img src={selected.collaborator.photo_url} alt={selected.collaborator.name} className="w-full h-full object-cover" style={{ objectPosition: focalCss((selected.collaborator as any).photo_focal) }} />
                     : <Briefcase size={16} className="text-amber-600" />}
                 </div>
                 <div className="min-w-0 flex-1">

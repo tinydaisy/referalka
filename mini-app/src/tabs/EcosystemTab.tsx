@@ -4,6 +4,7 @@ import OwnerPage from '../pages/OwnerPage'
 import EventDescription from '../components/EventDescription'
 import { linkify } from '../utils/linkify'
 import { getPlatform, getPlatformName } from '../platform'
+import { focalCss } from '../utils/photoFocal'
 
 interface Props {
   clientId: number
@@ -36,6 +37,7 @@ interface Profile {
   achievements?: Achievement[]
   // Основатель (имя берётся из clients.name — отдельной колонки нет)
   owner_photo_url?: string | null
+  owner_photo_focal?: string | null   // точка лица: за что держаться при обрезке
   owner_positioning?: string | null
   owner_achievements?: Achievement[]
   bio?: string | null
@@ -407,7 +409,8 @@ function EcosystemCard({ clientId, onBackToOwners }: { clientId: number; onBackT
                 }}>
           {profile.owner_photo_url && (
             <img src={profile.owner_photo_url} alt=""
-                 style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', flexShrink: 0,
+                 style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover',
+                          objectPosition: focalCss(profile.owner_photo_focal), flexShrink: 0,
                           border: `2px solid ${PEACH}` }} />
           )}
           <div style={{ flex: 1, minWidth: 0 }}>

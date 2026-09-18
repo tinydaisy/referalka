@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   getMedialiftChain, medialiftCheckSubscribe, medialiftAddChannel, medialiftMyCabinet, registerParticipant,
 } from '../api'
+import { focalCss } from '../utils/photoFocal'
 
 const DARK = 'var(--dark)'
 const PEACH = 'var(--peach)'
@@ -18,6 +19,7 @@ interface Card {
   description?: string | null
   tg_channel_url?: string | null
   photo_url?: string | null
+  photo_focal?: string | null   // точка лица: за что держаться при обрезке
   linked_client_id?: number | null
   gift_lead_magnet_id?: number | null
 }
@@ -353,7 +355,7 @@ export default function MediaLiftTab({ event, tgUser, contactId, partnerId, isRe
                 <div style={{
                   width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
                   background: (isRich && c.photo_url)
-                    ? `center/cover url(${c.photo_url})`
+                    ? `${focalCss(c.photo_focal)}/cover url(${c.photo_url})`
                     : 'var(--gradient)',
                   border: `2px solid ${PEACH}`, display: 'flex',
                   alignItems: 'center', justifyContent: 'center',

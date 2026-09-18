@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Plus, X, Search, AlertTriangle, CheckCircle2, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import { focalCss } from '@/lib/photoFocal'
 
 interface Collaborator {
   id: number  // event_collaborators.id (запись связи)
@@ -13,6 +14,7 @@ interface Collaborator {
   name: string
   title?: string | null
   photo_url?: string | null
+  photo_focal?: string | null
   achievements?: string[] | null
   personal_tg_username?: string | null
   ref_code?: string | null
@@ -26,6 +28,7 @@ interface GlobalCollaborator {
   name: string
   title?: string | null
   photo_url?: string | null
+  photo_focal?: string | null
   achievements?: string[] | null
 }
 
@@ -129,7 +132,7 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
                   title="Открыть карточку организатора в этом мероприятии"
                 >
                   {c.photo_url ? (
-                    <img src={c.photo_url} alt="" className="w-14 h-14 rounded-full object-cover shrink-0" />
+                    <img src={c.photo_url} alt="" className="w-14 h-14 rounded-full object-cover shrink-0" style={{ objectPosition: focalCss(c.photo_focal) }} />
                   ) : (
                     <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs shrink-0">
                       {c.name.slice(0, 2).toUpperCase()}
@@ -261,7 +264,7 @@ function CollaboratorPicker({
                     }`}
                   >
                     {c.photo_url ? (
-                      <img src={c.photo_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
+                      <img src={c.photo_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" style={{ objectPosition: focalCss(c.photo_focal) }} />
                     ) : (
                       <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs shrink-0">
                         {c.name.slice(0, 2).toUpperCase()}

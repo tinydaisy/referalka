@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
+import { focalCss } from '@/lib/photoFocal'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const WS_URL = API_URL.replace(/^http/, 'ws')
@@ -601,7 +602,7 @@ export default function WebinarRoomPage() {
           {/* Сейчас выступает + подписка на все каналы спикера */}
           {cur && (
             <div className="mt-3 rounded-xl bg-white/5 p-3 flex items-center gap-3 flex-wrap">
-              {cur.photo_url && <img src={cur.photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />}
+              {cur.photo_url && <img src={cur.photo_url} alt="" className="w-10 h-10 rounded-full object-cover" style={{ objectPosition: focalCss(cur.photo_focal) }} />}
               <div className="min-w-0">
                 <span className="text-white/50 text-sm">Спикер: </span>
                 <span className="font-semibold">{cur.name}</span>

@@ -9,6 +9,7 @@ import { Spinner } from '@/components/Spinner'
 import RefLinkInline from '@/components/RefLinkInline'
 import CabinetPreviewBlock from '@/components/CabinetPreviewBlock'
 import { useMe } from '@/hooks/useMe'
+import { focalCss } from '@/lib/photoFocal'
 
 /**
  * Страница соорганизатора в контексте конкретного мероприятия.
@@ -147,7 +148,7 @@ export default function EventOrganizerPage() {
         </Link>
         <div className="flex items-center gap-3 flex-1">
           {item.photo_url ? (
-            <img src={item.photo_url} alt={item.name} className="w-14 h-14 rounded-full object-cover" />
+            <img src={item.photo_url} alt={item.name} className="w-14 h-14 rounded-full object-cover" style={{ objectPosition: focalCss(item.photo_focal) }} />
           ) : (
             <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
               {item.name.slice(0, 2).toUpperCase()}

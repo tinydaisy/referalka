@@ -274,13 +274,24 @@ def _about_html(client, brand: str) -> str:
     bio = safe_html(client["bio"] or "")
     socials = _socials_html(_jsonb_dict(client.get("social_links")))
 
+    # Точка лица (миграция 434). ⚠️ Инлайном, а не в классе: класс общий для
+    # всех клиентов, а точка у каждого фото своя. Пусто — верхняя треть кадра,
+    # где лицо почти всегда (центр срезал головы на снимках в полный рост).
+    # ⚠️ Для фото БРЕНДА точка берётся только если это фото, а не логотип:
+    # у логотипа в этом поле ничего не отмечают, и умолчание ему не вредит —
+    # квадрат 88×88 всё равно кадрируется, и верх логотипа важнее низа.
+    brand_pos = esc((client["profile_photo_focal"] or "").strip() or "50% 33%")
+    owner_pos_focal = esc((client["owner_photo_focal"] or "").strip() or "50% 33%")
+
     brand_photo_html = (f'<img class="ab-photo" src="{esc(brand_photo)}" alt="" '
+                        f'style="object-position:{brand_pos}" '
                         f'onerror="this.style.display=\'none\'">' if brand_photo else "")
     pos_html = f'<p class="ab-pos">{positioning}</p>' if positioning else ""
 
     owner_block = ""
     if owner_name or owner_photo or bio or owner_pos or owner_facts or socials:
         owner_photo_html = (f'<img class="ow-photo" src="{esc(owner_photo)}" alt="" '
+                            f'style="object-position:{owner_pos_focal}" '
                             f'onerror="this.style.display=\'none\'">' if owner_photo else "")
         owner_pos_html = f'<p class="ow-pos">{owner_pos}</p>' if owner_pos else ""
         # ⚠️ Обёртка <div>, а не <p>: в регалиях бывают свои абзацы и списки,
@@ -322,6 +333,9 @@ async def events_list_page(
         # блока «ОБ ОСНОВАТЕЛЕ». `name` остаётся фолбэком названия бренда.
         """SELECT brand_name, name, """ + DISPLAY_NAME_SQL("clients") + """ AS owner_full_name,
                   positioning, profile_photo_url, brand_logo_url,
+                  -- Точки лица на фото (миграция 434): по ним кадрируются
+                  -- миниатюры, иначе режет макушку.
+                  profile_photo_focal, owner_photo_focal,
                   achievements, owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links
              FROM clients WHERE id = $1""",

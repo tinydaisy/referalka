@@ -11,6 +11,7 @@ import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
+import FocalPointPicker from '@/components/FocalPointPicker'
 import RefLinkInline from '@/components/RefLinkInline'
 import CabinetPreviewBlock from '@/components/CabinetPreviewBlock'
 import CopyAllLinksButton, { countLinks, type PlatformLinks as PlatformLinksType } from '@/components/CopyAllLinksButton'
@@ -472,6 +473,9 @@ export default function ConferenceSpeakerPage() {
         title: profile.title,
         achievements,
         photo_url: profile.photo_url,
+        // Точка лица (миграция 434). ⚠️ Здесь ЯВНЫЙ список полей — забудешь
+        // дописать, и отметка молча не сохранится.
+        photo_focal: profile.photo_focal ?? null,
         photo_folder_url: profile.photo_folder_url,
         video_folder_url: profile.video_folder_url,
         tg_channel_url: profile.tg_channel_url,
@@ -726,7 +730,7 @@ export default function ConferenceSpeakerPage() {
           <ArrowLeft size={18} />
         </Link>
         <div className="flex items-center gap-3 flex-1">
-          {profile.photo_url && <ImageThumb url={profile.photo_url} alt={profile.name} />}
+          {profile.photo_url && <ImageThumb url={profile.photo_url} alt={profile.name} focal={profile.photo_focal ?? null} />}
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{profile.name}</h1>
             {profile.title && <p className="text-gray-500 text-sm">{profile.title}</p>}
@@ -1283,6 +1287,20 @@ export default function ConferenceSpeakerPage() {
               emptyText="Перетащите сюда фото"
               buttonLabel="Загрузить"
             />
+            {/* Точка лица (миграция 434): по ней кадрируются ВСЕ миниатюры —
+                на сайте, в Mini App и на афишах. Без неё кадр режется от центра,
+                и на снимке в полный рост голова уезжает за верхний край. */}
+            {profile.photo_url && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Где лицо на фото</label>
+                <FocalPointPicker
+                  url={profile.photo_url}
+                  value={(profile as any).photo_focal ?? null}
+                  onChange={v => setProfile((p: any) => ({ ...p, photo_focal: v }))}
+                  hint="Точка используется везде, где фото обрезается: карточки на сайте, Mini App, афиши."
+                />
+              </div>
+            )}
           </div>
           <div>
             <div className="flex items-center justify-between mb-1.5 gap-3">

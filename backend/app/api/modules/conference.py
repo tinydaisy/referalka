@@ -307,11 +307,15 @@ class ConferenceUpdate(BaseModel):
     tg_chat_ref: Optional[int] = None
     vk_chat_ref: Optional[int] = None
     max_chat_ref: Optional[int] = None
-    # Чат СПИКЕРОВ (миграция 431) — закрытый чат команды, отдельный от чата
+    # Чат СПИКЕРОВ (миграция 437) — закрытый чат команды, отдельный от чата
     # участников: туда уходит «вы следующие» за 15 минут до выступления.
-    tg_speakers_chat_ref: Optional[int] = None
-    vk_speakers_chat_ref: Optional[int] = None
-    max_speakers_chat_ref: Optional[int] = None
+    # ID вводится вручную (/getmyid в чате), URL — только справочно.
+    tg_speakers_chat_id: Optional[str] = None
+    vk_speakers_chat_id: Optional[str] = None
+    max_speakers_chat_id: Optional[str] = None
+    tg_speakers_chat_url: Optional[str] = None
+    vk_speakers_chat_url: Optional[str] = None
+    max_speakers_chat_url: Optional[str] = None
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
@@ -409,7 +413,8 @@ async def get_conference(
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
-               e.tg_speakers_chat_ref, e.vk_speakers_chat_ref, e.max_speakers_chat_ref,
+               e.tg_speakers_chat_id, e.vk_speakers_chat_id, e.max_speakers_chat_id,
+               e.tg_speakers_chat_url, e.vk_speakers_chat_url, e.max_speakers_chat_url,
                e.thanks_destination AS event_thanks_destination,
                e.registration_mode AS event_registration_mode,
                e.skip_contact_form AS event_skip_contact_form,
@@ -523,7 +528,8 @@ async def update_conference(
         "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)
         "tg_chat_ref", "vk_chat_ref", "max_chat_ref",
-        "tg_speakers_chat_ref", "vk_speakers_chat_ref", "max_speakers_chat_ref",
+        "tg_speakers_chat_id", "vk_speakers_chat_id", "max_speakers_chat_id",
+        "tg_speakers_chat_url", "vk_speakers_chat_url", "max_speakers_chat_url",
         "chat_greeting_enabled", "chat_greeting_keyword", "chat_greeting_exact",
     )
     sent = data.model_dump(exclude_unset=True)
@@ -642,7 +648,8 @@ async def update_conference(
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
-               e.tg_speakers_chat_ref, e.vk_speakers_chat_ref, e.max_speakers_chat_ref,
+               e.tg_speakers_chat_id, e.vk_speakers_chat_id, e.max_speakers_chat_id,
+               e.tg_speakers_chat_url, e.vk_speakers_chat_url, e.max_speakers_chat_url,
                e.end_action AS event_end_action,
                e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
                e.end_gift_package_id AS event_end_gift_package_id
@@ -1359,7 +1366,7 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   btrim(CASE WHEN COALESCE(btrim(sp.last_name),'')='' THEN COALESCE(sp.name,'') ELSE COALESCE(sp.name,'')||' '||COALESCE(sp.last_name,'') END) AS name,
-                  sp.title, sp.photo_url, sp.achievements,
+                  sp.title, sp.photo_url, sp.photo_focal, sp.achievements,
                   sp.tg_channel_url, sp.vk_url, sp.max_url,
                   sp.instagram_url, sp.website_url,
                   pu_tg.username AS personal_tg_username
@@ -2343,7 +2350,7 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
                   s.track_label, s.track_color, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
                   btrim(CASE WHEN COALESCE(btrim(col.last_name),'')='' THEN COALESCE(col.name,'') ELSE COALESCE(col.name,'')||' '||COALESCE(col.last_name,'') END) AS speaker_name, col.title AS speaker_title,
-                  col.photo_url, cse.role AS speaker_role
+                  col.photo_url, col.photo_focal, cse.role AS speaker_role
            FROM conf_sessions s
            -- is_visible=FALSE → слот остаётся, скрытый спикер не показывается.
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id AND cse.is_visible = TRUE

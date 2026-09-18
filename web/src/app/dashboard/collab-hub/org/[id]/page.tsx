@@ -5,6 +5,7 @@ import { Users, Star, Send, MapPin, ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox, BioBlock, useNicheTitles } from '../../_components/shared'
 import SafeHtml from '@/components/SafeHtml'
+import { focalCss } from '@/lib/photoFocal'
 
 export default function OrgProfilePage() {
   const params = useParams()
@@ -49,7 +50,7 @@ export default function OrgProfilePage() {
       <div className="border rounded-2xl p-6 bg-white">
         <div className="flex items-start gap-5">
           {c.photo_url
-            ? <img src={c.photo_url} alt="" onClick={() => setLightbox(true)} className="w-28 h-28 rounded-2xl object-cover cursor-zoom-in hover:opacity-90" />
+            ? <img src={c.photo_url} alt="" onClick={() => setLightbox(true)} className="w-28 h-28 rounded-2xl object-cover cursor-zoom-in hover:opacity-90" style={{ objectPosition: focalCss(c.photo_focal) }} />
             : <div className="w-28 h-28 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-10 h-10" /></div>}
           <div className="flex-1 min-w-0">
             {/* Имя ОСНОВАТЕЛЯ; название проекта — отдельной строкой */}

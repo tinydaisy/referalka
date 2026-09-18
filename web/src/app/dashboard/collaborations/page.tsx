@@ -8,6 +8,7 @@ import { useLang } from '@/contexts/LangContext'
 import { Spinner } from '@/components/Spinner'
 import { useMe } from '@/hooks/useMe'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
+import { focalCss } from '@/lib/photoFocal'
 
 const JSON_EXAMPLE = `{
   "collaborations": [
@@ -502,7 +503,7 @@ export default function CollaborationsPage() {
                 />
                 <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-gray-100 flex items-center justify-center">
                   {item.photo_url
-                    ? <img src={item.photo_url} alt={item.name} className="w-full h-full object-cover" />
+                    ? <img src={item.photo_url} alt={item.name} className="w-full h-full object-cover" style={{ objectPosition: focalCss(item.photo_focal) }} />
                     : <Users size={18} className="text-gray-400" />}
                 </div>
                 <div className="flex-1 min-w-0">

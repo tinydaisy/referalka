@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { getMiniAppMyLeaders } from '../api'
+import { focalCss } from '../utils/photoFocal'
 
 interface Leader {
   client_id: number
   client_name?: string
   client_brand_name?: string
   client_photo_url?: string
+  client_photo_focal?: string | null   // точка лица: за что держаться при обрезке
   client_positioning?: string
   events_total: number
   via_lead_magnet: boolean
@@ -111,7 +113,8 @@ function LeaderCard({ l, onOpen }: { l: Leader; onOpen: (id: number) => void }) 
           src={l.client_photo_url}
           alt={brand}
           onError={() => setImgFailed(true)}
-          style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+          style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover',
+                   objectPosition: focalCss(l.client_photo_focal), flexShrink: 0 }}
         />
       ) : (
         <div

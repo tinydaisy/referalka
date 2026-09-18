@@ -1,6 +1,7 @@
 import EventDescription from '../components/EventDescription'
 import { useState, useEffect, useRef } from 'react'
 import { getSpeakers, getProgramPublic } from '../api'
+import { focalCss } from '../utils/photoFocal'
 
 // «ДД.ММ.ГГГГ HH:MM–HH:MM МСК» из даты дня и времён сессии.
 function fmtSlot(dayDate?: string | null, t1?: string | null, t2?: string | null): string {
@@ -29,6 +30,7 @@ interface Speaker {
   name: string
   title?: string
   photo_url?: string
+  photo_focal?: string | null   // точка лица: за что держаться при обрезке
   role?: string
   achievements?: string[] | null
   tg_channel_url?: string | null
@@ -189,6 +191,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
           name: c.name,
           title: c.title,
           photo_url: c.photo_url,
+          photo_focal: c.photo_focal,
           role: c.role,
           achievements: c.achievements,
           tg_channel_url: c.tg_channel_url,
@@ -305,7 +308,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
-                  background: sp.photo_url ? `center/cover url(${sp.photo_url})` : 'var(--gradient)',
+                  background: sp.photo_url ? `${focalCss(sp.photo_focal)}/cover url(${sp.photo_url})` : 'var(--gradient)',
                   border: `2px solid ${PEACH}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: PEACH, fontWeight: 700, fontSize: 18,

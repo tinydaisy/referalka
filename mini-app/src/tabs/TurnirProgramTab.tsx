@@ -3,6 +3,7 @@ import { getSessions, getSpeakers, getDays, getStages, getEventCollaborators, tr
 import { useChatGate } from '../components/ChatGate'
 import EventDescription from '../components/EventDescription'
 import VipButton from '../components/VipButton'
+import { focalCss } from '../utils/photoFocal'
 
 interface Session {
   id: number
@@ -15,6 +16,7 @@ interface Session {
   speaker_title?: string
   speaker_role?: string
   photo_url?: string
+  photo_focal?: string | null   // точка лица: за что держаться при обрезке
   track_label?: string
   track_color?: string
   gift_description?: string
@@ -45,6 +47,7 @@ interface Speaker {
   name: string
   title?: string
   photo_url?: string
+  photo_focal?: string | null   // точка лица: за что держаться при обрезке
   role?: string
   achievements?: string[] | null
   tg_channel_url?: string | null
@@ -319,6 +322,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
           name: c.name,
           title: c.title,
           photo_url: c.photo_url,
+          photo_focal: c.photo_focal,
           achievements: c.achievements,
           tg_channel_url: c.tg_channel_url,
           vk_url: c.vk_url,
@@ -534,7 +538,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%', margin: '0 auto 4px',
                   background: sp.photo_url
-                    ? `center/cover url(${sp.photo_url})`
+                    ? `${focalCss(sp.photo_focal)}/cover url(${sp.photo_url})`
                     : 'var(--gradient)',
                   border: `1.5px solid ${PEACH}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -849,7 +853,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                     <div style={{
                                       width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
                                       background: s.photo_url
-                                        ? `center/cover url(${s.photo_url})`
+                                        ? `${focalCss(s.photo_focal)}/cover url(${s.photo_url})`
                                         : 'var(--gradient)',
                                       border: `1.5px solid ${PEACH}`,
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1049,7 +1053,8 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
               }}>
                 {c.photo_url ? (
                   <img src={c.photo_url} alt=""
-                    style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover',
+                             objectPosition: focalCss(c.photo_focal), flexShrink: 0 }} />
                 ) : (
                   <div style={{
                     width: 56, height: 56, borderRadius: '50%',
@@ -1148,7 +1153,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                     <div style={{
                       width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
                       background: sp.photo_url
-                        ? `center/cover url(${sp.photo_url})`
+                        ? `${focalCss(sp.photo_focal)}/cover url(${sp.photo_url})`
                         : 'var(--gradient)',
                       border: `2px solid ${PEACH}`,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',

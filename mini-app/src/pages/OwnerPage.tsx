@@ -3,6 +3,7 @@
  * Большое фото, имя, позиционирование, факты в цифрах, биография, соцсети.
  */
 import EventDescription from '../components/EventDescription'
+import { focalCss } from '../utils/photoFocal'
 
 interface Achievement { label: string; value: string }
 interface TgChannel { url: string; chat_id?: string; name?: string }
@@ -10,6 +11,7 @@ interface Profile {
   id: number
   name: string
   owner_photo_url?: string | null
+  owner_photo_focal?: string | null   // точка лица: за что держаться при обрезке
   owner_positioning?: string | null
   owner_achievements?: Achievement[]
   bio?: string | null
@@ -130,6 +132,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
           <img src={profile.owner_photo_url} alt={name}
                style={{
                  width: '100%', maxHeight: 360, objectFit: 'cover',
+                 objectPosition: focalCss(profile.owner_photo_focal),
                  borderRadius: 16, border: `2px solid ${PEACH}`,
                }} />
         </div>

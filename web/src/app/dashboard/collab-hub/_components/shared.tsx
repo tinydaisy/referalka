@@ -6,6 +6,7 @@ import MediaAssetsField from '@/components/MediaAssetsField'
 import { MultiSelectDropdown } from '@/components/MultiSelectDropdown'
 import SafeHtml from '@/components/SafeHtml'
 import HtmlTextArea from '@/components/HtmlTextArea'
+import { focalCss } from '@/lib/photoFocal'
 
 export const PEACH = '#FFCFA4'
 export const DARK = '#25455D'
@@ -289,7 +290,7 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
       </div>}
       <div className="flex items-start gap-3">
         {item.photo_url
-          ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
+          ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" style={{ objectPosition: focalCss(item.photo_focal) }} />
           : <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-6 h-6" /></div>}
         {/* ⚠️ ШАПКА ФИКСИРОВАННОЙ ВЫСОТЫ. Имя + проект + позиционирование
             занимают одинаковое место у ВСЕХ, даже если что-то не заполнено, —
@@ -572,7 +573,7 @@ export function RequestsView() {
   const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
 
   const Avatar = ({ r }: { r: any }) => r.other_photo
-    ? <img src={r.other_photo} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+    ? <img src={r.other_photo} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" style={{ objectPosition: focalCss(r.other_photo_focal) }} />
     : <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 shrink-0"><Users className="w-5 h-5" /></div>
 
   return (
@@ -668,7 +669,7 @@ function AboutCollabModal({ req, onClose }: { req: any; onClose: () => void }) {
             {orgs.map(o => (
               <div key={o.client_id} className="flex items-center gap-3 border rounded-xl p-2.5">
                 {o.photo_url
-                  ? <img src={o.photo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                  ? <img src={o.photo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" style={{ objectPosition: focalCss(o.photo_focal) }} />
                   : <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 shrink-0"><Users className="w-4 h-4" /></div>}
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate" style={{ color: DARK }}>{o.name}</div>
@@ -802,7 +803,7 @@ export function MyCardView() {
         <div className="text-sm font-medium text-gray-500 mb-2">Так вас увидят в каталоге</div>
         <div className="border rounded-2xl p-5 bg-white">
           <div className="flex items-start gap-4">
-            {card.photo_url ? <img src={card.photo_url} alt="" className="w-20 h-20 rounded-2xl object-cover" />
+            {card.photo_url ? <img src={card.photo_url} alt="" className="w-20 h-20 rounded-2xl object-cover" style={{ objectPosition: focalCss(card.photo_focal) }} />
               : <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-8 h-8" /></div>}
             <div className="min-w-0">
               {/* Имя ОСНОВАТЕЛЯ; название проекта — отдельной строкой */}

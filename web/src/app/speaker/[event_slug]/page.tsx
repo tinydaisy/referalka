@@ -21,6 +21,7 @@ import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import MarkupHints from '@/components/MarkupHints'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 import { personWording } from '@/lib/personWording'
+import { focalCss } from '@/lib/photoFocal'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
@@ -136,6 +137,8 @@ type SpeakerMe = {
   // полем обязан совпадать с тем, по чему откажет сохранение.
   achievements_limit?: number | null
   photo_url: string | null
+  // Точка лица на фото — по ней кадрируется превью (см. lib/photoFocal).
+  photo_focal?: string | null
   // poster_url убран миграцией 121: афиши теперь библиотека на стороне клиента,
   // спикер их только просматривает в разделе «Материалы».
   photo_folder_url: string | null
@@ -273,6 +276,7 @@ type SpeakerMaterials = {
   }[]
   // Фото профиля коллаба (collaborators.photo_url) — «Фото для сайта»
   photo_url: string | null
+  photo_focal?: string | null
   // Афиша помеченная клиентом «Для рассылок по чат-боту» в этой конференции.
   // NULL → fallback на первую из библиотеки.
   broadcast_poster_url: string | null
@@ -930,7 +934,7 @@ export default function SpeakerCabinetPage() {
   }
 
   // Карточка для фото/афиши: превью + кнопки «Раскрыть», «Скачать», «Загрузить новое»
-  function ImageCard({ url, kind, label }: { url: string | null, kind: 'speaker_photo', label: string }) {
+  function ImageCard({ url, kind, label, focal }: { url: string | null, kind: 'speaker_photo', label: string, focal?: string | null }) {
     const fileInputId = `up-${kind}`
     return (
       <div>
@@ -945,6 +949,7 @@ export default function SpeakerCabinetPage() {
                 width: 90,
                 height: 90,
                 objectFit: 'cover',
+                objectPosition: focalCss(focal),
                 borderRadius: 12,
                 border: '1px solid #d4dee5',
                 cursor: 'zoom-in',
@@ -1185,7 +1190,7 @@ export default function SpeakerCabinetPage() {
           <input style={inputCss} type="tel" value={me.phone || ''} onChange={(e) => update({ phone: e.target.value })} />
 
           <div style={{ marginTop: 14 }}>
-            <ImageCard url={me.photo_url} kind="speaker_photo" label="Фото профиля" />
+            <ImageCard url={me.photo_url} kind="speaker_photo" label="Фото профиля" focal={me.photo_focal} />
           </div>
 
           <label style={labelCss}>Ссылка на папку с фото (Я.Диск / Google Drive)</label>
@@ -2370,7 +2375,8 @@ function MaterialsTab({
                 onClick={() => setLightbox(materials.photo_url!)}
                 style={{
                   width: '100%', aspectRatio: '1/1',
-                  objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                  objectFit: 'cover', objectPosition: focalCss(materials.photo_focal),
+                  cursor: 'zoom-in', display: 'block',
                 }}
               />
               <a

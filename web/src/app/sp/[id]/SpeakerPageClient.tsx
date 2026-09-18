@@ -13,8 +13,9 @@ import { useState } from 'react'
 import { Download, Copy, Check, ExternalLink } from 'lucide-react'
 import QrCodeButton from '@/components/QrCodeButton'
 import SafeHtml from '@/components/SafeHtml'
+import { focalCss } from '@/lib/photoFocal'
 
-type Photo = { id: number; url: string; label: string | null; is_primary: boolean }
+type Photo = { id: number; url: string; label: string | null; is_primary: boolean; focal?: string | null }
 type Channel = { name: string; url: string; platform: string }
 type Achievement = { label?: string; value?: string }
 type MediaAsset = { platform?: string; subscribers?: number }
@@ -51,7 +52,7 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
     : true
   const photos = [
     ...(data.owner_photo_url && !hasOwnerInGallery
-      ? [{ id: 0, url: data.owner_photo_url, label: 'Основное фото', is_primary: true }]
+      ? [{ id: 0, url: data.owner_photo_url, label: 'Основное фото', is_primary: true, focal: (data as any).owner_photo_focal }]
       : []),
     ...gallery,
   ]
@@ -98,7 +99,8 @@ export default function SpeakerPageClient({ data }: { data: Data }) {
               {photos.map(p => (
                 <div key={p.id} className="rounded-xl overflow-hidden border border-gray-200 bg-white">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.url} alt={p.label || displayName} className="w-full aspect-[3/4] object-cover" />
+                  <img src={p.url} alt={p.label || displayName} className="w-full aspect-[3/4] object-cover"
+                       style={{ objectPosition: focalCss(p.focal) }} />
                   <div className="p-2 flex items-center justify-between gap-2">
                     <span className="text-xs text-gray-500 truncate">{p.label || 'Фото'}</span>
                     <DownloadBtn url={p.url} name={`${displayName}-фото`} />

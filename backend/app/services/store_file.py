@@ -49,6 +49,7 @@ async def store_bytes(
     event_id: Optional[int] = None,
     collaborator_id: Optional[int] = None,
     lead_magnet_id: Optional[int] = None,
+    poster_type: Optional[str] = None,
 ) -> dict:
     """Кладёт байты в хранилище клиента и учитывает их в квоте.
 
@@ -79,9 +80,13 @@ async def store_bytes(
             ),
         )
 
+    # ⚠️ `poster_type` обязателен для kind='event_poster' — без него build_key
+    # бросает ValueError. Раньше этот аргумент сюда не пробрасывался вовсе, и
+    # сохранить готовую афишу через store_bytes было нельзя в принципе.
     key = r2_storage.build_key(
         client_id, kind, ext,
         event_id=event_id, collaborator_id=collaborator_id,
+        poster_type=poster_type,
     )
 
     try:

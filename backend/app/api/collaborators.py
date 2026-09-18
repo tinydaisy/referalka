@@ -187,6 +187,10 @@ class CollaboratorCreate(BaseModel):
     # готовая картинка. Живёт отдельно от библиотеки афиш: там макеты, здесь
     # исходный человек без фона.
     cutout_photo_url: Optional[str] = None
+    # Точка лица на фото (миграция 434) в формате CSS object-position («50% 35%»).
+    # ⚠️ У основного фото и у вырезки она СВОЯ: кадрированы они по-разному.
+    photo_focal: Optional[str] = None
+    cutout_photo_focal: Optional[str] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters
     # (CRUD `/api/v1/collaborators/{id}/posters`).
     photo_folder_url: Optional[str] = None
@@ -229,6 +233,9 @@ class CollaboratorUpdate(BaseModel):
     photo_url: Optional[str] = None
     # Вырезка на прозрачном фоне (миграция 362) — заготовка для афиш.
     cutout_photo_url: Optional[str] = None
+    # Точка лица (миграция 434), своя у каждого из двух фото.
+    photo_focal: Optional[str] = None
+    cutout_photo_focal: Optional[str] = None
     # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters.
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
@@ -286,6 +293,10 @@ _COLLAB_SELECT = """
     c.is_company,
     c.photo_url,
     c.cutout_photo_url,
+    -- Точка лица на каждом из фото (миграция 434): по ней кадрируются все
+    -- миниатюры и афиши, иначе голову срезает.
+    c.photo_focal,
+    c.cutout_photo_focal,
     (SELECT url FROM collaborator_posters cp
        WHERE cp.collaborator_id = c.id
        ORDER BY cp.sort_order, cp.id
@@ -783,6 +794,13 @@ async def update_collaborator(
     # пустую строку, и снятое фото возвращалось бы обратно при сохранении.
     if "cutout_photo_url" in data.model_fields_set and not data.cutout_photo_url:
         updates_full["cutout_photo_url"] = None
+    # ⚠️ Точку лица надо уметь СНЯТЬ («Убрать отметку» шлёт пустую строку). Без
+    # этого фильтр `v is not None` выше выбросил бы пустое значение, и снятая
+    # отметка возвращалась бы обратно при следующем сохранении. Пустая строка и
+    # NULL здесь означают одно и то же — «не отмечено», поэтому пишем NULL.
+    for _f in ("photo_focal", "cutout_photo_focal"):
+        if _f in data.model_fields_set and not getattr(data, _f):
+            updates_full[_f] = None
     # ⚠️ Галочку «Компания» надо уметь СНЯТЬ: False фильтр `v is not None` выше
     # пропускает, но полагаться на это нельзя — пишем явно по факту присылки.
     if "is_company" in data.model_fields_set:

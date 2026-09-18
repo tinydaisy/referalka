@@ -76,6 +76,9 @@ IMAGE_UPLOAD_KINDS = {
     # Фон шаблона обложки (миграция 387). Без привязки к событию:
     # шаблон один на кабинет.
     "cover_bg",
+    # Фон генератора афиш (миграция 435). ⚠️ Требует event_id: макет афиши
+    # свой у каждого события.
+    "poster_bg",
 }
 
 router = APIRouter(tags=["Загрузка файлов"])
@@ -132,8 +135,11 @@ async def upload_file(
     if kind not in IMAGE_UPLOAD_KINDS:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 
+    # ⚠️ Здесь же проверяется ВЛАДЕНИЕ событием (_check_event_belongs) — вид,
+    # забытый в этом списке, грузился бы в чужое событие без проверки прав.
     if kind in ("event_poster", "certificate", "referral_material", "event_video",
-                "referral_video", "landing_bg", "landing_media", "pre_reg_poster"):
+                "referral_video", "landing_bg", "landing_media", "pre_reg_poster",
+                "poster_bg"):
         if not event_id:
             raise HTTPException(400, detail=f"{kind} требует event_id")
         await _check_event_belongs(event_id, client_id, db)
@@ -406,6 +412,7 @@ _KIND_LABEL = {
     "speaker_gallery": "Фото спикера",
     "broadcast_photo": "Фото рассылки",
     "cover_bg": "Фон обложки",
+    "poster_bg": "Фон афиши",
     "broadcast_video": "Видео рассылки",
     "dialog_media": "Медиа переписки",
     "webinar_recording": "Запись эфира",

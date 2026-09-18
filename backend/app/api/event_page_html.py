@@ -115,6 +115,8 @@ async def _load_collaborators(db, event_id):
                      WHERE eclm.ec_id = cse.id) AS gift_magnet_names,
                    btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name,
                    c.title, c.achievements, c.photo_url,
+                   -- Точка лица (миграция 434): по ней кадрируется аватар.
+                   c.photo_focal,
                    c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
               FROM event_collaborators cse
               JOIN collaborators c ON c.id = cse.speaker_id
@@ -466,6 +468,8 @@ async def _load_venue(db, client_id):
         """SELECT brand_name, name, """ + DISPLAY_NAME_SQL("clients") + """ AS owner_full_name,
                   brand_logo_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements, bio,
+                  -- Точка лица на фото основателя (миграция 434).
+                  owner_photo_focal,
                   social_links
              FROM clients WHERE id = $1""",
         client_id,
@@ -668,7 +672,13 @@ def _tg_url(raw):
     return "https://t.me/" + raw
 
 
-def _avatar_html(photo, name, size=56, logo=False):
+def _avatar_html(photo, name, size=56, logo=False, focal=None):
+    """Аватар человека. `focal` — точка лица (миграция 434).
+
+    ⚠️ Кадр держится за точку лица, а не за центр: на снимке в полный рост
+    центр приходится на живот, и в круглой миниатюре голова уезжала за край.
+    Точка не отмечена — берём верхнюю треть, где лицо почти всегда.
+    """
     photo = esc(photo or "")
     if photo:
         if logo:
@@ -676,8 +686,9 @@ def _avatar_html(photo, name, size=56, logo=False):
             # без круга. Высота фиксирована, ширина авто (логотипы бывают широкие).
             return (f'<div class="ava ava-logo" style="height:{size}px">'
                     f'<img src="{photo}" alt="{esc(name or "")}"></div>')
+        pos = esc((focal or "").strip() or "50% 33%")
         return (f'<div class="ava" style="width:{size}px;height:{size}px;'
-                f'background:center/cover url(\'{photo}\')"></div>')
+                f'background:{pos}/cover url(\'{photo}\')"></div>')
     return (f'<div class="ava ava-empty" style="width:{size}px;height:{size}px">'
             f'{esc(_initials(name))}</div>')
 
@@ -789,7 +800,7 @@ def _speaker_card(p, slot=None) -> str:
     return (
         f'<div class="sp-card" id="speaker-{ec_id}">'
         f'<div class="sp-head">'
-        f'{_avatar_html(p.get("photo_url"), p.get("name"), 56, logo=role in ("general_partner", "partner"))}'
+        f'{_avatar_html(p.get("photo_url"), p.get("name"), 56, logo=role in ("general_partner", "partner"), focal=p.get("photo_focal"))}'
         f'<div class="sp-meta">{badge}'
         f'<div class="pname">{name}</div>{title_html}</div>'
         f'</div>'
@@ -844,7 +855,7 @@ def _gallery_html(speakers) -> str:
         ec_id = p.get("ec_id")
         items += (
             f'<a class="g-item" href="#speakers" data-speaker="{ec_id}">'
-            f'{_avatar_html(p.get("photo_url"), p.get("name"), 56)}'
+            f'{_avatar_html(p.get("photo_url"), p.get("name"), 56, focal=p.get("photo_focal"))}'
             f'<div class="g-name">{esc(p.get("name") or "")}</div>'
             f'</a>'
         )
@@ -1635,8 +1646,12 @@ def _venue_panel(profile, offerings) -> str:
                      or owner_role or bio)
     if has_owner:
         o_photo = esc(profile["owner_photo_url"] or "")
+        # ⚠️ Точка лица (миграция 434) — инлайном, а не в классе: класс общий
+        # для всех клиентов, а точка у каждого фото своя.
+        o_pos = esc((profile["owner_photo_focal"] or "").strip() or "50% 33%")
         teaser_ava = (
-            f'<img class="owner-teaser-ava" src="{o_photo}" alt="">'
+            f'<img class="owner-teaser-ava" src="{o_photo}" '
+            f'style="object-position:{o_pos}" alt="">'
             if o_photo else "")
         teaser_role = (f'<div class="owner-teaser-role">{owner_role}</div>'
                        if owner_role else "")
@@ -1644,6 +1659,7 @@ def _venue_panel(profile, offerings) -> str:
         owner_body = ""
         if o_photo:
             owner_body += (f'<img class="owner-photo" src="{o_photo}" '
+                           f'style="object-position:{o_pos}" '
                            f'alt="{owner_name}">')
         owner_body += _achievements_grid(owner_ach)
         if bio.strip():

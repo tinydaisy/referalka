@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { getMiniAppMyEvents } from '../api'
+import { focalCss } from '../utils/photoFocal'
 
 interface Props {
   tgUser: any
@@ -23,6 +24,7 @@ interface Ev {
   client_name?: string
   client_brand_name?: string
   client_photo_url?: string
+  client_photo_focal?: string | null   // точка лица: за что держаться при обрезке
   client_positioning?: string
   participation_status?: ParticipationStatus
 }
@@ -32,6 +34,7 @@ interface Group {
   client_name?: string
   client_brand_name?: string
   client_photo_url?: string
+  client_photo_focal?: string | null   // точка лица: за что держаться при обрезке
   client_positioning?: string
   events: Ev[]
 }
@@ -81,7 +84,8 @@ function BrandHeader({ e }: { e: Ev }) {
           src={e.client_photo_url}
           alt={brand}
           onError={() => setFailed(true)}
-          style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+          style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover',
+                   objectPosition: focalCss(e.client_photo_focal), flexShrink: 0 }}
         />
       ) : (
         <div style={{
@@ -156,6 +160,8 @@ export default function SelectorEventsTab({ tgUser, onOpenEvent, onSwitchToPromo
           client_name:        e.client_name        ?? g.client_name,
           client_brand_name:  e.client_brand_name  ?? g.client_brand_name,
           client_photo_url:   e.client_photo_url   ?? g.client_photo_url,
+          // точка лица едет вместе со своим фото, иначе кадр потеряет привязку
+          client_photo_focal: e.client_photo_focal ?? g.client_photo_focal,
           client_positioning: e.client_positioning ?? g.client_positioning,
         })
       }

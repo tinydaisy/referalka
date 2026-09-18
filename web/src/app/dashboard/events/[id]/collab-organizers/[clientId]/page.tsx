@@ -10,6 +10,7 @@ import FileUploader from '@/components/FileUploader'
 import CabinetPreviewBlock from '@/components/CabinetPreviewBlock'
 import MarkupHints, { MarkupTip } from '@/components/MarkupHints'
 import { useMe } from '@/hooks/useMe'
+import { focalCss } from '@/lib/photoFocal'
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
@@ -189,7 +190,7 @@ export default function CollabOrganizerCardPage() {
       <div className="bg-white rounded-2xl border card-border p-6 mb-5">
         <div className="flex items-start gap-4">
           {o.photo_url
-            ? <img src={o.photo_url} alt="" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+            ? <img src={o.photo_url} alt="" className="w-16 h-16 rounded-xl object-cover shrink-0" style={{ objectPosition: focalCss(o.photo_focal) }} />
             : <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 shrink-0"><Users className="w-6 h-6" /></div>}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">

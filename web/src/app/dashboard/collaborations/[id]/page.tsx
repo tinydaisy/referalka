@@ -10,6 +10,7 @@ import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
+import FocalPointPicker from '@/components/FocalPointPicker'
 import { TelegramChannelField } from '@/components/TelegramChannelField'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
@@ -134,6 +135,9 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         achievements,
         photo_url: form.photo_url,
         cutout_photo_url: form.cutout_photo_url ?? '',
+        // Точки лица (миграция 434) — у каждого фото своя.
+        photo_focal: form.photo_focal ?? null,
+        cutout_photo_focal: form.cutout_photo_focal ?? null,
         photo_folder_url: form.photo_folder_url,
         video_folder_url: form.video_folder_url,
         video_url: form.video_url || null,
@@ -177,7 +181,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         </Link>
         <div className="flex items-center gap-3 flex-1">
           {form.photo_url && (
-            <ImageThumb url={form.photo_url} alt={form.name} />
+            <ImageThumb url={form.photo_url} alt={form.name} focal={form.photo_focal ?? null} />
           )}
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{[form.name, form.last_name].filter(Boolean).join(' ')}</h1>
@@ -251,6 +255,25 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             buttonLabel="Загрузить"
           />
         </div>
+        {/* Точка лица на ВЫРЕЗКЕ (миграция 434) — своя, отдельно от основного
+            фото: вырезка кадрирована иначе, человек на ней обычно в полный рост. */}
+        {form.cutout_photo_url && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Где лицо на вырезке</label>
+            <FocalPointPicker
+              url={form.cutout_photo_url}
+              value={form.cutout_photo_focal ?? null}
+              onChange={v => {
+                setForm((f: any) => ({ ...f, cutout_photo_focal: v }))
+                // Сохраняем сразу — по той же причине, что и саму вырезку:
+                // блок стоит выше кнопки «Сохранить».
+                api.collaborators.update(collaboratorId, { cutout_photo_focal: v || '' })
+                   .catch((e: any) => setError(e?.message || 'Не удалось сохранить точку'))
+              }}
+              hint="Нужна, когда вырезка встаёт в рамку — в карточках и афишах с масками."
+            />
+          </div>
+        )}
         <style jsx>{`
           .cutout-checker {
             background-image:
@@ -381,6 +404,19 @@ export default function CollaborationPage({ params }: { params: { id: string } }
               emptyText="Перетащите сюда фото"
               buttonLabel="Загрузить"
             />
+            {/* Точка лица (миграция 434): по ней кадрируются все миниатюры —
+                на сайте, в Mini App и на афишах. */}
+            {form.photo_url && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Где лицо на фото</label>
+                <FocalPointPicker
+                  url={form.photo_url}
+                  value={form.photo_focal ?? null}
+                  onChange={v => setForm((f: any) => ({ ...f, photo_focal: v }))}
+                  hint="Точка используется везде, где фото обрезается: карточки на сайте, Mini App, афиши."
+                />
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Афиши (библиотека)</label>

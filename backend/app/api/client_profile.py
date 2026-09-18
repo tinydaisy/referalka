@@ -177,6 +177,8 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
         """SELECT id, """ + DISPLAY_NAME_SQL("clients") + """ AS name, telegram_username,
                   brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
+                  -- Точки лица на фото (миграция 434).
+                  owner_photo_focal, profile_photo_focal,
                   bio, social_links, events_tab_visibility, partner_tab_visibility, tab_label_partner,
                   tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
                   -- ⚠️ Фирменные цвета нужны Хабу и экрану разрешений в VK
@@ -230,6 +232,8 @@ async def public_speaker_page(client_ref: str, db: asyncpg.Connection = Depends(
         f"""SELECT id, {DISPLAY_NAME_SQL("clients")} AS name, brand_name,
                   brand_logo_url, brand_logo_light_url,
                   owner_photo_url, owner_positioning, owner_achievements,
+                  -- Точка лица (миграция 434): по ней кадрируется фото в визитке.
+                  owner_photo_focal,
                   bio, social_links, media_assets
              FROM clients
             WHERE {'id = $1::int' if by_id else 'speaker_page_slug = $1'}
@@ -518,7 +522,7 @@ async def public_event_collaborators(
 ):
     sql = """
         SELECT ec.id, ec.role, ec.sort_order,
-               co.id AS collaborator_id, btrim(CASE WHEN COALESCE(btrim(co.last_name),'')='' THEN COALESCE(co.name,'') ELSE COALESCE(co.name,'')||' '||COALESCE(co.last_name,'') END) AS name, co.title, co.photo_url,
+               co.id AS collaborator_id, btrim(CASE WHEN COALESCE(btrim(co.last_name),'')='' THEN COALESCE(co.name,'') ELSE COALESCE(co.name,'')||' '||COALESCE(co.last_name,'') END) AS name, co.title, co.photo_url, co.photo_focal,
                co.achievements, co.tg_channel_url, co.instagram_url,
                co.website_url,
                pu_tg.username AS personal_tg_username
@@ -1385,6 +1389,10 @@ class ProfileUpdate(BaseModel):
     achievements:       Optional[list] = None       # [{label, value}] факты бренда
     # Основатель (имя берётся из clients.name — не редактируется в UI)
     owner_photo_url:    Optional[str]  = None
+    # Точки лица на фото (миграция 434) в формате CSS object-position.
+    # Пусто — кадр держится за верхнюю треть, где лицо почти всегда.
+    owner_photo_focal:   Optional[str] = None
+    profile_photo_focal: Optional[str] = None
     owner_positioning:  Optional[str]  = None
     owner_achievements: Optional[list] = None       # [{label, value}] факты основателя
     bio:                Optional[str]  = None       # биография основателя
@@ -1442,6 +1450,8 @@ async def get_my_profile(
         """SELECT id, name, telegram_username, email,
                   brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
+                  -- Точки лица на фото (миграция 434).
+                  owner_photo_focal, profile_photo_focal,
                   bio, social_links,
                   default_link_mode,
                   link_mode_telegram, link_mode_vk, link_mode_max,
@@ -1519,6 +1529,10 @@ async def update_my_profile(
     if "achievements"      in fs: add("achievements",      data.achievements or [], jsonb=True)
 
     if "owner_photo_url"    in fs: add("owner_photo_url",    data.owner_photo_url or None)
+    # ⚠️ Пустая строка = «отметку сняли» → пишем NULL, иначе снятая отметка
+    # вернулась бы обратно при следующем сохранении.
+    if "owner_photo_focal"   in fs: add("owner_photo_focal",   data.owner_photo_focal or None)
+    if "profile_photo_focal" in fs: add("profile_photo_focal", data.profile_photo_focal or None)
     if "owner_positioning"  in fs: add("owner_positioning",  data.owner_positioning or None)
     if "owner_achievements" in fs: add("owner_achievements", data.owner_achievements or [], jsonb=True)
 
@@ -1792,6 +1806,9 @@ async def update_my_profile(
                 RETURNING id,
                           brand_name, brand_logo_url, brand_logo_light_url, profile_photo_url, positioning, achievements,
                           owner_photo_url, owner_positioning, owner_achievements,
+                          -- Точки лица (миграция 434): без них форма после
+                          -- сохранения получила бы пустые значения обратно.
+                          owner_photo_focal, profile_photo_focal,
                           bio, social_links,
                           tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem,
                           miniapp_use_brand_theme,
