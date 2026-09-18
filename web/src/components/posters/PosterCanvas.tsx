@@ -323,9 +323,18 @@ export default function PosterCanvas({
   // Реально подпись состоит из: отступ сверху (0.06 ширины карточки) +
   // строки высотой 1.15 кегля. Кегль ограничен `cardW * 0.19` (см. nameSizeFit
   // ниже), то есть в долях карточки это 0.19 — от него и считаем.
+  // ⚠️⚠️ ПРИПИСКА РОЛИ ЧЕРЕЗ ТИРЕ ДАЁТ ЛИШНЮЮ СТРОКУ. «Марго Форбс —
+  // Организатор» не влезает в две строки, и подпись занимает три. Не учтёшь
+  // это здесь — ряды наедут друг на друга ровно на высоту лишней строки.
+  // ⚠️ Считаем по ХУДШЕМУ случаю (у кого-то в ряду роль есть), а не по
+  // среднему: ряд выравнивается по самой высокой карточке, и место нужно под
+  // неё. Роль есть только у выделенных, поэтому проверяем, попадаются ли они.
+  const hasSuffixRole = (L.role_badge ?? 'pill') === 'suffix'
+    && others.some(p => !!BADGE_LABELS[p.role])
+  const nameLines = (L.name_lines ?? 2) + (hasSuffixRole ? 1 : 0)
   const nameShare = L.show_names === false || L.name_place === 'over'
     ? 0
-    : 0.06 + 0.19 * 1.15 * (L.name_lines ?? 2)
+    : 0.06 + 0.19 * 1.15 * nameLines
   // ⚠️⚠️ Плашка роли + ЕЁ ОТСТУП. В расчёте учитывали только саму плашку
   // (0.14), а под ней ещё 0.03 отступа — блок оказывался выше отведённого
   // места ровно на эту разницу, и верхняя плашка обрезалась линией старта,
@@ -543,7 +552,13 @@ export default function PosterCanvas({
       }}>
         {rows.map((row, ri) => (
           <div key={ri} style={{
-            display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
+            // ⚠️⚠️ ВЫРАВНИВАНИЕ ПО ВЕРХУ, а не по низу. Было `flex-end`: ряд
+            // прижимался к нижней границе, и карточка с длинной подписью
+            // (роль через тире даёт третью строку) ТЯНУЛА СОСЕДЕЙ ВВЕРХ — их
+            // фото уезжали выше остальных, сетка ломалась.
+            // Теперь фото всех карточек ряда стоят на одной линии, а подпись
+            // растёт вниз; следующий ряд просто начинается ниже.
+            display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
             gap: `${gap * colW / 100}px`,
             // ⚠️ Наложение рядов — только у вырезанных людей: задний ряд
             // выглядывает из-за переднего, как в примере владельца. У карточек
@@ -951,7 +966,7 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
         {L.name_place === 'over' && lines.length > 0 && (
           <NameBlock lines={lines} roleText={showBadge && badge === 'suffix' ? roleText : null}
                      L={L} px={px} font={nameFont} color={nameColor} size={nameSize}
-                     cardWPct={wPct}
+                     cardWPct={wPct} gold={gold}
                      style={{ position: 'absolute', left: 0, right: 0, bottom: px(wPct * 0.05) }} />
         )}
       </div>
@@ -960,14 +975,14 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
       {L.name_place !== 'over' && lines.length > 0 && (
         <NameBlock lines={lines} roleText={showBadge && badge === 'suffix' ? roleText : null}
                    L={L} px={px} font={nameFont} color={nameColor} size={nameSize}
-                   cardWPct={wPct}
+                   cardWPct={wPct} gold={gold}
                    style={{ marginTop: px(wPct * 0.06) }} />
       )}
     </div>
   )
 }
 
-function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct }: {
+function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct, gold }: {
   lines: string[]
   roleText: string | null
   L: PosterLayout
@@ -980,6 +995,8 @@ function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct 
   size: number
   /** Ширина карточки в тех же единицах, что и `size` — для авто-ужатия. */
   cardWPct: number
+  /** Фирменный акцент — им выделяется приписка роли. */
+  gold: string
 }) {
   // ⚠️ Тень обязательна у вырезанных спикеров: подпись ложится прямо на людей
   // и фон, и на светлой одежде белые буквы пропадают.
@@ -1016,7 +1033,9 @@ function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct 
           {l}
           {/* Приписка роли через тире — на последней строке. */}
           {roleText && i === lines.length - 1 && (
-            <span style={{ color: L.role_badge_color || undefined }}> — {roleText}</span>
+            {/* ⚠️ Роль через тире — ФИРМЕННЫМ ЦВЕТОМ, а не цветом имени. Без
+                этого приписка сливалась с фамилией и выделением не была. */}
+            <span style={{ color: L.role_badge_color || gold }}> — {roleText}</span>
           )}
         </div>
       ))}
