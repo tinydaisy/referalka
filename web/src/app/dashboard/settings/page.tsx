@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus, ChevronDown, Palette, CreditCard, Image as ImageIcon } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
+import { useUrlTab } from '@/hooks/useUrlTab'
 import { setTimezone } from '@/lib/timezone'
 import { useLang, type Lang } from '@/contexts/LangContext'
 import MiniAppSettingsPage from '../mini-app/page'
@@ -340,7 +341,9 @@ function SettingsPageInner() {
       {effectiveTab === 'domains' && <DomainsTab />}
 
       {/* Интеграция — токен для чат-ботов (только vip) */}
-      {effectiveTab === 'integration' && <IntegrationTab />}
+      {effectiveTab === 'integration' && (
+        <IntegrationTab hasZoomFeature={hasZoom} hasCallsFeature={hasCalls} />
+      )}
 
       {/* Юр. данные + Политика — отдельный блок */}
       {effectiveTab === 'legal' && <LegalTab />}
@@ -507,9 +510,21 @@ function SettingsPageInner() {
         </>
         )}
 
-        {effectiveTab === 'integration' && (
-        <>
-        {/* Регистрация партнёров (миграция 105) — перенесено из «Техническое» в «Интеграция» */}
+        {/* ⚠️⚠️ «РЕГИСТРАЦИЯ ПАРТНЁРОВ» СКРЫТА (решение владельца, 18.09.2026).
+            Это была регистрация партнёров через сторонний лендинг на GetCourse:
+            клиент вписывал адрес чужой страницы, ссылки возврата по площадкам и
+            кому показывать партнёрский блок. Смысла в ней больше нет — у нас
+            своя партнёрская программа (раздел «Партнёрам» + `partner_program`),
+            и два разных ответа на вопрос «как человек становится партнёром»
+            путали: непонятно, какой из них действует.
+
+            Почему СКРЫТА, а не удалена: поля (`partner_landing_url`,
+            `partner_cabinet_url`, `partner_return_*`, видимость по ролям) живут
+            в БД и читаются бэкендом и ботами — вырезать их значит трогать
+            цепочку, которая у кого-то работает. Компонент
+            `PartnerRegistrationBlock` ниже оставлен целиком: вернуть = снять
+            комментарий здесь.
+
         <PartnerRegistrationBlock
           form={form}
           set={set}
@@ -520,8 +535,7 @@ function SettingsPageInner() {
           visibleRoles={partnerVisibleRoles}
           setVisibleRoles={setPartnerVisibleRoles}
         />
-        </>
-        )}
+        */}
 
         {effectiveTab === 'tech' && (
         <>
@@ -1096,7 +1110,19 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── Таб «Интеграция» ─────────────────────────────────────────────────────────
-function IntegrationTab() {
+// Подвкладки «Интеграции» — по одному внешнему сервису на вкладку.
+type ServiceTab = 'api' | 'zoom' | 'calls' | 'medialift'
+
+function IntegrationTab({ hasZoomFeature, hasCallsFeature }: {
+  hasZoomFeature: boolean
+  hasCallsFeature: boolean
+}) {
+  // ⚠️ Вкладка держится в АДРЕСЕ (`?svc=`), а не в useState: правило проекта —
+  // обновление страницы не должно сбрасывать на первую вкладку.
+  // ⚠️ Список допустимых значений обязателен: без него `?svc=что-угодно` из
+  // старой ссылки показал бы пустой экран вместо первой вкладки.
+  const [serviceTab, setServiceTab] = useUrlTab<ServiceTab>(
+    'svc', 'api', ['api', 'zoom', 'calls', 'medialift'] as const)
   const [me, setMe] = useState<{ id: number; integration_token?: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [showToken, setShowToken] = useState(false)
@@ -1152,19 +1178,57 @@ function IntegrationTab() {
   const token = me?.integration_token || ''
   const clientId = me?.id || 0
 
+  // ⚠️ Подвкладки ПО СЕРВИСАМ (2026-09-18, правило владельца). Раньше всё
+  // лежало одним свитком: токен для чат-ботов, Zoom, Звонопёс и МедиаЛифт
+  // подряд — и по полю было не понять, к какому сервису оно относится.
+  // Сделано как у каналов уведомлений в «Техническом»: вкладка на сервис.
+  //
+  // ⚠️ Вкладка сервиса, который клиенту не положен, НЕ показывается: блоки
+  // Zoom и Звонопса и так сами прячутся без фичи, и пустая вкладка была бы
+  // обманом — человек открыл бы её и увидел ничего.
+  const SERVICE_TABS: { id: ServiceTab; label: string }[] = [
+    { id: 'api', label: 'API для чат-ботов' },
+    ...(hasZoomFeature ? [{ id: 'zoom' as ServiceTab, label: 'Zoom' }] : []),
+    ...(hasCallsFeature ? [{ id: 'calls' as ServiceTab, label: 'Звонопёс' }] : []),
+    ...(mlCard ? [{ id: 'medialift' as ServiceTab, label: 'МедиаЛифт' }] : []),
+  ]
+
+  // ⚠️ В адресе может остаться вкладка сервиса, которого у клиента уже нет
+  // (фичу отобрали, МедиаЛифт отвязали) — тогда её нет в списке, и экран был бы
+  // пустым. Падаем на первую существующую.
+  const activeService = SERVICE_TABS.some(t => t.id === serviceTab) ? serviceTab : 'api'
+
   return (
     <div className="space-y-6">
-      {/* Автообзвоны — подключение Звонопса (миграция 359). Блок сам скрывается,
-          если фичи calls нет: замок на пол-экрана рядом с другими интеграциями
-          был бы шумом. */}
-      <CallSettingsBlock />
+      {/* Вкладки сервисов. Одна вкладка — один сервис, чтобы поля не смешивались. */}
+      {SERVICE_TABS.length > 1 && (
+        <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+          {SERVICE_TABS.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setServiceTab(t.id)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+                activeService === t.id
+                  ? 'border-[#25455D] text-[#25455D]'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Звонопёс — автообзвоны (миграция 359). Блок сам скрывается без фичи. */}
+      {activeService === 'calls' && <CallSettingsBlock />}
 
       {/* Zoom — подключение своего аккаунта (миграция 444). Так же сам
           скрывается без фичи. */}
-      <ZoomSettingsBlock />
+      {activeService === 'zoom' && <ZoomSettingsBlock />}
 
       {/* МедиаЛифт — карточка клиента в системе автоподписки */}
-      {mlCard && (
+      {activeService === 'medialift' && mlCard && (
         <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
           <h3 className="font-semibold text-gray-800 mb-1">МедиаЛифт — ваша карточка</h3>
           {mlCard.linked ? (
@@ -1202,6 +1266,8 @@ function IntegrationTab() {
         </div>
       )}
 
+      {/* ─── Вкладка «API для чат-ботов»: client_id + секретный токен ─── */}
+      {activeService === 'api' && (<>
       {/* Зачем нужна эта вкладка */}
       <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
         <div className="flex items-start gap-3 mb-4">
@@ -1326,6 +1392,10 @@ function IntegrationTab() {
 
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
       </div>
+      </>)}
+
+      {/* Ошибку показываем и вне вкладки API — она могла прийти от любого запроса. */}
+      {error && activeService !== 'api' && <p className="text-sm text-red-600">{error}</p>}
     </div>
   )
 }
