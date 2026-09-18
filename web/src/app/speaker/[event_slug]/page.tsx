@@ -19,6 +19,7 @@ import CopyAllLinksButton from '@/components/CopyAllLinksButton'
 import SpeakerGiftStats from '@/components/SpeakerGiftStats'
 import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 import MarkupHints from '@/components/MarkupHints'
+import FocalPointPicker from '@/components/FocalPointPicker'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
 import { personWording } from '@/lib/personWording'
 import { focalCss } from '@/lib/photoFocal'
@@ -1192,6 +1193,24 @@ export default function SpeakerCabinetPage() {
           <div style={{ marginTop: 14 }}>
             <ImageCard url={me.photo_url} kind="speaker_photo" label="Фото профиля" focal={me.photo_focal} />
           </div>
+
+          {/* ⚠️⚠️ ТОТ ЖЕ КОМПОНЕНТ, что в кабинете организатора
+              (`FocalPointPicker`), а не своя копия. Спикер настраивает себя сам,
+              и правка кода обязана работать в обоих местах одинаково — иначе у
+              организатора всё хорошо, а у спикера тихо сломано. */}
+          {me.photo_url && (
+            <div style={{ marginTop: 14 }}>
+              <label style={labelCss}>Где лицо на фото</label>
+              <FocalPointPicker
+                url={me.photo_url}
+                value={me.photo_focal ?? null}
+                onChange={v => update({ photo_focal: v })}
+                zooms={me}
+                onZoomChange={z => update(z)}
+                hint="Так ваше фото встанет на афишах события и в карточках. Подгоните каждую форму — организатор увидит ровно это."
+              />
+            </div>
+          )}
 
           <label style={labelCss}>Ссылка на папку с фото (Я.Диск / Google Drive)</label>
           <input style={inputCss} value={me.photo_folder_url || ''} onChange={(e) => update({ photo_folder_url: e.target.value })} placeholder="https://…" />

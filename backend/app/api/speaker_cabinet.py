@@ -274,6 +274,9 @@ async def get_me(
                   (SELECT person_wording FROM events WHERE id = cse.event_id) AS person_wording,
                   c.id AS collaborator_id, c.name, c.last_name, c.title, c.achievements,
                   c.photo_url,
+                  -- Кадрирование фото (мигр. 434, 451): спикер правит его сам.
+                  c.photo_focal, c.crop_zoom_circle, c.crop_zoom_square,
+                  c.crop_zoom_portrait,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   -- Заодно уважаем per-event выбор афиши (cse.poster_id).
                   (SELECT url FROM collaborator_posters cp
@@ -359,6 +362,13 @@ async def get_me(
         se_id
     )
     d = dict(row)
+    # ⚠️ NUMERIC из asyncpg приходит Decimal и уезжает в JSON СТРОКОЙ, а фронт
+    # на приближение УМНОЖАЕТ размер фото — на строке вышел бы NaN и фото в
+    # маске пропало бы. Та же ловушка уже ловила нас в афишах.
+    from decimal import Decimal as _D
+    for _z in ("crop_zoom_circle", "crop_zoom_square", "crop_zoom_portrait"):
+        if isinstance(d.get(_z), _D):
+            d[_z] = float(d[_z])
     # Пусто в настройке клиента = умолчание платформы. Подставляем ЗДЕСЬ, чтобы
     # фронт всегда получал число и не держал свою копию дефолта: разъедутся —
     # счётчик покажет одно, а сохранение откажет по другому правилу.
@@ -530,6 +540,13 @@ class CabinetUpdate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
+    # ⚠️ Точка лица (мигр. 434) и приближение кадра по формам (мигр. 451).
+    # Спикер настраивает СЕБЯ САМ тем же компонентом, что организатор в
+    # кабинете: разные экраны, один код и одни поля.
+    photo_focal: Optional[str] = None
+    crop_zoom_circle: Optional[float] = None
+    crop_zoom_square: Optional[float] = None
+    crop_zoom_portrait: Optional[float] = None
     # poster_url убран миграцией 121 — афиши теперь в библиотеке (collaborator_posters).
     # Спикер видит свою библиотеку в Материалах и может скачать любую афишу.
     photo_folder_url: Optional[str] = None
@@ -644,6 +661,9 @@ async def patch_me(
 
     # 1. Профиль (collaborators)
     profile_fields = ["name", "last_name", "title", "achievements", "photo_url",
+                      # Кадрирование фото: точка лица и приближение по формам.
+                      "photo_focal", "crop_zoom_circle", "crop_zoom_square",
+                      "crop_zoom_portrait",
                       "photo_folder_url", "video_folder_url",
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]

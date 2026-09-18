@@ -882,9 +882,12 @@ function PersonCard({ p, L, gold, px, wPct, wPx, hPx, highlighted, theme, label,
                  // снятый в полный рост, превращался в фигурку с неразличимым
                  // лицом. Масштабируем от точки лица — она остаётся на месте,
                  // а лишнее (пол, потолок) уходит за края маски.
+                 // ⚠️⚠️ ЗУМ ОТ ЦЕНТРА: `object-position` уже поставил точку
+                 // лица в центр кадра, и origin по той же точке сдвинул бы
+                 // картинку второй раз — лицо уезжало вбок.
                  ...(maskZoom(L.mask_shape, p) > 1 ? {
                    transform: `scale(${maskZoom(L.mask_shape, p)})`,
-                   transformOrigin: maskFocal(L.mask_shape, focal),
+                   transformOrigin: 'center',
                  } : {}),
                  // Свечение вырезки — по контуру человека, а не по прямоугольнику.
                  ...(cutout && on && (hl === 'glow' || hl === 'both')

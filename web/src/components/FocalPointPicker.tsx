@@ -27,10 +27,13 @@ export type CropZooms = {
   crop_zoom_portrait?: number | null
 }
 
-/** Умолчания те же, что были зашиты в код до миграции 451. */
+// ⚠️ Умолчание 1.0 — кадр БЕЗ приближения: голова помещается целиком, макушка
+// и волосы не срезаются. Прежние 1.6 обрезали часть головы у портретов,
+// снятых крупно. Приблизить клиент может сам ползунком — это его выбор, а
+// «по умолчанию ничего не отрезано» безопаснее.
 export const ZOOM_DEFAULT: Record<CropShape, number> = {
-  circle: 1.6,
-  square: 1.6,
+  circle: 1,
+  square: 1,
   portrait: 1,
 }
 
@@ -174,9 +177,11 @@ function ShapeTuner({ shape, url, focal, zoom, onZoom }: {
         <img src={url} alt="" className="w-full h-full"
              style={{
                objectFit: 'cover', objectPosition: pos,
-               // ⚠️ Масштабируем ОТ ТОЧКИ ЛИЦА: она остаётся на месте, а лишнее
-               // (пол, потолок, фон) уходит за края маски.
-               ...(zoom > 1 ? { transform: `scale(${zoom})`, transformOrigin: pos } : {}),
+               // ⚠️⚠️ ЗУМ ОТ ЦЕНТРА, а не от точки лица. `object-position` УЖЕ
+               // поставил отмеченную точку в центр видимого кадра; если ещё и
+               // `transform-origin` задать той же точкой, сдвиг применится
+               // дважды и лицо уедет вбок (так и было у Вангуловой).
+               ...(zoom > 1 ? { transform: `scale(${zoom})`, transformOrigin: 'center' } : {}),
              }} />
       </div>
       <p className="text-[10px] text-gray-400 mt-1">{LABEL[shape]}</p>

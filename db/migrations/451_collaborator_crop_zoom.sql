@@ -17,15 +17,18 @@
 -- кадра везде один и тот же, меняется только насколько близко мы подходим.
 --
 -- 1.0 = кадр как есть (вся ширина фото), 3.0 = приближение втрое.
--- Умолчания повторяют прежние зашитые числа, чтобы у существующих карточек
--- ничего не изменилось само по себе.
+--
+-- ⚠️ УМОЛЧАНИЕ 1.0 У ВСЕХ ФОРМ — кадр без приближения. Пробовали 1.6 у круга и
+-- квадрата (так было зашито в коде): у портретов, снятых крупно, оно срезало
+-- макушку и волосы. «По умолчанию ничего не отрезано» безопаснее, а приблизить
+-- клиент может ползунком сам.
 
 BEGIN;
 
 ALTER TABLE collaborators
-  ADD COLUMN IF NOT EXISTS crop_zoom_circle NUMERIC(4,2) NOT NULL DEFAULT 1.6
+  ADD COLUMN IF NOT EXISTS crop_zoom_circle NUMERIC(4,2) NOT NULL DEFAULT 1.0
       CHECK (crop_zoom_circle BETWEEN 1 AND 3),
-  ADD COLUMN IF NOT EXISTS crop_zoom_square NUMERIC(4,2) NOT NULL DEFAULT 1.6
+  ADD COLUMN IF NOT EXISTS crop_zoom_square NUMERIC(4,2) NOT NULL DEFAULT 1.0
       CHECK (crop_zoom_square BETWEEN 1 AND 3),
   ADD COLUMN IF NOT EXISTS crop_zoom_portrait NUMERIC(4,2) NOT NULL DEFAULT 1.0
       CHECK (crop_zoom_portrait BETWEEN 1 AND 3);
