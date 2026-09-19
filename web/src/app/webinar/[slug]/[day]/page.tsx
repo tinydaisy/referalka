@@ -553,14 +553,16 @@ export default function WebinarRoomPage() {
   const curRx = cur ? (reactions[cur.ec_id] || { up: 0, down: 0 }) : null
 
   return (
-    <div className="min-h-screen text-white" style={{ background: 'linear-gradient(160deg, #0a1520, #142430)' }}>
+    <div className="min-h-screen text-white overflow-x-hidden" style={{ background: 'linear-gradient(160deg, #0a1520, #142430)' }}>
       {/* Шапка: логотип бренда + название + название вебинара */}
       <header className="border-b border-white/10">
         <div className="max-w-6xl mx-auto px-3 md:px-5 py-3 flex items-center gap-3">
           {room.brand?.logo_url
             ? <img src={room.brand.logo_url} alt="" className="h-8 w-auto object-contain" />
             : null}
-          <span className="font-bold tracking-tight" style={{ color: '#FFCFA4' }}>
+          {/* truncate + min-w-0: длинное название бренда иначе распирает
+              шапку и страница снова становится шире экрана телефона. */}
+          <span className="font-bold tracking-tight truncate min-w-0" style={{ color: '#FFCFA4' }}>
             {room.brand?.name || 'iViSiON: ПЛЮСОН'}
           </span>
           <span className="text-white/40 hidden sm:inline">·</span>
@@ -570,9 +572,16 @@ export default function WebinarRoomPage() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto p-3 md:p-5 grid md:grid-cols-[1fr,340px] gap-4">
-        {/* видео + блоки */}
-        <div>
+      {/* ⚠️ `minmax(0,1fr)` вместо `1fr`, и `min-w-0` у колонок (19.09.2026).
+          У колонки грида `min-width: auto` по умолчанию — она отказывается
+          сжиматься уже своего содержимого. Одна длинная ссылка в чате делала
+          страницу шире экрана телефона, и вся вёрстка ерзала влево-вправо при
+          прокрутке и наборе. `overflow-x-hidden` — страховка: горизонтальной
+          прокрутки у страницы быть не должно ни при каком содержимом. */}
+      <div className="max-w-6xl mx-auto p-3 md:p-5 grid md:grid-cols-[minmax(0,1fr),340px] gap-4 overflow-x-hidden">
+        {/* видео + блоки. min-w-0 — иначе широкий блок (длинная ссылка в
+            продающем блоке, таблица) снова распирает колонку. */}
+        <div className="min-w-0">
           <div className="rounded-xl overflow-hidden bg-black aspect-video relative">
             {/* До эфира — афиша дня (или горизонтальная афиша события) как заставка */}
             {!live && room.poster_url && (
@@ -787,7 +796,13 @@ export default function WebinarRoomPage() {
             то появляется, то исчезает, и `vh` считается по БОЛЬШЕЙ высоте —
             поле снова уезжало бы под панель браузера. `dvh` меняется вместе
             с ней. Для старых браузеров рядом оставлен `vh` как запасной. */}
-        <div className="rounded-xl bg-white/5 flex flex-col overflow-hidden h-[85vh] h-[calc(100dvh-7rem)] md:h-[calc(100vh-2.5rem)] md:sticky md:top-4">
+        {/* ⚠️ НА КОМПЬЮТЕРЕ высота считается от `dvh` с запасом 6rem, а не
+            `100vh-2.5rem` (19.09.2026). При 2.5rem колонка упиралась в самый
+            низ окна, и поле ввода наполовину срезалось доком macOS / панелью
+            браузера — написать в чат было нельзя, не свернув док. Запас 6rem
+            держит ввод выше края. `dvh` и здесь: на ноутбуке окно тоже меняет
+            высоту, а `vh` считается по большей. */}
+        <div className="min-w-0 rounded-xl bg-white/5 flex flex-col overflow-hidden h-[85vh] h-[calc(100dvh-7rem)] md:h-[calc(100dvh-6rem)] md:sticky md:top-4">
           <div className="p-3 border-b border-white/10 font-semibold text-sm shrink-0">Чат</div>
           {/* ⚠️ `scroll-brand`, а не `scroll-visible`: второй серый и на тёмном
               фоне комнаты читается как чёрная полоса — человек не видит, что
@@ -796,7 +811,13 @@ export default function WebinarRoomPage() {
             {chat.map((m, i) => (
               <div key={m.id ?? m._tmpId ?? i} className={m._failed ? 'opacity-50' : ''}>
                 <span className="text-white/50 mr-1">{m.author_name || 'Гость'}:</span>
-                <span className="break-words">{m.text}</span>
+                {/* ⚠️ `break-all`, а не только `break-words` (19.09.2026):
+                    `break-words` переносит ПО ПРОБЕЛАМ и бессилен против
+                    длинной ссылки или слова с подчёркиваниями
+                    (`#вопрос_от_клиента`, `HTTPS://…`). Такое «слово» распирало
+                    колонку чата, страница становилась шире экрана телефона и
+                    ерзала влево-вправо при каждой прокрутке и наборе текста. */}
+                <span className="break-all">{m.text}</span>
                 {m._failed && <span className="text-red-400 text-xs ml-1">· не отправлено</span>}
               </div>
             ))}
