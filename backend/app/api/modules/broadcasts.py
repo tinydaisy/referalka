@@ -2202,6 +2202,10 @@ async def _shiftable_sessions(db, event_id: int, day_number: int):
                COALESCE(NULLIF(cst.topic,''), cs.title) AS session_title,
                c.name           AS speaker_name,
                COUNT(bs.id)     AS schedules_count,
+               -- Сколько из них уйдёт В ЧАТ СПИКЕРОВ. Нужно фронту, чтобы
+               -- пометить таких спикеров в списке сдвига: клиент правит тайминг
+               -- участниковых и не думает про команду, а её позовут в новое время.
+               COUNT(bs.id) FILTER (WHERE bs.type = 'speakers_call') AS speakers_chat_count,
                MIN(bs.fire_at)  AS first_fire_at
         FROM conf_sessions cs
         JOIN broadcast_schedules bs

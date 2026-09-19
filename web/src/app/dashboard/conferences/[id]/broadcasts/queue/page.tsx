@@ -1011,8 +1011,7 @@ export default function QueuePage() {
                           вовсе. В общем списке это должно читаться сразу. */}
                       {(s.eff_send_to_speakers_chat ?? s.send_to_speakers_chat) && (
                         <span
-                          className="text-xs px-1.5 py-0.5 rounded font-medium text-white"
-                          style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}
+                          className="text-xs px-1.5 py-0.5 rounded font-semibold bg-orange-500 text-white"
                           title="Уходит только в чат спикеров — участникам события не отправляется"
                         >
                           в чат спикеров
@@ -1482,7 +1481,11 @@ export default function QueuePage() {
                       {shiftSpeakers.map(s => (
                         <option key={s.session_id} value={s.session_id}>
                           {s.start_time ? `${s.start_time} — ` : ''}{s.speaker_name || s.session_title || `Слот #${s.session_id}`}
-                          {` (${s.schedules_count} рас.)`}
+                          {` (${s.schedules_count} рас.`}
+                          {/* Сколько из них уйдёт в чат спикеров — в <option>
+                              разметка не работает, поэтому текстом. */}
+                          {s.speakers_chat_count ? `, из них ${s.speakers_chat_count} в чат спикеров` : ''}
+                          {`)`}
                         </option>
                       ))}
                     </select>
@@ -1512,9 +1515,25 @@ export default function QueuePage() {
                 const affected = idx >= 0 ? shiftSpeakers.slice(idx) : []
                 const total = affected.reduce((acc, s) => acc + (s.schedules_count || 0), 0)
                 return (
-                  <div className="px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-600">
-                    Сдвинется {total} рассылок у {affected.length} спикеров:{' '}
-                    {affected.map(s => s.speaker_name || `#${s.session_id}`).join(', ')}
+                  <div className="space-y-2">
+                    <div className="px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-600">
+                      Сдвинется {total} рассылок у {affected.length} спикеров:{' '}
+                      {affected.map(s => s.speaker_name || `#${s.session_id}`).join(', ')}
+                    </div>
+                    {/* ⚠️ Сдвиг двигает И рассылки в чат спикеров («вы следующие»).
+                        Клиент правит тайминг участниковых и не думает про команду —
+                        а спикеров позовут в новое время. Об этом надо сказать
+                        ДО нажатия, а не показать постфактум. */}
+                    <div className="px-3 py-2 rounded-lg bg-orange-50 border border-orange-200 text-xs text-orange-900 flex items-start gap-2">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-orange-500 text-white shrink-0 mt-px">
+                        в чат спикеров
+                      </span>
+                      <span>
+                        Напоминания «вы следующие» сдвинутся вместе с выступлениями —
+                        спикеров позовут в новое время. Программа события тоже
+                        сдвинется, не только очередь.
+                      </span>
+                    </div>
                   </div>
                 )
               })()}
