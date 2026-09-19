@@ -43,7 +43,12 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   )
 }
 
-type SubView = 'settings' | 'blocks' | 'auto' | 'analytics' | 'records' | 'referrals' | 'console' | 'audience'
+// ⚠️ `stream` («Эфир») отделён от `settings` («Комната») 19.09.2026 по правилу
+// владельца: раньше на одной вкладке лежали и настройки видеокодера с Zoom, и
+// название дня, и скрытие зрителей, и чат, и форма авторизации — всё в кучу.
+// Теперь «Эфир» отвечает на вопрос «откуда идёт картинка», а «Комната» — «как
+// она выглядит и что в ней происходит».
+type SubView = 'stream' | 'settings' | 'blocks' | 'auto' | 'analytics' | 'records' | 'referrals' | 'console' | 'audience'
 
 export default function WebinarTab({ eventId, event }: { eventId: number; event: any }) {
   const [loading, setLoading] = useState(true)
@@ -142,7 +147,8 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
         {/* Подтабы дня */}
         <div className="flex gap-2 mb-5 flex-wrap">
           {([
-            ['settings', 'Настройки'],
+            ['stream', 'Эфир'],
+            ['settings', 'Комната'],
             ['blocks', 'Продающие блоки'],
             // ⚠️ Автовебинар — отдельная фича (Экстра). Обычная комната есть и
             // на Профи, поэтому проверяем именно `autowebinar`.
@@ -156,8 +162,12 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             ['console', 'Пульт ведущего'],
             ['audience', 'Зрители'],
           ] as const).map(([k, lbl]) => {
+            // ⚠️ При СТОРОННЕЙ комнате доступна только вкладка «Эфир»: там
+            // выбор типа трансляции и ссылка на чужую комнату. Всё остальное —
+            // чат, зрители, продающие блоки, аналитика — даёт наш плеер,
+            // которого при сторонней комнате нет вовсе.
             const ext = active.room?.stream_type === 'external_link'
-            const disabled = ext && k !== 'settings'
+            const disabled = ext && k !== 'stream'
             return (
             <button
               key={k}
@@ -175,12 +185,13 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
           )})}
         </div>
 
-        {/* Сторонний вебинар → только настройки (одна ссылка), что бы ни было выбрано. */}
+        {/* Сторонний вебинар → только «Эфир» (тип трансляции + одна ссылка),
+            что бы ни было выбрано: остального у чужой комнаты просто нет. */}
         {active.room?.stream_type === 'external_link' ? (
-          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
+          <RoomSettings section="stream" eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
         ) : (<>
-        {subView === 'settings' && (
-          <RoomSettings eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
+        {(subView === 'stream' || subView === 'settings') && (
+          <RoomSettings section={subView === 'stream' ? 'stream' : 'room'} eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
         )}
         {subView === 'blocks' && (
           <BlocksEditor eventId={eventId} day={active} event={event} />
@@ -228,7 +239,13 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 }
 
 // ─────────────────────────── настройки комнаты дня ───────────────────────────
-function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomEnabled = false, zoomConnectable = false }: { eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void; daysCount?: number; zoomEnabled?: boolean; zoomConnectable?: boolean }) {
+function RoomSettings({ section = 'room', eventId, day, level, slug, onSaved, daysCount = 1, zoomEnabled = false, zoomConnectable = false }: {
+  /** 'stream' — откуда идёт картинка (тип трансляции, Zoom, видеокодер);
+   *  'room'   — как выглядит комната (название, зрители, чат, реакции, форма).
+   *  ⚠️ Разделено 19.09.2026: раньше всё лежало одним свитком и терялось. */
+  section?: 'stream' | 'room'
+  eventId: number; day: DayItem; level: 'room' | 'link'; slug?: string; onSaved: () => void; daysCount?: number; zoomEnabled?: boolean; zoomConnectable?: boolean
+}) {
   // Домен клиента: ссылку на комнату он отдаёт своим зрителям.
   const { publicBase } = useMe()
   const r = day.room
@@ -262,6 +279,9 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
   const [copied, setCopied] = useState('')
   const [copyingJoin, setCopyingJoin] = useState(false)
   const [joinCopied, setJoinCopied] = useState(false)
+  // ⚠️ Вкладка способа настройки живёт в АДРЕСЕ (`?zm=`), а не в useState:
+  // правило проекта — обновление страницы не должно сбрасывать на первую.
+  const [zoomTab, setZoomTab] = useUrlTab<'auto' | 'manual'>('zm', 'auto', ['auto', 'manual'] as const)
   const [zoomBusy, setZoomBusy] = useState(false)
   const [zoomMsg, setZoomMsg] = useState('')
   const [zoomMsgOk, setZoomMsgOk] = useState(true)
@@ -420,11 +440,63 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
     navigator.clipboard.writeText(text); setCopied(tag); setTimeout(() => setCopied(''), 1500)
   }
 
+
+  // Какую половину настроек показываем. ⚠️ Кнопка «Сохранить» и форма общие:
+  // обе секции правят одну и ту же комнату дня, и разделять сохранение значило
+  // бы потерять несохранённое при переключении вкладки.
+  const isStreamSection = section === 'stream'
+  const isRoomSection = section === 'room'
+
   const isEncoder = f.stream_type === 'encoder'
   // Вебинарной комнаты БЕЗ зума не бывает: картинка в неё идёт из зума
   // (Zoom/OBS → RTMP → плеер). Обратное возможно — эфир может быть только в
   // зуме, без нашей комнаты. Поэтому обязателен он ровно при своей комнате.
   const joinMissing = isEncoder && !(f.speaker_join_url || '').trim()
+
+  // ⚠️ Поле ссылки Zoom — ОДНО на обе вкладки (правило владельца, 19.09.2026).
+  // В автоматической его заполняет кнопка, в ручной человек вставляет сам, но
+  // поле и его смысл одни и те же: «куда зайдут спикеры». Две копии разъехались
+  // бы по поведению, а человек не понимал бы, какая из них действует.
+  // Объявлено функцией, а не вынесено в отдельный компонент: ему нужны `f`,
+  // `setF`, `joinMissing`, `copyJoinUrlToAllDays` — тянуть их пропсами ради
+  // трёх мест вызова в одном файле дороже, чем держать рядом.
+  const ZoomJoinField = () => (
+    <div className={`rounded-xl border p-4 space-y-2 ${
+      joinMissing ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'}`}>
+      <label className={`label ${joinMissing ? 'text-red-700' : ''}`}>
+        Ссылка для входа спикеров (Zoom)
+        {isEncoder && <span className="text-red-600"> *</span>}
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`input flex-1 min-w-[220px] ${
+                 joinMissing ? 'border-red-400 focus:border-red-500' : ''}`}
+               value={f.speaker_join_url}
+               onChange={e => setF({ ...f, speaker_join_url: e.target.value })}
+               placeholder="https://zoom.us/j/..." />
+        {daysCount > 1 && (
+          <button type="button" onClick={copyJoinUrlToAllDays} disabled={copyingJoin}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+            {copyingJoin ? 'Копируем…' : 'Скопировать во все дни'}
+          </button>
+        )}
+      </div>
+      {joinCopied && (
+        <p className="text-xs text-green-600">Скопировано во все дни программы.</p>
+      )}
+      {joinMissing && (
+        <p className="text-xs font-medium text-red-700">
+          Без зума эфира не будет: картинка в вашу комнату идёт именно оттуда.
+          Укажите ссылку — по ней зайдут спикеры.
+        </p>
+      )}
+      <p className="text-xs text-gray-500">
+        Куда заходит спикер, чтобы его картинка попала в эфир. Уходит в рассылке
+        «вы следующие» в чат спикеров — плейсхолдер {'{speaker_join_url}'}.
+        Зрители по ней не ходят: они открывают вебинарную комнату.
+        {daysCount > 1 && ' Обычно зум один на всё событие — заполните здесь и нажмите «Скопировать во все дни».'}
+      </p>
+    </div>
+  )
 
   return (
     <div className="space-y-5 max-w-2xl">
@@ -433,11 +505,15 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
         <span className="text-gray-400">День {day.day_number}</span>
         {day.day_date && <span className="font-semibold text-gray-800">· {new Date(day.day_date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' })}</span>}
       </div>
+      {isRoomSection && (
       <div>
         <label className="label">Название вебинара (дня)</label>
         <input className="input" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder={day.day_title || `День ${day.day_number}`} />
       </div>
+      )}
 
+      {/* ───────── ЭФИР: откуда идёт картинка ───────── */}
+      {isStreamSection && (<>
       {/* Тип трансляции */}
       <div>
         <label className="label">Тип трансляции</label>
@@ -497,79 +573,104 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
           порядке, а подключение стояло НИЖЕ инструкции «как подключить
           вручную». Теперь сверху развилка: автоматически или вручную. Итог у
           обеих веток один — заполненная ссылка входа спикеров. */}
-      {isEncoder && zoomEnabled && (
-        <div className="rounded-xl border border-brand/30 bg-white p-4 space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Настроить автоматически</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Заведём конференцию в вашем Zoom на дату и время этого дня, включим ей
-              трансляцию в эту комнату и подставим ссылку входа спикеров — ниже.
-            </p>
-          </div>
-
-          {/* ⚠️ Состояние ПЕРВЫМ, до кнопки: главный вопрос человека — «создано
-              или нет». Раньше описание «Заведём конференцию…» висело и после
-              создания, и читалось как «ещё не создано» (прод, 19.09.2026). */}
-          {r?.zoom_meeting_id ? (
-            <div className={`rounded-lg border p-3 text-sm ${
-              r.zoom_livestream_ok
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
-              <p className="font-medium">
-                {r.zoom_livestream_ok
-                  ? '✓ Конференция создана, трансляция в комнату включена'
-                  : '⚠ Конференция создана, но трансляция в комнату не включена'}
-              </p>
-              <p className="text-xs mt-1 opacity-90">
-                Номер конференции {r.zoom_meeting_id}. Ссылка входа для спикеров — в поле ниже.
-                {!r.zoom_livestream_ok && ' Эфир пройдёт в Zoom, но наша комната останется пустой.'}
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500">Конференция ещё не создана.</p>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={createZoom} disabled={zoomBusy}
-              className="btn-gold text-sm inline-flex items-center gap-1.5 disabled:opacity-60">
-              <Video size={14} />
-              {zoomBusy ? 'Создаём…'
-                : r?.zoom_meeting_id ? 'Создать заново' : 'Создать конференцию Zoom'}
-            </button>
-            {r?.zoom_meeting_id && (
-              <span className="text-[11px] text-gray-500">
-                Прежняя конференция удалится — её ссылка перестанет работать.
-              </span>
-            )}
-          </div>
-
-          {zoomMsg && (
-            <p className={`text-xs ${zoomMsgOk ? 'text-green-600' : 'text-red-600'}`}>{zoomMsg}</p>
-          )}
-        </div>
-      )}
-
-      {/* Фича есть, но зум не подключён — говорим, что так можно, и куда идти. */}
-      {isEncoder && !zoomEnabled && zoomConnectable && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-sm font-semibold text-gray-900">Настроить автоматически</p>
-          <p className="text-xs text-gray-500 mt-1">
-            Подключите свой Zoom — и конференция будет создаваться одной кнопкой, вместе
-            с трансляцией в эту комнату.{' '}
-            <a href="/dashboard/settings?tab=integration&svc=zoom"
-               className="text-blue-600 hover:underline">Настройки → Интеграция</a>
-          </p>
-        </div>
-      )}
-
       {isEncoder ? (
         <div className="rounded-xl bg-gray-50 border p-4 space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Настроить вручную</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Заводите конференцию в Zoom сами и переносите эти два значения в его настройки.
-            </p>
+          {/* Вкладки способа настройки — как вкладки площадок в «Техническом».
+              ⚠️ Поле ссылки Zoom лежит ВНУТРИ обеих вкладок (ZoomJoinField):
+              оно и есть общий итог, только в одной вкладке заполняется кнопкой,
+              а в другой — руками. Держать его снаружи значило бы разорвать
+              «настроил → вот результат» на два несвязанных места. */}
+          <div className="flex gap-1 border-b border-gray-200">
+            {([
+              { k: 'auto', label: 'Настроить автоматически' },
+              { k: 'manual', label: 'Настроить вручную' },
+            ] as const).map(t => (
+              <button
+                key={t.k}
+                type="button"
+                onClick={() => setZoomTab(t.k)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+                  zoomTab === t.k
+                    ? 'border-[#25455D] text-[#25455D]'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
+
+          {/* ───────── Автоматически ───────── */}
+          {zoomTab === 'auto' && (zoomEnabled ? (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">
+                Заведём конференцию в вашем Zoom на дату и время этого дня, включим ей
+                трансляцию в эту комнату и подставим ссылку входа спикеров.
+              </p>
+
+              {/* ⚠️ Состояние ПЕРВЫМ, до кнопки: главный вопрос человека —
+                  «создано или нет». Описание «Заведём конференцию…» висело и
+                  после создания, и читалось как «ещё не создано» (19.09.2026). */}
+              {r?.zoom_meeting_id ? (
+                <div className={`rounded-lg border p-3 text-sm ${
+                  r.zoom_livestream_ok
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+                  <p className="font-medium">
+                    {r.zoom_livestream_ok
+                      ? '✓ Конференция создана, трансляция в комнату включена'
+                      : '⚠ Конференция создана, но трансляция в комнату не включена'}
+                  </p>
+                  <p className="text-xs mt-1 opacity-90">
+                    Номер конференции {r.zoom_meeting_id}.
+                    {!r.zoom_livestream_ok && ' Эфир пройдёт в Zoom, но наша комната останется пустой.'}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Конференция ещё не создана.</p>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={createZoom} disabled={zoomBusy}
+                  className="btn-gold text-sm inline-flex items-center gap-1.5 disabled:opacity-60">
+                  <Video size={14} />
+                  {zoomBusy ? 'Создаём…'
+                    : r?.zoom_meeting_id ? 'Создать заново' : 'Создать конференцию Zoom'}
+                </button>
+                {r?.zoom_meeting_id && (
+                  <span className="text-[11px] text-gray-500">
+                    Прежняя конференция удалится — её ссылка перестанет работать.
+                  </span>
+                )}
+              </div>
+
+              {zoomMsg && (
+                <p className={`text-xs ${zoomMsgOk ? 'text-green-600' : 'text-red-600'}`}>{zoomMsg}</p>
+              )}
+
+              <ZoomJoinField />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500">
+                {zoomConnectable
+                  ? <>Подключите свой Zoom — и конференция будет создаваться одной кнопкой,
+                      вместе с трансляцией в эту комнату.{' '}
+                      <a href="/dashboard/settings?tab=integration&svc=zoom"
+                         className="text-blue-600 hover:underline">Настройки → Интеграция</a></>
+                  : <>Автоматическое создание конференций пока недоступно на вашем тарифе.
+                      Настройте эфир вручную — на соседней вкладке.</>}
+              </p>
+              <ZoomJoinField />
+            </div>
+          ))}
+
+          {/* ───────── Вручную ───────── */}
+          {zoomTab === 'manual' && (
+          <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Заводите конференцию в Zoom сами и переносите эти два значения в его настройки.
+          </p>
           {r?.rtmp_url ? (
             <>
               <Field label="RTMP-адрес" value={r.rtmp_url} onCopy={() => copy(r.rtmp_url, 'rtmp')} copied={copied === 'rtmp'} />
@@ -639,6 +740,9 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
           ) : (
             <p className="text-sm text-gray-500">Сохраните комнату — появятся RTMP-адрес и ключ.</p>
           )}
+          <ZoomJoinField />
+          </div>
+          )}
         </div>
       ) : (
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2">
@@ -652,55 +756,16 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
         </div>
       )}
 
-      {/* ⚠️ ВХОД СПИКЕРА — НЕ ссылка на эфир, и поэтому стоит ОТДЕЛЬНО от
-          настроек комнаты (и вне блока isEncoder: нужна при любом типе эфира).
-          Зрители идут в вебинарную комнату, а спикер заходит сюда — чтобы его
-          картинка попала В эту комнату. Ссылка своя у каждого дня: зум-конференцию
-          заводят под конкретный эфир. */}
-      {/* ⚠️ У НАШЕЙ комнаты зум ОБЯЗАТЕЛЕН: картинка в неё идёт из зума
-          (Zoom/OBS → RTMP → плеер). Без него комната пустая — эфира не будет
-          вовсе, и выяснится это в момент старта. Поэтому пустое поле светим
-          красным, а не оставляем «необязательным». У сторонней комнаты эфир
-          ведёт чужой сервис — там зум не нужен. */}
-      <div className={`rounded-xl border p-4 space-y-2 ${
-        joinMissing ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
-        <label className={`label ${joinMissing ? 'text-red-700' : ''}`}>
-          Ссылка для входа спикеров (Zoom)
-          {isEncoder && <span className="text-red-600"> *</span>}
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <input className={`input flex-1 min-w-[220px] ${
-                   joinMissing ? 'border-red-400 focus:border-red-500' : ''}`}
-                 value={f.speaker_join_url}
-                 onChange={e => setF({ ...f, speaker_join_url: e.target.value })}
-                 placeholder="https://zoom.us/j/..." />
-          {daysCount > 1 && (
-            <button type="button" onClick={copyJoinUrlToAllDays} disabled={copyingJoin}
-              className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
-              {copyingJoin ? 'Копируем…' : 'Скопировать во все дни'}
-            </button>
-          )}
-        </div>
-        {joinCopied && (
-          <p className="text-xs text-green-600">Скопировано во все дни программы.</p>
-        )}
-        {joinMissing && (
-          <p className="text-xs font-medium text-red-700">
-            Без зума эфира не будет: картинка в вашу комнату идёт именно оттуда.
-            Укажите ссылку — по ней зайдут спикеры.
-          </p>
-        )}
-        <p className="text-xs text-gray-500">
-          Куда заходит спикер, чтобы его картинка попала в эфир. Уходит в рассылке
-          «вы следующие» в чат спикеров — плейсхолдер {'{speaker_join_url}'}.
-          Зрители по ней не ходят: они открывают вебинарную комнату.
-          {daysCount > 1 && ' Обычно зум один на всё событие — заполните здесь и нажмите «Скопировать во все дни».'}
-        </p>
-      </div>
+      {/* ⚠️ У СТОРОННЕЙ комнаты поле ссылки спикеров стоит отдельно: вкладок
+          «авто/вручную» там нет (эфир ведёт чужой сервис), а ссылка нужна —
+          по ней заходят спикеры, и она уходит в рассылку «вы следующие». */}
+      {!isEncoder && <ZoomJoinField />}
+      </>)}
 
-      {/* Все настройки нашей комнаты — ТОЛЬКО при видеокодере. У сторонней —
-          одна ссылка выше, остальное недоступно (ведёт внешний сервис). */}
-      {isEncoder && (<>
+      {/* ───────── КОМНАТА: как она выглядит и что в ней происходит ─────────
+          ⚠️ Только при видеокодере: у сторонней комнаты ни чата, ни зрителей,
+          ни реакций нет — их даёт наш плеер, которого там не будет. */}
+      {isRoomSection && isEncoder && (<>
       <div className="grid sm:grid-cols-2 gap-4">
         <Toggle label="Скрывать число зрителей в эфире" checked={f.hide_viewer_count} onChange={v => setF({ ...f, hide_viewer_count: v })} />
         <Toggle label="Чат включён" checked={f.chat_enabled} onChange={v => setF({ ...f, chat_enabled: v })} />
@@ -1181,7 +1246,25 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
 // Спикер настраивается в Zoom → ведущий смотрит превью → «Начать эфир» → зрители видят.
 function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayItem; onChanged: () => void }) {
   const [busy, setBusy] = useState(false)
+  const [zoomStreamBusy, setZoomStreamBusy] = useState(false)
+  const [zoomStreamMsg, setZoomStreamMsg] = useState('')
+  const [zoomStreamOk, setZoomStreamOk] = useState(true)
   const r = day.room
+
+  // Просим Zoom начать вещание в нашу комнату — вместо ручного включения
+  // трансляции внутри идущей конференции.
+  async function startZoomStream() {
+    setZoomStreamBusy(true); setZoomStreamMsg('')
+    try {
+      await api.webinar.startZoomLivestream(eventId, day.day_number)
+      setZoomStreamOk(true)
+      setZoomStreamMsg('Zoom начал вещание. Поток появится через 20–30 секунд.')
+      onChanged()
+    } catch (e: any) {
+      setZoomStreamOk(false)
+      setZoomStreamMsg(e.message || 'Не получилось запустить трансляцию')
+    } finally { setZoomStreamBusy(false) }
+  }
   const status = r?.status || 'idle'
   const streamActive = r?.stream_active
   const previewRef = useRef<HTMLVideoElement | null>(null)
@@ -1289,9 +1372,35 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
 
       {/* Ждём поток от Zoom, когда комната открыта, но эфир ещё не начат */}
       {roomState === 'open' && !isLive && !streamActive && (
-        <p className="text-xs text-gray-500 mt-2">
-          Ждём поток от Zoom/OBS… Кнопка «Начать эфир» загорится сама, как только пойдёт трансляция на RTMP-адрес из «Настроек».
-        </p>
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-gray-500">
+            Ждём поток от Zoom/OBS… Кнопка «Начать эфир» загорится сама, как только пойдёт трансляция на RTMP-адрес из «Настроек».
+          </p>
+          {/* ⚠️ Кнопка снимает последнее ручное действие в Zoom: раньше ведущий
+              обязан был в идущей конференции нажать «Подробнее → В эфир →
+              Пользовательская служба трансляции». Забыть это в суете перед
+              эфиром проще простого, а зрители всё это время видят пустой экран.
+              Показываем только когда сработает: конференция создана кнопкой и
+              трансляция у неё настроена. */}
+          {r?.zoom_meeting_id && r?.zoom_livestream_ok && (
+            <div>
+              <button type="button" onClick={startZoomStream} disabled={zoomStreamBusy}
+                className="px-3.5 py-2 rounded-xl border border-brand/40 text-sm text-[#25455D] hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-1.5">
+                <Video size={14} />
+                {zoomStreamBusy ? 'Запускаем…' : 'Запустить трансляцию из Zoom'}
+              </button>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Конференция должна быть уже открыта в Zoom. Нажмёте — вещание начнётся
+                само, заходить в Zoom и включать трансляцию не нужно.
+              </p>
+              {zoomStreamMsg && (
+                <p className={`text-xs mt-1 ${zoomStreamOk ? 'text-green-600' : 'text-red-600'}`}>
+                  {zoomStreamMsg}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Превью потока — только ведущему, пока эфир не начат */}

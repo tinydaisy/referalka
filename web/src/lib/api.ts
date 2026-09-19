@@ -1488,6 +1488,16 @@ export const api = {
       return request(`/api/v1/tech/clients${qs ? `?${qs}` : ''}`)
     },
     client: (id: number) => request(`/api/v1/tech/clients/${id}`),
+    // Воронка и сводка по базе — цифры над списком клиентов.
+    funnel: () => request('/api/v1/tech/funnel'),
+    // Деньги за месяц с разбивкой по видам начислений.
+    money: (period?: string) =>
+      request(`/api/v1/tech/money${period ? `?period=${period}` : ''}`),
+    // Куда слать уведомления: личка в боте + отдельная группа.
+    notifySettings: () => request('/api/v1/tech/notify-settings'),
+    saveNotifySettings: (d: any) =>
+      request('/api/v1/tech/notify-settings',
+              { method: 'POST', body: JSON.stringify(d) }),
     accruals: (period?: string) =>
       request(`/api/v1/tech/accruals${period ? `?period=${period}` : ''}`),
     // Показатели, из которых складываются деньги: ступень фикса, доля доживших.
@@ -2326,6 +2336,9 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/zoom-meeting`, { method: 'POST' }),
     deleteZoomMeeting: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/zoom-meeting`, { method: 'DELETE' }),
+    // Запуск вещания из Zoom без захода в Zoom (право meeting:update:livestream_status).
+    startZoomLivestream: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/zoom-livestream`, { method: 'POST' }),
     // текущий спикер: auto (по программе) или manual (ведущий выбрал)
     setCurrentSpeaker: (eventId: number, day: number, mode: 'auto' | 'manual', ecId?: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/current-speaker?mode=${mode}${ecId ? `&ec_id=${ecId}` : ''}`, { method: 'POST' }),

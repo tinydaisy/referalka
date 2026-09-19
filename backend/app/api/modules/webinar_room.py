@@ -1917,6 +1917,56 @@ async def set_current_speaker(
 
 
 # ─────────────────────────── управление эфиром (пульт ведущего) ───────────────────────────
+@router.post("/{day_number}/zoom-livestream", summary="Запустить трансляцию из Zoom (без захода в Zoom)")
+async def start_zoom_livestream(
+    event_id: int, day_number: int,
+    client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Говорит Zoom «начни вещать в нашу комнату» — вместо ручного нажатия
+    «Подробнее → В эфир → Пользовательская служба трансляции» в конференции.
+
+    ⚠️ Это НЕ «Начать эфир». Порядок остался прежним и осознанно: сначала
+    поток идёт в комнату (эта кнопка), ведущий видит превью и убеждается, что
+    картинка и звук в порядке, и только потом открывает его зрителям кнопкой
+    «Начать эфир». Слить два действия значило бы пускать зрителей на
+    непроверенную картинку.
+
+    ⚠️ Конференция должна быть УЖЕ ЗАПУЩЕНА в Zoom: вещать нечего, пока никто
+    её не открыл. Ошибку Zoom в этом случае показываем как есть — она
+    объясняет причину точнее, чем наш пересказ.
+    """
+    from app.services import zoom_api
+
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+    if not await client_has_feature(db, cid, "zoom_integration"):
+        raise HTTPException(403, "Интеграция с Zoom недоступна на вашем тарифе.")
+
+    room = await ws.get_room_or_404(db, event_id, day_number)
+    mid = room.get("zoom_meeting_id")
+    if not mid:
+        raise HTTPException(
+            400, "Конференция Zoom не создана из кабинета — запустить трансляцию нечем. "
+                 "Создайте её во вкладке «Эфир» или запустите вещание в Zoom руками.")
+    if not room.get("zoom_livestream_ok"):
+        raise HTTPException(
+            400, "У этой конференции не настроена трансляция в комнату. "
+                 "Создайте конференцию заново во вкладке «Эфир».")
+
+    try:
+        await zoom_api.set_livestream_status(db, cid, str(mid), start=True)
+    except zoom_api.ZoomNotConnected as e:
+        raise HTTPException(400, str(e))
+    except zoom_api.ZoomError as e:
+        raise HTTPException(502, f"Zoom: {e}")
+
+    # ⚠️ Статус комнаты НЕ меняем: «поток пошёл» отметит сам MediaMTX хуком
+    # `runOnPublish`, как и при ручном запуске. Ставить `ready` здесь значило
+    # бы поверить на слово Zoom-у, а не факту прихода потока.
+    return {"ok": True}
+
+
 @router.post("/{day_number}/go-live", summary="Начать эфир — зрители видят поток")
 async def go_live(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):
     cid = _cid(client)

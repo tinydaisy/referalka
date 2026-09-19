@@ -366,6 +366,30 @@ async def set_livestream(db, client_id: int, meeting_id: str, *,
     )
 
 
+async def set_livestream_status(db, client_id: int, meeting_id: str, *,
+                                start: bool) -> None:
+    """Запускает или останавливает трансляцию конференции — БЕЗ захода в Zoom.
+
+    ⚠️ Это снимает с ведущего последнее ручное действие: раньше он обязан был
+    в идущей конференции нажать «Подробнее → В эфир → Пользовательская служба
+    трансляции». Забыть это в суете перед эфиром проще простого, а зрители в
+    комнате всё это время видят пустой экран.
+
+    ⚠️ Требует право `meeting:update:livestream_status` — ОТДЕЛЬНОЕ от
+    `meeting:update:livestream`. Гранулярные права Zoom не иерархичны:
+    «настроить трансляцию» и «запустить трансляцию» — два разных разрешения.
+    Нет права → Zoom ответит ошибкой, и мы честно покажем её ведущему.
+
+    ⚠️ Работает только когда конференция УЖЕ ИДЁТ: Zoom не может начать
+    вещание того, что не началось. Ответ «meeting is not started» — не сбой
+    интеграции, а «сначала откройте конференцию».
+    """
+    await _request(
+        db, client_id, "PATCH", f"/meetings/{meeting_id}/livestream/status",
+        json={"action": "start" if start else "stop"},
+    )
+
+
 async def delete_meeting(db, client_id: int, meeting_id: str) -> None:
     """Удаляет конференцию. 404 считаем успехом — её уже нет, цель достигнута."""
     try:
