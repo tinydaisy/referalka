@@ -185,4 +185,20 @@ async def tech_update(faq_id: int, data: FaqPatch,
 @tech_router.delete("/{faq_id}", summary="Удалить вопрос")
 async def tech_delete(faq_id: int, user: dict = Depends(get_current_tech),
                       db: asyncpg.Connection = Depends(get_db)):
+    """⚠️⚠️ Удаление — ПО ПРАВУ `can_delete_faq` (миграция 461).
+
+    Добавлять и править может каждый: ошибку в ответе должен уметь поправить
+    тот, кто её заметил. А удаление убирает ответ у ВСЕХ сразу и безвозвратно,
+    поэтому право выдаётся поимённо галочкой в карточке специалиста.
+
+    ⚠️ Проверка стоит ЗДЕСЬ, а не только в интерфейсе. Спрятать кнопку, оставив
+    путь рабочим, значило бы запретить лишь на вид.
+    """
+    spec_id = int(user["sub"])
+    allowed = await db.fetchval(
+        "SELECT can_delete_faq FROM tech_specialists WHERE id = $1", spec_id)
+    if not allowed:
+        raise HTTPException(
+            403, "Удалять вопросы могут не все — попросите админа выдать право "
+                 "в вашей карточке")
     return await _delete(db, faq_id)

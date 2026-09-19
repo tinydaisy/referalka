@@ -32,8 +32,11 @@ async def me(
 ):
     spec_id = int(user["sub"])
     row = await db.fetchrow(
+        # ⚠️ `can_delete_faq` (мигр. 461) отдаём сюда же: по нему кабинет
+        # решает, показывать ли кнопку удаления в частых вопросах. Сам запрет
+        # стоит на эндпоинте удаления — здесь только вид.
         """SELECT id, email, name, phone, telegram_username,
-                  can_edit_materials, is_active
+                  can_edit_materials, can_delete_faq, is_active
              FROM tech_specialists WHERE id = $1""",
         spec_id,
     )

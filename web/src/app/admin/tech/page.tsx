@@ -289,6 +289,8 @@ function SpecsTab({ specs, rates, onChange }: any) {
               <th className="px-4 py-3">Платят</th>
               <th className="px-4 py-3">К выплате</th>
               <th className="px-4 py-3">Материалы</th>
+              {/* Право удалять из общей базы частых вопросов (миграция 461). */}
+              <th className="px-4 py-3">Удаление<br />вопросов</th>
               <th className="px-4 py-3">Работает</th>
               <th className="px-4 py-3"></th>
             </tr>
@@ -309,6 +311,17 @@ function SpecsTab({ specs, rates, onChange }: any) {
                   <input type="checkbox" checked={!!s.can_edit_materials}
                          onChange={async e => {
                            await api.adminTech.updateSpec(s.id, { can_edit_materials: e.target.checked })
+                           onChange()
+                         }} />
+                </td>
+                <td className="px-4 py-3">
+                  {/* ⚠️ Удаление вопроса убирает ответ у ВСЕХ сразу: база
+                      общая. Добавлять и править может каждый, удалять — только
+                      с этой галочкой (решение владельца 19.09.2026). */}
+                  <input type="checkbox" checked={!!s.can_delete_faq}
+                         title="Может удалять вопросы из общей базы"
+                         onChange={async e => {
+                           await api.adminTech.updateSpec(s.id, { can_delete_faq: e.target.checked })
                            onChange()
                          }} />
                 </td>

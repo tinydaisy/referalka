@@ -39,6 +39,8 @@ class SpecIn(BaseModel):
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
     can_edit_materials: Optional[bool] = None
+    # Право удалять вопросы из общей базы частых вопросов (мигр. 461).
+    can_delete_faq: Optional[bool] = None
     # ⚠️ Два РАЗНЫХ состояния (миграция 403), не путать:
     #   `is_active`     — работает ли вообще. FALSE = уволился: кабинет закрыт.
     #   `takes_clients` — берёт ли НОВЫХ клиентов. FALSE = отпуск или перегруз:
@@ -66,7 +68,7 @@ async def list_specs(
     """
     rows = await db.fetch(
         """SELECT ts.id, ts.email, ts.name, ts.phone, ts.telegram_username,
-                  ts.can_edit_materials, ts.is_active, ts.takes_clients,
+                  ts.can_edit_materials, ts.can_delete_faq, ts.is_active, ts.takes_clients,
                   ts.last_login_at, ts.created_at,
                   (SELECT COUNT(*) FROM clients c
                     WHERE c.tech_specialist_id = ts.id) AS clients_count,
@@ -128,7 +130,7 @@ async def update_spec(
     fs = data.model_fields_set
     sets, args = [], []
     for col in ("name", "phone", "telegram_username", "can_edit_materials",
-                "is_active", "takes_clients"):
+                "can_delete_faq", "is_active", "takes_clients"):
         if col in fs:
             args.append(getattr(data, col))
             sets.append(f"{col} = ${len(args)}")

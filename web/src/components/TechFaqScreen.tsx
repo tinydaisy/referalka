@@ -33,7 +33,17 @@ type Api = {
   list: (q?: string) => Promise<any>
   create: (data: { question: string; answer: string }) => Promise<any>
   update: (id: number, data: { question?: string; answer?: string }) => Promise<any>
-  remove: (id: number) => Promise<any>
+  /**
+   * ⚠️ УДАЛЯЕТ ТОЛЬКО АДМИН (решение владельца 19.09.2026) — поэтому метод
+   * необязательный: в наборе техспеца его нет вовсе, и кнопка не рисуется.
+   * Добавлять и править может каждый, а удаление убирает ответ у ВСЕХ сразу
+   * (база общая) — это уже не правка, а потеря общего знания.
+   *
+   * ⚠️ Отсутствие кнопки — не защита: запрет стоит и на бэкенде, в кабинете
+   * техспеца эндпоинта удаления просто нет. Прятать кнопку, оставив путь
+   * рабочим, значило бы запретить только на вид.
+   */
+  remove?: (id: number) => Promise<any>
 }
 
 /** «18.09.2026, 14:30» — дата создания в подписи автора. */
@@ -179,6 +189,7 @@ export default function TechFaqScreen({ api }: { api: Api }) {
   }
 
   async function remove(f: Faq) {
+    if (!api.remove) return
     // ⚠️ Спрашиваем подтверждение: база общая, удаление заденет всех.
     if (!confirm(`Удалить вопрос «${f.question}»?\n\nОн пропадёт у всех — база общая.`)) return
     try {
@@ -237,10 +248,13 @@ export default function TechFaqScreen({ api }: { api: Api }) {
                             className="rounded-lg border border-gray-300 p-1.5 text-gray-600 hover:bg-gray-50">
                       <Pencil size={14} />
                     </button>
-                    <button type="button" onClick={() => remove(f)} title="Удалить"
-                            className="rounded-lg border border-gray-300 p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600">
-                      <Trash2 size={14} />
-                    </button>
+                    {/* Удаление — только у админа: в наборе техспеца метода нет. */}
+                    {api.remove && (
+                      <button type="button" onClick={() => remove(f)} title="Удалить"
+                              className="rounded-lg border border-gray-300 p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 {/* ⚠️ whitespace-pre-wrap: в ответе есть абзацы, и без него
