@@ -203,6 +203,7 @@ VPN на сервере (выход с российского IP): [documentatio
 | Автонастройка Telegram «под ключ», шаг ноль (почта + бот поддержки) | [BOTS-AND-MINIAPP.md](documentation/architecture/BOTS-AND-MINIAPP.md) |
 | Instagram, автообзвоны, новости платформы, инструкции, партнёрка | [INTEGRATIONS.md](documentation/architecture/INTEGRATIONS.md) |
 | Внедренцы: мотивация, ставки, три варианта сотрудничества | [IMPLEMENTER-SYSTEM.md](documentation/architecture/IMPLEMENTER-SYSTEM.md) |
+| Кому достаётся новое обращение: очередь, перехват, нагрузка | [auto-Distribution.md](documentation/architecture/auto-Distribution.md) |
 | Кабинет техспеца: что видит, как считаются деньги и премия | [TECH-CABINET.md](documentation/architecture/TECH-CABINET.md) |
 | Остальное | [MISC.md](documentation/architecture/MISC.md) |
 | История первых месяцев (апрель 2026) | [STATUS-HISTORY.md](documentation/architecture/STATUS-HISTORY.md) |
