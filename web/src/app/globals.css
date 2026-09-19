@@ -247,10 +247,22 @@ body {
 .scroll-brand {
   scrollbar-width: thin;                        /* Firefox */
   scrollbar-color: #FFCFA4 rgba(255, 255, 255, 0.08);
+  /* ⚠️ Полоса видна ВСЕГДА, а не только во время прокрутки (правило
+     владельца, 19.09.2026). В macOS и iOS системная настройка «показывать
+     полосы прокрутки: при прокрутке» по умолчанию прячет её совсем —
+     человек не видит, что ленту чата вообще можно мотать, и не находит
+     сообщения выше. `-webkit-overflow-scrolling: auto` отключает оверлейную
+     полосу вебкита, из-за которой она исчезает вместе с инерцией. */
+  -webkit-overflow-scrolling: auto;
 }
 .scroll-brand::-webkit-scrollbar {
   height: 8px;
   width: 8px;
+  /* ⚠️ Обязательно: без явного display полоса в WebKit остаётся оверлейной
+     (появляется на время прокрутки). С ним она занимает место в раскладке
+     и видна постоянно. */
+  -webkit-appearance: none;
+  display: block;
 }
 .scroll-brand::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.06);

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import {
   Globe, Mail, Plus, Trash2, RefreshCw, CheckCircle2, XCircle,
   Loader2, ShieldCheck, Copy, Check, AlertTriangle, Clock,
+  Info, ExternalLink,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import FeatureLock from '@/components/FeatureLock'
@@ -25,6 +26,15 @@ interface DnsRecord {
   host: string
   value: string
   title: string
+  note?: string
+}
+
+/** Панель, где клиент правит DNS — определяется по NS-записям домена. */
+interface DnsProvider {
+  key: string
+  title: string
+  panel_url: string
+  steps: string[]
   note?: string
 }
 
@@ -103,6 +113,52 @@ function RecordRow({ rec }: { rec: DnsRecord | { type: string; host: string; val
         </div>
       </div>
       {rec.note && <p className="text-xs text-slate-500 mt-2">{rec.note}</p>}
+    </div>
+  )
+}
+
+/**
+ * Подсказка «куда именно вписывать» — под панель конкретного провайдера.
+ *
+ * Провайдера определяет бэкенд по NS-записям домена ([dns_providers.py]).
+ * Раньше клиент получал «добавьте CNAME» и дальше искал нужный раздел сам:
+ * у всех панелей он называется по-разному («Управление зоной», «DNS-записи»,
+ * «Ресурсные записи»), и это давало заметную часть обращений в поддержку.
+ *
+ * ⚠️ Провайдер не определился (свой DNS, редкий хостер) — блок просто не
+ * показывается, общая инструкция с записью остаётся на месте. Это частый
+ * и нормальный случай, а не ошибка.
+ *
+ * ⚠️ Прописать записи за клиента автоматически нельзя: у российских
+ * регистраторов API авторизуется логином и паролем от всего аккаунта
+ * (не токеном с ограниченными правами), а Domain Connect они не
+ * поддерживают. Поэтому помогаем инструкцией.
+ */
+function ProviderHint({ provider }: { provider?: DnsProvider | null }) {
+  if (!provider) return null
+  return (
+    <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+      <div className="flex items-start gap-2 mb-2">
+        <Info size={15} className="text-blue-600 mt-0.5 shrink-0" />
+        <p className="text-sm text-slate-800">
+          Ваш домен обслуживается в <span className="font-medium">{provider.title}</span> —
+          записи добавляются там.
+        </p>
+      </div>
+      {!!provider.steps?.length && (
+        <ol className="list-decimal pl-8 space-y-1 text-sm text-slate-700 mb-2">
+          {provider.steps.map((s, i) => <li key={i}>{s}</li>)}
+        </ol>
+      )}
+      {provider.note && (
+        <p className="text-xs text-slate-600 pl-8 mb-2">{provider.note}</p>
+      )}
+      {provider.panel_url && (
+        <a href={provider.panel_url} target="_blank" rel="noopener noreferrer"
+           className="inline-flex items-center gap-1.5 pl-8 text-sm text-blue-700 hover:text-blue-900 font-medium">
+          Открыть панель {provider.title} <ExternalLink size={13} />
+        </a>
+      )}
     </div>
   )
 }
@@ -480,6 +536,7 @@ export default function DomainsTab() {
                     </p>
                   )}
                   <RecordRow rec={{ ...d.dns_instruction, title: undefined }} />
+                  <ProviderHint provider={d.dns_details?.provider} />
                   <p className="text-xs text-slate-500 mt-2">
                     NS-серверы менять не нужно — домен остаётся под вашим управлением.
                     Запись расходится по интернету не сразу — обычно от нескольких минут до пары часов.
@@ -663,6 +720,7 @@ function MailDomainCard({ d, busy, onCheck, onRemove, onSave }: {
           <div className="space-y-2">
             {d.dns_records.map(r => <RecordRow key={r.kind} rec={r} />)}
           </div>
+          <ProviderHint provider={details.provider} />
         </div>
       )}
 

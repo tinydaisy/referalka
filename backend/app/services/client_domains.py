@@ -197,6 +197,25 @@ def is_apex_domain(domain: str | None) -> bool:
     return False
 
 
+def apex_of(domain: str | None) -> str:
+    """Корень домена: lp.example.co.uk → example.co.uk
+
+    ⚠️ Нужен для запроса NS-записей: NS живут ТОЛЬКО на корне зоны. Спросить
+    NS у поддомена — почти всегда пустой ответ, и определить, где у клиента
+    домен, не выйдет. Учитывает двухуровневые зоны (co.uk, com.ru) тем же
+    списком, что и is_apex_domain — иначе у example.com.ru корнем посчитался
+    бы «com.ru».
+    """
+    d = normalize_domain(domain)
+    if not d:
+        return ""
+    parts = d.split(".")
+    if len(parts) <= 2:
+        return d
+    take = 3 if ".".join(parts[-2:]) in _MULTI_LEVEL_TLDS else 2
+    return ".".join(parts[-take:])
+
+
 # ── Резолв ──────────────────────────────────────────────────────────────────
 
 async def client_public_url(db, client_id: int | None) -> str:

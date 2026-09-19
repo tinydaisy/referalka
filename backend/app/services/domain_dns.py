@@ -21,7 +21,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from app.services import client_domains
+from app.services import client_domains, dns_providers
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,23 @@ async def _query(name: str, rdtype: str) -> list[str]:
     return await asyncio.to_thread(_query_sync, name, rdtype)
 
 
+# ── Кто управляет DNS домена ────────────────────────────────────────────────
+
+async def detect_provider(domain: str) -> tuple[list[str], Optional[dict]]:
+    """(NS-серверы, описание панели провайдера).
+
+    Нужно, чтобы показать клиенту инструкцию под ЕГО панель, а не общую.
+    ⚠️ NS спрашиваем у КОРНЯ домена: у поддомена (lp.example.ru) своих
+    NS-записей нет, ответ был бы пустым и провайдер не определился бы
+    именно у тех, кто подключает поддомен.
+    """
+    apex = client_domains.apex_of(domain)
+    if not apex:
+        return [], None
+    ns = [n.lower() for n in await _query(apex, "NS")]
+    return ns, dns_providers.detect(ns)
+
+
 # ── Домен лендингов ─────────────────────────────────────────────────────────
 
 async def check_landing_dns(domain: str, *, expect_host: str,
@@ -94,8 +111,14 @@ async def check_landing_dns(domain: str, *, expect_host: str,
     domain = domain.strip().lower().rstrip(".")
     expect_host = expect_host.strip().lower().rstrip(".")
 
-    cnames = [c.lower() for c in await _query(domain, "CNAME")]
-    a_records = await _query(domain, "A")
+    # Провайдера определяем ТЕМ ЖЕ заходом, параллельно: отдельный запрос
+    # после проверки добавил бы клиенту лишние секунды ожидания кнопки.
+    cnames_raw, a_records, (ns_records, provider) = await asyncio.gather(
+        _query(domain, "CNAME"),
+        _query(domain, "A"),
+        detect_provider(domain),
+    )
+    cnames = [c.lower() for c in cnames_raw]
 
     cname_ok = any(c == expect_host or c.endswith("." + expect_host) for c in cnames)
     ip_ok = bool(expect_ip) and expect_ip in a_records
@@ -129,6 +152,10 @@ async def check_landing_dns(domain: str, *, expect_host: str,
         "a": a_records,
         "expect_host": expect_host,
         "expect_ip": expect_ip,
+        # Где клиент правит DNS: показываем инструкцию под его панель.
+        # provider = None — провайдер неизвестен, кабинет покажет общую.
+        "ns": ns_records,
+        "provider": provider,
     }
 
 
@@ -141,10 +168,11 @@ async def check_mail_dns(domain: str, *, dkim_selector: str,
     """SPF + DKIM + DMARC в домене клиента. Каждая запись проверяется отдельно."""
     domain = domain.strip().lower().rstrip(".")
 
-    root_txt, dkim_txt, dmarc_txt = await asyncio.gather(
+    root_txt, dkim_txt, dmarc_txt, (ns_records, provider) = await asyncio.gather(
         _query(domain, "TXT"),
         _query(f"{dkim_selector}._domainkey.{domain}", "TXT"),
         _query(f"_dmarc.{domain}", "TXT"),
+        detect_provider(domain),
     )
 
     # ── SPF ──
@@ -199,6 +227,9 @@ async def check_mail_dns(domain: str, *, dkim_selector: str,
         "spf": {"ok": spf_ok, "message": spf_msg, "found": spf_records},
         "dkim": {"ok": dkim_ok, "message": dkim_msg, "found": dkim_found},
         "dmarc": {"ok": dmarc_ok, "message": dmarc_msg, "found": dmarc_found},
+        # Панель, где клиент правит DNS (то же, что у домена лендингов).
+        "ns": ns_records,
+        "provider": provider,
     }
 
 

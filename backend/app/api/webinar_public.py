@@ -599,11 +599,26 @@ async def chat_history(slug: str, day: int, limit: int = Query(100, le=300)):
         cur_sid = room.get("current_session_id")
         cleared = room.get("chat_cleared_at")
         if cur_sid:
-            # эфир идёт — сообщения текущего запуска
+            # Эфир идёт — сообщения текущего запуска ПЛЮС те, что написали до
+            # его старта (они лежат с session_id IS NULL: в момент отправки
+            # запуска ещё не было, и проставить его было нечем).
+            #
+            # ⚠️ Без второй половины условия сообщения, написанные до кнопки
+            # «Начать эфир», пропадали у ВСЕХ, кто открыл страницу после старта
+            # (19.09.2026, живой эфир iViSiON-9): автор видел их у себя, потому
+            # что они пришли ему по WebSocket и остались в памяти вкладки, — а
+            # новая вкладка грузит историю с нуля и получала пустой чат. Люди
+            # успевают написать до начала почти всегда: ссылку открывают заранее.
+            #
+            # ⚠️ Отсекаем по `chat_cleared_at` ровно как в ветке «эфир не идёт»:
+            # иначе «Начать заново» очищал бы чат только до старта эфира, а
+            # после старта сброшенные сообщения возвращались бы.
             rows = await conn.fetch(
                 "SELECT id, contact_id, author_name, text, at FROM webinar_chat_messages "
-                "WHERE room_id=$1 AND status='visible' AND session_id=$2 "
-                "ORDER BY at DESC LIMIT $3", room["id"], cur_sid, limit)
+                "WHERE room_id=$1 AND status='visible' "
+                "  AND (session_id=$2 OR (session_id IS NULL "
+                "       AND ($4::timestamptz IS NULL OR at > $4))) "
+                "ORDER BY at DESC LIMIT $3", room["id"], cur_sid, limit, cleared)
         else:
             # эфир не идёт (состояние b/created) — живой чат = сообщения без session_id,
             # но только НОВЕЕ момента последнего сброса (reset/close). После «Начать

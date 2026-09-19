@@ -293,6 +293,41 @@ async def get_me_with_token(access_token: str) -> dict:
     return data
 
 
+async def ensure_screen_share_for_all(db, client_id: int) -> bool:
+    """Разрешить показ экрана ВСЕМ участникам, а не только ведущему.
+
+    ⚠️ Это настройка уровня АККАУНТА (`PATCH /users/me/settings`), а не
+    конференции: в теле создания конференции такого поля нет вовсе (сверено
+    с OpenAPI-схемой Zoom — там 66 полей settings, и из «share» только
+    `show_share_button`). Положить его в `create_meeting` значит тихо ничего
+    не сделать: неизвестные поля Zoom молча проглатывает.
+
+    Два поля, оба со значениями `host` | `all`:
+      • `who_can_share_screen` — кто вообще может начать показ;
+      • `who_can_share_screen_when_someone_is_sharing` — может ли второй
+        спикер перехватить показ, пока первый не остановил свой. Без него
+        передача слайдов превращается в паузу «останови, теперь я».
+
+    ⚠️ Ошибку НЕ поднимаем наверх: у части аккаунтов настройка заблокирована
+    администратором организации (Zoom отвечает 400) — но конференция при этом
+    совершенно рабочая. Уронить её создание из-за необязательного улучшения
+    нельзя. Возвращаем, получилось или нет.
+    """
+    try:
+        await _request(db, client_id, "PATCH", "/users/me/settings", json={
+            "in_meeting": {
+                "screen_sharing": True,
+                "who_can_share_screen": "all",
+                "who_can_share_screen_when_someone_is_sharing": "all",
+            },
+        })
+        return True
+    except Exception as e:
+        logger.warning("Zoom: показ экрана всем не включён у клиента %s: %s",
+                       client_id, e)
+        return False
+
+
 async def create_meeting(
     db, client_id: int, *,
     topic: str,
@@ -310,7 +345,11 @@ async def create_meeting(
     - `join_before_host` + `waiting_room=False` — спикер заходит и проверяет
       звук до ведущего. Зал ожидания тут только мешает: зрители в конференцию
       не ходят вовсе, они смотрят нашу комнату;
-    - `mute_upon_entry` — вошедший не влетает в эфир своим фоном;
+    - `mute_upon_entry` + `host_video=False` / `participant_video=False` —
+      вошедший не влетает в эфир своим фоном и своей камерой. ⚠️ Камера была
+      включена по умолчанию: человек заходит проверить звук — и сразу попадает
+      в эфир лицом, не успев к этому приготовиться. Включает её каждый сам,
+      когда готов;
     - `auto_recording='none'` — запись ведёт НАШ MediaMTX. Вторая копия в
       облаке Zoom забивает его квоту и ничего не добавляет: нарезка по спикерам
       работает с нашим файлом.
@@ -321,17 +360,31 @@ async def create_meeting(
         "duration": max(15, min(int(duration_min or 60), 1440)),
         "agenda": agenda[:2000],
         "settings": {
-            "host_video": True,
-            "participant_video": True,
+            "host_video": False,
+            "participant_video": False,
             "join_before_host": True,
             "waiting_room": False,
             "mute_upon_entry": True,
             "auto_recording": "none",
+            # ⚠️ Кто может показывать экран — здесь НЕ задаётся. В настройках
+            # конференции такого поля нет вовсе (сверено с OpenAPI-схемой
+            # `POST /users/{userId}/meetings`: 66 полей settings, из «share»
+            # только `show_share_button`). Это настройка уровня АККАУНТА,
+            # и ставится она отдельным вызовом — `ensure_screen_share_for_all`
+            # ниже. Передать `who_can_share_screen` сюда — тихо ничего не
+            # сделать: Zoom молча проглотит неизвестное поле.
         },
     }
     if start_time_utc:
         body["start_time"] = start_time_utc
         body["timezone"] = "UTC"
+
+    # Показ экрана всем — настройка аккаунта, её нельзя передать в теле
+    # конференции. Ставим перед созданием: она действует и на уже созданные,
+    # так что повторный вызов ничего не портит, а нового клиента не заставляет
+    # искать галочку в зуме руками. Не получилось — создаём конференцию всё
+    # равно (внутри проглочено и записано в лог).
+    await ensure_screen_share_for_all(db, client_id)
 
     return await _request(db, client_id, "POST", "/users/me/meetings", json=body)
 

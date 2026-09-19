@@ -81,6 +81,8 @@ export default function WebinarRoomPage() {
   const [error, setError] = useState('')
   const [chat, setChat] = useState<any[]>([])
   const [chatText, setChatText] = useState('')
+  /** Видео идёт, но браузер не дал звук — показываем кнопку «Включить звук». */
+  const [needUnmute, setNeedUnmute] = useState(false)
   const [online, setOnline] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, { up: number; down: number }>>({})
   const [poll, setPoll] = useState<any>(null)
@@ -160,6 +162,47 @@ export default function WebinarRoomPage() {
     return () => clearInterval(t)
   }, [room?.room?.id, api, pushChatMsg])
 
+  /**
+   * Запуск со ЗВУКОМ, с откатом на беззвучный.
+   *
+   * ⚠️ Раньше плеер всегда стартовал с `muted` — и зритель сидел в тишине,
+   * не найдя, где включить звук (правило владельца, 19.09.2026). Просто убрать
+   * `muted` нельзя: браузеры блокируют автозапуск со звуком, и тогда не
+   * запустится ВООБЩЕ ничего — чёрный экран вместо тихого видео, что хуже.
+   *
+   * Поэтому: сначала пробуем со звуком; заблокировали — включаем беззвучно
+   * (видео идёт) и поднимаем заметную кнопку «Включить звук». Один клик по
+   * ней снимает запрет браузера — это и есть то «действие пользователя»,
+   * которого он ждёт.
+   */
+  const playWithSound = useCallback(async (video: HTMLVideoElement) => {
+    video.muted = false
+    try {
+      await video.play()
+      setNeedUnmute(false)
+      return true
+    } catch {
+      video.muted = true
+      try {
+        await video.play()
+        setNeedUnmute(true)   // идёт, но без звука — покажем кнопку
+        return true
+      } catch {
+        return false          // не запустился вовсе → кнопка «Обновить видео»
+      }
+    }
+  }, [])
+
+  /** Включить звук по клику зрителя — клик снимает блокировку автозапуска. */
+  const unmute = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = false
+    video.volume = 1
+    video.play().catch(() => {})
+    setNeedUnmute(false)
+  }, [])
+
   // HLS-плеер
   useEffect(() => {
     if (!room?.room) return
@@ -193,7 +236,8 @@ export default function WebinarRoomPage() {
           const h = new Hls({ liveDurationInfinity: true, lowLatencyMode: false })
           hlsInstRef.current = h
           h.loadSource(rm.hls_url); h.attachMedia(video)
-          h.on(Hls.Events.MANIFEST_PARSED, () => video.play().then(() => setPlayerStuck(false)).catch(() => setPlayerStuck(true)))
+          h.on(Hls.Events.MANIFEST_PARSED, () =>
+            playWithSound(video).then(ok => setPlayerStuck(!ok)))
           h.on(Hls.Events.FRAG_BUFFERED, () => { netErrCount = 0; setPlayerStuck(false) })
           h.on(Hls.Events.ERROR, (_e: any, data: any) => {
             if (!data?.fatal) return
@@ -217,7 +261,8 @@ export default function WebinarRoomPage() {
         // iOS Safari — нативный HLS
         video.addEventListener('error', nativeError)
         video.addEventListener('playing', () => setPlayerStuck(false))
-        video.src = rm.hls_url; video.load(); video.play().catch(() => setPlayerStuck(true))
+        video.src = rm.hls_url; video.load()
+        playWithSound(video).then(ok => setPlayerStuck(!ok))
       }
     })
     return () => {
@@ -227,6 +272,10 @@ export default function WebinarRoomPage() {
       hlsInstRef.current = null
       if (hls) { try { hls.destroy() } catch {} }
     }
+    // ⚠️ playWithSound намеренно НЕ в зависимостях: он стабилен (useCallback
+    // без зависимостей), а лишняя зависимость пересоздавала бы плеер и рвала
+    // эфир на ровном месте.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.room?.hls_url, room?.room?.stream_type])
 
   // Ручной перезапуск плеера (кнопка «Обновить видео»): пере-инициализируем hls.js
@@ -239,12 +288,17 @@ export default function WebinarRoomPage() {
     const inst = hlsInstRef.current
     if (inst) {
       try { inst.stopLoad(); inst.startLoad(); } catch {}
-      video.play().catch(() => {})
+      // ⚠️ Через playWithSound, а не голый play(): кнопку жмёт сам зритель,
+      // то есть блокировки автозапуска в этот момент нет — грех не включить
+      // звук. Простой play() возвращал бы человека в тишину после каждого
+      // перезапуска плеера.
+      playWithSound(video)
     } else {
       // нативный (iOS) — просто перезагружаем источник
-      video.src = rm.hls_url; video.load(); video.play().catch(() => {})
+      video.src = rm.hls_url; video.load()
+      playWithSound(video)
     }
-  }, [])
+  }, [playWithSound])
 
   // WebSocket realtime — с АВТО-ПЕРЕПОДКЛЮЧЕНИЕМ. Cloudflare рвёт неактивные WS,
   // на слабой сети зрителя соединение отваливается молча → чат «замирал». Теперь
@@ -536,12 +590,20 @@ export default function WebinarRoomPage() {
               </div>
             ) : null}
             {/* плеер только в эфире: до «Начать эфир» hls_url с бэка не приходит */}
-            {/* muted — иначе iOS/Android блокируют autoPlay; звук зритель включит сам.
+            {/* ⚠️ БЕЗ `controls` — это ПРЯМОЙ ЭФИР (19.09.2026, правило владельца).
+                Стандартная панель браузера даёт паузу, перемотку и таймер «6:59»,
+                как у записи. Нечаянная пауза в live не останавливает эфир: он
+                продолжает идти, а зритель после «play» смотрит с этого же места,
+                то есть ПРОШЛОЕ, и не понимает, что отстал от говорящего.
+                Своя панель ниже: звук и полный экран, паузы и перемотки нет.
                 playsInline + webkit — чтобы на iPhone не открывалось на весь экран. */}
-            {live && <video ref={videoRef} controls autoPlay muted playsInline
+            {live && <video ref={videoRef} autoPlay playsInline
+              onClick={e => e.preventDefault()}
               // @ts-ignore — атрибут для старых iOS
               webkit-playsinline="true"
               className="w-full h-full" />}
+            {live && <LiveControls videoRef={videoRef} needUnmute={needUnmute}
+                                   onUnmute={unmute} />}
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
             {/* Кнопка перезапуска — всегда доступна в эфире (правый верх), на случай
                 «тихого» чёрного экрана без fatal-ошибки (заблокированный autoplay). */}
@@ -772,6 +834,111 @@ export default function WebinarRoomPage() {
 
 // Результат кнопки «Регистрация на событие»: либо «вы зарегистрированы» (ушло в бот),
 // либо «Выберите удобный мессенджер» с кнопками площадок клиента (deeplink evreg_).
+/**
+ * Панель управления ПРЯМЫМ эфиром: звук и полный экран. Паузы и перемотки нет.
+ *
+ * ⚠️ Почему не штатные `controls` браузера (правило владельца, 19.09.2026):
+ * они показывают полосу перемотки и таймер, как у записи. В live пауза эфир
+ * не останавливает — он продолжает идти; после «play» зритель смотрит ПРОШЛОЕ
+ * и не понимает, почему говорящий отвечает не на то. Поэтому паузы у зрителя
+ * нет вовсе, а если отставание всё же возникло (свернул вкладку, подвисла
+ * сеть) — плеер сам догоняет живой край.
+ */
+function LiveControls({ videoRef, needUnmute, onUnmute }: {
+  videoRef: React.RefObject<HTMLVideoElement>
+  needUnmute: boolean
+  onUnmute: () => void
+}) {
+  const [muted, setMuted] = useState(true)
+  const [full, setFull] = useState(false)
+
+  // Держим иконку в согласии с реальным состоянием видео: звук могли включить
+  // кнопкой «Включить звук», клавишей или из системного меню.
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const sync = () => setMuted(v.muted || v.volume === 0)
+    sync()
+    v.addEventListener('volumechange', sync)
+    return () => v.removeEventListener('volumechange', sync)
+  }, [videoRef])
+
+  /**
+   * Возврат к живому краю.
+   *
+   * ⚠️ Пауза у зрителя убрана, но отстать всё равно можно: вкладку свернули,
+   * сеть подвисла, телефон заснул — браузер сам останавливает видео. Поэтому
+   * раз в 5 секунд проверяем, далеко ли мы от конца буфера, и подматываем.
+   * Порог 6 секунд: длина HLS-сегмента + запас, иначе дёргали бы картинку на
+   * ровном месте при обычном джиттере сети.
+   */
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const catchUp = () => {
+      try {
+        if (!v.buffered.length) return
+        const edge = v.buffered.end(v.buffered.length - 1)
+        if (edge - v.currentTime > 6) v.currentTime = edge - 0.5
+        if (v.paused) v.play().catch(() => {})
+      } catch {}
+    }
+    const t = setInterval(catchUp, 5000)
+    // Вернулись во вкладку — догоняем сразу, не дожидаясь тика таймера.
+    const onVis = () => { if (!document.hidden) catchUp() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
+  }, [videoRef])
+
+  const toggleSound = () => {
+    const v = videoRef.current
+    if (!v) return
+    if (v.muted || v.volume === 0) { onUnmute() } else { v.muted = true }
+  }
+
+  const toggleFull = () => {
+    const box = videoRef.current?.parentElement
+    if (!box) return
+    if (document.fullscreenElement) { document.exitFullscreen?.(); setFull(false) }
+    // iOS Safari не умеет fullscreen на div — там просим сам <video>.
+    else if (box.requestFullscreen) { box.requestFullscreen(); setFull(true) }
+    else (videoRef.current as any)?.webkitEnterFullscreen?.()
+  }
+
+  return (
+    <>
+      {/* Браузер не дал автозапуск со звуком — крупная кнопка ПО ЦЕНТРУ, видна
+          сразу. ⚠️ Она включает звук и запускает видео ОДНИМ нажатием: зритель
+          жмёт «плей» и ждёт, что сразу услышит, а не пойдёт потом искать звук
+          (правило владельца, 19.09.2026). Маленькую иконку в углу, которая
+          появляется по наведению, человек не находит — пока целится, промах
+          попадает по видео и ставит его на паузу. Поэтому: затемняем весь
+          кадр и даём одну большую цель во всю площадь. */}
+      {needUnmute && (
+        <button onClick={onUnmute} aria-label="Смотреть со звуком"
+          className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-3 bg-black/45">
+          <span className="w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg"
+                style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</span>
+          <span className="text-white font-semibold text-sm drop-shadow">
+            Смотреть со звуком
+          </span>
+        </button>
+      )}
+      <div className="absolute bottom-3 right-3 flex items-center gap-2">
+        <button onClick={toggleSound} aria-label={muted ? 'Включить звук' : 'Выключить звук'}
+          title={muted ? 'Включить звук' : 'Выключить звук'}
+          className="bg-black/50 hover:bg-black/70 text-white w-9 h-9 rounded-lg flex items-center justify-center text-base">
+          {muted ? '🔇' : '🔊'}
+        </button>
+        <button onClick={toggleFull} aria-label="Во весь экран" title="Во весь экран"
+          className="bg-black/50 hover:bg-black/70 text-white w-9 h-9 rounded-lg flex items-center justify-center text-base">
+          {full ? '✕' : '⛶'}
+        </button>
+      </div>
+    </>
+  )
+}
+
 function RegEventModal({ res, onClose }: any) {
   const bot = res.delivered === 'bot'
   const platforms: any[] = res.platforms || []

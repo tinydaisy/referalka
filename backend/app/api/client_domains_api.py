@@ -274,6 +274,24 @@ async def add_domain(data: DomainIn,
                 row["id"], str(e),
             )
 
+    # Панель провайдера определяем СРАЗУ при добавлении: подсказка «куда
+    # вписывать» нужна именно сейчас, а не после первой проверки DNS —
+    # до неё клиент как раз и идёт прописывать запись.
+    # ⚠️ Ошибку глушим: не определился провайдер — это не повод не добавить
+    # домен, кабинет просто покажет общую инструкцию.
+    try:
+        ns_records, provider = await dns.detect_provider(domain)
+        if ns_records or provider:
+            import json
+            row = await db.fetchrow(
+                "UPDATE client_domains SET dns_details = $2::jsonb, updated_at = NOW() "
+                " WHERE id = $1 RETURNING *",
+                row["id"],
+                json.dumps({"ns": ns_records, "provider": provider}, default=str),
+            )
+    except Exception as e:
+        logger.debug("Провайдер DNS для %s не определён: %r", domain, e)
+
     cd.invalidate_cache(client_id=client_id, domain=domain)
     await cd.note_landing_domain(db, domain)
     return _serialize(row)
