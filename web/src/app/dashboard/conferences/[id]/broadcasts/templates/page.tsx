@@ -143,6 +143,37 @@ const TYPE_DEFS: TypeDef[] = TYPE_DEFS_RAW.map(d => ({
   variables: d.variables.includes('{vip_url}') ? d.variables : [...d.variables, '{vip_url}'],
 }))
 
+// ─── Группы шаблонов в списке ────────────────────────────────────────────────
+// Три полосы: про спикеров → общие о событии → в чат спикеров.
+// ⚠️ Первые две различаются ТИПОМ (это смысл рассылки), третья — флагом
+// send_to_speakers_chat (это адресат). Смешивать признаки нельзя: шаблон про
+// спикера может уходить и участникам, и в чат команды.
+const SPEAKER_TOPIC_TYPES = new Set([
+  'speaker_intro',   // знакомство со спикером
+  'pre_conf',        // анонс знакомств — тоже про спикеров
+  'expert_day',      // экспертный день конкретного человека
+  '5min_before',     // «выступает такой-то»
+  'gift',            // подарок спикера — перечень подарков
+])
+
+type TplGroup = 'speaker_topic' | 'general' | 'speakers_chat'
+
+function tplGroup(t: any): TplGroup {
+  if (t?.send_to_speakers_chat) return 'speakers_chat'
+  return SPEAKER_TOPIC_TYPES.has(t?.type) ? 'speaker_topic' : 'general'
+}
+
+const GROUP_ORDER: TplGroup[] = ['speaker_topic', 'general', 'speakers_chat']
+
+const GROUP_META: Record<TplGroup, { title: string; hint?: string }> = {
+  speaker_topic: { title: 'Шаблоны участникам: про спикеров',
+                   hint: 'Анонсы спикеров, их выступлений и подарков.' },
+  general:       { title: 'Шаблоны участникам: общие о событии',
+                   hint: 'Напоминания о старте, итоги дня, продажа тарифа.' },
+  speakers_chat: { title: 'Шаблоны в чат спикеров',
+                   hint: 'Служебные сообщения команде. Участникам события не уходят — чат задаётся в «Описании» события, раздел «Чаты и каналы события».' },
+}
+
 const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_name}', desc: 'Имя спикера' },
   { name: '{speaker_role}', desc: 'Роль спикера (Спикер / Хедлайнер / Жюри и т.п.)' },
@@ -1626,12 +1657,12 @@ export default function TemplatesPage() {
           .filter(t => t.type !== 'custom')
           .slice()
           .sort((a, b) => {
-            // ⚠️ Сначала по ГРУППЕ: шаблоны в чат спикеров идут после
-            // участниковых. В общем списке служебные сообщения команде
-            // теряются среди рассылок по аудитории, и их путают — человек
-            // открывает «Программу дня», думая, что она уйдёт зрителям.
-            const ag = a.send_to_speakers_chat ? 1 : 0
-            const bg = b.send_to_speakers_chat ? 1 : 0
+            // ⚠️ Сначала по ГРУППЕ (про спикеров → общие → в чат спикеров).
+            // В сплошном списке служебные сообщения команде теряются среди
+            // рассылок по аудитории, и их путают — человек открывает
+            // «Программу дня», думая, что она уйдёт зрителям.
+            const ag = GROUP_ORDER.indexOf(tplGroup(a))
+            const bg = GROUP_ORDER.indexOf(tplGroup(b))
             if (ag !== bg) return ag - bg
             const ai = TYPE_DEFS.findIndex(d => d.type === a.type)
             const bi = TYPE_DEFS.findIndex(d => d.type === b.type)
@@ -1643,16 +1674,14 @@ export default function TemplatesPage() {
             const def: TypeDef = TYPE_DEFS.find(d => d.type === tpl.type)
               || { type: tpl.type, title: tpl.name, hint: '', variables: [], showPhoto: false }
             // Заголовки групп — перед первой карточкой каждой группы.
-            // Подпись «для участников» показываем, только когда есть вторая
-            // группа: при одном списке она лишняя.
-            const isSpk = !!tpl.send_to_speakers_chat
-            const prevSpk = idx > 0 ? !!arr[idx - 1].send_to_speakers_chat : null
-            const firstOfGroup = idx === 0 || prevSpk !== isSpk
-            const hasBoth = arr.some(x => x.send_to_speakers_chat) && arr.some(x => !x.send_to_speakers_chat)
-            // Ключ группы и её свёрнутость. Сворачивание работает, только когда
-            // групп реально две: при одном списке прятать нечего.
-            const gKey = isSpk ? 'speakers' : 'guests'
+            const gKey = tplGroup(tpl)
+            const prevKey = idx > 0 ? tplGroup(arr[idx - 1]) : null
+            const firstOfGroup = idx === 0 || prevKey !== gKey
+            // Заголовки и сворачивание — только когда групп реально больше
+            // одной: при сплошном списке подпись и стрелка лишние.
+            const hasBoth = new Set(arr.map(tplGroup)).size > 1
             const collapsed = hasBoth && !!collapsedGroups[gKey]
+            const gMeta = GROUP_META[gKey]
             // ⚠️ Свёрнутая группа: обёртку прячем ЦЕЛИКОМ, кроме той, что несёт
             // заголовок. Пустые обёртки остались бы в потоке и получили отступ
             // от space-y-4 — под полосой тянулся бы столбик пустот.
@@ -1666,22 +1695,19 @@ export default function TemplatesPage() {
                 {firstOfGroup && hasBoth && (
                   <button type="button"
                     onClick={() => setCollapsedGroups(p => ({ ...p, [gKey]: !p[gKey] }))}
-                    className={`w-full text-left rounded-xl px-4 py-3 mb-3 flex items-center gap-2.5 transition-colors hover:brightness-95 ${isSpk ? 'mt-8' : ''}`}
+                    className={`w-full text-left rounded-xl px-4 py-3 mb-3 flex items-center gap-2.5 transition-colors hover:brightness-95 ${idx > 0 ? 'mt-8' : ''}`}
                     style={{ background: '#FFCFA4' }}>
                     <ChevronDown size={16}
                       className={`shrink-0 text-[#25455D] transition-transform ${collapsed ? '-rotate-90' : ''}`} />
                     <span className="min-w-0">
                       <span className="block text-sm font-bold uppercase tracking-wide text-[#25455D]">
-                        {isSpk ? 'Шаблоны в чат спикеров' : 'Шаблоны для участников'}
+                        {gMeta.title}
                         <span className="ml-2 font-semibold normal-case opacity-70">
-                          {arr.filter(x => !!x.send_to_speakers_chat === isSpk).length}
+                          {arr.filter(x => tplGroup(x) === gKey).length}
                         </span>
                       </span>
-                      {isSpk && (
-                        <span className="block text-xs text-[#25455D]/70 mt-0.5">
-                          Служебные сообщения команде. Участникам события не уходят —
-                          чат задаётся в «Описании» события, раздел «Чаты и каналы события».
-                        </span>
+                      {gMeta.hint && (
+                        <span className="block text-xs text-[#25455D]/70 mt-0.5">{gMeta.hint}</span>
                       )}
                     </span>
                   </button>
