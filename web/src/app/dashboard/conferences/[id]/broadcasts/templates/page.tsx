@@ -2422,7 +2422,38 @@ export default function TemplatesPage() {
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
 
-              {/* Галочка «чаты события» убрана — теперь только общие чаты. */}
+              {/* ⚠️ Чаты СОБЫТИЯ и чат СПИКЕРОВ — здесь же, а не только в
+                  редактировании. Раньше в создании их не было: клиент делал
+                  рассылку, она уходила мимо чатов, и он лез править только что
+                  созданный шаблон. Это событийные рассылки — чаты события им
+                  нужны по определению. Доступны всем: это чаты ЭТОГО события,
+                  фича broadcast_chats тут ни при чём. */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_event_chats}
+                  onChange={e => setForm({ ...form, send_to_event_chats: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    В групповые чаты этого события (заданы в «Описании» события).
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_speakers_chat}
+                  onChange={e => setForm({ ...form, send_to_speakers_chat: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чат спикеров</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    В закрытый чат команды — задаётся в «Описании» события, раздел
+                    «Чаты и каналы события». Участникам такое сообщение не уходит.
+                  </span>
+                </span>
+              </label>
 
               {/* Галочка: слать ещё и в общую базу чатов клиента (только с фичей broadcast_chats) */}
               {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
