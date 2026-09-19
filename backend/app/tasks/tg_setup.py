@@ -18,7 +18,7 @@ Telegram не даёт одному аккаунту держать много �
 непереданными прямо сейчас.
 
 ⚠️ УСЛУГА СЧИТАЕТСЯ ОКАЗАННОЙ, КОГДА БОТ СОЗДАН.
-Всё, что дальше, зависит от действий клиента. Не забрал за 3 дня — бот
+Всё, что дальше, зависит от действий клиента. Не забрал за 1,5 суток — бот
 удаляется и слот освобождается, но ОПЛАТА НЕ СГОРАЕТ: клиент запускает
 настройку заново без повторного платежа.
 """
@@ -35,8 +35,16 @@ from app.services import tg_setup as tgs
 
 logger = logging.getLogger(__name__)
 
-# Сколько дней у клиента есть на то, чтобы забрать бота.
-CLAIM_DAYS = 3
+# Сколько времени у клиента есть на то, чтобы забрать бота.
+#
+# ⚠️ ПОЛТОРА ДНЯ (решение владельца 18.09.2026), было 3 дня. Непереданный бот
+# держит слот служебного аккаунта, а рабочих аккаунтов мало: 18.09 четыре
+# заказа подряд упёрлись в паузу, и двое ждали по часу. Сутки — жёстко для
+# того, кто заказал вечером; трое суток — слишком дорого для очереди.
+#
+# ⚠️ Дробное число дней — поэтому `timedelta(days=CLAIM_DAYS)` работает как
+# 36 часов. Целым числом это не выразить, менять тип не надо.
+CLAIM_DAYS = 1.5
 
 # Название группы уведомлений. Бренд в конце — чтобы владелец платформы
 # различал десятки одинаковых чатов в своём списке.
@@ -262,14 +270,37 @@ async def _fail_step(db, order_id: int, client_id: int,
                         ok=False)
         return
 
-    # ── вторая неудача: закрываем задачу и зовём человека ──
-    await db.execute(
-        "UPDATE service_orders SET setup_state='failed', updated_at=NOW() WHERE id=$1",
-        order_id,
+    # ── вторая неудача: останавливаемся и зовём человека ──
+    #
+    # ⚠️⚠️ «ЖДЁМ ЧЕЛОВЕКА» ≠ «ПРОВАЛИЛОСЬ» (правило владельца 18.09.2026).
+    # Всё подряд помечалось `failed`, хотя причины разные по сути:
+    #   • закрыта приватность, не зашёл в бота — это ОЖИДАНИЕ ДЕЙСТВИЯ, работа
+    #     сделана, человеку осталось нажать две кнопки;
+    #   • спам-блок, мёртвая сессия, непонятная ошибка — вот это СБОЙ, и тут
+    #     нужен человек из поддержки.
+    # Смешивать нельзя: первым надо слать напоминания, вторых — разбирать
+    # руками. На 18.09 в `failed` висели четверо, и все четверо были «ждём вас».
+    #
+    # ⚠️ Признак берём по ПРИЧИНЕ, а не по шагу: один и тот же шаг падает и
+    # от приватности (ждём человека), и от заморозки аккаунта (сбой).
+    waiting_for_user = (
+        reason == GROUP_PRIVACY_HINT
+        or "не заходили в своего бота" in reason.lower()
+        or "зайдите в бота" in reason.lower()
     )
-    await _log_step(db, order_id, step,
-                    f"{reason}. Мы остановились и передали задачу в тех.поддержку",
-                    ok=False)
+    new_state = "awaiting_user" if waiting_for_user else "failed"
+    await db.execute(
+        "UPDATE service_orders SET setup_state=$2, updated_at=NOW() WHERE id=$1",
+        order_id, new_state,
+    )
+    await _log_step(
+        db, order_id, step,
+        f"{reason}. "
+        + ("Ждём вас — как сделаете, нажмите «Доделать настройку»"
+           if waiting_for_user
+           else "Мы остановились и передали задачу в тех.поддержку"),
+        ok=False,
+    )
 
     # ⚠️ Уведомление ОСНОВАТЕЛЮ — в группу «[Тех.поддержка] Увед. ПЛЮСОН».
     # Используем готовую точку, своей отправки не заводим. Сбой уведомления не
@@ -1115,15 +1146,26 @@ async def _remind():
         # ⚠️ Считаем по счётчику отправленных, а не «прошло ли N часов»:
         # задача бежит каждый час, иначе одно напоминание ушло бы 24 раза в сутки.
         rows = await db.fetch(
+            # ⚠️⚠️ ЛОВИМ И `failed` — НЕ ТОЛЬКО `awaiting_user` (18.09.2026).
+            # `failed` это не «всё пропало», а «можно доделать»: бот создан,
+            # группа есть, человек споткнулся на одном шаге, и у него на экране
+            # кнопка. Но условие брало только `awaiting_user` — и он об этом
+            # НИКОГДА не узнавал, если не заходил в кабинет сам. Так молчали
+            # четыре заказа из шести, а срок у них тем временем горел.
             """SELECT so.*, c.name AS client_name
                  FROM service_orders so
                  JOIN clients c ON c.id = so.client_id
-                WHERE so.setup_state = 'awaiting_user'
+                WHERE so.setup_state IN ('awaiting_user', 'failed')
                   AND so.bot_transferred_at IS NULL
                   AND so.claim_deadline IS NOT NULL
                   AND so.claim_deadline > NOW()
                   AND (so.last_reminder_at IS NULL
-                       OR so.last_reminder_at < NOW() - INTERVAL '20 hours')
+                  -- ⚠️ РАЗ В 8 ЧАСОВ (решение владельца 18.09.2026), было 20.
+                  -- При сроке 1,5 суток интервал в 20 часов давал человеку
+                  -- всего одно-два напоминания за всё время — половину из них
+                  -- ночью. Восемь часов дают 3-4 касания и попадают в разное
+                  -- время суток.
+                       OR so.last_reminder_at < NOW() - INTERVAL '8 hours')
                   AND so.reminders_sent < 4"""
         )
         for row in rows:
@@ -1135,9 +1177,42 @@ async def _remind():
             )
 
         # ── сгорание ──
+        # ── предупреждение «скоро удалим» ──
+        #
+        # ⚠️⚠️ ГОВОРИМ ЗАРАНЕЕ, А НЕ ПОСТ-ФАКТУМ (правило владельца 18.09.2026:
+        # «говори, когда удалишь — и удаляй»). Бот просто исчезал, и человек
+        # узнавал об этом, только вернувшись в кабинет.
+        #
+        # ⚠️ За 6 часов: при сроке 1,5 суток это последний момент, когда ещё
+        # реально успеть — две кнопки занимают минуту, но человек должен
+        # хотя бы увидеть сообщение.
+        soon = await db.fetch(
+            """SELECT so.*, c.name AS client_name
+                 FROM service_orders so
+                 JOIN clients c ON c.id = so.client_id
+                WHERE so.setup_state IN ('awaiting_user', 'failed')
+                  AND so.bot_transferred_at IS NULL
+                  AND so.claim_deadline IS NOT NULL
+                  AND so.claim_deadline > NOW()
+                  AND so.claim_deadline <= NOW() + INTERVAL '6 hours'
+                  AND so.expire_warned_at IS NULL"""
+        )
+        for row in soon:
+            await _send_expire_warning(db, row)
+            await db.execute(
+                "UPDATE service_orders SET expire_warned_at = NOW() WHERE id=$1",
+                row["id"],
+            )
+
         expired = await db.fetch(
+            # ⚠️⚠️ И ЗДЕСЬ `failed` ТОЖЕ (18.09.2026). Условие брало только
+            # `awaiting_user`, поэтому сорвавшийся заказ НЕ истекал никогда:
+            # бот не удалялся, слот служебного аккаунта оставался занят
+            # навсегда, и заказ висел мёртвым грузом. На 18.09 так зависли
+            # четыре заказа — у Влады срок истекал 20.09, и ничего бы не
+            # произошло.
             """SELECT * FROM service_orders
-                WHERE setup_state = 'awaiting_user'
+                WHERE setup_state IN ('awaiting_user', 'failed')
                   AND bot_transferred_at IS NULL
                   AND claim_deadline IS NOT NULL
                   AND claim_deadline <= NOW()"""
@@ -1243,6 +1318,11 @@ async def _send_queue_notice(db, order, kind: str) -> None:
         await _send_reminder_email(db, order, text, subject=subject)
     except Exception as e:  # noqa: BLE001
         logger.warning("queue notice email failed for order %s: %s", order["id"], e)
+    # ⚠️ И ЛИЧНО В БОТЫ, где человек уже был (правило владельца: уведомления —
+    # во все подключённые каналы). Группа и почта могут остаться непрочитанными,
+    # а «вы в очереди, ждём» человек должен увидеть сразу: иначе он сидит перед
+    # экраном и думает, что услуга зависла. 18.09 двое ждали по часу.
+    await _remind_in_support_bots(db, order, text)
 
 
 async def _send_ready_notice(db, order) -> None:
@@ -1279,6 +1359,95 @@ async def _send_ready_notice(db, order) -> None:
         logger.warning("ready notice email failed for order %s: %s", order["id"], e)
 
 
+async def _send_expire_warning(db, order) -> None:
+    """«Скоро удалим бота» — во все каналы разом, за несколько часов до срока.
+
+    ⚠️ Отдельное сообщение, а не ещё одно «заберите бота»: у него другая
+    срочность и другой смысл — тут человеку сообщают о ПОТЕРЕ, и он должен
+    понимать, что именно потеряет и что оплата при этом остаётся.
+    """
+    left = order["claim_deadline"] - datetime.now(timezone.utc)
+    hours = max(1, int(left.total_seconds() // 3600))
+
+    text = (
+        f"⚠️ Бот @{order['bot_username']} будет удалён через {hours} ч.\n\n"
+        f"Он создан, но так и не передан вам, а место на служебном аккаунте "
+        f"занято — поэтому неполученные боты мы удаляем.\n\n"
+        f"Успеть просто: зайдите в кабинет, раздел «Автонастройка», "
+        f"и завершите два шага.\n\n"
+        f"⚠️ Оплата НЕ сгорает: после удаления настройку можно запустить "
+        f"заново бесплатно — но бота придётся создавать с нуля, и имя может "
+        f"оказаться занято."
+    )
+
+    try:
+        from app.services.channels import notify_organizer_all_channels
+        await notify_organizer_all_channels(order["client_id"], text, db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("expire warning to channels failed for order %s: %s",
+                       order["id"], e)
+    try:
+        await _send_reminder_email(db, order, text,
+                                   subject="Бот скоро будет удалён")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("expire warning email failed for order %s: %s", order["id"], e)
+    await _remind_in_support_bots(db, order, text)
+
+
+async def _remind_in_support_bots(db, order, text: str) -> None:
+    """Напоминание ЛИЧНО человеку — в наши боты поддержки, где он уже был.
+
+    ⚠️⚠️ ЗАЧЕМ, ЕСЛИ ЕСТЬ ГРУППА И ПОЧТА. В группу уведомлений человек может
+    не заглядывать, письмо оседает в «Промоакциях» — а это напоминание адресовано
+    ЛИЧНО ему и требует его действия («зайдите в бота»). Личное сообщение от
+    бота, в котором он уже был, доходит вернее всего.
+
+    ⚠️ id берём из `client_support_subscriptions` — он записан на ШАГЕ НОЛЬ, где
+    человек сам открыл нашего бота. Это доказанный id от самой площадки, а не
+    ник, введённый руками: в MAX ников нет вовсе, а введённый ник может быть
+    чужим. До 18.09.2026 таблица только заполнялась и читалась ради галочек на
+    экране — у клиента 186 id лежал (`871873317`), а напоминание не ушло.
+
+    ⚠️ Токен берём у СЕРВИСНОГО клиента (@pluson_bot / MAX-бот ПЛЮСОНа), а не у
+    клиента: человек подписывался именно на них, бот клиента ему не писал и
+    писать не может.
+    """
+    subs = await db.fetch(
+        "SELECT platform_slug, platform_user_id FROM client_support_subscriptions "
+        " WHERE client_id = $1", order["client_id"],
+    )
+    if not subs:
+        return
+
+    # Боты поддержки — каналы сервисного клиента (ПЛЮСОН Сервис).
+    tokens = {
+        r["platform_slug"]: r["bot_token"]
+        for r in await db.fetch(
+            """SELECT ch.platform_slug, ch.bot_token
+                 FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = 3 AND ch.bot_token IS NOT NULL"""
+        )
+    }
+
+    for s in subs:
+        platform, uid = s["platform_slug"], s["platform_user_id"]
+        token = tokens.get(platform)
+        if not token or not uid:
+            continue
+        try:
+            if platform == "telegram":
+                from app.services.notification_service import send_telegram_message
+                await send_telegram_message(int(uid), text, bot_token=token)
+            elif platform == "max":
+                from app.services.max_api import send_message as max_send
+                await max_send(int(uid), text, token=token)
+        except Exception as e:  # noqa: BLE001
+            # ⚠️ Не роняем напоминание целиком: почта и группа уже ушли, а
+            # человек мог просто заблокировать бота — это не наша авария.
+            logger.warning("личное напоминание (%s) по заказу %s не ушло: %s",
+                           platform, order["id"], e)
+
+
 async def _send_reminder(db, order) -> None:
     """Напоминание по всем каналам сразу: кабинет, почта, боты клиента.
 
@@ -1289,12 +1458,36 @@ async def _send_reminder(db, order) -> None:
     hours = max(1, int(left.total_seconds() // 3600))
     when = f"{hours // 24} дн." if hours >= 24 else f"{hours} ч."
 
+    # ⚠️⚠️ ГОВОРИМ, ЧТО ИМЕННО ОТ ЧЕЛОВЕКА НУЖНО. Текст был один на все случаи
+    # — «откройте бота и нажмите Запустить». Но половина заказов стоит на
+    # ДРУГОМ: человек в боте уже был, а споткнулась приватность «кто может
+    # добавлять меня в группы». Такому человеку прежнее напоминание советовало
+    # сделать то, что он давно сделал, и он не понимал, чего от него хотят.
+    if order["setup_error"] and "приватность" in (order["setup_error"] or "").lower() \
+            or (order["setup_error"] or "").startswith("Не получилось сделать вас админом"):
+        what_to_do = (
+            "Осталось открыть в Telegram настройку «кто может добавлять меня "
+            "в группы»:\n"
+            "Настройки → Конфиденциальность → «Группы и каналы» → «Все»\n"
+            "(на iPhone: Настройки → Конфиденциальность и безопасность → "
+            "Группы и каналы).\n\n"
+            "Потом зайдите в кабинет и нажмите «Доделать настройку» — "
+            "и сразу верните настройку обратно, админом вы останетесь."
+        )
+    else:
+        what_to_do = (
+            "Откройте бота и нажмите «Запустить» — после этого мы передадим "
+            "вам права владельца."
+        )
+
+    # ⚠️ Предупреждаем ПРЯМО, что бот будет удалён, и что оплата не сгорает:
+    # без этого «осталось времени» читается как угроза потерять деньги.
     text = (
         f"⏳ Ваш бот @{order['bot_username']} готов, но ещё не передан вам.\n\n"
-        f"Откройте бота и нажмите «Запустить» — после этого мы передадим вам "
-        f"права владельца.\n\n"
-        f"Осталось времени: {when}. Потом бота придётся создавать заново "
-        f"(повторно платить не нужно)."
+        f"{what_to_do}\n\n"
+        f"Осталось времени: {when}. Если не успеете — бота удалим и слот "
+        f"освободим, но оплата сохранится: настройку можно запустить заново "
+        f"без повторной оплаты."
     )
 
     try:
@@ -1302,6 +1495,19 @@ async def _send_reminder(db, order) -> None:
         await notify_organizer_all_channels(order["client_id"], text, db)
     except Exception as e:  # noqa: BLE001
         logger.warning("reminder to channels failed for order %s: %s", order["id"], e)
+
+    # ⚠️⚠️ ЛИЧНОЕ СООБЩЕНИЕ ЧЕЛОВЕКУ — САМЫЙ ВЕРНЫЙ КАНАЛ (18.09.2026).
+    #
+    # Выше уведомление уходит в ГРУППУ уведомлений и на почту. В группу человек
+    # может не заглядывать, письмо теряется в «Промоакциях» — а напоминание
+    # адресовано ЛИЧНО ему и требует его действия.
+    #
+    # ⚠️ id берём из `client_support_subscriptions` — он записан на шаге ноль,
+    # когда человек сам зашёл в нашего бота поддержки. Это доказанный id от
+    # самой площадки, а не ник, введённый руками. Таблица до сих пор только
+    # заполнялась и читалась ради галочек на экране: у клиента 186 id лежал
+    # (`871873317`), а напоминание ему всё равно не ушло.
+    await _remind_in_support_bots(db, order, text)
 
     try:
         await _send_reminder_email(db, order, text)
@@ -1390,18 +1596,18 @@ async def _expire_order(db, order) -> None:
         """UPDATE service_orders
               SET setup_state='expired', bot_token=NULL, bot_channel_id=NULL,
                   bot_created_at=NULL, miniapp_linked_at=NULL,
-                  setup_error='Бот не был забран за 3 дня и удалён. '
+                  setup_error='Бот не был забран вовремя и удалён. '
                               'Запустите настройку заново — платить не нужно',
                   updated_at=NOW()
             WHERE id=$1""",
         order_id,
     )
     await _log_step(db, order_id, "expired",
-                    "Бот удалён — вы не забрали его за 3 дня. "
+                    "Бот удалён — его не забрали вовремя. "
                     "Настройку можно запустить заново без оплаты", ok=False)
 
     text = (
-        f"Бот @{order['bot_username']} удалён — его не забрали в течение 3 дней.\n\n"
+        f"Бот @{order['bot_username']} удалён — его не забрали вовремя.\n\n"
         f"Настройку можно запустить заново в разделе «Каналы» — "
         f"платить повторно не нужно."
     )
