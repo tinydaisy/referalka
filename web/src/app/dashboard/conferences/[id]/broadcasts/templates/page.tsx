@@ -154,6 +154,8 @@ const SPEAKER_TOPIC_TYPES = new Set([
   'expert_day',      // экспертный день конкретного человека
   '5min_before',     // «выступает такой-то»
   'gift',            // подарок спикера — перечень подарков
+  'day_end',         // итоги дня: там {day_speakers_gifts} — подарки всех
+                     // спикеров дня одним списком, это про них, а не про событие
 ])
 
 type TplGroup = 'speaker_topic' | 'general' | 'speakers_chat'
