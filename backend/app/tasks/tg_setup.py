@@ -1439,8 +1439,14 @@ async def _remind_in_support_bots(db, order, text: str) -> None:
                 from app.services.notification_service import send_telegram_message
                 await send_telegram_message(int(uid), text, bot_token=token)
             elif platform == "max":
+                # ⚠️⚠️ ДЛЯ ЛИЧКИ В MAX НУЖЕН `recipient_kind="user"`.
+                # По умолчанию функция шлёт как в ЧАТ, и на user_id MAX
+                # отвечает 200 + `chat.not.found` — то есть молча НЕ доставляет.
+                # Поймано живой проверкой 18.09.2026: Telegram дошёл,
+                # MAX «отправился» без ошибки и не пришёл никуда.
                 from app.services.max_api import send_message as max_send
-                await max_send(int(uid), text, token=token)
+                await max_send(int(uid), text, token=token,
+                               recipient_kind="user")
         except Exception as e:  # noqa: BLE001
             # ⚠️ Не роняем напоминание целиком: почта и группа уже ушли, а
             # человек мог просто заблокировать бота — это не наша авария.
