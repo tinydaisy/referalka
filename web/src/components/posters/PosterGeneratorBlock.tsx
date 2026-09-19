@@ -21,6 +21,24 @@ import FileUploader from '@/components/FileUploader'
 import PosterCanvas, { POSTER_SIZE, type PosterLayout, type PosterOrientation, type PosterTheme } from './PosterCanvas'
 import { applyManualOrder, applyManualRows, splitIntoRows, ORGANIZER_ROLES, subscribersOf, type PosterPerson } from '@/lib/posterLayout'
 
+/** Разделы генератора: общие афиши, афиши по дням, индивидуальные.
+ *  ⚠️ У каждого вида СВОИ настройки (миграция 459): на общей четырнадцать лиц
+ *  сеткой, на индивидуальной одно крупное фото — общий макет пришлось бы
+ *  перекраивать при каждом переключении. */
+type PosterKind = 'common' | 'day' | 'individual'
+const KIND_TABS: { key: PosterKind; label: string; hint: string }[] = [
+  { key: 'common',     label: 'Общие афиши',        hint: 'Все спикеры события на одной афише' },
+  { key: 'day',        label: 'Афиши по дням',      hint: 'На каждый день — свои спикеры, без повторов' },
+  { key: 'individual', label: 'Индивидуальные',     hint: 'Отдельная афиша каждому спикеру: тема и время' },
+]
+
+/** День события со спикерами — приходит с бэкенда уже без дублей. */
+type DayInfo = {
+  day: number
+  label: string
+  speaker_ids: number[]
+}
+
 /** Вкладки настроек. ⚠️ Через useUrlTab, а не useState: правило проекта —
  *  обновление страницы не должно сбрасывать на первую вкладку. */
 type SetTab = 'bg' | 'speakers' | 'text' | 'logos' | 'order'
@@ -56,6 +74,13 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [suggested, setSuggested] = useState<any>(null)
   const [dragLogo, setDragLogo] = useState<string | null>(null)
   const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','order'])
+  // ⚠️ Раздел — тоже через useUrlTab: обновил страницу и остался там же, где был.
+  const [kind, setKind] = useUrlTab<PosterKind>('pkind', 'common', ['common','day','individual'])
+  // Дни события и выступления — нужны дневным и индивидуальным афишам.
+  const [days, setDays] = useState<DayInfo[]>([])
+  const [sessions, setSessions] = useState<Record<string, { topic?: string; when?: string; day?: number }>>({})
+  // Кого показываем в индивидуальной афише. Пусто — первого из списка.
+  const [curSpeaker, setCurSpeaker] = useState<number | null>(null)
   const [dragPartner, setDragPartner] = useState<number | null>(null)
   // Ряд, в который сейчас тащат — подсвечиваем, иначе непонятно, куда упадёт.
   const [overRow, setOverRow] = useState<number | null>(null)
@@ -66,7 +91,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
 
   useEffect(() => {
     setLoading(true)
-    api.posterLayout.get(eventId, o)
+    api.posterLayout.get(eventId, o, kind)
       .then((r: any) => {
         // ⚠️⚠️ ПОДСТАВЛЯЕМ ПОДСКАЗКИ В САМИ ПОЛЯ, а не только в placeholder.
         // Серая подсказка не является значением: клиент видел название события
@@ -86,16 +111,20 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         // название уже задано.
         if (Object.keys(filled).length) {
           const { orientation, ...body } = { ...L, ...filled }
-          api.posterLayout.save(eventId, o, body).catch(() => {})
+          api.posterLayout.save(eventId, o, body, kind).catch(() => {})
         }
         setTheme(r.theme || {})
         setPeople(r.people || [])
+        setDays(Array.isArray(r.days) ? r.days : [])
+        // ⚠️ jsonb из базы умеет приезжать строкой — тогда `.map` пошёл бы по
+        // символам. Берём объект только если это действительно объект.
+        setSessions(r.sessions && typeof r.sessions === 'object' ? r.sessions : {})
         setSuggested(sg)
         setErr(null)
       })
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить макет'))
       .finally(() => setLoading(false))
-  }, [eventId, o])
+  }, [eventId, o, kind])
 
   // Есть ли несохранённые правки — для автосохранения ниже.
   const dirtyRef = useRef(false)
@@ -122,20 +151,20 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       setSaving(true)
       try {
         const { orientation, ...body } = cur
-        await api.posterLayout.save(eventId, o, body)
+        await api.posterLayout.save(eventId, o, body, kind)
         setSaved(true)
       } catch (e: any) { setErr(e?.message || 'Не удалось сохранить') }
       finally { setSaving(false) }
     }, 1500)
     return () => clearTimeout(t)
-  }, [layout, eventId, o])
+  }, [layout, eventId, o, kind])
 
   async function save() {
     if (!layout) return
     setSaving(true)
     try {
       const { orientation, ...body } = layout
-      const r = await api.posterLayout.save(eventId, o, body)
+      const r = await api.posterLayout.save(eventId, o, body, kind)
       setLayout({ ...r, orientation: o })
       setSaved(true)
     } catch (e: any) { setErr(e?.message || 'Не удалось сохранить') }
@@ -148,21 +177,36 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     setBusy('png')
     try {
       const { orientation, ...body } = layout
-      await api.posterLayout.save(eventId, o, body)
+      await api.posterLayout.save(eventId, o, body, kind)
       await api.posterLayout.png(eventId, o)
     } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
     finally { setBusy('') }
   }
 
+  /**
+   * ⚠️⚠️ ОДНА КНОПКА СОБИРАЕТ ВСЕ АФИШИ РАЗДЕЛА (требование владельца).
+   * У события бывает четыре дня и полтора десятка спикеров: собирать каждую
+   * афишу отдельно — это двадцать нажатий и двадцать ожиданий подряд.
+   *
+   * Куда попадает результат, решает бэкенд:
+   *   общие      — в афиши события;
+   *   по дням    — в афиши СВОЕГО дня;
+   *   спикерские — в карточку своего спикера (с проставленной галочкой).
+   */
   async function renderToLibrary() {
     if (!layout) return
     setBusy('render')
     try {
       const { orientation, ...body } = layout
-      await api.posterLayout.save(eventId, o, body)
-      await api.posterLayout.render(eventId, o)
+      await api.posterLayout.save(eventId, o, body, kind)
+      const r: any = await api.posterLayout.renderAll(eventId, o, kind)
       setErr(null)
-      alert('Афиша собрана и добавлена в афиши события')
+      const n = Array.isArray(r?.made) ? r.made.length : 0
+      alert(
+        kind === 'common' ? 'Афиша собрана и добавлена в афиши события'
+        : kind === 'day' ? `Готово: афиш по дням — ${n}. Каждая легла в афиши своего дня`
+        : `Готово: индивидуальных афиш — ${n}. Каждая легла в карточку своего спикера`,
+      )
     } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
     finally { setBusy('') }
   }
@@ -223,6 +267,11 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
               .sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)),
             ...items.filter(i => !order.includes(i.key))]
   }, [companies, theme, layout?.logos_order, layout?.logos_variant])
+
+  // ⚠️ Индивидуальная афиша рисуется по ОДНОМУ человеку. Клиент его
+  // переключает, но пока не трогал — берём первого, иначе полотно пустое и
+  // непонятно, работает ли раздел вообще.
+  const indSpeakerId = curSpeaker ?? draggable[0]?.id ?? null
 
   const hiddenSet = useMemo(
     () => new Set((Array.isArray(layout?.logos_hidden) ? layout!.logos_hidden : []).map(String)),
@@ -311,7 +360,24 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
 
       {err && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{err}</div>}
 
-      {/* Выбор вида афиши. */}
+      {/* ⚠️⚠️ ТРИ РАЗДЕЛА: общие афиши, афиши по дням, индивидуальные. У каждого
+          свои настройки и свои три ориентации внутри. */}
+      <div className="flex flex-wrap gap-1 border-b border-gray-200">
+        {KIND_TABS.map(k => (
+          <button key={k.key} type="button" onClick={() => setKind(k.key)} title={k.hint}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    kind === k.key
+                      ? 'border-[#25455D] text-[#25455D]'
+                      : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+            {k.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-gray-400 -mt-2">
+        {KIND_TABS.find(k => k.key === kind)?.hint}
+      </p>
+
+      {/* Выбор ориентации. */}
       <div className="flex flex-wrap gap-2">
         {ORIENTATIONS.map(x => (
           <button key={x.key} onClick={() => setO(x.key)}
@@ -332,7 +398,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           <div style={{ width: size.w * scale, height: size.h * scale }}
                className="overflow-hidden rounded-xl shadow-sm border card-border bg-gray-50">
             <PosterCanvas layout={layout} theme={theme} people={people} scale={scale}
-                          suggested={suggested} showMargins={showMargins} />
+                          suggested={suggested} showMargins={showMargins}
+                          days={days} sessions={sessions}
+                          day={kind === 'day' ? (days[0]?.day ?? null) : null}
+                          speakerId={kind === 'individual' ? indSpeakerId : null} />
           </div>
           {/* Клик по превью — крупный просмотр: на уменьшенном в 4 раза макете
               не разобрать ни лиц, ни подписей. */}
@@ -346,6 +415,27 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             Показать границу полей (в готовый файл не попадёт)
           </label>
 
+          {/* ⚠️ Переключатель спикеров — НАД превью (требование владельца):
+              настройки общие на всех, а проверить их надо на разных людях —
+              у кого-то длинная фамилия, у кого-то нет темы выступления. */}
+          {kind === 'individual' && draggable.length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs text-gray-500 mb-1">Показать афишу спикера:</div>
+              <select value={indSpeakerId ?? ''} onChange={e => setCurSpeaker(Number(e.target.value))}
+                      className="w-full rounded-lg border card-border px-3 py-2 text-sm">
+                {draggable.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {[p.name, p.last_name].filter(Boolean).join(' ')}
+                    {sessions[String(p.id)]?.topic ? ` — ${sessions[String(p.id)]!.topic}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Настройки общие на всех: кнопка ниже соберёт афишу каждому спикеру сразу.
+              </p>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3 mt-4">
             <button onClick={save} disabled={saving} className="btn-gold px-6 py-2.5 text-sm">
               {saving ? 'Сохраняем…' : 'Сохранить'}
@@ -355,10 +445,39 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </button>
             <button onClick={renderToLibrary} disabled={!!busy}
                     className="text-sm text-gray-500 hover:text-gray-700 underline">
-              {busy === 'render' ? 'Собираем…' : 'Собрать и добавить в афиши события'}
+              {busy === 'render' ? 'Собираем…'
+                : kind === 'common' ? 'Собрать и добавить в афиши события'
+                : kind === 'day' ? `Собрать все афиши дней (${days.length}) и разложить по дням`
+                : `Собрать афиши всем спикерам (${draggable.length}) и положить в их карточки`}
             </button>
             {saved && <span className="text-sm text-green-600">Сохранено</span>}
           </div>
+
+          {/* ⚠️⚠️ ПРЕВЬЮ ВСЕХ ДНЕЙ ДРУГ ПОД ДРУГОМ (требование владельца):
+              настройки общие на все дни, и проверять их надо сразу на всех —
+              в один день спикеров трое, в другой четырнадцать, и то, что
+              красиво легло на первом, на втором может не поместиться. */}
+          {kind === 'day' && days.length > 1 && (
+            <div className="mt-5 space-y-3">
+              <div className="text-xs text-gray-500">Остальные дни — с теми же настройками:</div>
+              {days.slice(1).map(d => (
+                <div key={d.day}>
+                  <div className="text-xs text-gray-400 mb-1">{d.label}</div>
+                  <div style={{ width: size.w * scale, height: size.h * scale }}
+                       className="overflow-hidden rounded-xl shadow-sm border card-border bg-gray-50">
+                    <PosterCanvas layout={layout} theme={theme} people={people} scale={scale}
+                                  suggested={suggested} days={days} sessions={sessions} day={d.day} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {kind === 'day' && days.length === 0 && (
+            <p className="mt-3 text-xs text-gray-400">
+              У события пока нет программы по дням — добавьте выступления, и афиши дней появятся сами.
+            </p>
+          )}
         </div>
 
         {/* Настройки. */}
@@ -423,6 +542,49 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           </>)}
 
           {tab === 'speakers' && (<>
+          {/* ⚠️ Настройки ИНДИВИДУАЛЬНОЙ афиши: там один человек крупно, и
+              сеточные настройки (сколько в ряд, промежутки) к ней неприменимы.
+              Показываем их только в своём разделе, чтобы не путать. */}
+          {kind === 'individual' && (
+          <Card title="Афиша спикера">
+            <Range label="Размер фото, % ширины" value={layout.ind_photo_size ?? 45} min={10} max={100}
+                   hint="Сколько места занимает фото — от ширины рабочей области"
+                   onChange={v => patch({ ind_photo_size: v })} />
+            <Range label="Положение по горизонтали, %" value={layout.ind_photo_x ?? 50} min={0} max={100}
+                   onChange={v => patch({ ind_photo_x: v })} />
+            <Range label="Положение по вертикали, %" value={layout.ind_photo_y ?? 55} min={0} max={100}
+                   hint="Весь блок — фото с подписями — двигается целиком"
+                   onChange={v => patch({ ind_photo_y: v })} />
+            <Range label="Размер имени, px" value={layout.ind_name_size ?? 54} min={10} max={200}
+                   onChange={v => patch({ ind_name_size: v })} />
+            <Range label="Размер роли, px" value={layout.ind_role_size ?? 24} min={8} max={100}
+                   onChange={v => patch({ ind_role_size: v })} />
+            <Range label="Размер темы, px" value={layout.ind_topic_size ?? 30} min={8} max={120}
+                   onChange={v => patch({ ind_topic_size: v })} />
+            <div className="mt-3 space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={layout.ind_show_role !== false}
+                       onChange={e => patch({ ind_show_role: e.target.checked })} />
+                Показывать роль
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={layout.ind_show_topic !== false}
+                       onChange={e => patch({ ind_show_topic: e.target.checked })} />
+                Показывать тему выступления
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={layout.ind_show_time !== false}
+                       onChange={e => patch({ ind_show_time: e.target.checked })} />
+                Показывать время
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={layout.ind_show_event_title !== false}
+                       onChange={e => patch({ ind_show_event_title: e.target.checked })} />
+                Показывать название конференции
+              </label>
+            </div>
+          </Card>
+          )}
           <Card title="Где стоят спикеры">
             <Range label="Начинать с высоты, %" value={layout.speakers_top ?? 45} min={0} max={95}
                    hint="Линия, ниже которой начинается блок людей — чтобы они не легли на рисунок фона"
@@ -849,7 +1011,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             <div style={{ width: size.w * zoomScale, height: size.h * zoomScale }}
                  className="overflow-hidden rounded-xl shadow-2xl">
               <PosterCanvas layout={layout} theme={theme} people={people}
-                            scale={zoomScale} suggested={suggested} />
+                            scale={zoomScale} suggested={suggested}
+                            days={days} sessions={sessions}
+                            day={kind === 'day' ? (days[0]?.day ?? null) : null}
+                            speakerId={kind === 'individual' ? indSpeakerId : null} />
             </div>
             <button onClick={() => setZoom(false)}
                     className="absolute -top-3 -right-3 bg-white text-gray-700 rounded-full w-8 h-8 shadow-lg hover:bg-gray-100">

@@ -1166,6 +1166,25 @@ async def get_me_materials(
     # Афиши ДНЕЙ события (миграция 215) — спикер скачивает афишу нужного дня
     # под свой анонс. Отдаём с названием дня из программы (conf_days.title),
     # чтобы в кабинете было понятно, какой день на афише.
+    #
+    # ⚠️⚠️ ТОЛЬКО ТЕ ДНИ, ГДЕ ЧЕЛОВЕК ВЫСТУПАЕТ (требование владельца).
+    # Раньше отдавались афиши ВСЕХ дней: спикер первого дня получал в кабинете
+    # ещё и афиши второго и третьего, анонсировал не тот день и путал свою
+    # аудиторию. Дни берём из программы (`conf_sessions`), а не из галочек:
+    # программа — единственное место, где записано, когда человек выступает.
+    #
+    # ⚠️ Нет сессий вовсе (программу ещё не заполнили) — отдаём ВСЕ дни, как
+    # было. Пустой список здесь хуже лишнего: спикер остался бы без афиш
+    # совсем и решил, что материалов нет.
+    # ⚠️⚠️ `conf_sessions.speaker_id` — это `event_collaborators.id` (миграции
+    # 003/004 + переименование 075), то есть строка «человек на этом событии»,
+    # а НЕ `collaborators.id`. Подставишь сюда `c_id` — совпадений не будет
+    # вовсе, и спикер молча останется без афиш дней.
+    my_days = [r["day"] for r in await db.fetch(
+        "SELECT DISTINCT day FROM conf_sessions"
+        " WHERE event_id = $1 AND speaker_id = $2 AND day IS NOT NULL",
+        e_id, se_id,
+    )]
     day_posters = await db.fetch(
         """SELECT ep.id, ep.url, ep.orientation, ep.sort, ep.day,
                   cd.day_date,
@@ -1173,6 +1192,7 @@ async def get_me_materials(
              FROM event_posters ep
              LEFT JOIN conf_days cd ON cd.event_id = ep.event_id AND cd.day_number = ep.day
             WHERE ep.event_id = $1 AND ep.day IS NOT NULL
+              AND ($2::int[] = '{}'::int[] OR ep.day = ANY($2::int[]))
             ORDER BY ep.day,
                      CASE ep.orientation
                        WHEN 'horizontal' THEN 1
@@ -1180,7 +1200,7 @@ async def get_me_materials(
                        WHEN 'square'     THEN 3
                        ELSE 4
                      END, ep.sort, ep.id""",
-        e_id,
+        e_id, my_days,
     )
 
     # Тексты-анонсы

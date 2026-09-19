@@ -596,8 +596,14 @@ async def _days(db: asyncpg.Connection, event_id: int) -> list[dict]:
                              WHERE s.event_id = d.event_id AND s.day = d.day_number)
                   ) AS start_time,
                   ARRAY(
-                    SELECT DISTINCT s2.speaker_id
+                    -- ⚠️⚠️ `conf_sessions.speaker_id` — это `event_collaborators.id`
+                    -- (миграции 003/004 + переименование 075), а состав афиши
+                    -- (`_people`) отдаёт `collaborators.id`. Без этого перехода
+                    -- списки НИКОГДА не совпадут: на афише дня окажется пусто
+                    -- или, того хуже, чужие люди с совпавшими номерами.
+                    SELECT DISTINCT ec2.speaker_id
                       FROM conf_sessions s2
+                      JOIN event_collaborators ec2 ON ec2.id = s2.speaker_id
                      WHERE s2.event_id = d.event_id AND s2.day = d.day_number
                        AND s2.speaker_id IS NOT NULL
                   ) AS speaker_ids
@@ -632,13 +638,16 @@ async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
     выступать он может дважды. Ключ — id коллаборатора.
     """
     rows = await db.fetch(
-        """SELECT DISTINCT ON (s.speaker_id)
-                  s.speaker_id, s.day, s.start_time, s.title,
+        """SELECT DISTINCT ON (ec.speaker_id)
+                  ec.speaker_id, s.day, s.start_time, s.title,
                   d.day_date
              FROM conf_sessions s
+             -- ⚠️ Тот же переход, что и в `_days`: ключом словаря обязан быть
+             -- `collaborators.id`, потому что полотно ищет по `p.id`.
+             JOIN event_collaborators ec ON ec.id = s.speaker_id
              LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
             WHERE s.event_id = $1 AND s.speaker_id IS NOT NULL
-            ORDER BY s.speaker_id, s.day, s.start_time""",
+            ORDER BY ec.speaker_id, s.day, s.start_time""",
         event_id,
     )
     out: dict[str, dict] = {}
@@ -929,8 +938,23 @@ async def poster_render_all(
             )
             # ⚠️ И сразу отмечаем её афишей ЭТОГО события: иначе клиенту
             # пришлось бы руками проходить по всем карточкам и ставить галочку.
+            #
+            # ⚠️⚠️ ДВА РАЗНЫХ ПОЛЯ, и нужны ОБА:
+            #   poster_id               — главная афиша спикера (миграция 121);
+            #   announcement_poster_ids — галочка «для анонсов» (миграция 122),
+            #     и ИМЕННО по ней выгрузка материалов собирает папку
+            #     «Афиши/Индивидуальные афиши». Проставишь только poster_id —
+            #     афиша есть в карточке, но в архив не попадает, и владелец
+            #     получает пустую папку, не понимая почему.
             await db.execute(
-                "UPDATE event_collaborators SET poster_id = $1"
+                "UPDATE event_collaborators"
+                "   SET poster_id = $1,"
+                # Добавляем к отмеченным, а не затираем: клиент мог отметить
+                # ещё и свои загруженные афиши.
+                "       announcement_poster_ids ="
+                "         CASE WHEN $1 = ANY(announcement_poster_ids)"
+                "              THEN announcement_poster_ids"
+                "              ELSE announcement_poster_ids || $1 END"
                 " WHERE event_id = $2 AND speaker_id = $3",
                 row["id"], event_id, p["id"],
             )

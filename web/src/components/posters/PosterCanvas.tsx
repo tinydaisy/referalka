@@ -33,6 +33,16 @@ import {
 
 export type PosterOrientation = 'horizontal' | 'vertical' | 'square'
 
+/** День события со списком его спикеров (бэкенд отдаёт без дублей). */
+export type PosterDay = {
+  day: number
+  date?: string | null
+  start_time?: string | null
+  /** Готовая подпись: «День 1 — 24.09 в 11:00». */
+  label: string
+  speaker_ids: number[]
+}
+
 /** Настоящий размер полотна. Снимок делается ровно в этих пикселях. */
 export const POSTER_SIZE: Record<PosterOrientation, { w: number; h: number }> = {
   horizontal: { w: 1920, h: 1080 },
@@ -182,12 +192,21 @@ const GOLD = '#FFCFA4'
 
 export default function PosterCanvas({
   layout: L, theme: th, people, scale = 1, showMargins = false, suggested,
+  days, sessions, day, speakerId,
 }: {
   layout: PosterLayout
   theme: PosterTheme
   /** Чем заполнить ПУСТЫЕ поля: название события, подзаголовок лендинга, дата.
    *  ⚠️ Подставляется только в пустое — вписал клиент своё, остаётся его. */
   suggested?: { title?: string; subtitle?: string; pill_text?: string; pill_text_2?: string }
+  /** Дни события со своими спикерами — для афиш по дням. */
+  days?: PosterDay[]
+  /** Тема и время выступления по id спикера — для индивидуальных афиш. */
+  sessions?: Record<string, { topic?: string; when?: string; day?: number }>
+  /** Какой ДЕНЬ рисуем (вид `day`). Пусто — берётся первый. */
+  day?: number | null
+  /** Какого СПИКЕРА рисуем (вид `individual`). */
+  speakerId?: number | null
   /** Все люди события: организаторы, спикеры, партнёры. */
   people: PosterPerson[]
   /** Во сколько раз уменьшить на экране. В снимке всегда 1. */
@@ -202,6 +221,18 @@ export default function PosterCanvas({
 
   const label = (k?: string | null) => th.fonts?.find(f => f.key === k)?.label
   const gold = L.hl_color || th.lp_color_heading || GOLD
+
+  // ⚠️⚠️ ВИД МАКЕТА (миграция 459). Один и тот же компонент рисует три афиши:
+  // общую (все спикеры сеткой), дневную (только спикеры этого дня) и
+  // индивидуальную (один человек крупно). Заводить три отдельных полотна
+  // нельзя: они разойдутся на переносах строк и кегле — ровно та причина, по
+  // которой афиши вообще рисуются браузером, а не отдельным рисовальщиком.
+  const kind = L.kind || 'common'
+  const dayList = Array.isArray(days) ? days : []
+  // Пусто — берём первый день: клиент открыл вкладку и сразу видит афишу, а не
+  // пустое полотно с просьбой что-то выбрать.
+  const curDay = dayList.find(d => d.day === day) || dayList[0] || null
+  const curSession = speakerId != null ? (sessions || {})[String(speakerId)] : undefined
 
   // ⚠️⚠️ РАБОЧАЯ ОБЛАСТЬ (миграция 440). Поля задаются в МИЛЛИМЕТРАХ со всех
   // четырёх сторон, и за них не выходит НИЧЕГО: ни спикеры, ни их подписи, ни
@@ -257,7 +288,21 @@ export default function PosterCanvas({
 
   // Разделяем людей: партнёры-компании идут логотипами сверху, все остальные —
   // в сетку. Галочка `is_company` — единственный признак (миграция 425).
-  const visible = people.filter(p => p.photo_url || p.cutout_photo_url)
+  // ⚠️ У кого нет фото — на афише нет: пустая рамка хуже отсутствия.
+  const withPhoto = people.filter(p => p.photo_url || p.cutout_photo_url)
+  // ⚠️⚠️ ДНЕВНАЯ АФИША — ТОЛЬКО СПИКЕРЫ ЭТОГО ДНЯ И БЕЗ ДУБЛЕЙ. Список id
+  // приходит с бэкенда уже уникальным (`DISTINCT speaker_id`): человек с двумя
+  // выступлениями в один день попадает на афишу ОДИН раз.
+  // ⚠️ Логотипы компаний фильтр НЕ трогает: партнёры стоят на афише любого дня,
+  // у них нет выступления, по которому их можно отнести к дню.
+  const dayIds = curDay ? new Set(curDay.speaker_ids.map(Number)) : null
+  const visible = kind === 'day' && dayIds
+    ? withPhoto.filter(p => p.is_company || dayIds.has(Number(p.id)))
+    : kind === 'individual'
+      // Индивидуальная афиша: один человек. Логотипы остаются — бренд и
+      // партнёры нужны и на ней.
+      ? withPhoto.filter(p => p.is_company || Number(p.id) === Number(speakerId))
+      : withPhoto
   // ⚠️ Порядок логотипов партнёров задаёт клиент перетаскиванием. Кого в списке
   // нет — в конец, а не выбрасываем: новый партнёр иначе не попал бы на афишу.
   const companies = orderByIds(visible.filter(p => p.is_company), L.partner_order)
@@ -271,8 +316,19 @@ export default function PosterCanvas({
   // ⚠️ Пустое поле = «взять из события» (название, подзаголовок лендинга,
   // даты). Подставляем ТОЛЬКО в пустое: вписал клиент своё — остаётся его.
   const titleText = (L.title ?? '').trim() || suggested?.title || ''
-  const subtitleText = (L.subtitle ?? '').trim() || suggested?.subtitle || ''
-  const pill1 = (L.pill_text ?? '').trim() || suggested?.pill_text || ''
+  // ⚠️ У ДНЕВНОЙ афиши подзаголовка НЕТ (решение владельца): его место занимает
+  // метка дня, и два пояснения подряд превращают шапку в кашу.
+  const subtitleText = kind === 'day'
+    ? ''
+    : (L.subtitle ?? '').trim() || suggested?.subtitle || ''
+  // ⚠️⚠️ ПИЛЮЛЯ ДНЕВНОЙ АФИШИ — метка дня («День 1 — 24.09 в 11:00»), её
+  // собирает бэкенд: время берётся из ПЕРВОЙ сессии дня, а не из `open_time`
+  // (он часто пустой, и в пилюле выходило «в » с оборванным хвостом).
+  // Вписал клиент свой текст — остаётся его: подстановка только в пустое.
+  const pill1 = kind === 'day'
+    ? ((L.pill_text ?? '').trim() || curDay?.label || suggested?.pill_text || '')
+    : (L.pill_text ?? '').trim() || suggested?.pill_text || ''
+  // Вторая пилюля дневной афиши — «Онлайн-конференция» сверху (формат события).
   const pill2 = (L.pill_text_2 ?? '').trim() || suggested?.pill_text_2 || ''
 
   // Один выбор на всю строку логотипов: фон афиши один.
@@ -547,8 +603,21 @@ export default function PosterCanvas({
         )}
       </div>
 
-      {/* Блок людей. Начинается с заданной линии и растёт вниз — всё внутри
-          рабочей области, поэтому нижний ряд упирается в ПОЛЕ, а не в край. */}
+      {/* ⚠️⚠️ ИНДИВИДУАЛЬНАЯ АФИША — ОДИН ЧЕЛОВЕК КРУПНО, без сетки.
+          Сетка здесь не годится: у неё карточка считается от числа людей в
+          ряду, и на одном человеке она заняла бы всю ширину, а подпись стала
+          бы гигантской. Поэтому размер фото задаёт клиент (`ind_photo_size`,
+          % ширины рабочей области), а положение — `ind_photo_x/y`.
+          Текст (роль, имя, тема, время) идёт под фото и каждый пункт можно
+          выключить: у части спикеров нет ни темы, ни точного времени. */}
+      {kind === 'individual' ? (
+        <IndividualBlock
+          person={persons[0]}
+          session={curSession}
+          L={L} th={th} gold={gold} px={px} tx={tx} label={label}
+          eventTitle={titleText}
+        />
+      ) : (
       <div style={{
         position: 'absolute',
         left: `${cols.sp.x}%`, width: `${cols.sp.w}%`,
@@ -594,6 +663,7 @@ export default function PosterCanvas({
           </div>
         ))}
       </div>
+      )}
 
       </div>{/* конец рабочей области */}
     </div>
@@ -1059,6 +1129,144 @@ function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct,
           )}
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * Афиша ОДНОГО спикера: крупное фото, роль, Имя Фамилия, тема и время.
+ *
+ * ⚠️ Почему отдельным компонентом, а не веткой внутри сетки: у сетки размер
+ * карточки выводится из числа людей в ряду, и на одном человеке вся эта
+ * арифметика бессмысленна. Здесь размер задаёт клиент напрямую.
+ *
+ * ⚠️ Кадр фото берётся ТЕМ ЖЕ `MaskedPhoto`, что и в сетке, и в карточке
+ * спикера: клиент настраивает лицо один раз, и оно обязано выглядеть
+ * одинаково везде. Своя обрезка здесь развалила бы эту договорённость.
+ */
+function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTitle }: {
+  person?: PosterPerson
+  session?: { topic?: string; when?: string; day?: number }
+  L: PosterLayout
+  th: PosterTheme
+  gold: string
+  px: (p: number) => number
+  tx: (p: number) => number
+  label: (k?: string | null) => string | undefined
+  eventTitle: string
+}) {
+  if (!person) return null
+
+  const photoW = px(Math.max(10, Math.min(100, L.ind_photo_size ?? 45)))
+  const shape = cropShapeOf(L.mask_shape)
+  const cutout = L.mask_shape === 'cutout'
+  const ratio = cutout ? 2.0 : shapeRatio(L.mask_shape)
+  const photoH = photoW * ratio
+  // Вырезка — своя картинка и свой фокус: у неё нет фона, и точка лица на ней
+  // отмечена отдельно.
+  const url = (cutout && person.cutout_photo_url) || person.photo_url || person.cutout_photo_url || ''
+  const focal = cutout ? person.cutout_photo_focal : person.photo_focal
+
+  // ⚠️ Имя собираем ТЕМ ЖЕ `personLines`, что и подписи в сетке: в базе
+  // `name` — это ИМЯ, а фамилия отдельным полем, и порядок слов задаёт
+  // клиент. Склеишь тут по-своему — на общей и индивидуальной афише у
+  // человека окажутся разные подписи.
+  const nameText = personLines(person, L.name_order || 'first_last', 1)[0] || ''
+  const roleText = BADGE_LABELS[person.role] || ''
+  const topic = (session?.topic || '').trim()
+  const when = (session?.when || '').trim()
+
+  const headFont = brandFontCss(
+    L.name_font || th.lp_font_heading || 'Roboto',
+    label(L.name_font || th.lp_font_heading),
+  )
+
+  return (
+    <div style={{
+      position: 'absolute',
+      // ⚠️ Отсчёт от РАБОЧЕЙ ОБЛАСТИ, как и всё остальное: при смене полей
+      // блок не съезжает, а остаётся на той же доле свободного места.
+      left: `${Math.max(0, Math.min(100, L.ind_photo_x ?? 50))}%`,
+      top: `${Math.max(0, Math.min(100, L.ind_photo_y ?? 55))}%`,
+      transform: 'translate(-50%, -50%)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      // ⚠️ Не даём блоку вылезти за поля: он центрируется по своей точке, и
+      // при крупном фото у края его половина ушла бы за рабочую область.
+      maxWidth: '100%',
+    }}>
+      <div style={{
+        width: photoW, height: photoH, position: 'relative',
+        overflow: 'hidden', flexShrink: 0, ...maskCss(L),
+      }}>
+        {cutout ? (
+          // Вырезку не режем и прижимаем к низу — человек стоит на афише.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt="" style={{
+            width: '100%', height: '100%',
+            objectFit: 'contain', objectPosition: 'bottom center',
+          }} />
+        ) : (
+          // ⚠️ Тот же расчёт кадра, что в карточке спикера и в сетке.
+          <MaskedPhoto
+            url={url} shape={shape} focal={focal} settings={person}
+            width={photoW} height={photoH}
+            style={{ position: 'absolute', inset: 0 }}
+          />
+        )}
+      </div>
+
+      {/* Роль — над именем, брендовым цветом: это подпись к человеку, а не
+          часть его имени. */}
+      {L.ind_show_role !== false && !!roleText && (
+        <div style={{
+          marginTop: px(1.2),
+          fontFamily: headFont,
+          fontSize: tx(L.ind_role_size ?? 24),
+          color: L.ind_role_color || gold,
+          textTransform: 'uppercase', letterSpacing: '0.08em',
+          textAlign: 'center',
+        }}>{roleText}</div>
+      )}
+
+      <div style={{
+        marginTop: px(0.8),
+        fontFamily: headFont,
+        fontSize: tx(L.ind_name_size ?? 54),
+        fontWeight: 700,
+        color: L.name_color || '#fff',
+        textAlign: 'center', lineHeight: 1.1,
+      }}>{nameText}</div>
+
+      {/* Тема выступления. ⚠️ Её может не быть вовсе — у части спикеров
+          сессия не заведена; тогда строки просто нет, пустого места не
+          оставляем. */}
+      {L.ind_show_topic !== false && !!topic && (
+        <div style={{
+          marginTop: px(1.4),
+          fontSize: tx(L.ind_topic_size ?? 30),
+          color: L.ind_topic_color || '#fff',
+          textAlign: 'center', lineHeight: 1.25,
+          maxWidth: '92%',
+        }}>{topic}</div>
+      )}
+
+      {L.ind_show_time !== false && !!when && (
+        <div style={{
+          marginTop: px(1),
+          fontSize: tx((L.ind_topic_size ?? 30) * 0.8),
+          color: gold, textAlign: 'center',
+        }}>{when}</div>
+      )}
+
+      {/* Название конференции — мелко внизу: на индивидуальной афише главный
+          герой человек, а не событие. */}
+      {L.ind_show_event_title !== false && !!eventTitle && (
+        <div style={{
+          marginTop: px(1.6),
+          fontSize: tx((L.ind_role_size ?? 24) * 0.9),
+          color: 'rgba(255,255,255,0.75)', textAlign: 'center',
+        }}>{eventTitle}</div>
+      )}
     </div>
   )
 }

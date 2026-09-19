@@ -1,5 +1,8 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+/** Вид макета афиши (миграция 459): общая, по дням, индивидуальная. */
+export type PosterKind = 'common' | 'day' | 'individual'
+
 function getToken() {
   if (typeof window === 'undefined') return null
   return localStorage.getItem('plusson_token')
@@ -1682,12 +1685,21 @@ export const api = {
   // поле `people` прямо из карточек события: копия разошлась бы с составом,
   // как только добавили спикера.
   posterLayout: {
-    get: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>
-      request(`/api/v1/events/${eventId}/poster-layout/${o}`),
-    save: (eventId: number, o: 'horizontal' | 'vertical' | 'square', data: any) =>
-      request(`/api/v1/events/${eventId}/poster-layout/${o}`, {
+    // ⚠️ `kind` — вид макета (миграция 459): common — общая афиша,
+    // day — афиша дня, individual — афиша одного спикера. У каждого вида свои
+    // настройки: ключ в базе тройной (event_id, kind, orientation).
+    get: (eventId: number, o: 'horizontal' | 'vertical' | 'square', kind: PosterKind = 'common') =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}?kind=${kind}`),
+    save: (eventId: number, o: 'horizontal' | 'vertical' | 'square', data: any, kind: PosterKind = 'common') =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}?kind=${kind}`, {
         method: 'PUT', body: JSON.stringify(data),
       }),
+    // ⚠️ ОДНА КНОПКА собирает ВСЕ афиши вида сразу: у события бывает четыре дня
+    // и полтора десятка спикеров — иначе это двадцать нажатий подряд.
+    // Каждая попадает куда следует: общие — в афиши события, дневные — в афиши
+    // своего дня, индивидуальные — в карточки спикеров.
+    renderAll: (eventId: number, o: 'horizontal' | 'vertical' | 'square', kind: PosterKind) =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}/render-all?kind=${kind}`, { method: 'POST' }),
     // ⚠️ Скачивание через тот же `downloadPdf` (он про любой файл, не только
     // PDF): там уже разобран заголовок с кириллическим именем.
     png: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>
