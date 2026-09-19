@@ -7,6 +7,7 @@ import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { Copy, RefreshCw, Trash2, Plus, BarChart3, Radio, Video } from 'lucide-react'
 import WebinarAnalytics from './WebinarAnalytics'
+import ProductPicker from '@/components/ProductPicker'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -906,8 +907,12 @@ function BlocksEditor({ eventId, day, event }: { eventId: number; day: DayItem; 
   }
 
   const KIND_LABEL: Record<string, string> = {
-    button: '🔘 Кнопка', form: '📝 Форма заявки', event_reg: '📅 Регистрация на событие',
+    // ⚠️ «Регистрация на ДРУГОЕ событие» (правило владельца, 19.09.2026):
+    // прежнее «Регистрация на событие» не отвечало на вопрос «на какое?» —
+    // блок зовёт на любое событие клиента из списка, а не на текущее.
+    button: '🔘 Кнопка', form: '📝 Форма заявки', event_reg: '📅 Регистрация на другое событие',
     speaker_follow: '➕ Подписка на спикера', gift: '🎁 Подарок спикера',
+    tariff_upgrade: '⬆️ Повысить тариф', product_landing: '🛍 Лендинг продукта',
   }
 
   return (
@@ -964,19 +969,30 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
     follow_mode: block.follow_mode || 'auto',
     speaker_id: block.speaker_id || null,
     reg_event_id: block.reg_event_id || null,
+    tariff_id: block.tariff_id || null,
+    product_id: block.product_id || null,
     show_at_min: block.show_at_min ?? '',
     hide_at_min: block.hide_at_min ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [upcoming, setUpcoming] = useState<any[]>([])
+  const [tariffs, setTariffs] = useState<any[]>([])
 
   useEffect(() => {
     if (f.kind !== 'event_reg') return
     api.webinar.upcomingEvents(eventId).then((r: any) => setUpcoming(r.events || [])).catch(() => {})
   }, [f.kind, eventId])
 
+  // Тарифы ЭТОГО события — для блока «Повысить тариф».
+  useEffect(() => {
+    if (f.kind !== 'tariff_upgrade') return
+    api.eventTariffs.list(eventId).then((r: any) => setTariffs(r.items || [])).catch(() => {})
+  }, [f.kind, eventId])
+
   async function save() {
     if (f.kind === 'event_reg' && !f.reg_event_id) { alert('Выберите событие для регистрации'); return }
+    if (f.kind === 'tariff_upgrade' && !f.tariff_id) { alert('Выберите тариф'); return }
+    if (f.kind === 'product_landing' && !f.product_id) { alert('Выберите продукт'); return }
     setSaving(true)
     try {
       const data = {
@@ -993,6 +1009,11 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
   const isForm = f.kind === 'form'
   const isSpeaker = f.kind === 'speaker_follow' || f.kind === 'gift'
   const isEventReg = f.kind === 'event_reg'
+  const isTariff = f.kind === 'tariff_upgrade'
+  const isProduct = f.kind === 'product_landing'
+  // ⚠️ Только платные и включённые: «повысить» до бесплатного нечего, а
+  // выключенный тариф купить нельзя — кнопка вела бы зрителя в тупик.
+  const paidTariffs = tariffs.filter((t: any) => Number(t.price) > 0 && t.is_active !== false)
   const fmtDate = (s?: string) => {
     if (!s) return ''
     try { return new Date(s).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', timeZone: 'Europe/Moscow' }) } catch { return '' }
@@ -1006,7 +1027,9 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
           <select className="input" value={f.kind} onChange={e => setF({ ...f, kind: e.target.value })}>
             <option value="button">Кнопка (название + ссылка)</option>
             <option value="form">Форма заявки</option>
-            <option value="event_reg">Регистрация на событие</option>
+            <option value="event_reg">Регистрация на другое событие</option>
+            <option value="tariff_upgrade">Повысить тариф</option>
+            <option value="product_landing">Лендинг продукта</option>
             <option value="speaker_follow">Подписка на спикера</option>
             <option value="gift">Подарок спикера</option>
           </select>
@@ -1037,6 +1060,57 @@ function BlockModal({ eventId, day, block, speakers, onClose, onSaved }: any) {
               Зритель жмёт → регистрируется на это событие сразу (его контакты уже есть).
               Если он в ваших ботах — бот пришлёт подтверждение; если нет — увидит выбор
               мессенджера (TG/MAX/VK), чтобы не потерять информацию.
+            </p>
+          </div>
+        )}
+
+        {/* ⚠️ Повышение тарифа — тарифы ЭТОГО события и только ПЛАТНЫЕ:
+            «повысить» до бесплатного нечего, а в списке он сбивал бы с толку.
+            Выключенные тарифы тоже не показываем — купить их нельзя. */}
+        {isTariff && (
+          <div className="space-y-2">
+            <div>
+              <label className="label">Какой тариф предлагаем</label>
+              <select className="input" value={f.tariff_id || ''}
+                      onChange={e => setF({ ...f, tariff_id: Number(e.target.value) || null })}>
+                <option value="">— выберите тариф —</option>
+                {paidTariffs.map((t: any) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title} · {Number(t.price).toLocaleString('ru-RU')} ₽
+                  </option>
+                ))}
+              </select>
+            </div>
+            {paidTariffs.length === 0 && (
+              <p className="text-xs text-amber-700">
+                У события нет платных тарифов. Заведите их во вкладке «Тарифы» — тогда
+                их можно будет предложить прямо в эфире.
+              </p>
+            )}
+            <p className="text-xs text-gray-500">
+              Зритель жмёт → попадает на страницу оплаты этого тарифа, где его данные
+              уже подставлены. Название и цена берутся из тарифа в момент показа —
+              поменяете цену, кнопка покажет новую.
+            </p>
+          </div>
+        )}
+
+        {/* ⚠️ Продукт выбирается ОБЩИМ компонентом ProductPicker, а не своим
+            `<select>`: до него в проекте было три разных селектора продукта, и
+            ни один не отбирал опубликованные. Подробности — в шапке компонента. */}
+        {isProduct && (
+          <div className="space-y-2">
+            <div>
+              <label className="label">Какой продукт показываем</label>
+              <ProductPicker
+                value={f.product_id || null}
+                onChange={id => setF({ ...f, product_id: id })}
+                placeholder="— выберите продукт —"
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              Зритель жмёт → открывается лендинг продукта. В списке только
+              опубликованные: черновик отдаёт «страница не найдена».
             </p>
           </div>
         )}

@@ -570,7 +570,13 @@ export default function WebinarRoomPage() {
               и идёт на всю ширину. Порядок = sort_order. */}
           {(() => {
             const per = Math.max(1, Math.min(4, room.room?.buttons_per_row || 1))
-            const items = (room.blocks || []).filter((b: any) => b.kind === 'button' || b.kind === 'form' || b.kind === 'event_reg')
+            // ⚠️ Новый вид блока надо добавить И СЮДА, и в проверку ниже —
+            // иначе он молча не покажется зрителю, хотя в кабинете создан и
+            // виден. Блоки «Повысить тариф» и «Лендинг продукта» (миграция 463)
+            // ведут себя как обычные кнопки: у них готовый `url` от бэкенда.
+            const items = (room.blocks || []).filter((b: any) =>
+              b.kind === 'button' || b.kind === 'form' || b.kind === 'event_reg'
+              || b.kind === 'tariff_upgrade' || b.kind === 'product_landing')
             if (!items.length) return null
             const out: any[] = []
             let btnRun: any[] = []
@@ -589,7 +595,10 @@ export default function WebinarRoomPage() {
               )
             }
             items.forEach((b: any) => {
-              if (b.kind === 'button' || b.kind === 'event_reg') { btnRun.push(b); return }
+              if (b.kind === 'button' || b.kind === 'event_reg'
+                  || b.kind === 'tariff_upgrade' || b.kind === 'product_landing') {
+                btnRun.push(b); return
+              }
               flush()
               out.push(
                 <div key={b.id} className="mt-3 rounded-xl bg-white/10 p-3">

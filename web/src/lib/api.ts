@@ -1358,7 +1358,11 @@ export const api = {
   },
   // Продукты/услуги вне событий (миграция 290): лендинг, тарифы, материалы.
   products: {
-    list: () => request('/api/v1/products'),
+    // ⚠️ `status='published'` — для селекторов, ведущих человека на витрину
+    // продукта: черновик по ссылке отдаёт «страница не найдена». Без
+    // параметра приходят все, включая черновики (так нужно самому разделу).
+    list: (status?: string) =>
+      request(`/api/v1/products${status ? `?status=${encodeURIComponent(status)}` : ''}`),
     create: (data: any) =>
       request('/api/v1/products', { method: 'POST', body: JSON.stringify(data) }),
     get: (id: number) => request(`/api/v1/products/${id}`),

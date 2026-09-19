@@ -96,7 +96,8 @@ class RoomUpsert(BaseModel):
 
 
 class BlockIn(BaseModel):
-    kind: str                                  # button | form | speaker_follow | gift | event_reg
+    # button | form | speaker_follow | gift | event_reg | tariff_upgrade | product_landing
+    kind: str
     title: Optional[str] = None
     url: Optional[str] = None
     body: Optional[str] = None
@@ -109,6 +110,8 @@ class BlockIn(BaseModel):
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
     reg_event_id: Optional[int] = None         # kind='event_reg': на какое событие регистрировать
+    tariff_id: Optional[int] = None            # kind='tariff_upgrade': какой тариф ЭТОГО события (миграция 463)
+    product_id: Optional[int] = None           # kind='product_landing': лендинг какого продукта (миграция 463)
 
 
 class PollIn(BaseModel):
@@ -792,25 +795,58 @@ async def list_blocks(event_id: int, day_number: int, client=Depends(get_current
     return {"blocks": [dict(r) for r in rows]}
 
 
+async def _assert_block_refs(db, event_id: int, client_id: int, data: BlockIn) -> None:
+    """Проверяет, что выбранные тариф и продукт вообще принадлежат этому клиенту.
+
+    ⚠️ Без этой проверки в блок можно положить ЧУЖОЙ id — поле приходит из
+    браузера, а внешний ключ в базе следит только за существованием строки, не
+    за тем, чья она. Тогда в эфире показался бы чужой тариф с чужой ценой.
+
+    ⚠️ Тариф проверяем по `event_id` (тариф живёт у события), продукт — по
+    `client_id` (продукт живёт у клиента, не у события).
+    """
+    if data.tariff_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM event_tariffs WHERE id=$1 AND event_id=$2",
+            data.tariff_id, event_id)
+        if not ok:
+            raise HTTPException(400, "Тариф не найден у этого события.")
+    if data.product_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM products WHERE id=$1 AND client_id=$2",
+            data.product_id, client_id)
+        if not ok:
+            raise HTTPException(400, "Продукт не найден.")
+
+
 @router.post("/{day_number}/blocks", summary="Создать блок")
 async def create_block(event_id: int, day_number: int, data: BlockIn, client=Depends(get_current_client), db=Depends(get_db)):
-    await ws.assert_event_owner(db, event_id, _cid(client))
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_block_refs(db, event_id, cid, data)
     rid = await _room_id(db, event_id, day_number)
     import json
     row = await db.fetchrow(
         "INSERT INTO webinar_blocks (room_id, kind, title, url, body, form_fields, form_tag, "
-        " follow_mode, speaker_id, show_at_min, hide_at_min, sort_order, is_active, reg_event_id) "
-        "VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,COALESCE($12,0),COALESCE($13,TRUE),$14) RETURNING *",
+        " follow_mode, speaker_id, show_at_min, hide_at_min, sort_order, is_active, reg_event_id, "
+        " tariff_id, product_id) "
+        "VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,COALESCE($12,0),COALESCE($13,TRUE),$14,"
+        " $15,$16) RETURNING *",
         rid, data.kind, data.title, data.url, data.body,
         json.dumps(data.form_fields or []), data.form_tag, data.follow_mode, data.speaker_id,
         data.show_at_min, data.hide_at_min, data.sort_order, data.is_active, data.reg_event_id,
+        data.tariff_id, data.product_id,
     )
     return {"block": dict(row)}
 
 
 @router.patch("/{day_number}/blocks/{block_id}", summary="Обновить блок")
 async def update_block(event_id: int, day_number: int, block_id: int, data: BlockIn, client=Depends(get_current_client), db=Depends(get_db)):
-    await ws.assert_event_owner(db, event_id, _cid(client))
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    # ⚠️ Та же проверка, что и при создании: правка блока — второй путь, которым
+    # чужой tariff_id/product_id попал бы в комнату.
+    await _assert_block_refs(db, event_id, cid, data)
     rid = await _room_id(db, event_id, day_number)
     import json
     fields = data.model_dump(exclude_unset=True)

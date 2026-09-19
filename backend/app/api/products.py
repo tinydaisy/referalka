@@ -314,9 +314,17 @@ class SectionPatch(BaseModel):
 
 @router.get("/products", summary="Список продуктов кабинета")
 async def list_products(
+    status: Optional[str] = None,
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    """Продукты клиента. `status=published` — только опубликованные.
+
+    ⚠️ Фильтр нужен СЕЛЕКТОРАМ, которые ведут человека на витрину продукта:
+    черновик и архив по ссылке отдают «страница не найдена», и приводить туда
+    зрителя нельзя. Раздел «Продукты» зовёт без параметра и получает всё,
+    включая черновики — там они и должны быть видны.
+    """
     client_id = int(user["sub"])
     await _assert_feature(db, client_id)
 
@@ -334,9 +342,10 @@ async def list_products(
           FROM products p
           LEFT JOIN product_categories pc ON pc.id = p.category_id
          WHERE p.client_id = $1
+           AND ($2::text IS NULL OR p.status = $2)
          ORDER BY p.title COLLATE "ru-RU-x-icu"
         """,
-        client_id,
+        client_id, (status or None),
     )
     # ⚠️ Порядок — ПО АЛФАВИТУ, а не по sort_order: у продуктов нет экрана
     # перетаскивания, поле осталось от событий и у всех равно нулю — список

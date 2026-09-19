@@ -60,6 +60,59 @@ async def _resolve_ref_placeholders(conn, room_id: int, contact_id: Optional[int
     return url.replace("{plsn_ref}", plsn).replace("{ext_ref}", ext)
 
 
+async def _fill_tariff_block(conn, d: dict, event_id: int) -> dict:
+    """Блок «Повысить тариф»: подставляет название, цену и ссылку на оплату.
+
+    ⚠️ Цена и название берутся ИЗ БАЗЫ в момент показа, а не сохраняются в
+    блоке. Клиент меняет цену тарифа перед эфиром — и кнопка обязана показать
+    новую; замороженная в блоке копия разошлась бы с кассой молча.
+
+    ⚠️ Тариф выключили (`is_active=FALSE`) или удалили — блок НЕ показываем:
+    `_skip` гасит его. Кнопка «купить» на недоступный тариф ведёт зрителя в
+    тупик, и он решит, что сломался сайт.
+    """
+    row = await conn.fetchrow(
+        "SELECT t.id, t.title, t.price, t.is_active, e.slug "
+        "  FROM event_tariffs t JOIN events e ON e.id = t.event_id "
+        " WHERE t.id=$1 AND t.event_id=$2",
+        d["tariff_id"], event_id)
+    if not row or not row["is_active"]:
+        d["_skip"] = True
+        return d
+    d["tariff_title"] = row["title"]
+    d["tariff_price"] = row["price"]
+    if not (d.get("title") or "").strip():
+        d["title"] = f"Повысить тариф — {row['title']}"
+    # Страница заказа тарифа: она сама узнаёт контакт и подставляет данные.
+    d["url"] = await ws._event_public_link(
+        conn, event_id, f"e/{row['slug']}/order/{row['id']}")
+    return d
+
+
+async def _fill_product_block(conn, d: dict, event_id: int, contact_id: Optional[int]) -> dict:
+    """Блок «Лендинг продукта»: подставляет название и адрес витрины /pr/{slug}.
+
+    ⚠️ Показываем только ОПУБЛИКОВАННЫЙ продукт. Черновик и архив по ссылке
+    отдают «страница не найдена» — привести туда зрителя прямо в эфире хуже,
+    чем не показать кнопку вовсе. Ровно так же поступают Instagram-воронки с
+    событиями.
+    """
+    row = await conn.fetchrow(
+        "SELECT id, title, slug, status, client_id FROM products WHERE id=$1",
+        d["product_id"])
+    if not row or row["status"] != "published" or not row["slug"]:
+        d["_skip"] = True
+        return d
+    d["product_title"] = row["title"]
+    if not (d.get("title") or "").strip():
+        d["title"] = row["title"]
+    # ⚠️ Домен берём по событию (как у остальных ссылок комнаты), а не по
+    # владельцу продукта: в коллабе зритель пришёл из базы конкретного
+    # организатора, и уводить его на чужой домен нельзя.
+    d["url"] = await ws._event_public_link(conn, event_id, f"pr/{row['slug']}", contact_id)
+    return d
+
+
 async def _is_banned(conn, room_id: int, contact_id: Optional[int], session_key: Optional[str]) -> bool:
     row = await conn.fetchrow(
         "SELECT 1 FROM webinar_banned WHERE room_id=$1 AND "
@@ -227,7 +280,8 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         # Блок без тайминга и не включённый вручную — зрителю не виден (лежит заготовкой).
         all_blocks = await conn.fetch(
             "SELECT id, kind, title, url, body, form_fields, form_tag, follow_mode, speaker_id, "
-            "       is_pinned, show_at_min, hide_at_min, sort_order, reg_event_id "
+            "       is_pinned, show_at_min, hide_at_min, sort_order, reg_event_id, "
+            "       tariff_id, product_id "
             "FROM webinar_blocks WHERE room_id=$1 AND is_active=TRUE ORDER BY sort_order, id", rid)
 
         elapsed_min = None
@@ -250,6 +304,23 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
         blocks = []
         for b in blocks_raw:
             d = dict(b)
+            # ⚠️ Ссылку и подпись для блоков «тариф» и «лендинг продукта» собирает
+            # БЭКЕНД, а не фронт. Иначе адрес страницы заказа и правило «домен
+            # организатора» пришлось бы держать в двух местах, и при смене домена
+            # клиента кнопка в эфире молча вела бы не туда.
+            if d.get("kind") == "tariff_upgrade":
+                if not d.get("tariff_id"):
+                    continue          # тариф не выбран или удалён (ON DELETE SET NULL)
+                d = await _fill_tariff_block(conn, d, ev["id"])
+            elif d.get("kind") == "product_landing":
+                if not d.get("product_id"):
+                    continue
+                d = await _fill_product_block(conn, d, ev["id"], c)
+            # ⚠️ Тариф выключен / продукт не опубликован → блок не показываем
+            # вовсе: кнопка вела бы зрителя на «страница не найдена» прямо
+            # посреди эфира.
+            if d.pop("_skip", False):
+                continue
             if d.get("url"):
                 d["url"] = await _resolve_ref_placeholders(conn, rid, c, d["url"])
             blocks.append(d)
