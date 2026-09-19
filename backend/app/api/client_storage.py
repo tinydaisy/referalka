@@ -97,6 +97,9 @@ async def get_storage(client=Depends(get_current_client),
     return {
         "feature": await client_has_feature(db, cid, "own_storage"),
         "client_id": cid,
+        # Имя бакета клиент создаёт САМ и вписывает сюда же — подсказываем готовое,
+        # чтобы не выдумывал и чтобы в поддержке было понятно, чей это бакет.
+        "suggested_bucket": f"pluson-{cid}",
         "suggested_global_name": f"pluson-media-{cid}-{tail}",
         "connected": bool(row["storage_provider"]),
         "provider": row["storage_provider"],
@@ -256,17 +259,33 @@ async def _check_connection(endpoint: str, region: Optional[str], bucket: str,
 # ⚠️ Зачем отдельный режим. Полный путь — семь экранов Cloud.ru: создать бакет,
 # не забыть глобальное имя, включить Bucket Policy, сохранить. На каждом шаге
 # человек может ошибиться, и ошибка всплывёт потом — картинками, которые не
-# открылись у посетителей.
+# открылись у посетителей. Здесь клиент даёт ключи и имя бакета, а публичный
+# доступ (Bucket Policy) настраиваем сами — на этом шаге ошибались чаще всего.
 #
-# Здесь клиент даёт только то, что нельзя получить программно — S3-ключи
-# (Cloud.ru их через API не выдаёт) — а бакет, публичный доступ и глобальное имя
-# создаём сами. Ошибиться негде.
+# ⚠️⚠️ БАКЕТ СОЗДАЁТ КЛИЕНТ РУКАМИ, мы его больше не создаём (19.09.2026).
+# Раньше создавали сами через `create_bucket`, и это загоняло в замкнутый круг:
+# чтобы мы создали бакет — нужен ID тенанта; а строка «ID тенанта» появляется
+# в разделе Object Storage только когда есть ХОТЯ БЫ ОДИН бакет. На чистом
+# аккаунте её нет вовсе, и выйти из круга клиент не может.
+#
+# Круг стоил трёх дней одному клиенту: 12 отказов `NoSuchTenant` подряд, между
+# ними он пересоздавал ключи — хотя ключи были исправны. В логах видно, что и
+# успешные подключения шли так же: серия отказов, пауза в несколько минут (за
+# неё человек уходил и создавал бакет руками), затем 200. То есть «автоматика»
+# работала лишь у тех, кто догадался сделать шаг, которого в инструкции не было.
+#
+# Проверка `head_bucket` теперь обязательна и её ошибка — не «создадим сами», а
+# понятный ответ «создайте бакет с таким именем».
 
 
 class QuickConnect(BaseModel):
     tenant_id: str
     access_key: str
     secret_key: str
+    # ⚠️ Имя бакета приходит ОТ КЛИЕНТА: он создаёт бакет сам (см. комментарий
+    # выше). Поле необязательное только ради старых вкладок, открытых до этой
+    # правки, — если не пришло, подставим `pluson-<id>` и попробуем найти его.
+    bucket: Optional[str] = None
     region: Optional[str] = "ru-central-1"
     endpoint: Optional[str] = "https://s3.cloud.ru"
 
@@ -290,11 +309,13 @@ async def quick_connect(data: QuickConnect,
 
     access_key = key if ":" in key else f"{tenant}:{key}"
 
-    # Имя и глобальное имя генерим сами — детерминированно от id клиента, чтобы
-    # повторный запуск не плодил новые бакеты.
+    # Имя бакета — то, что клиент создал руками. Подсказку `pluson-<id>` ему
+    # показывает инструкция, но принимаем любое: человек мог назвать по-своему
+    # или бакет уже существовал до нас. Глобальное имя остаётся нашим —
+    # оно должно быть уникально на всю платформу Cloud.ru.
     import hashlib
     tail = hashlib.sha256(f"pluson-storage-{client_id}".encode()).hexdigest()[:4]
-    bucket = f"pluson-{client_id}"
+    bucket = (data.bucket or "").strip() or f"pluson-{client_id}"
     global_name = f"pluson-media-{client_id}-{tail}"
 
     ok, err = await _provision_bucket(endpoint, region, bucket, access_key, secret, global_name)
@@ -316,12 +337,19 @@ async def quick_connect(data: QuickConnect,
 
     return {"ok": True, "bucket": bucket, "global_name": global_name, "public_url": public_url,
             "needs_global_name": True,
-            "message": "Хранилище создано. Остался один шаг — вписать глобальное имя в Cloud.ru."}
+            "message": "Хранилище подключено. Остался один шаг — вписать глобальное имя в Cloud.ru."}
 
 
 async def _provision_bucket(endpoint: str, region: str, bucket: str,
                             access_key: str, secret_key: str, global_name: str):
-    """Создаёт бакет и открывает публичное чтение. Идемпотентно."""
+    """Находит созданный клиентом бакет и открывает публичное чтение.
+
+    ⚠️ Бакет НЕ создаём — его создаёт клиент руками (почему — в комментарии
+    выше). Раньше здесь стоял `create_bucket` в `except`, и он проглатывал
+    настоящую причину: любая ошибка `head_bucket`, включая «нет такого бакета»
+    и «неверный ID тенанта», приводила к попытке создания — а та падала уже
+    своей ошибкой, по которой не понять, что делать.
+    """
     import json as _json
     import boto3
     from botocore.client import Config as BotoConfig
@@ -332,10 +360,7 @@ async def _provision_bucket(endpoint: str, region: str, bucket: str,
                           region_name=region,
                           config=BotoConfig(signature_version="s3v4", connect_timeout=10,
                                             read_timeout=30, retries={"max_attempts": 1}))
-        try:
-            s3.head_bucket(Bucket=bucket)     # уже создан — повторный запуск, это норма
-        except Exception:
-            s3.create_bucket(Bucket=bucket)
+        s3.head_bucket(Bucket=bucket)
 
         # Публичное чтение: без него посетитель не скачает картинку.
         s3.put_bucket_policy(Bucket=bucket, Policy=_json.dumps({
@@ -356,22 +381,27 @@ async def _provision_bucket(endpoint: str, region: str, bucket: str,
     except Exception as e:
         text = str(e)
         # ⚠️ NoSuchTenant разбираем ОТДЕЛЬНО и первым. Сырой английский текст
-        # заставляет человека чинить не то: клиент трижды пересоздавал ключи,
-        # хотя ключи были исправны, а неверной была первая половина — ID тенанта
-        # (взял ID пользователя из профиля, они похожи). Случай 18.09.2026.
+        # заставляет человека чинить не то: клиент 12 раз подряд пересоздавал
+        # ключи, хотя они были исправны, а не опознавалась первая половина —
+        # ID тенанта. Главное, что нужно сказать: где он берётся и что ключи
+        # тут ни при чём. Случай 17–19.09.2026.
         if "NoSuchTenant" in text:
-            return False, ("ID тенанта не найден в Cloud.ru. Скорее всего скопирован не тот "
-                           "длинный номер: ID пользователя из профиля или ID проекта с главной "
-                           "страницы не подойдут. Нужный ID — в разделе «Object Storage», строкой "
-                           "под заголовком (или в хранилище → «Object Storage API»). "
+            return False, ("ID тенанта не опознан. Он появляется в разделе «Object Storage» "
+                           "только после того, как создан первый бакет — если раздел пуст, "
+                           "сначала создайте бакет, и строка «ID тенанта» появится над списком. "
                            "Ключи доступа пересоздавать не нужно — дело не в них.")
         if "InvalidAccessKeyId" in text or "SignatureDoesNotMatch" in text:
             return False, "Ключ доступа или секретный ключ неверный — проверьте, что скопировали целиком."
+        # ⚠️ 404 у head_bucket приходит без тела, поэтому ловим и по коду: boto3
+        # отдаёт его как `Not Found`, а имя бакета в тексте не упоминает вовсе.
+        if "NoSuchBucket" in text or "Not Found" in text or "404" in text:
+            return False, (f"Хранилище «{bucket}» не найдено в вашем аккаунте Cloud.ru. "
+                           f"Создайте бакет с таким названием в разделе «Object Storage» — "
+                           f"или впишите сюда имя того, который у вас уже есть. "
+                           f"Название чувствительно к регистру.")
         if "AccessDenied" in text:
-            return False, ("Ключ не имеет прав на создание хранилища. Проверьте, что ключ создан "
-                           "в вашем аккаунте и его срок — «Бессрочно».")
-        if "BucketAlreadyExists" in text:
-            return False, "Такое хранилище уже занято в Cloud.ru — напишите нам, подберём другое имя."
+            return False, ("Ключ не имеет прав на это хранилище. Проверьте, что ключ создан "
+                           "в том же аккаунте, где лежит бакет, и его срок — «Бессрочно».")
         if "timed out" in text.lower() or "Could not connect" in text:
             return False, "Не удалось связаться с Cloud.ru — попробуйте ещё раз через минуту."
         return False, f"Cloud.ru ответил ошибкой: {text[:200]}"

@@ -282,7 +282,7 @@ function OwnStorageBlock() {
                                      tenant_id: '', access_key: '', secret_key: '', public_url: '' })
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'quick' | 'manual'>('quick')
-  const [quick, setQuick] = useState({ tenant_id: '', access_key: '', secret_key: '' })
+  const [quick, setQuick] = useState({ bucket: '', tenant_id: '', access_key: '', secret_key: '' })
   const [created, setCreated] = useState<{ global_name: string; bucket: string } | null>(null)
   const [testUrl, setTestUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -449,44 +449,58 @@ function OwnStorageBlock() {
         </>
       )}
 
-      {/* Быстрое подключение: клиент даёт три строки, бакет создаём сами.
+      {/* Быстрое подключение: клиент создаёт бакет сам и даёт четыре строки,
+          мы открываем публичный доступ.
+          ⚠️ Бакет НЕ создаём (19.09.2026): строка «ID тенанта» появляется в
+          Cloud.ru только когда есть хотя бы один бакет — а без ID тенанта мы
+          не можем создать бакет. Круг, из которого клиент не выходил.
           ⚠️ Глобальное имя через API Cloud.ru задать НЕЛЬЗЯ (только руками
-          в их кабинете), поэтому после создания показываем готовую строку
-          с кнопкой копирования — это единственный ручной шаг. */}
+          в их кабинете), поэтому после подключения показываем готовую строку
+          с кнопкой копирования — это единственный оставшийся ручной шаг. */}
       {open && !connected && mode === 'quick' && (
         <div className="space-y-3">
           {!created ? (
             <>
               <div className="rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-[13px] text-gray-700">
-                <p className="font-medium mb-1">Понадобятся три строки из Cloud.ru.</p>
+                <p className="font-medium mb-1">
+                  Сначала создайте хранилище в Cloud.ru, потом впишите сюда четыре строки.
+                </p>
                 <p className="text-gray-500">
-                  Если ещё не создали хранилище и ключ —{' '}
-                  <Link href="/dashboard/help/cloud-storage" className="text-brand hover:underline">
-                    откройте инструкцию
-                  </Link>: там каждый шаг со скриншотом.
+                  В Cloud.ru: <b>«Создать ресурс» → «Бакет объектного хранилища»</b>.
+                  Пока нет ни одного хранилища, Cloud.ru не показывает «ID тенанта» —
+                  поэтому без этого шага не обойтись.{' '}
+                  <Link href="/dashboard/help/cloud-storage-connect" className="text-brand hover:underline">
+                    Инструкция со скриншотами
+                  </Link>.
                 </p>
               </div>
 
               {/* ⚠️ У полей — путь ГДЕ ВЗЯТЬ, а не название из документации.
                   «ID тенанта» и «Key Secret» человеку ничего не говорят: он
                   открывает форму и не понимает, что копировать. */}
-              <Field label="Строка 1 — «ID тенанта»" value={quick.tenant_id}
+              <Field label="Строка 1 — название хранилища (бакета)" value={quick.bucket}
+                onChange={v => setQuick({ ...quick, bucket: v })}
+                hint={cfg?.suggested_bucket
+                  ? `То название, которое вы задали при создании бакета в Cloud.ru. Рекомендуем: ${cfg.suggested_bucket}`
+                  : 'То название, которое вы задали при создании бакета в Cloud.ru.'}
+                placeholder={cfg?.suggested_bucket || 'pluson-12'} />
+              <Field label="Строка 2 — «ID тенанта»" value={quick.tenant_id}
                 onChange={v => setQuick({ ...quick, tenant_id: v })}
-                hint="В Cloud.ru: Object Storage → откройте своё хранилище → пункт «Object Storage API» в меню слева → строка «ID тенанта». Длинная строка с дефисами." />
-              <Field label="Строка 2 — «Key ID» (ключ доступа)" value={quick.access_key}
+                hint="В Cloud.ru: Object Storage → строка «ID тенанта» под заголовком (или откройте хранилище → «Object Storage API» в меню слева). Длинная строка с дефисами. Появляется только когда создан хотя бы один бакет." />
+              <Field label="Строка 3 — «Key ID» (ключ доступа)" value={quick.access_key}
                 onChange={v => setQuick({ ...quick, access_key: v })}
                 hint="В Cloud.ru: аватар в правом верхнем углу → шестерёнка → вкладка «Ключи доступа» → «Создать ключ доступа». Время жизни — обязательно «Бессрочно»." />
-              <Field label="Строка 3 — «Key Secret» (секретный ключ)" value={quick.secret_key}
+              <Field label="Строка 4 — «Key Secret» (секретный ключ)" value={quick.secret_key}
                 onChange={v => setQuick({ ...quick, secret_key: v })} type="password"
                 hint="Показывается там же сразу после создания ключа — и только один раз. Если окно уже закрыли, создайте ключ заново." />
               <div className="flex flex-wrap gap-2 pt-1">
                 <button onClick={runQuick} disabled={busy}
                   className="btn-gold px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60">
-                  {busy ? 'Создаём хранилище…' : 'Создать и подключить'}
+                  {busy ? 'Подключаем…' : 'Подключить хранилище'}
                 </button>
                 <button onClick={() => setMode('manual')}
                   className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
-                  У меня уже есть хранилище
+                  Ввести все настройки вручную
                 </button>
                 <button onClick={() => setOpen(false)}
                   className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
@@ -506,7 +520,7 @@ function OwnStorageBlock() {
                   Остался один шаг — его можно сделать только в Cloud.ru
                 </p>
                 <p className="text-[13px] text-amber-800">
-                  Хранилище <b>{created.bucket}</b> создано, доступ открыт. Теперь откройте
+                  Хранилище <b>{created.bucket}</b> подключено, публичный доступ открыт. Теперь откройте
                   в Cloud.ru: <b>Object Storage → ваш бакет → три точки → «Редактировать»</b> и
                   впишите в поле <b>«Глобальное название»</b> вот это:
                 </p>

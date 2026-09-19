@@ -27,17 +27,36 @@ const API = process.env.NEXT_PUBLIC_API_URL || ''
  */
 function ConnectForm() {
   const KEY = 'pluson_cloud_draft'
-  const [v, setV] = useState({ tenant_id: '', access_key: '', secret_key: '' })
+  const [v, setV] = useState({ tenant_id: '', access_key: '', secret_key: '', bucket: '' })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [done, setDone] = useState<{ global_name: string } | null>(null)
   const [verified, setVerified] = useState<string | null>(null)
+  // Подсказка имени бакета — с номером кабинета, чтобы человек не выдумывал
+  // название сам и чтобы в поддержке было видно, чей это бакет.
+  const [suggested, setSuggested] = useState('')
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY)
       if (raw) setV({ ...v, ...JSON.parse(raw) })
     } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ⚠️ Имя бакета спрашиваем у бэкенда, а не собираем здесь из id клиента:
+  // правило одной точки настройки — иначе формула разъедется с серверной.
+  useEffect(() => {
+    fetch(`${API}/api/v1/clients/me/storage`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('plusson_token')}` },
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d?.suggested_bucket) setSuggested(d.suggested_bucket)
+        // Бакет уже подключали раньше — подставим его имя, чтобы не вводить снова.
+        if (d?.bucket) setV(p => ({ ...p, bucket: p.bucket || d.bucket }))
+      })
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -84,17 +103,22 @@ function ConnectForm() {
     } finally { setBusy(false) }
   }
 
-  const filled = v.tenant_id.trim() && v.access_key.trim() && v.secret_key.trim()
+  const filled = v.bucket.trim() && v.tenant_id.trim() && v.access_key.trim() && v.secret_key.trim()
 
   return (
     <div className="my-5 rounded-2xl border-2 p-5" style={{ borderColor: '#FFCFA4' }}>
       <div className="mb-3 font-semibold text-gray-800">Вставьте значения сюда</div>
       <div className="space-y-3">
-        <Row n="1" label="ID тенанта" value={v.tenant_id} onChange={x => upd('tenant_id', x)}
-             where="Как получить — ниже, шаг 1" anchor="v1" />
-        <Row n="2" label="Key ID (ключ доступа)" value={v.access_key} onChange={x => upd('access_key', x)}
-             where="Как получить — ниже, шаг 2" anchor="v23" />
-        <Row n="3" label="Key Secret (секретный ключ)" value={v.secret_key}
+        <Row n="1" label="Название хранилища (бакета)" value={v.bucket}
+             onChange={x => upd('bucket', x)}
+             where="Как создать — ниже, шаг 1" anchor="v0"
+             hint={suggested ? `Рекомендуем назвать: ${suggested}` : undefined}
+             onHintClick={suggested ? () => upd('bucket', suggested) : undefined} />
+        <Row n="2" label="ID тенанта" value={v.tenant_id} onChange={x => upd('tenant_id', x)}
+             where="Как получить — ниже, шаг 2" anchor="v1" />
+        <Row n="3" label="Key ID (ключ доступа)" value={v.access_key} onChange={x => upd('access_key', x)}
+             where="Как получить — ниже, шаг 3" anchor="v23" />
+        <Row n="4" label="Key Secret (секретный ключ)" value={v.secret_key}
              onChange={x => upd('secret_key', x)} type="password"
              where="Показывается там же, сразу после создания ключа" anchor="v23" />
       </div>
@@ -109,7 +133,7 @@ function ConnectForm() {
 
       {done ? (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[13px] text-amber-900">
-          <p className="mb-2 font-medium">Хранилище создано. Остался один шаг в Cloud.ru</p>
+          <p className="mb-2 font-medium">Хранилище подключено. Остался один шаг в Cloud.ru</p>
           <p className="mb-2">Скопируйте это имя — его нужно вписать в Cloud.ru:</p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <code className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 font-mono text-sm">
@@ -121,12 +145,12 @@ function ConnectForm() {
             </button>
           </div>
           <ol className="space-y-1">
-            <li>1. Откройте вкладку с Cloud.ru и <b>обновите страницу</b> — появится новое хранилище.</li>
-            <li>2. Справа от него нажмите <b>три точки</b> → <b>«Редактировать»</b>.</li>
+            <li>1. Откройте вкладку с Cloud.ru, раздел <b>«Object Storage»</b>.</li>
+            <li>2. Справа от вашего хранилища нажмите <b>три точки</b> → <b>«Редактировать»</b>.</li>
             <li>3. Вставьте имя в поле <b>«Глобальное название»</b> и сохраните.</li>
           </ol>
           <p className="mt-2 text-[12px] text-amber-700">
-            Подробнее с картинками — в шаге 3 ниже на этой странице.
+            Подробнее с картинками — в шаге 4 ниже на этой странице.
           </p>
           {/* ⚠️ Проверяем ПРЯМО ЗДЕСЬ, а не отправляем на другую страницу:
               человек только что вписал имя и хочет увидеть результат, а не
@@ -170,9 +194,10 @@ function ConnectForm() {
   )
 }
 
-function Row({ n, label, value, onChange, type = 'text', where, anchor }: {
+function Row({ n, label, value, onChange, type = 'text', where, anchor, hint, onHintClick }: {
   n: string; label: string; value: string; onChange: (v: string) => void
   type?: string; where?: string; anchor?: string
+  hint?: string; onHintClick?: () => void
 }) {
   return (
     <div className="flex items-start gap-2.5">
@@ -185,6 +210,15 @@ function Row({ n, label, value, onChange, type = 'text', where, anchor }: {
           spellCheck={false} autoComplete="new-password" name={`cs-${n}`}
           data-lpignore="true" data-form-type="other"
           className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm" />
+        {/* ⚠️ Подсказку имени можно нажать — она подставится в поле. Переписывать
+            `pluson-163` руками человек будет с опечаткой, а бакет с опечаткой в
+            названии мы не найдём и подключение упадёт. */}
+        {hint && (
+          <button type="button" onClick={onHintClick}
+            className="mt-1 block text-[11px] text-brand hover:underline">
+            {hint} — нажмите, чтобы подставить
+          </button>
+        )}
         {where && (
           <button type="button"
             onClick={() => anchor && document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -209,11 +243,12 @@ export default function CloudStorageConnectPage() {
         subtitle="Нужно получить в Cloud.ru три значения и вставить их в ПЛЮСОН. Занимает минут 10."
       />
 
-      <Accent title="Ваша цель — получить три значения">
+      <Accent title="Ваша цель — создать хранилище и получить три значения">
         <ol className="mt-1 space-y-1.5">
-          <li><b>1. ID тенанта</b> — номер вашего хранилища в Cloud.ru</li>
-          <li><b>2. Key ID</b> — ключ доступа</li>
-          <li><b>3. Key Secret</b> — секретный ключ</li>
+          <li><b>1. Название хранилища</b> — создадите его сами, название придумывать не нужно</li>
+          <li><b>2. ID тенанта</b> — номер вашего аккаунта в Cloud.ru</li>
+          <li><b>3. Key ID</b> — ключ доступа</li>
+          <li><b>4. Key Secret</b> — секретный ключ</li>
         </ol>
         <p className="mt-2">
           Вставляйте их в поля ниже по мере получения — можно прямо во время
@@ -238,48 +273,102 @@ export default function CloudStorageConnectPage() {
       </div>
 
       <h2 className="mt-8 mb-3 text-lg font-bold" style={{ color: '#25455D' }}>
-        Теперь получите три значения
+        Теперь по порядку
       </h2>
 
-      <Step step="1" id="v1" title="Как получить значение 1 — ID тенанта">
+      {/* ⚠️ Создание бакета — ПЕРВЫМ шагом и руками. Раньше его тут не было:
+          бакет создавал ПЛЮСОН сам, а инструкция обещала «создавать не нужно».
+          Это загоняло в круг — строка «ID тенанта» появляется в Cloud.ru только
+          когда есть хотя бы один бакет, а чтобы мы его создали, нужен ID тенанта.
+          Клиент ловил 12 отказов подряд и пересоздавал исправные ключи. */}
+      <Step step="1" id="v0" title="Создайте хранилище (бакет)">
         <p>
-          В кабинете Cloud.ru откройте раздел <b>«Object Storage»</b>. Строка
-          <b> «ID тенанта»</b> — сразу под заголовком раздела, над списком хранилищ.
+          В кабинете Cloud.ru нажмите <b>«Создать ресурс»</b> и выберите
+          <b> «Бакет объектного хранилища»</b>.
+        </p>
+        <Screenshot src={`${S}/06-bucket-menu.jpg`}
+          alt="Меню «Создать ресурс» с пунктом «Бакет объектного хранилища»"
+          caption="«Создать ресурс» → «Бакет объектного хранилища»" />
+
+        <p className="mt-3">
+          В поле <b>«Название»</b> впишите имя из первого поля формы выше — мы
+          подставили его с номером вашего кабинета. Остальные поля не трогайте:
+          класс хранения <b>«Стандартный»</b>, всё прочее по умолчанию. Нажмите
+          <b> «Создать»</b>.
+        </p>
+
+        <Note title="«Глобальное название» пока пропустите">
+          Это отдельное поле, и заполнить его нужно будет позже — готовое имя
+          мы покажем после подключения. Сейчас оставьте пустым.
+        </Note>
+
+        <Screenshot src={`${S}/07-bucket-form.jpg`}
+          alt="Форма создания бакета: поля «Название» и «Глобальное название», кнопка «Создать»"
+          caption="Заполняем только «Название» и нажимаем «Создать»" />
+
+        <Warn title="Цены справа — это не счёт к оплате">
+          Cloud.ru показывает рядом с формой расчёт «от 3,41 ₽ в месяц» — так
+          выглядит эта страница всегда. Сверху там же зелёная отметка
+          <b> «Условия free tier»</b>: 15 ГБ хранения и 10 ТБ трафика каждый месяц
+          бесплатно. Кабинету этого хватает с запасом — списаний не будет.
+        </Warn>
+
+        <Screenshot src={`${S}/08-free-tier.jpg`}
+          alt="Всплывающая подсказка «Каждый месяц бесплатно»: 15 ГБ хранения, 10 ТБ трафика"
+          caption="Что входит в бесплатный объём — подсказка по ссылке «Условия free tier»" />
+      </Step>
+
+      <Step step="2" id="v1" title="Как получить значение 2 — ID тенанта">
+        <p>
+          Теперь, когда хранилище создано, в разделе <b>«Object Storage»</b> появилась
+          строка <b>«ID тенанта»</b> — сразу под заголовком, над списком хранилищ.
           Она светло-серая и мелкая, её легко не заметить.
         </p>
 
         {/* ⚠️ Второй путь — не роскошь. На главном экране раздела значение набрано
             бледно-серым мелким шрифтом, и человек его проскакивает. В «Параметрах
-            работы с API» то же значение лежит нормальной строкой таблицы. Из-за
-            того, что был описан только первый путь, клиент взял ID из профиля и
-            получил `NoSuchTenant` (случай 18.09.2026). */}
+            работы с API» то же значение лежит нормальной строкой таблицы. */}
         <p className="mt-3">
-          Не нашли? Есть второй путь, там значение видно лучше: откройте любое
-          своё хранилище → в меню слева <b>«Object Storage API»</b>. Строка
+          Не видно? Есть второй путь, там значение читается лучше: откройте своё
+          хранилище → в меню слева <b>«Object Storage API»</b>. Строка
           <b> «ID тенанта»</b> будет в таблице рядом с Endpoint и Регионом.
         </p>
 
-        <Warn title="Не перепутайте с похожими строками">
-          В Cloud.ru есть ещё два длинных значения с дефисами, и они <b>не подойдут</b>:
-          <b> ID пользователя</b> в профиле под вашим именем и <b>ID проекта</b> на
-          главной странице. Возьмёте их — при подключении увидите ошибку
-          «ID тенанта не найден». Нужный ID лежит только в разделе Object Storage.
-        </Warn>
-
-        <Note title="Хранилище создавать не нужно">
-          ID тенанта виден и без него — это номер вашего аккаунта, а не бакета.
-          Само хранилище создаст ПЛЮСОН, когда вы заполните три поля выше.
-        </Note>
         <Screenshot src={`${S}/13-api-params.jpg`}
           alt="Экран «Параметры работы с API»: строка «ID тенанта» в таблице"
           caption="Второй путь: хранилище → «Object Storage API». «ID тенанта» — строкой в таблице" />
+
+        <Warn title="Пока нет ни одного хранилища — строки не будет">
+          «ID тенанта» показывается только вместе со списком бакетов. Если раздел
+          пуст и строки нет — вернитесь к шагу 1 и создайте хранилище. Брать вместо
+          неё другие длинные номера (<b>ID пользователя</b> из профиля,
+          <b> ID проекта</b> с главной, номер из адресной строки) не нужно —
+          подключение выдаст ошибку.
+        </Warn>
       </Step>
 
-      <Step step="2" id="v23" title="Как получить значения 2 и 3 — Key ID и Key Secret">
+      <Step step="3" id="v23" title="Как получить значения 3 и 4 — Key ID и Key Secret">
         <p>
           Нажмите на свой аватар в правом верхнем углу, затем на <b>шестерёнку</b> рядом
-          с именем. Откройте вкладку <b>«Ключи доступа»</b> → <b>«Создать ключ доступа»</b>.
+          с именем.
         </p>
+        <Screenshot src={`${S}/14-my-credentials.jpg`}
+          alt="Меню профиля: шестерёнка рядом с именем пользователя"
+          caption="Аватар в правом верхнем углу → шестерёнка" />
+
+        <p className="mt-3">
+          Откроется «Мой профиль». В меню слева выберите <b>«Ключи доступа»</b>.
+        </p>
+        <Screenshot src={`${S}/15-access-keys.jpg`}
+          alt="Меню профиля со списком разделов, пункт «Ключи доступа»"
+          caption="«Мой профиль» → «Ключи доступа»" />
+
+        <p className="mt-3">
+          Нажмите <b>«Создать ключ»</b> — кнопка в правом верхнем углу.
+        </p>
+        <Screenshot src={`${S}/16-create-key.jpg`}
+          alt="Пустой список ключей и кнопка «Создать ключ» в правом верхнем углу"
+          caption="Ключей ещё нет — нажимаем «Создать ключ»" />
 
         <p className="mt-3">В окне создания заполните:</p>
         <ul className="mt-2 space-y-1.5 text-[15px] text-gray-700">
@@ -297,9 +386,14 @@ export default function CloudStorageConnectPage() {
           caption="Описание + «Бессрочно» → «Создать»" />
 
         <p className="mt-3">
-          После создания появятся <b>Key ID</b> и <b>Key Secret</b> — это второе и третье
-          значения.
+          Появится окно <b>«Данные ключа доступа»</b> с двумя строками:
+          <b> Key ID (логин)</b> и <b>Key Secret (пароль)</b>. Это третье и четвёртое
+          значения — скопируйте каждое кнопкой справа от строки и вставьте в форму выше.
         </p>
+
+        <Screenshot src={`${S}/18-key-shown.jpg`}
+          alt="Окно «Данные ключа доступа» с полями Key ID и Key Secret"
+          caption="Key ID и Key Secret — копируем кнопкой справа от каждой строки" />
 
         <Warn title="Key Secret показывают один раз">
           Закроете окно — посмотреть снова нельзя, придётся создавать новый ключ.
@@ -312,23 +406,23 @@ export default function CloudStorageConnectPage() {
         Последний шаг — вписать имя в Cloud.ru
       </h2>
 
-      <Step step="3" title="Впишите глобальное название">
+      <Step step="4" title="Впишите глобальное название">
         <p>
-          После нажатия <b>«Подключить хранилище»</b> мы создадим бакет и покажем
-          готовое имя. Его нужно вписать в Cloud.ru — иначе ваши картинки не
-          откроются у посетителей.
+          После нажатия <b>«Подключить хранилище»</b> мы покажем готовое глобальное
+          имя. Его нужно вписать в Cloud.ru — иначе ваши картинки не откроются
+          у посетителей.
         </p>
 
         <Note title="Почему это нельзя сделать за вас">
           Глобальное название задаётся только вручную в кабинете Cloud.ru —
-          через их программный интерфейс оно не меняется. Всё остальное
-          (создание хранилища, публичный доступ) ПЛЮСОН делает сам.
+          через их программный интерфейс оно не меняется. Публичный доступ
+          к файлам ПЛЮСОН настраивает сам.
         </Note>
 
         <p className="mt-3">В Cloud.ru:</p>
         <ol className="mt-2 space-y-1.5 text-[15px] text-gray-700">
-          <li>1. <b>Обновите страницу</b> — появится новое хранилище с именем вида
-            <code className="mx-1 rounded bg-gray-100 px-1">pluson-12</code>.</li>
+          <li>1. Откройте раздел <b>«Object Storage»</b> — там ваше хранилище,
+            созданное на первом шаге.</li>
           <li>2. Справа от строки хранилища нажмите <b>три точки</b> и выберите
             <b> «Редактировать»</b>.</li>
         </ol>
