@@ -286,6 +286,8 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
     hide_viewer_count: r?.hide_viewer_count || false,
     chat_enabled: r?.chat_enabled ?? true,
     premoderation: r?.premoderation || false,
+    block_links: r?.block_links || false,
+    one_vote_per_person: r?.one_vote_per_person || false,
     redirect_url: r?.redirect_url || '',
     // Экран «эфир завершён» (миграция 441). ⚠️ Значения НЕ пустые по умолчанию:
     // пустое поле с подсказкой не даёт понять, покажется что-то в итоге или нет.
@@ -398,6 +400,8 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
       hide_viewer_count: rr?.hide_viewer_count || false,
       chat_enabled: rr?.chat_enabled ?? true,
       premoderation: rr?.premoderation || false,
+      block_links: rr?.block_links || false,
+      one_vote_per_person: rr?.one_vote_per_person || false,
       redirect_url: rr?.redirect_url || '',
       outro_offer_text: rr?.outro_offer_text ?? 'А пока у нас для вас предложение',
       outro_button_label: rr?.outro_button_label ?? 'Смотреть предложение',
@@ -437,6 +441,8 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
           hide_viewer_count: rr.hide_viewer_count ?? false,
           chat_enabled: rr.chat_enabled ?? true,
           premoderation: rr.premoderation ?? false,
+          block_links: rr.block_links ?? false,
+          one_vote_per_person: rr.one_vote_per_person ?? false,
           redirect_url: rr.redirect_url ?? '',
           outro_offer_text: rr.outro_offer_text ?? 'А пока у нас для вас предложение',
           outro_button_label: rr.outro_button_label ?? 'Смотреть предложение',
@@ -799,6 +805,14 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
         <Toggle label="Скрывать число зрителей в эфире" checked={f.hide_viewer_count} onChange={v => setF({ ...f, hide_viewer_count: v })} />
         <Toggle label="Чат включён" checked={f.chat_enabled} onChange={v => setF({ ...f, chat_enabled: v })} />
         <Toggle label="Премодерация чата" checked={f.premoderation} onChange={v => setF({ ...f, premoderation: v })} />
+        {/* ⚠️ Запрет НЕ действует на организаторов события: их ссылки — часть
+            эфира (оплата, материалы). Зритель при попытке получает ответ по
+            имени: «Имя! Ссылки в чате запрещены правилами вебинара». */}
+        <Toggle label="Запретить ссылки в чате" checked={f.block_links} onChange={v => setF({ ...f, block_links: v })} />
+        {/* ⚠️ Без неё счётчик реакций спикеру просто прибавлял +1 на каждое
+            нажатие — один человек мог накрутить сколько угодно. Батлы
+            защищены всегда, там голоса лежат строками. */}
+        <Toggle label="Один человек — один голос спикеру" checked={f.one_vote_per_person} onChange={v => setF({ ...f, one_vote_per_person: v })} />
         <Toggle label="Показывать отрицательную реакцию (👎)" checked={f.show_down_reaction} onChange={v => setF({ ...f, show_down_reaction: v })} />
       </div>
 

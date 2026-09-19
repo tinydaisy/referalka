@@ -11,6 +11,7 @@ webinar_activity/presence с contact_id — база аналитики по з�
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from typing import Optional, List
 
@@ -24,6 +25,97 @@ from app.services.contact_merge import find_or_create_contact
 
 router = APIRouter(prefix="/api/v1/public/webinar", tags=["Вебинар — зритель"])
 ws_router = APIRouter()
+
+
+# ── Один голос на человека ──────────────────────────────────────────────────
+
+async def _remember_vote(conn, room: dict, target_kind: str, target_id: int,
+                         contact_id: Optional[int], session_key: Optional[str],
+                         reaction_key: str) -> bool:
+    """Записать голос. False — этот человек уже голосовал за этот объект.
+
+    ⚠️ Проверяем ВСТАВКОЙ с `ON CONFLICT DO NOTHING`, а не «сначала SELECT,
+    потом INSERT»: между двумя запросами помещается второе нажатие (двойной
+    клик, дрожащая сеть), и проверка пропустила бы оба голоса. Здесь решает
+    уникальный индекс — гонки не существует в принципе.
+
+    ⚠️ Голос привязан к ЗАПУСКУ эфира (`session_id`): после «Начать заново»
+    голосование чистое, иначе вчерашние голоса блокировали бы сегодняшний.
+
+    ⚠️ Ограничение считается ПО ОБЪЕКТУ (спикеру/игроку), а не по реакции:
+    иначе один человек поставил бы и 👍, и 👎 одному и тому же спикеру.
+    """
+    if not contact_id and not session_key:
+        # Опознать некого — пропускаем, иначе запрет ударил бы по всем сразу.
+        return True
+    res = await conn.execute(
+        "INSERT INTO webinar_votes (room_id, target_kind, target_id, contact_id, "
+        "                           session_key, reaction_key, session_id) "
+        "VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
+        room["id"], target_kind, target_id,
+        contact_id, None if contact_id else session_key,
+        reaction_key, room.get("current_session_id"),
+    )
+    # asyncpg возвращает «INSERT 0 1» при вставке и «INSERT 0 0» при конфликте.
+    return not (res or "").endswith(" 0")
+
+
+# ── Запрет ссылок в чате ────────────────────────────────────────────────────
+
+# ⚠️ Ловим ссылку ШИРЕ, чем «http://»: запрет обходят голым доменом
+# («канал t.me/name», «пиши мне в вк vk.com/id1»), и именно так его и обходят.
+# Поэтому три случая: схема (http/https/ftp), «www.» и голый домен в известной
+# зоне. Список зон — самые частые в рунете; редкую зону пропустим, но ловить
+# ЛЮБОЕ «слово с точкой» нельзя: под это попадут «спасибо.мне понравилось» и
+# числа вида «1.5», и чат встанет у обычных людей.
+_LINK_RE = re.compile(
+    r"(?:(?:https?|ftp)://\S+)"
+    r"|(?:www\.\S+)"
+    r"|(?:\b[a-zA-Zа-яА-Я0-9][-a-zA-Zа-яА-Я0-9]*"
+    r"\.(?:ru|рф|com|net|org|io|me|tv|cc|biz|info|online|site|store|shop|club|"
+    r"live|link|bio|app|dev|ai|co|us|uk|de|kz|by|ua|su|pro|top|space|website|"
+    r"fun|life|world|today|art|agency|studio|team|group|digital|media|blog)"
+    r"(?:/\S*)?\b)",
+    re.IGNORECASE,
+)
+
+# Telegram/VK-хендлы: «@my_channel» — такая же ссылка по смыслу.
+_HANDLE_RE = re.compile(r"(?<![\w@])@[A-Za-z][A-Za-z0-9_]{3,}\b")
+
+
+def has_link(text: str) -> bool:
+    """Есть ли в тексте ссылка (в широком смысле: схема, домен, @хендл)."""
+    t = text or ""
+    return bool(_LINK_RE.search(t) or _HANDLE_RE.search(t))
+
+
+async def _is_room_moderator(conn, room: dict, token: Optional[str]) -> bool:
+    """Организатор события (владелец или соорганизатор) — ему запрет не писан.
+
+    ⚠️ Опознаём по токену КАБИНЕТА, а не по contact_id из ссылки: contact_id
+    приходит из адресной строки и подделывается тривиально — на нём нельзя
+    строить право обходить запрет.
+
+    ⚠️ Любая ошибка разбора токена = «не модератор», без исключения наверх:
+    у обычного зрителя токена нет вовсе, и падать на этом нельзя.
+    """
+    if not token:
+        return False
+    try:
+        from app.auth import decode_token
+        payload = decode_token(token)
+        client_id = int(payload.get("sub"))
+    except Exception:
+        return False
+    ev = room.get("_event") or {}
+    if not ev.get("id"):
+        return False
+    # Все организаторы события равноправны ([[feedback_collab_owners_are_equal]]).
+    return bool(await conn.fetchval(
+        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 "
+        "  AND status='accepted'",
+        ev["id"], client_id,
+    ))
 
 
 async def _load_room(conn, slug: str, day: int) -> dict:
@@ -233,11 +325,15 @@ async def _nearest_schedule_start(conn, room_id: int, now):
 
 @router.get("/{slug}/{day}", summary="Данные комнаты дня для зрителя")
 async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
-                    pid: Optional[str] = Query(None)):
+                    pid: Optional[str] = Query(None),
+                    token: Optional[str] = Query(None)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         rid, ev = room["id"], room["_event"]
+        # Организатор? От этого зависят кнопки модерации и право слать ссылки
+        # при включённом запрете. Токен необязателен — у зрителя его нет.
+        is_mod = await _is_room_moderator(conn, room, token)
 
         # ⚠️ Номер контакта из ссылки СВЕРЯЕМ С КЛИЕНТОМ события (2026-09-03).
         # Раньше `c` брался из адреса как есть. Ссылку на эфир пересылают в чаты
@@ -465,6 +561,13 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                 **(await _auto_payload(conn, room, c) if room.get("stream_type") == "auto" else {}),
                 "hide_viewer_count": room.get("hide_viewer_count"),
                 "chat_enabled": room.get("chat_enabled"),
+                # Зрителю нужен, чтобы предупредить о запрете ДО отправки,
+                # а не отказом после набранного сообщения.
+                "block_links": room.get("block_links"),
+                "one_vote_per_person": room.get("one_vote_per_person"),
+                # Организатор, открывший комнату в браузере с залогиненным
+                # кабинетом, получает кнопки модерации прямо в чате.
+                "is_moderator": is_mod,
                 "premoderation": room.get("premoderation"),
                 "redirect_url": (room.get("redirect_url") or "").strip() or None,
                 # Экран «эфир завершён» (миграция 441). Кнопка и автопереход
@@ -547,6 +650,9 @@ class ChatIn(BaseModel):
     session_key: Optional[str] = None
     author_name: Optional[str] = None
     text: str
+    # Токен кабинета, если комнату открыл организатор: он один может слать
+    # ссылки при включённом запрете. Необязателен — у зрителя его нет.
+    token: Optional[str] = None
 
 
 @router.post("/{slug}/{day}/chat", summary="Отправить сообщение в чат")
@@ -562,6 +668,22 @@ async def chat_send(slug: str, day: int, body: ChatIn):
         text = (body.text or "").strip()
         if not text:
             raise HTTPException(400, "Пустое сообщение")
+
+        # ⚠️ Запрет ссылок НЕ действует на организаторов: их ссылки — часть
+        # эфира (оплата, материалы). Зрителю отвечаем ПО ИМЕНИ и объясняем
+        # причину: молчаливый отказ человек читает как «сломалось» и жмёт
+        # отправку снова и снова.
+        if room.get("block_links") and has_link(text):
+            if not await _is_room_moderator(conn, room, body.token):
+                who = (body.author_name or "").strip()
+                if not who and body.contact_id:
+                    who = await conn.fetchval(
+                        "SELECT NULLIF(TRIM(name), '') FROM contacts WHERE id = $1",
+                        body.contact_id) or ""
+                prefix = f"{who}! " if who else ""
+                raise HTTPException(
+                    403, f"{prefix}Ссылки в чате запрещены правилами вебинара")
+
         status = "premod" if room.get("premoderation") else "visible"
         # Имя автора: из формы; если пусто, но зритель опознан — берём имя контакта из БД
         # (иначе авторизованный человек светился бы «Гостём»).
@@ -652,6 +774,21 @@ async def react(slug: str, day: int, body: ReactIn):
             raise HTTPException(403, "Отрицательная реакция отключена")
         if await _is_banned(conn, rid, body.contact_id, body.session_key):
             raise HTTPException(403, "Вы удалены из эфира")
+
+        # Один голос на человека, если включена настройка (миграция 471).
+        if room.get("one_vote_per_person"):
+            ok = await _remember_vote(conn, room, "speaker", body.speaker_id,
+                                      body.contact_id, body.session_key, body.reaction)
+            if not ok:
+                # ⚠️ Отдаём текущий счёт, а не голый отказ: фронт рисует цифру
+                # из ответа, и без неё она «прыгнула» бы у нажавшего повторно.
+                cur = await conn.fetchval(
+                    "SELECT count FROM webinar_speaker_reactions "
+                    " WHERE room_id=$1 AND speaker_id=$2 AND reaction_key=$3",
+                    rid, body.speaker_id, body.reaction) or 0
+                return {"ok": False, "already": True, "count": cur,
+                        "message": "Вы уже голосовали"}
+
         cnt = await conn.fetchval(
             "INSERT INTO webinar_speaker_reactions (room_id, speaker_id, reaction_key, count) "
             "VALUES ($1,$2,$3,1) ON CONFLICT (room_id, speaker_id, reaction_key) "
@@ -688,7 +825,13 @@ async def battle_vote(slug: str, day: int, battle_id: int, body: BattleVoteIn):
             raise HTTPException(404, "Батл не активен")
         if body.reaction == "down" and not b["show_down_reaction"]:
             raise HTTPException(403, "Отрицательная реакция отключена")
-        # один голос на игрока от зрителя (можно менять)
+        # ⚠️ Батлы от накрутки защищены ВСЕГДА, независимо от настройки
+        # `one_vote_per_person`: голоса лежат строками в webinar_battle_votes
+        # с уникальностью по (игрок, зритель), а счётчики пересчитываются
+        # подсчётом строк — прибавления «+1 на нажатие» здесь нет в принципе.
+        # Повторное нажатие МЕНЯЕТ свой голос, а не добавляет новый.
+        # Накрутка была только у реакций спикерам (там был count+1) — чинится
+        # настройкой выше.
         await conn.execute(
             "INSERT INTO webinar_battle_votes (battle_id, player_id, contact_id, session_key, reaction_key) "
             "VALUES ($1,$2,$3,$4,$5) ON CONFLICT (player_id, COALESCE(contact_id,0), COALESCE(session_key,'')) "

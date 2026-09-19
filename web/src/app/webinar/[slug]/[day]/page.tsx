@@ -83,6 +83,10 @@ export default function WebinarRoomPage() {
   const [chatText, setChatText] = useState('')
   /** Видео идёт, но браузер не дал звук — показываем кнопку «Включить звук». */
   const [needUnmute, setNeedUnmute] = useState(false)
+  /** Почему сообщение не ушло (например «Ссылки в чате запрещены»). */
+  const [chatError, setChatError] = useState('')
+  /** За кого уже голосовал этот зритель: { ec_id: 'up' | 'down' }. */
+  const [myVotes, setMyVotes] = useState<Record<number, 'up' | 'down'>>({})
   const [online, setOnline] = useState<number | null>(null)
   const [reactions, setReactions] = useState<Record<string, { up: number; down: number }>>({})
   const [poll, setPoll] = useState<any>(null)
@@ -122,6 +126,11 @@ export default function WebinarRoomPage() {
       const _qs = new URLSearchParams()
       if (contactId) _qs.set('c', String(contactId))
       if (pid) _qs.set('pid', String(pid))   // рефовод зрителя — зафиксировать при входе по ссылке
+      // Токен кабинета: если комнату открыл организатор — получит кнопки
+      // модерации и право слать ссылки при включённом запрете. У зрителя
+      // токена нет, параметр просто не уйдёт.
+      const _tok = typeof localStorage !== 'undefined' ? localStorage.getItem('plusson_token') : null
+      if (_tok) _qs.set('token', _tok)
       const res = await fetch(`${API_URL}/api/v1/public/webinar/${slug}/${day}${_qs.toString() ? `?${_qs}` : ''}`, { cache: 'no-store' })
       if (!res.ok) { setError('Комната не найдена'); return }
       const d = await res.json()
@@ -512,7 +521,24 @@ export default function WebinarRoomPage() {
     setChat(c => [...c, mine])
     try {
       // author_name — имя из формы авторизации; бэк также подставит по contact_id, если пусто
-      const r = await api('/chat', { contact_id: contactId, session_key: sessionKey, text, author_name: authName || undefined })
+      // token — только у организатора (он один шлёт ссылки при запрете).
+      const r = await api('/chat', {
+        contact_id: contactId, session_key: sessionKey, text,
+        author_name: authName || undefined,
+        token: (typeof localStorage !== 'undefined'
+          ? localStorage.getItem('plusson_token') : null) || undefined,
+      })
+      // ⚠️ Отказ бэкенда (403 «ссылки запрещены») приходит ОБЫЧНЫМ ответом с
+      // полем detail: api() не бросает исключение на код ошибки. Без этой
+      // ветки запрещённое сообщение висело бы в ленте как отправленное —
+      // человек был бы уверен, что его все видят.
+      if (r?.detail && !r?.id) {
+        setChat(c => c.filter(m => m._tmpId !== tmpId))
+        setChatError(String(r.detail))
+        setChatText(text)            // текст возвращаем — не заставляем набирать заново
+        return
+      }
+      setChatError('')
       // если бэк вернул id — проставим его локальному сообщению (дедуп по id ниже уберёт дубль из WS)
       if (r?.id) setChat(c => c.map(m => m._tmpId === tmpId ? { ...m, id: r.id, _local: false } : m))
     } catch {
@@ -521,8 +547,47 @@ export default function WebinarRoomPage() {
     }
   }
 
+  /**
+   * Модерация прямо в чате — доступна только организатору (`is_moderator`
+   * считает бэкенд по токену кабинета, подделать нельзя).
+   *
+   * ⚠️ Эндпоинты существовали давно, но кнопок к ним не было НИГДЕ: удалить
+   * сообщение или выгнать человека было физически нечем (19.09.2026).
+   */
+  const modApi = useCallback(async (path: string) => {
+    const tok = typeof localStorage !== 'undefined' ? localStorage.getItem('plusson_token') : null
+    if (!tok || !room?.event?.id) return null
+    return fetch(`${API_URL}/api/v1/events/${room.event.id}/webinar/${day}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+    }).then(r => r.json()).catch(() => null)
+  }, [room?.event?.id, day])
+
+  async function hideMsg(msgId: number) {
+    // Убираем сразу, не дожидаясь ответа: модератор жмёт, когда в чате уже
+    // висит то, что видят все, — задержка тут заметна.
+    setChat(c => c.filter(m => m.id !== msgId))
+    await modApi(`/chat/${msgId}/moderate?status=hidden`)
+  }
+
+  async function banAuthor(m: any) {
+    const who = m.author_name || 'этого участника'
+    if (!confirm(`Удалить ${who} из эфира? Все его сообщения скроются, писать он больше не сможет.`)) return
+    const qs = m.contact_id ? `contact_id=${m.contact_id}` : `session_key=${encodeURIComponent(m.session_key || '')}`
+    // Скрываем все его сообщения локально — бэкенд делает то же в базе.
+    if (m.contact_id) setChat(c => c.filter(x => x.contact_id !== m.contact_id))
+    else setChat(c => c.filter(x => x.id !== m.id))
+    await modApi(`/participant/remove?${qs}`)
+  }
+
   async function react(speakerId: number, r: 'up' | 'down') {
-    await api('/react', { contact_id: contactId, session_key: sessionKey, speaker_id: speakerId, reaction: r })
+    const res = await api('/react', { contact_id: contactId, session_key: sessionKey, speaker_id: speakerId, reaction: r })
+    // ⚠️ Отмечаем СВОЙ голос, чтобы кнопка перестала звать нажимать дальше.
+    // Без отметки при включённом «один голос» кнопка молча не реагировала —
+    // человек жал ещё и ещё, считая, что не срабатывает.
+    if (res?.ok || res?.already) {
+      setMyVotes(v => ({ ...v, [speakerId]: r }))
+    }
   }
   async function votePoll(optId: number) {
     await api(`/poll/${poll.id}/vote`, { contact_id: contactId, session_key: sessionKey, option_id: optId })
@@ -731,19 +796,36 @@ export default function WebinarRoomPage() {
             </div>
           )}
 
-          {/* Реакции на текущего спикера */}
-          {cur && (
+          {/* Реакции на текущего спикера.
+              ⚠️ Свой голос подсвечен золотом, а при «один голос на человека»
+              кнопки ещё и блокируются: иначе человек жмёт повторно, ничего не
+              меняется, и он считает, что кнопка сломана. Счётчики у КАЖДОГО
+              спикера свои — при смене спикера показываются его цифры, чужие
+              не переносятся. */}
+          {cur && (() => {
+            const voted = myVotes[cur.ec_id]
+            const lock = !!rm.one_vote_per_person && !!voted
+            const cls = (active: boolean) =>
+              `flex-1 rounded-xl py-2.5 text-sm font-semibold transition ${
+                active ? 'ring-1' : 'bg-white/10'
+              } ${lock ? 'opacity-70 cursor-default' : 'hover:bg-white/20'}`
+            return (
             <div className="mt-2 flex gap-2">
-              <button onClick={() => react(cur.ec_id, 'up')} className="flex-1 rounded-xl bg-white/10 hover:bg-white/20 py-2.5 text-sm font-semibold">
+              <button onClick={() => !lock && react(cur.ec_id, 'up')} disabled={lock}
+                className={cls(voted === 'up')}
+                style={voted === 'up' ? { background: 'rgba(255,207,164,0.22)', color: '#FFCFA4' } : undefined}>
                 🔥 {rm.reaction_up_label} · {curRx?.up || 0}
               </button>
               {rm.show_down_reaction && (
-                <button onClick={() => react(cur.ec_id, 'down')} className="flex-1 rounded-xl bg-white/10 hover:bg-white/20 py-2.5 text-sm font-semibold">
+                <button onClick={() => !lock && react(cur.ec_id, 'down')} disabled={lock}
+                  className={cls(voted === 'down')}
+                  style={voted === 'down' ? { background: 'rgba(255,207,164,0.22)', color: '#FFCFA4' } : undefined}>
                   👎 {rm.reaction_down_label} · {curRx?.down || 0}
                 </button>
               )}
             </div>
-          )}
+            )
+          })()}
 
           {/* Опрос */}
           {poll && (
@@ -809,7 +891,20 @@ export default function WebinarRoomPage() {
               лента вообще прокручивается (19.09.2026). */}
           <div ref={chatBoxRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 text-sm scroll-brand">
             {chat.map((m, i) => (
-              <div key={m.id ?? m._tmpId ?? i} className={m._failed ? 'opacity-50' : ''}>
+              <div key={m.id ?? m._tmpId ?? i}
+                   className={`group ${m._failed ? 'opacity-50' : ''}`}>
+                {/* Кнопки модерации — только организатору и только у чужих
+                    сообщений, уже сохранённых (у локальных ещё нет id).
+                    ⚠️ Появляются по наведению: висеть у каждой строки они не
+                    должны, чат и так узкий. */}
+                {room.is_moderator && m.id && (
+                  <span className="float-right opacity-0 group-hover:opacity-100 transition flex gap-1 ml-2">
+                    <button onClick={() => hideMsg(m.id)} title="Удалить сообщение"
+                      className="text-white/40 hover:text-red-400 text-xs px-1">✕</button>
+                    <button onClick={() => banAuthor(m)} title="Удалить из эфира"
+                      className="text-white/40 hover:text-red-400 text-xs px-1">🚫</button>
+                  </span>
+                )}
                 <span className="text-white/50 mr-1">{m.author_name || 'Гость'}:</span>
                 {/* ⚠️ `break-all`, а не только `break-words` (19.09.2026):
                     `break-words` переносит ПО ПРОБЕЛАМ и бессилен против
@@ -817,23 +912,33 @@ export default function WebinarRoomPage() {
                     (`#вопрос_от_клиента`, `HTTPS://…`). Такое «слово» распирало
                     колонку чата, страница становилась шире экрана телефона и
                     ерзала влево-вправо при каждой прокрутке и наборе текста. */}
-                <span className="break-all">{m.text}</span>
+                <span className="break-all"><ChatText text={m.text} /></span>
                 {m._failed && <span className="text-red-400 text-xs ml-1">· не отправлено</span>}
               </div>
             ))}
             {!chat.length && <div className="text-white/40 text-center py-8">Сообщений пока нет</div>}
           </div>
           {rm.chat_enabled ? (
-            <div className="p-3 border-t border-white/10 flex gap-2 shrink-0">
+            <div className="p-3 border-t border-white/10 shrink-0">
+              {/* Причина отказа — над полем, чтобы её увидели сразу: сообщение
+                  при этом возвращается в поле, набирать заново не нужно. */}
+              {chatError && (
+                <div className="mb-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-lg px-2.5 py-1.5">
+                  {chatError}
+                </div>
+              )}
+              <div className="flex gap-2">
               <input
-                value={chatText} onChange={e => setChatText(e.target.value)}
+                value={chatText}
+                onChange={e => { setChatText(e.target.value); if (chatError) setChatError('') }}
                 onKeyDown={e => e.key === 'Enter' && sendChat()}
-                placeholder="Написать…"
+                placeholder={rm.block_links ? 'Написать… (ссылки запрещены)' : 'Написать…'}
                 className="flex-1 min-w-0 bg-white/10 rounded-lg px-3 py-2 text-sm outline-none"
               />
               <button onClick={sendChat} aria-label="Отправить"
                 className="shrink-0 w-10 h-10 flex items-center justify-center rounded-lg text-base font-semibold"
                 style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</button>
+              </div>
             </div>
           ) : (
             <div className="p-3 border-t border-white/10 text-xs text-white/40 text-center shrink-0">Чат отключён</div>
@@ -855,6 +960,49 @@ export default function WebinarRoomPage() {
 
 // Результат кнопки «Регистрация на событие»: либо «вы зарегистрированы» (ушло в бот),
 // либо «Выберите удобный мессенджер» с кнопками площадок клиента (deeplink evreg_).
+/**
+ * Текст сообщения чата со ССЫЛКАМИ-КНОПКАМИ.
+ *
+ * ⚠️ Раньше ссылка была просто текстом: её нельзя было открыть, только
+ * выделить и скопировать — а организатор кидает в чат ссылку на оплату, и
+ * некликабельная ссылка там бесполезна (19.09.2026).
+ *
+ * ⚠️ Вставляем ТОЛЬКО через <a> с текстом ссылки, без dangerouslySetInnerHTML:
+ * текст пишут зрители, и любая вставка их HTML в разметку — дыра, через
+ * которую в чужой браузер попадает чужой скрипт.
+ *
+ * ⚠️ `rel="noopener noreferrer"` обязателен: без `noopener` открытая страница
+ * получает доступ к нашей вкладке через `window.opener` и может её подменить.
+ */
+function ChatText({ text }: { text: string }) {
+  const parts: React.ReactNode[] = []
+  // Схема, www. и голый домен — ровно то же, что бэкенд считает ссылкой
+  // (has_link в webinar_public.py); расходиться им нельзя, иначе получим
+  // «отправить нельзя, а подсветить нечего» или наоборот.
+  const re = /((?:https?:\/\/|www\.)[^\s]+|[a-zA-Zа-яА-Я0-9][-a-zA-Zа-яА-Я0-9]*\.(?:ru|рф|com|net|org|io|me|tv|cc|biz|info|online|site|store|shop|club|live|link|bio|app|dev|ai|co|us|uk|de|kz|by|ua|su|pro|top)(?:\/[^\s]*)?)/gi
+  let last = 0
+  for (const m of (text || '').matchAll(re)) {
+    const i = m.index ?? 0
+    if (i > last) parts.push(text.slice(last, i))
+    const raw = m[0]
+    // Хвостовая пунктуация — часть предложения, а не адреса: «зайди на
+    // site.ru.» иначе открывало бы ссылку с точкой на конце.
+    const clean = raw.replace(/[.,!?;:)]+$/, '')
+    const tail = raw.slice(clean.length)
+    const href = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`
+    parts.push(
+      <a key={`${i}-${clean}`} href={href} target="_blank" rel="noopener noreferrer"
+         className="underline hover:no-underline" style={{ color: '#FFCFA4' }}>
+        {clean}
+      </a>
+    )
+    if (tail) parts.push(tail)
+    last = i + raw.length
+  }
+  if (last < (text || '').length) parts.push(text.slice(last))
+  return <>{parts}</>
+}
+
 /**
  * Панель управления ПРЯМЫМ эфиром: звук и полный экран. Паузы и перемотки нет.
  *

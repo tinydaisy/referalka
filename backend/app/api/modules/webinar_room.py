@@ -102,6 +102,10 @@ class RoomUpsert(BaseModel):
     hide_viewer_count: Optional[bool] = None
     chat_enabled: Optional[bool] = None
     premoderation: Optional[bool] = None
+    # Запрет ссылок в чате (миграция 470). На организаторов не действует.
+    block_links: Optional[bool] = None
+    # Один человек = один голос спикеру (миграция 471).
+    one_vote_per_person: Optional[bool] = None
     redirect_url: Optional[str] = None
     # Экран «эфир завершён» (миграция 441): подводка к предложению, надпись на
     # кнопке и через сколько секунд автопереход. Кнопка и автопереход ведут на
@@ -314,6 +318,8 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "hide_viewer_count": r.get("hide_viewer_count"),
         "chat_enabled": r.get("chat_enabled"),
         "premoderation": r.get("premoderation"),
+        "block_links": r.get("block_links"),
+        "one_vote_per_person": r.get("one_vote_per_person"),
         "redirect_url": r.get("redirect_url"),
         "outro_offer_text": r.get("outro_offer_text"),
         "outro_button_label": r.get("outro_button_label"),
@@ -671,7 +677,8 @@ async def delete_zoom_meeting(
 # Афиши живут не здесь (event_posters / conf_days), их это не касается вовсе.
 _COPYABLE_ROOM_FIELDS = (
     "stream_type",
-    "hide_viewer_count", "chat_enabled", "premoderation",
+    "hide_viewer_count", "chat_enabled", "premoderation", "block_links",
+    "one_vote_per_person",
     "reaction_up_label", "reaction_down_label", "show_down_reaction",
     "intro_text", "buttons_per_row",
     "auth_mode", "auth_require_name", "auth_require_email",
