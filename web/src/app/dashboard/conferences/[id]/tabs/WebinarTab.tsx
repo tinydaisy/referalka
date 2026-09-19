@@ -1333,7 +1333,23 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
     try {
       if (action === 'go') await api.webinar.goLive(eventId, day.day_number)
       else if (action === 'end') await api.webinar.endLive(eventId, day.day_number)
-      else if (action === 'open') await api.webinar.openRoom(eventId, day.day_number)
+      else if (action === 'open') {
+        // ⚠️ Бэкенд при открытии комнаты САМ пробует попросить Zoom начать
+        // вещание. Получилось — человеку нажимать нечего. Не получилось
+        // (конференция ещё не открыта в Zoom — самый частый случай) —
+        // говорим об этом словами, а не молчим: иначе он будет ждать поток,
+        // которого не будет.
+        const res: any = await api.webinar.openRoom(eventId, day.day_number)
+        if (res?.zoom_started) {
+          setZoomStreamOk(true)
+          setZoomStreamMsg('Zoom начал вещание. Поток появится через 20–30 секунд.')
+        } else if (res?.zoom_error) {
+          setZoomStreamOk(false)
+          setZoomStreamMsg(
+            'Zoom пока не начал вещание — обычно это значит, что конференция ещё не открыта. '
+            + 'Откройте её в Zoom и нажмите «Запустить трансляцию из Zoom».')
+        }
+      }
       else if (action === 'close') await api.webinar.closeRoom(eventId, day.day_number)
       else await api.webinar.resetRoom(eventId, day.day_number)
       await onChanged()
@@ -1411,23 +1427,48 @@ function LiveControl({ eventId, day, onChanged }: { eventId: number; day: DayIte
               эфиром проще простого, а зрители всё это время видят пустой экран.
               Показываем только когда сработает: конференция создана кнопкой и
               трансляция у неё настроена. */}
-          {r?.zoom_meeting_id && r?.zoom_livestream_ok && (
-            <div>
-              <button type="button" onClick={startZoomStream} disabled={zoomStreamBusy}
-                className="px-3.5 py-2 rounded-xl border border-brand/40 text-sm text-[#25455D] hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-1.5">
-                <Video size={14} />
-                {zoomStreamBusy ? 'Запускаем…' : 'Запустить трансляцию из Zoom'}
-              </button>
-              <p className="text-[11px] text-gray-400 mt-1">
-                Конференция должна быть уже открыта в Zoom. Нажмёте — вещание начнётся
-                само, заходить в Zoom и включать трансляцию не нужно.
-              </p>
+          {r?.zoom_meeting_id && r?.zoom_livestream_ok ? (
+            /* ⚠️ ОДНА кнопка, не две (правило владельца, 19.09.2026). Вещание
+               пробуем включить САМИ при «Открыть комнату». Не вышло — почти
+               всегда потому, что конференция ещё не открыта в Zoom: тогда
+               даём ссылку на неё и кнопку рядом, чтобы повторить не уходя
+               со страницы. Получилось — здесь просто зелёная строка. */
+            <div className="space-y-2">
               {zoomStreamMsg && (
-                <p className={`text-xs mt-1 ${zoomStreamOk ? 'text-green-600' : 'text-red-600'}`}>
+                <p className={`text-xs ${zoomStreamOk ? 'text-green-600' : 'text-amber-700'}`}>
                   {zoomStreamMsg}
                 </p>
               )}
+              {!zoomStreamOk && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                  <p className="text-xs text-amber-900">
+                    Откройте конференцию Zoom{r?.speaker_join_url ? ' по этой ссылке' : ''},
+                    дождитесь спикеров — и нажмите кнопку ниже.
+                  </p>
+                  {r?.speaker_join_url && (
+                    <a href={r.speaker_join_url} target="_blank" rel="noreferrer"
+                       className="block text-xs text-blue-700 underline break-all">
+                      {r.speaker_join_url}
+                    </a>
+                  )}
+                  <button type="button" onClick={startZoomStream} disabled={zoomStreamBusy}
+                    className="px-3.5 py-2 rounded-xl border border-brand/40 bg-white text-sm text-[#25455D] hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-1.5">
+                    <Video size={14} />
+                    {zoomStreamBusy ? 'Подключаемся…' : 'Подключить трансляцию'}
+                  </button>
+                </div>
+              )}
             </div>
+          ) : (
+            /* ⚠️ Конференция не создавалась из кабинета (зум не подключён или
+               настраивали вручную) — запустить вещание за человека нельзя.
+               Раньше здесь не было НИЧЕГО, и он оставался наедине с «ждём
+               поток», не понимая, что надо пойти нажать в Zoom. */
+            <p className="text-[11px] text-gray-400">
+              Включите трансляцию в самом Zoom: в идущей конференции внизу{' '}
+              <b>Подробнее</b> (три точки) → <b>В эфир</b> → <b>Пользовательская служба
+              трансляции</b>. Через OBS — кнопка «Запустить трансляцию».
+            </p>
           )}
         </div>
       )}

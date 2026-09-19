@@ -238,3 +238,28 @@ body {
 .scroll-visible::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* ⚠️ Скролл на ТЁМНОМ фоне — фирменным персиковым (#FFCFA4), а не серым
+   (2026-09-19, правило владельца). Серый `.scroll-visible` рассчитан на светлые
+   карточки кабинета; в вебинарной комнате фон тёмно-синий, и полоса читалась
+   как чёрная — человек не понимал, что список вообще прокручивается.
+   Дорожка — полупрозрачная светлая, иначе на тёмном получается «дыра». */
+.scroll-brand {
+  scrollbar-width: thin;                        /* Firefox */
+  scrollbar-color: #FFCFA4 rgba(255, 255, 255, 0.08);
+}
+.scroll-brand::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-brand::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+.scroll-brand::-webkit-scrollbar-thumb {
+  background: #FFCFA4;
+  border-radius: 8px;
+}
+.scroll-brand::-webkit-scrollbar-thumb:hover {
+  background: #ffdcbb;
+}

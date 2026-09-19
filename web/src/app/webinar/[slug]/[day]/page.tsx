@@ -717,9 +717,20 @@ export default function WebinarRoomPage() {
             внизу и всегда в экране (и на мобиле, и на десктопе). На десктопе колонка
             sticky, чтобы при длинной странице ввод не уезжал. min-h-0 обязателен —
             иначе flex-ребёнок не даёт ленте скроллиться и распирает контейнер. */}
-        <div className="rounded-xl bg-white/5 flex flex-col overflow-hidden h-[70vh] md:h-[calc(100vh-2.5rem)] md:sticky md:top-4">
+        {/* ⚠️ ВЫСОТА НА МОБИЛЬНОМ — `100dvh` минус отступ, а НЕ `70vh`
+            (правило владельца, 19.09.2026). При 70vh поле ввода оказывалось
+            ниже видимой области: человек не понимал, что надо мотать вниз, и
+            не мог написать в чат вовсе.
+            ⚠️ Именно `dvh`, а не `vh`: на телефоне адресная строка браузера
+            то появляется, то исчезает, и `vh` считается по БОЛЬШЕЙ высоте —
+            поле снова уезжало бы под панель браузера. `dvh` меняется вместе
+            с ней. Для старых браузеров рядом оставлен `vh` как запасной. */}
+        <div className="rounded-xl bg-white/5 flex flex-col overflow-hidden h-[85vh] h-[calc(100dvh-7rem)] md:h-[calc(100vh-2.5rem)] md:sticky md:top-4">
           <div className="p-3 border-b border-white/10 font-semibold text-sm shrink-0">Чат</div>
-          <div ref={chatBoxRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 text-sm scroll-visible">
+          {/* ⚠️ `scroll-brand`, а не `scroll-visible`: второй серый и на тёмном
+              фоне комнаты читается как чёрная полоса — человек не видит, что
+              лента вообще прокручивается (19.09.2026). */}
+          <div ref={chatBoxRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 text-sm scroll-brand">
             {chat.map((m, i) => (
               <div key={m.id ?? m._tmpId ?? i} className={m._failed ? 'opacity-50' : ''}>
                 <span className="text-white/50 mr-1">{m.author_name || 'Гость'}:</span>

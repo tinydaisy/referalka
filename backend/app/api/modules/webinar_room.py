@@ -2088,7 +2088,33 @@ async def open_room(event_id: int, day_number: int,
         room["id"], oa)
     from app.services.webinar_hub import publish
     await publish(room["id"], {"type": "room_opened"})   # зрителям — перечитать (появится форма)
-    return {"ok": True, "room_state": "open"}
+
+    # ⚠️⚠️ ПРОБУЕМ СРАЗУ ПОПРОСИТЬ ZOOM НАЧАТЬ ВЕЩАНИЕ (решение владельца,
+    # 19.09.2026). Комнату открывают, когда конференция в Zoom уже идёт —
+    # иначе зрителям нечего показывать. Значит это ровно тот момент, когда
+    # вещание можно включить за человека, и он не идёт в Zoom искать
+    # «Подробнее → В эфир → Пользовательская служба трансляции».
+    #
+    # ⚠️ Запустить саму конференцию мы НЕ можем: Zoom API говорит с сервером
+    # Zoom, а не с приложением на компьютере ведущего. Если встреча ещё не
+    # начата, Zoom честно ответит ошибкой — тогда в пульте остаётся кнопка
+    # «Запустить трансляцию из Zoom», и человек повторяет, открыв конференцию.
+    #
+    # ⚠️ Ошибку НЕ поднимаем наверх: комната уже открыта, зрители заходят, и
+    # валить открытие из-за зума нельзя. Возвращаем признак — пульт по нему
+    # решает, показывать кнопку или нет.
+    zoom_started, zoom_error = False, ""
+    if room.get("zoom_meeting_id") and room.get("zoom_livestream_ok"):
+        from app.services import zoom_api
+        try:
+            await zoom_api.set_livestream_status(db, cid, str(room["zoom_meeting_id"]), start=True)
+            zoom_started = True
+        except zoom_api.ZoomError as e:
+            zoom_error = str(e)
+            logger.info("Zoom: автозапуск вещания не удался (комната %s): %s", room["id"], e)
+
+    return {"ok": True, "room_state": "open",
+            "zoom_started": zoom_started, "zoom_error": zoom_error}
 
 
 @router.post("/{day_number}/close-room", summary="Закрыть комнату — «вебинар завершён» + редирект")
