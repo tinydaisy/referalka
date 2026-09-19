@@ -1011,17 +1011,24 @@ async def create_template_from_preset(
         """
         INSERT INTO broadcast_templates
           (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
-           schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+           send_to_speakers_chat)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-                  custom_day_ref, custom_time, target_channel_ids, created_at
+                  custom_day_ref, custom_time, target_channel_ids,
+                  send_to_speakers_chat, created_at
         """,
         client_id, event_id, tpl["name"], tpl["type"], tpl.get("subject"),
         tpl["text"], tpl.get("photo_url"), tpl.get("button_text"), tpl.get("button_url"),
         tpl.get("schedule_mode", "fixed_offset"), tpl.get("offset_minutes", 0),
         tpl.get("audience_include", "all_event"), tpl.get("audience_exclude", "none"),
         bool(tpl.get("allow_custom_datetime", False)),
+        # ⚠️ Без этого шаблон, добавленный кнопкой «Добавить шаблон», получал
+        # флаг FALSE: не попадал в группу «в чат спикеров» и — хуже — вообще
+        # никуда не уходил бы при отправке. Авто-сид флаг переносил, а эта
+        # ручка нет: расходились два пути создания одного и того же шаблона.
+        bool(tpl.get("send_to_speakers_chat", False)),
     )
     return dict(row)
 

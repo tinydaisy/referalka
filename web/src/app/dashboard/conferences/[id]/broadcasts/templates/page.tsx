@@ -1353,6 +1353,28 @@ export default function TemplatesPage() {
         }).join('\n')
       : '[программа дня]'
 
+    // {day_program_speakers} — тайминг ДЛЯ ЧАТА СПИКЕРОВ: «10:30–10:55 — Иван (@ivan)».
+    // ⚠️ Формат обязан совпадать с бэком (_day_program_for_speakers в
+    // message_builder.py): превью — вторая реализация подстановки, и разойтись
+    // им нельзя, иначе клиент увидит одно, а уйдёт другое.
+    // Только слоты СО СПИКЕРОМ: без имени строка бессмысленна.
+    const dayProgramSpeakers = (() => {
+      const lines = daySessions
+        .filter((s: any) => (s.speaker_name || '').trim())
+        .map((s: any) => {
+          const fmt = (v: string) => v ? String(v).slice(0, 5) : ''
+          const a = fmt(s.start_time), b = fmt(s.end_time)
+          const when = a && b ? `${a}–${b}` : a
+          if (!when) return ''
+          const sp = speakers.find((x: any) => x.id === s.speaker_id)
+          const rawTg = (sp?.personal_tg_username || '').trim().replace(/^@+/, '')
+          const who = rawTg ? `${s.speaker_name} (@${rawTg})` : s.speaker_name
+          return `<b>${when}</b> — ${who}`
+        })
+        .filter(Boolean)
+      return lines.length ? lines.join('\n') : '[тайминг выступлений]'
+    })()
+
     const ORDINALS: Record<number, string> = { 1: 'первом', 2: 'втором', 3: 'третьем', 4: 'четвёртом', 5: 'пятом' }
     const dayOrdinal = ORDINALS[d] || `${d}-м`
     const realRaffleUrl = confData?.raffle_url || ''
@@ -1479,7 +1501,9 @@ export default function TemplatesPage() {
       .replace(/\{support_platform\}/g, supportLink)
       .replace(/\{support_link\}/g, supportLink)
       .replace(/\{support_links\}/g, [me?.work_tg_username, me?.work_vk, me?.work_max].filter((x: any) => x && x.trim()).join('\n') || '[контакты поддержки]')
-      // {day_program_with_links} — ДО {day_program} (это его подстрока).
+      // ⚠️ Порядок важен: {day_program_speakers} и {day_program_with_links}
+      // содержат {day_program} как подстроку — их подставляем ПЕРВЫМИ.
+      .replace(/\{day_program_speakers\}/g, dayProgramSpeakers)
       .replace(/\{day_program_with_links\}/g, dayProgram)
       .replace(/\{day_program\}/g, dayProgram)
       .replace(/\{next_day_mention\}/g, nextDayMention)

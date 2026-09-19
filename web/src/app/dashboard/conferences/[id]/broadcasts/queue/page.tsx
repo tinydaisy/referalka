@@ -272,7 +272,6 @@ export default function QueuePage() {
   const [confSessions, setConfSessions] = useState<any[]>([])
   const [confDays, setConfDays] = useState<any[]>([])
   const [isCollab, setIsCollab] = useState(false)
-  const [running, setRunning] = useState(false)
 
   // Выделение чекбоксами
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -453,20 +452,6 @@ export default function QueuePage() {
       showMsg(e.message, 'err')
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function runAll() {
-    if (!confirm('Активировать всю очередь? Celery начнёт отправлять по расписанию.')) return
-    setRunning(true)
-    try {
-      const res = await api.conference.schedules.runAll(eventId)
-      showMsg(res.message || 'Очередь активирована')
-      await load()
-    } catch (e: any) {
-      showMsg(e.message, 'err')
-    } finally {
-      setRunning(false)
     }
   }
 
@@ -1304,19 +1289,13 @@ export default function QueuePage() {
         </>
       )}
 
-      {/* ── Кнопка ЗАПУСТИТЬ ВСЮ ОЧЕРЕДЬ ── */}
-      {pendingCount > 0 && (
-        <div className="sticky bottom-4">
-          <button onClick={runAll} disabled={running}
-            className="w-full py-3.5 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg disabled:opacity-70"
-            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            {running
-              ? <><Loader2 size={16} className="animate-spin" /> Запускаем...</>
-              : <><Play size={16} /> Запустить всю очередь ({pendingCount} рассылок)</>
-            }
-          </button>
-        </div>
-      )}
+      {/* ⚠️ Кнопки «Запустить всю очередь» тут больше НЕТ (убрана 19.09.2026,
+          решение владельца). Запуск — только осознанный, кнопкой «Запустить
+          выбранные» сверху: там видно, что именно уйдёт. Кнопка на всю очередь
+          отправляла вообще всё одним нажатием, включая то, что человек ещё не
+          проверил. Локальная функция runAll и состояние `running` удалены
+          вместе с кнопкой. Эндпоинт /schedules/run-all и api.…schedules.runAll
+          НЕ трогаем: бэк рабочий, вызвать его при надобности можно снова. */}
 
       {/* ── Модалка: установить время отправки ── */}
       {fireAtModal && (
