@@ -145,7 +145,10 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             ['blocks', 'Продающие блоки'],
             // ⚠️ Автовебинар — отдельная фича (Экстра). Обычная комната есть и
             // на Профи, поэтому проверяем именно `autowebinar`.
-            ...(hasAuto ? [['auto', 'Автовебинар'] as const] : []),
+            // ⚠️ «(бета)» — раздел обкатывается (решение владельца, 19.09.2026):
+            // фича `autowebinar`, сейчас только админ. Пометка в названии
+            // честно говорит, что поведение ещё может меняться.
+            ...(hasAuto ? [['auto', 'Автовебинар (бета)'] as const] : []),
             ['analytics', 'Аналитика'],
             ['records', 'Записи'],
             ['referrals', 'Рефералы'],
@@ -473,12 +476,99 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
             </button>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">К ссылке добавляйте <code>?pid=реф-код</code> для реферальных ссылок спикеров.</p>
+          {/* ⚠️ Ссылку НЕ прячем, пока зум не настроен (решение владельца,
+              19.09.2026) — рассылки готовят заранее, и спрятанная ссылка
+              мешала бы работе. Но предупреждаем: без зума комната будет
+              пустой, а узнать об этом в момент эфира — худший вариант. */}
+          {joinMissing && (
+            <p className="text-[11px] text-red-700 font-medium mt-1.5">
+              Пока не настроен Zoom, эта ссылка приведёт зрителей в пустую комнату —
+              картинка в неё идёт из зума.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ⚠️⚠️ ОДИН БЛОК «ОТКУДА ИДЁТ КАРТИНКА», А НЕ ТРИ ВРАЗНОБОЙ (правило
+          владельца, 19.09.2026). Раньше по странице были раскиданы: RTMP-данные
+          с инструкцией, ниже кнопка создания зума, ещё ниже поле ссылки
+          спикеров — и человек не понимал, что из этого делать и в каком
+          порядке, а подключение стояло НИЖЕ инструкции «как подключить
+          вручную». Теперь сверху развилка: автоматически или вручную. Итог у
+          обеих веток один — заполненная ссылка входа спикеров. */}
+      {isEncoder && zoomEnabled && (
+        <div className="rounded-xl border border-brand/30 bg-white p-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Настроить автоматически</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Заведём конференцию в вашем Zoom на дату и время этого дня, включим ей
+              трансляцию в эту комнату и подставим ссылку входа спикеров — ниже.
+            </p>
+          </div>
+
+          {/* ⚠️ Состояние ПЕРВЫМ, до кнопки: главный вопрос человека — «создано
+              или нет». Раньше описание «Заведём конференцию…» висело и после
+              создания, и читалось как «ещё не создано» (прод, 19.09.2026). */}
+          {r?.zoom_meeting_id ? (
+            <div className={`rounded-lg border p-3 text-sm ${
+              r.zoom_livestream_ok
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+              <p className="font-medium">
+                {r.zoom_livestream_ok
+                  ? '✓ Конференция создана, трансляция в комнату включена'
+                  : '⚠ Конференция создана, но трансляция в комнату не включена'}
+              </p>
+              <p className="text-xs mt-1 opacity-90">
+                Номер конференции {r.zoom_meeting_id}. Ссылка входа для спикеров — в поле ниже.
+                {!r.zoom_livestream_ok && ' Эфир пройдёт в Zoom, но наша комната останется пустой.'}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">Конференция ещё не создана.</p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={createZoom} disabled={zoomBusy}
+              className="btn-gold text-sm inline-flex items-center gap-1.5 disabled:opacity-60">
+              <Video size={14} />
+              {zoomBusy ? 'Создаём…'
+                : r?.zoom_meeting_id ? 'Создать заново' : 'Создать конференцию Zoom'}
+            </button>
+            {r?.zoom_meeting_id && (
+              <span className="text-[11px] text-gray-500">
+                Прежняя конференция удалится — её ссылка перестанет работать.
+              </span>
+            )}
+          </div>
+
+          {zoomMsg && (
+            <p className={`text-xs ${zoomMsgOk ? 'text-green-600' : 'text-red-600'}`}>{zoomMsg}</p>
+          )}
+        </div>
+      )}
+
+      {/* Фича есть, но зум не подключён — говорим, что так можно, и куда идти. */}
+      {isEncoder && !zoomEnabled && zoomConnectable && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-sm font-semibold text-gray-900">Настроить автоматически</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Подключите свой Zoom — и конференция будет создаваться одной кнопкой, вместе
+            с трансляцией в эту комнату.{' '}
+            <a href="/dashboard/settings?tab=integration&svc=zoom"
+               className="text-blue-600 hover:underline">Настройки → Интеграция</a>
+          </p>
         </div>
       )}
 
       {isEncoder ? (
         <div className="rounded-xl bg-gray-50 border p-4 space-y-3">
-          <p className="text-sm font-semibold text-gray-900">Данные для видеокодера (Zoom / OBS)</p>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Настроить вручную</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Заводите конференцию в Zoom сами и переносите эти два значения в его настройки.
+            </p>
+          </div>
           {r?.rtmp_url ? (
             <>
               <Field label="RTMP-адрес" value={r.rtmp_url} onCopy={() => copy(r.rtmp_url, 'rtmp')} copied={copied === 'rtmp'} />
@@ -577,46 +667,6 @@ function RoomSettings({ eventId, day, level, slug, onSaved, daysCount = 1, zoomE
           Ссылка для входа спикеров (Zoom)
           {isEncoder && <span className="text-red-600"> *</span>}
         </label>
-        {/* ⚠️ Кнопка создаёт конференцию в ЗУМЕ КЛИЕНТА и сама заполняет поле
-            ниже. Показывается только когда сработает: есть фича и зум подключён.
-            Есть фича, но зум не подключён — вместо кнопки подсказка, куда идти:
-            иначе человек не узнает, что так вообще можно. */}
-        {isEncoder && zoomEnabled && (
-          <div className="rounded-xl border border-brand/30 bg-white p-3 mb-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={createZoom} disabled={zoomBusy}
-                className="btn-gold text-sm inline-flex items-center gap-1.5 disabled:opacity-60">
-                <Video size={14} />
-                {zoomBusy ? 'Создаём…'
-                  : r?.zoom_meeting_id ? 'Пересоздать конференцию Zoom' : 'Создать конференцию Zoom'}
-              </button>
-              {r?.zoom_meeting_id && (
-                <span className="text-xs text-gray-500">
-                  Конференция {r.zoom_meeting_id}
-                  {r.zoom_livestream_ok
-                    ? ' · трансляция в комнату включена'
-                    : ' · трансляция в комнату НЕ включена'}
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-gray-500 mt-1.5">
-              Заведём конференцию на дату и время этого дня, включим ей трансляцию
-              в вашу комнату и подставим ссылку входа в поле ниже.
-              {r?.zoom_meeting_id && ' Пересоздание удалит прежнюю конференцию — старая ссылка перестанет работать.'}
-            </p>
-            {zoomMsg && (
-              <p className={`text-xs mt-1.5 ${zoomMsgOk ? 'text-green-600' : 'text-red-600'}`}>{zoomMsg}</p>
-            )}
-          </div>
-        )}
-        {isEncoder && !zoomEnabled && zoomConnectable && (
-          <p className="text-xs text-gray-500 mb-2">
-            Хотите, чтобы конференция создавалась кнопкой? Подключите свой Zoom в{' '}
-            <a href="/dashboard/settings?tab=integration" className="text-blue-600 hover:underline">
-              Настройки → Интеграция
-            </a>.
-          </p>
-        )}
         <div className="flex flex-wrap items-center gap-2">
           <input className={`input flex-1 min-w-[220px] ${
                    joinMissing ? 'border-red-400 focus:border-red-500' : ''}`}
