@@ -235,6 +235,10 @@ async def _check_connection(endpoint: str, region: Optional[str], bucket: str,
         text = str(e)
         # Переводим типовые ответы S3 на человеческий: клиент не программист,
         # «AccessDenied» ему ничего не говорит.
+        if "NoSuchTenant" in text:
+            return False, ("ID тенанта не найден в Cloud.ru. Проверьте первое поле: ID пользователя "
+                           "из профиля и ID проекта с главной страницы не подойдут — нужный ID лежит "
+                           "в разделе «Object Storage». Ключи пересоздавать не нужно.")
         if "InvalidAccessKeyId" in text or "SignatureDoesNotMatch" in text:
             return False, "Ключ доступа или секретный ключ неверный — проверьте, что скопировали целиком."
         if "NoSuchBucket" in text:
@@ -351,6 +355,16 @@ async def _provision_bucket(endpoint: str, region: str, bucket: str,
         return True, None
     except Exception as e:
         text = str(e)
+        # ⚠️ NoSuchTenant разбираем ОТДЕЛЬНО и первым. Сырой английский текст
+        # заставляет человека чинить не то: клиент трижды пересоздавал ключи,
+        # хотя ключи были исправны, а неверной была первая половина — ID тенанта
+        # (взял ID пользователя из профиля, они похожи). Случай 18.09.2026.
+        if "NoSuchTenant" in text:
+            return False, ("ID тенанта не найден в Cloud.ru. Скорее всего скопирован не тот "
+                           "длинный номер: ID пользователя из профиля или ID проекта с главной "
+                           "страницы не подойдут. Нужный ID — в разделе «Object Storage», строкой "
+                           "под заголовком (или в хранилище → «Object Storage API»). "
+                           "Ключи доступа пересоздавать не нужно — дело не в них.")
         if "InvalidAccessKeyId" in text or "SignatureDoesNotMatch" in text:
             return False, "Ключ доступа или секретный ключ неверный — проверьте, что скопировали целиком."
         if "AccessDenied" in text:

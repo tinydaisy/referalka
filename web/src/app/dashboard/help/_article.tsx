@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, ChevronRight, ImageOff } from 'lucide-react'
 
@@ -154,29 +154,35 @@ export function NextArticle({ href, title, description }:
  */
 export function Screenshot({ src, alt, caption }: { src: string; alt: string; caption?: string }) {
   const [failed, setFailed] = useState(false)
-  const [ready, setReady] = useState(false)
-  useEffect(() => { setFailed(false); setReady(false) }, [src])
+  // ⚠️ Картинку показываем СРАЗУ, а заглушку — только когда файл реально не
+  // открылся. Раньше `<img>` был спрятан до срабатывания `onLoad`, и картинки
+  // из кеша браузера пропадали навсегда: `useEffect` сбрасывал флаг уже ПОСЛЕ
+  // первого рендера, а второй раз `onLoad` у загруженной картинки не приходит.
+  // Отсюда «на странице картинок нет, а по прямой ссылке открывается».
+  // Заглушка «пока грузится» тут и не нужна: файлы лежат рядом, на своём домене.
+  //
   // ⚠️ Ограничиваем ВЫСОТУ, а не ширину: скриншоты с телефона вертикальные, и при
   // `w-full` растягивались на всю ширину статьи — выходили полотна во весь экран.
   // Высота решает обе задачи разом: вертикальные ужимаются, горизонтальные
   // остаются читаемыми. Клик открывает оригинал — мелкий текст можно рассмотреть.
   return (
     <figure className="mt-3">
-      {!failed ? (
-        <a href={src} target="_blank" rel="noreferrer" className={ready ? 'inline-block' : 'hidden'}>
-          <img src={src} alt={alt} onError={() => setFailed(true)} onLoad={() => setReady(true)}
-               className="max-h-[420px] w-auto max-w-full rounded-lg border border-gray-200
-                          cursor-zoom-in hover:border-gray-300" />
-        </a>
-      ) : null}
-      {(failed || !ready) && (
+      {failed ? (
         <div className="w-full rounded-lg border border-dashed border-gray-300 bg-gray-50 py-8 flex flex-col items-center justify-center gap-1.5">
           <ImageOff size={20} className="text-gray-300" />
           <span className="text-xs text-gray-400 px-4 text-center">{alt}</span>
         </div>
+      ) : (
+        <>
+          <a href={src} target="_blank" rel="noreferrer" className="inline-block">
+            <img src={src} alt={alt} onError={() => setFailed(true)}
+                 className="max-h-[420px] w-auto max-w-full rounded-lg border border-gray-200
+                            cursor-zoom-in hover:border-gray-300" />
+          </a>
+          <p className="text-[10px] text-gray-300 mt-0.5">Нажмите на картинку, чтобы открыть крупнее</p>
+        </>
       )}
       {caption && <figcaption className="text-xs text-gray-400 mt-1.5">{caption}</figcaption>}
-      {ready && <p className="text-[10px] text-gray-300 mt-0.5">Нажмите на картинку, чтобы открыть крупнее</p>}
     </figure>
   )
 }

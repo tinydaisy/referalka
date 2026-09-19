@@ -803,28 +803,44 @@ function Section({ step, title, children }: { step: string; title: string; child
   )
 }
 
+/**
+ * ⚠️ Локальная копия `Screenshot`. Общая версия — в `../_article`; здесь копия
+ * осталась потому, что страница собрана на своих компонентах и не импортирует
+ * `_article` вовсе. Правите одну — проверьте вторую, иначе разъедутся.
+ *
+ * ⚠️ Картинка видна СРАЗУ, заглушка — только по `onError`. Прятать `<img>` до
+ * `onLoad` нельзя: у картинки из кеша браузера событие не приходит повторно, и
+ * она пропадает навсегда (так сломались все скриншоты в общем компоненте).
+ *
+ * ⚠️ В заглушке не показываем путь к файлу: клиенту служебный адрес ничего не
+ * говорит, а выглядит как поломка сайта. Показываем подпись — по ней понятно,
+ * что было на картинке, и инструкцией можно пользоваться дальше.
+ */
 function Screenshot({ src, alt, caption }: { src: string; alt: string; caption?: string }) {
   const [errored, setErrored] = useState(false)
   if (errored) {
     return (
-      <div className="mt-3 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 flex items-start gap-3">
-        <ImageOff size={20} className="text-gray-400 flex-shrink-0 mt-0.5" />
-        <div>
-          <div className="text-xs font-mono text-gray-500 break-all">{src}</div>
-          {caption && <div className="text-xs text-gray-500 mt-1 italic">{caption}</div>}
-          <div className="text-xs text-gray-400 mt-1">Скриншот будет добавлен</div>
+      <figure className="mt-3">
+        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 py-8 flex flex-col items-center justify-center gap-1.5">
+          <ImageOff size={20} className="text-gray-300" />
+          <span className="text-xs text-gray-400 px-4 text-center">{alt}</span>
         </div>
-      </div>
+        {caption && <figcaption className="text-xs text-gray-400 mt-1.5">{caption}</figcaption>}
+      </figure>
     )
   }
   return (
     <figure className="mt-3">
-      <img
-        src={src}
-        alt={alt}
-        onError={() => setErrored(true)}
-        className="max-h-[420px] w-auto max-w-full rounded-xl border border-gray-200 shadow-sm"
-      />
+      <a href={src} target="_blank" rel="noreferrer" className="inline-block">
+        <img
+          src={src}
+          alt={alt}
+          onError={() => setErrored(true)}
+          className="max-h-[420px] w-auto max-w-full rounded-xl border border-gray-200 shadow-sm
+                     cursor-zoom-in hover:border-gray-300"
+        />
+      </a>
+      <p className="text-[10px] text-gray-300 mt-0.5">Нажмите на картинку, чтобы открыть крупнее</p>
       {caption && (
         <figcaption className="text-xs text-gray-500 mt-2 italic">{caption}</figcaption>
       )}
