@@ -1109,7 +1109,7 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                           AND EXISTS(SELECT 1 FROM webinar_rooms wr
                                       WHERE wr.event_id=cd.event_id
                                         AND wr.day_number=cd.day_number)
-                        ORDER BY cd.day_number LIMIT 1""",
+                        ORDER BY cd.day_date NULLS LAST, cd.day_number LIMIT 1""",
                     d["id"],
                 )
         # Сквозной contact_id зрителя (по tg_id) — чтобы кнопка стрима в Mini App

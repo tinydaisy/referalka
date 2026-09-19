@@ -2008,7 +2008,7 @@ async def speaker_program(
     all_days = await db.fetch(
         "SELECT id, day_number, day_date, stage_id, title, show_for_speakers, "
         "       COALESCE(has_webinar, TRUE) AS has_webinar "
-        "FROM conf_days WHERE event_id = $1 AND show_for_speakers = TRUE ORDER BY day_number",
+        "FROM conf_days WHERE event_id = $1 AND show_for_speakers = TRUE ORDER BY day_date NULLS LAST, day_number",
         e_id,
     )
     days = [d for d in all_days if d["stage_id"] is None or d["stage_id"] in visible_stage_ids]

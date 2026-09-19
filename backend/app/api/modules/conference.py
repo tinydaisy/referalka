@@ -182,7 +182,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         event_id
     )
     days = await db.fetch(
-        "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
+        "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_date NULLS LAST, day_number", event_id
     )
     sessions = await db.fetch(
         """SELECT s.*, COALESCE(NULLIF(cst.topic,''), (SELECT NULLIF(t.topic,'') FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
@@ -472,7 +472,7 @@ async def get_conference(
     # пусто и превью должно ругаться). Раньше фронт всегда склеивал
     # pluson.ru/webinar/{slug}/{day} — показывал несуществующую комнату.
     _days = await db.fetch(
-        "SELECT day_number FROM conf_days WHERE event_id=$1 ORDER BY day_number", event_id)
+        "SELECT day_number FROM conf_days WHERE event_id=$1 ORDER BY day_date NULLS LAST, day_number", event_id)
     d["stream_links"] = {
         str(r["day_number"]): (await day_stream_url(db, event_id, r["day_number"]) or "")
         for r in _days
@@ -2345,7 +2345,7 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
     )
     days = await db.fetch(
         "SELECT id, day_number, day_date, open_time, close_time, stage_id, title "
-        "FROM conf_days WHERE event_id = $1 ORDER BY day_number",
+        "FROM conf_days WHERE event_id = $1 ORDER BY day_date NULLS LAST, day_number",
         event_id,
     )
     sessions = await db.fetch(
@@ -2403,7 +2403,7 @@ async def list_days(
                   (SELECT wr.speaker_join_url FROM webinar_rooms wr
                     WHERE wr.event_id = d.event_id AND wr.day_number = d.day_number)
                   AS speaker_join_url
-             FROM conf_days d WHERE d.event_id = $1 ORDER BY d.day_number""",
+             FROM conf_days d WHERE d.event_id = $1 ORDER BY d.day_date NULLS LAST, d.day_number""",
         event_id
     )
     return {"days": [dict(d) for d in days]}
@@ -2419,7 +2419,7 @@ async def list_days_public(event_id: int, db: asyncpg.Connection = Depends(get_d
         """SELECT day_number, day_date, open_time, close_time, stage_id, title
              FROM conf_days
             WHERE event_id = $1
-         ORDER BY day_number""",
+         ORDER BY day_date NULLS LAST, day_number""",
         event_id,
     )
     return {"days": [dict(d) for d in days]}
@@ -3698,7 +3698,7 @@ async def export_salebot(
 
     # Дни + сессии: время хранится строкой "HH:MM" (МСК), показываем как есть.
     days = await db.fetch(
-        "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
+        "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_date NULLS LAST, day_number", event_id
     )
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.sort_order, s.title,
@@ -4208,7 +4208,7 @@ async def send_schedule_to_telegram(
 
     # Дни конференции
     days_db = await db.fetch(
-        "SELECT day_number, day_date FROM conf_days WHERE event_id = $1 ORDER BY day_number",
+        "SELECT day_number, day_date FROM conf_days WHERE event_id = $1 ORDER BY day_date NULLS LAST, day_number",
         event_id
     )
 

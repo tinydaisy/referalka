@@ -1338,7 +1338,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # к дню берём первый день события с комнатой (мероприятие = день 1).
         from app.services.webinar_service import day_stream_url as _day_stream_url
         _wr_day = await conn.fetchval(
-            "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", event_id)
+            "SELECT wr.day_number FROM webinar_rooms wr "
+            " LEFT JOIN conf_days cd ON cd.event_id=wr.event_id AND cd.day_number=wr.day_number "
+            "WHERE wr.event_id=$1 ORDER BY cd.day_date NULLS LAST, wr.day_number LIMIT 1", event_id)
         _ev_stream = await _day_stream_url(conn, event_id, _wr_day, "__CT__") if _wr_day else ""
         _ev_repl = {
             "{stream_url}": _ev_stream,
@@ -2129,7 +2131,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             custom_day_ref = row["custom_day_ref"] if row else None
 
         conf_days_rows = await conn.fetch(
-            "SELECT day_number, day_date FROM conf_days WHERE event_id=$1 ORDER BY day_number",
+            "SELECT day_number, day_date FROM conf_days WHERE event_id=$1 ORDER BY day_date NULLS LAST, day_number",
             event_id
         )
         days_by_num = {d["day_number"]: d for d in conf_days_rows}
@@ -2301,7 +2303,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if not _btn_stream:
             from app.services.webinar_service import day_stream_url as _day_stream_url
             _bd = await conn.fetchval(
-                "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1", event_id)
+                "SELECT wr.day_number FROM webinar_rooms wr "
+            " LEFT JOIN conf_days cd ON cd.event_id=wr.event_id AND cd.day_number=wr.day_number "
+            "WHERE wr.event_id=$1 ORDER BY cd.day_date NULLS LAST, wr.day_number LIMIT 1", event_id)
             _btn_stream = await _day_stream_url(conn, event_id, _bd, "__CT__") if _bd else ""
         btn_url = (btn_url
                    .replace("{stream_url}", _btn_stream)

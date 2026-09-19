@@ -1652,7 +1652,7 @@ async def generate_schedules(
 
     # Получаем первый день конференции (нужен для pre_conf и speaker_intro)
     first_day = await db.fetchrow(
-        "SELECT day_date FROM conf_days WHERE event_id=$1 ORDER BY day_number LIMIT 1",
+        "SELECT day_date FROM conf_days WHERE event_id=$1 ORDER BY day_date NULLS LAST, day_number LIMIT 1",
         event_id
     )
 
@@ -2037,7 +2037,7 @@ async def generate_schedules(
         tz = await _client_tz(db, client_id)
 
         conf_days_list = await db.fetch(
-            "SELECT day_number, day_date FROM conf_days WHERE event_id=$1 ORDER BY day_number",
+            "SELECT day_number, day_date FROM conf_days WHERE event_id=$1 ORDER BY day_date NULLS LAST, day_number",
             event_id
         )
         first_day_row = conf_days_list[0] if conf_days_list else None

@@ -603,7 +603,7 @@ async def _days(db: asyncpg.Connection, event_id: int) -> list[dict]:
                   ) AS speaker_ids
              FROM conf_days d
             WHERE d.event_id = $1
-            ORDER BY d.day_number""",
+            ORDER BY d.day_date NULLS LAST, d.day_number""",
         event_id,
     )
     out = []

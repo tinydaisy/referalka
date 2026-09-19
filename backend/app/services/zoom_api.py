@@ -337,7 +337,7 @@ async def create_meeting(
 
 
 async def set_livestream(db, client_id: int, meeting_id: str, *,
-                         stream_url: str, stream_key: str) -> None:
+                         stream_url: str, stream_key: str, page_url: str) -> None:
     """Включает конференции вещание на наш RTMP (Custom Live Streaming).
 
     ⚠️ Zoom хранит адрес и ключ РАЗДЕЛЬНО и склеивает сам — ровно как в
@@ -351,10 +351,18 @@ async def set_livestream(db, client_id: int, meeting_id: str, *,
 
     ⚠️ Требует у аккаунта Zoom тариф Pro и выше. На базовом Zoom отвечает
     ошибкой — её показываем как есть, она объясняет причину лучше нас.
+
+    ⚠️⚠️ `page_url` ОБЯЗАТЕЛЕН — пустая строка не проходит. Zoom отвечает
+    `300 Validation Failed: page_url Missing field`, причём XML-ом, а не JSON
+    (прод, 19.09.2026). В документации поле описано как необязательное, но
+    на деле требуется. Кладём туда адрес нашей вебинарной комнаты: по смыслу
+    это и есть «страница, где идёт трансляция», и ведущий видит в Zoom, куда
+    она льётся.
     """
     await _request(
         db, client_id, "PATCH", f"/meetings/{meeting_id}/livestream",
-        json={"stream_url": stream_url, "stream_key": stream_key, "page_url": ""},
+        json={"stream_url": stream_url, "stream_key": stream_key,
+              "page_url": page_url},
     )
 
 

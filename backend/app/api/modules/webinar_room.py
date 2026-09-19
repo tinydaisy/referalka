@@ -136,7 +136,13 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
     # Только дни с галочкой «Имеет эфир/вебинар» (has_webinar). NULL/старые = TRUE.
     days = await db.fetch(
         "SELECT day_number, day_date, title FROM conf_days "
-        "WHERE event_id=$1 AND COALESCE(has_webinar, TRUE)=TRUE ORDER BY day_number", event_id,
+        # ⚠️⚠️ ПОРЯДОК — ПО ДАТЕ, а не по `day_number` (правило владельца,
+        # 19.09.2026). Номер дня — это порядок ЗАВЕДЕНИЯ в программе: дни
+        # добавляют не подряд, удаляют и вставляют между. Из-за сортировки по
+        # номеру вкладки шли не по времени, и первым открывался не ближайший
+        # эфир. Дни без даты — в конец (NULLS LAST), по номеру между собой.
+        "WHERE event_id=$1 AND COALESCE(has_webinar, TRUE)=TRUE "
+        "ORDER BY day_date NULLS LAST, day_number", event_id,
     )
     rooms = await db.fetch("SELECT * FROM webinar_rooms WHERE event_id=$1", event_id)
     rooms_by_day = {r["day_number"]: dict(r) for r in rooms}
@@ -463,11 +469,18 @@ async def create_zoom_meeting(
             # мешать создать конференцию: заведём бессрочную, без расписания.
             start_utc = None
 
-    # Тема конференции — то, что спикер увидит в зуме. Название дня, если оно
-    # своё; иначе событие + номер дня.
+    # Тема конференции — то, что спикер увидит в зуме.
+    #
+    # ⚠️⚠️ ДАТА, А НЕ «ДЕНЬ N» (правило владельца, 19.09.2026). `day_number` —
+    # это порядковый номер дня В ПРОГРАММЕ события, и он почти никогда не
+    # совпадает с тем, как день видит человек: программу заводят не подряд,
+    # дни удаляют и добавляют. В зуме появлялось «— день 4» у эфира, который
+    # для человека первый, — выглядит как ошибка счёта и сбивает с толку.
+    # Дата однозначна: по ней спикер сразу понимает, на какой эфир идёт.
     day_title = (day["title"] if day else None) or (room["title"] or "")
     ev_title = (ev["title"] if ev else "") or "Эфир"
-    topic = day_title.strip() or (f"{ev_title} — день {day_number}" if day_number > 1 else ev_title)
+    date_label = f"{day_date.day:02d}.{day_date.month:02d}.{day_date.year}" if day_date else ""
+    topic = day_title.strip() or (f"{ev_title} — {date_label}" if date_label else ev_title)
 
     # ── старую конференцию убираем, чтобы у дня не копились дубли
     old_id = room["zoom_meeting_id"]
@@ -485,7 +498,8 @@ async def create_zoom_meeting(
             topic=topic,
             start_time_utc=start_utc,
             duration_min=duration_min,
-            agenda=f"Эфир идёт в вебинарную комнату ПЛЮСОНа (день {day_number}).",
+            agenda=(f"Эфир {date_label} идёт в вебинарную комнату ПЛЮСОНа."
+                    if date_label else "Эфир идёт в вебинарную комнату ПЛЮСОНа."),
         )
     except zoom_api.ZoomNotConnected as e:
         # Доступ отозван между проверкой выше и запросом — ведём туда, где чинится.
@@ -503,10 +517,20 @@ async def create_zoom_meeting(
     # livestream внутри создания конференции.
     stream_ok, stream_warning = True, ""
     try:
+        # ⚠️ `page_url` у Zoom ОБЯЗАТЕЛЕН (пустая строка → 300 Validation
+        # Failed). Кладём адрес самой вебинарной комнаты: по смыслу это и есть
+        # «страница, где идёт трансляция». Слаг события не найден — подставляем
+        # адрес платформы: лишь бы поле было непустым и вело на живую страницу.
+        ev_slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
+        page_url = (
+            await ws._event_public_link(db, event_id, f"webinar/{ev_slug}/{day_number}")
+            if ev_slug else settings.frontend_url
+        )
         await zoom_api.set_livestream(
             db, cid, meeting_id,
             stream_url=ws.rtmp_url(room["stream_key"]),
             stream_key=room["stream_key"],
+            page_url=page_url,
         )
     except zoom_api.ZoomError as e:
         # ⚠️ Конференция уже создана и полезна сама по себе — не откатываем.
@@ -651,7 +675,7 @@ async def copy_room_settings(
     else:
         rows = await db.fetch(
             "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_number<>$2 "
-            "ORDER BY day_number", event_id, day_number)
+            "ORDER BY day_date NULLS LAST, day_number", event_id, day_number)
         days = [r["day_number"] for r in rows]
     if not days:
         return {"ok": True, "updated": 0, "days": []}
@@ -713,7 +737,7 @@ async def copy_speaker_join_url(
     # а не из webinar_rooms: у дня без комнаты записи там ещё нет.
     days = await db.fetch(
         "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_number<>$2 "
-        "ORDER BY day_number", event_id, day_number)
+        "ORDER BY day_date NULLS LAST, day_number", event_id, day_number)
     if not days:
         return {"ok": True, "updated": 0}
 

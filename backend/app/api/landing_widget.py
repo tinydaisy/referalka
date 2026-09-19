@@ -397,7 +397,7 @@ async def widget_program(
     )
     days = await db.fetch(
         """SELECT id, day_number, day_date, open_time, close_time, stage_id, title
-             FROM conf_days WHERE event_id = $1 ORDER BY day_number, id""",
+             FROM conf_days WHERE event_id = $1 ORDER BY day_date NULLS LAST, day_number, id""",
         event_id,
     )
     sessions = await db.fetch(

@@ -83,8 +83,14 @@ async def current_event_day(db, event_id: int) -> Optional[int]:
     if d:
         return d
     # нет подходящего дня программы → первый день с комнатой
+    # ⚠️ Первый — ПО ДАТЕ дня программы, а не по номеру (правило владельца,
+    # 19.09.2026): номер — это порядок заведения, дни добавляют не подряд.
+    # У комнаты своей даты нет, поэтому берём её из conf_days; дни без даты и
+    # комнаты без дня программы — в конец, между собой по номеру.
     d = await db.fetchval(
-        "SELECT day_number FROM webinar_rooms WHERE event_id=$1 ORDER BY day_number LIMIT 1",
+        "SELECT wr.day_number FROM webinar_rooms wr "
+        " LEFT JOIN conf_days cd ON cd.event_id=wr.event_id AND cd.day_number=wr.day_number "
+        "WHERE wr.event_id=$1 ORDER BY cd.day_date NULLS LAST, wr.day_number LIMIT 1",
         event_id)
     return d or 1
 
