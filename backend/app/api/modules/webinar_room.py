@@ -57,6 +57,34 @@ def _cid(client) -> int:
     return int(client["sub"])
 
 
+async def _auto_room_title(db, event_id: int, day_number: int) -> str:
+    """Название комнаты по умолчанию: «День N — Название события».
+
+    ⚠️⚠️ N — порядковый номер ПО ДАТАМ (самая ранняя дата = день 1), а НЕ
+    `day_number`: тот означает порядок ЗАВЕДЕНИЯ дня в программе. Дни
+    добавляют не подряд, удаляют и вставляют между, поэтому у эфира, первого
+    по календарю, `day_number` легко равен 4 — именно это и увидел владелец
+    на проде 19.09.2026.
+
+    ⚠️ Та же формула, что в миграции 469 (разовое заполнение пустых названий).
+    Разойдутся — у старых комнат будет один формат, у новых другой.
+    """
+    row = await db.fetchrow(
+        """
+        WITH numbered AS (
+            SELECT cd.day_number,
+                   ROW_NUMBER() OVER (ORDER BY cd.day_date NULLS LAST, cd.day_number) AS idx
+              FROM conf_days cd WHERE cd.event_id = $1
+        )
+        SELECT (SELECT idx FROM numbered WHERE day_number = $2) AS idx,
+               (SELECT title FROM events WHERE id = $1)          AS ev_title
+        """,
+        event_id, day_number)
+    idx = (row and row["idx"]) or day_number     # нет программы → один день
+    ev = ((row and row["ev_title"]) or "").strip()
+    return f"День {idx} — {ev}" if ev else f"День {idx}"
+
+
 # ─────────────────────────── модели ───────────────────────────
 class RoomUpsert(BaseModel):
     title: Optional[str] = None
@@ -350,6 +378,14 @@ async def upsert_room(
             *args,
         )
     else:
+        # ⚠️ Название подставляем В БАЗУ при создании, а не показываем серой
+        # подсказкой. Подсказка (placeholder) не сохраняется: поле выглядело
+        # заполненным, а `title` оставался пустым — и плейсхолдер названия дня
+        # в рассылках подставлял пустую строку (прод, 19.09.2026, миграция 469).
+        #
+        # ⚠️ N — порядок ПО ДАТАМ, а не `day_number` (порядок заведения дня).
+        if not (fields.get("title") or "").strip():
+            fields["title"] = await _auto_room_title(db, event_id, day_number)
         stream_key = ws.make_stream_key() if stream_type == "encoder" else None
         hls = ws.hls_url(stream_key) if stream_key else None
         await db.execute(
