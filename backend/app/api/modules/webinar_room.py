@@ -173,12 +173,25 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
             for d in days
         ]
 
+    # ⚠️⚠️ `day_index` — ПОРЯДКОВЫЙ НОМЕР ПО ДАТАМ (самая ранняя дата = день 1),
+    # а `day_number` — номер ЗАВЕДЕНИЯ дня в программе. Это РАЗНЫЕ числа, и
+    # путать их нельзя: дни добавляют не подряд, удаляют и вставляют между,
+    # поэтому у эфира, который для человека первый, `day_number` легко
+    # оказывается 4 (так и было на проде 19.09.2026 — владелец увидел «День 4»
+    # у первого дня и справедливо возмутился).
+    #
+    # Человеку показываем `day_index`, а в запросы к API уходит `day_number` —
+    # он остаётся ключом комнаты (`webinar_rooms.day_number`) и менять его
+    # нельзя: на нём завязаны ссылки комнат, рассылки и записи.
+    #
+    # Список уже отсортирован по дате выше, поэтому индекс — просто позиция.
     out = []
-    for d in days:
+    for idx, d in enumerate(days, start=1):
         dn = d["day_number"]
         room = rooms_by_day.get(dn)
         item = {
             "day_number": dn,
+            "day_index": idx,
             "day_date": d["day_date"].isoformat() if d["day_date"] else None,
             "day_title": d["title"],
             "room": _room_public(room) if room else None,

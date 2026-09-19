@@ -21,10 +21,32 @@ function fmtDayDate(d?: string | null): string {
 }
 
 type DayItem = {
+  /** Номер ЗАВЕДЕНИЯ дня в программе — ключ комнаты, уходит в запросы к API. */
   day_number: number
+  /** ⚠️ Порядковый номер ПО ДАТАМ (самая ранняя = 1) — то, что показываем
+   *  ЧЕЛОВЕКУ. С `day_number` не совпадает: дни заводят не подряд. */
+  day_index?: number
   day_date: string | null
   day_title: string | null
   room: any | null
+}
+
+/** Название вебинара по умолчанию: «День N — Название события».
+ *
+ * ⚠️ N берётся из `day_index` — порядка ПО ДАТАМ (самая ранняя дата = день 1),
+ * а НЕ из `day_number`, который означает порядок заведения дня в программе.
+ * Дни добавляют не подряд, удаляют и вставляют между, поэтому у эфира,
+ * первого по календарю, `day_number` легко оказывается 4.
+ *
+ * ⚠️ Если у дня есть СВОЁ название в программе — оно главнее: человек вписал
+ * его руками, и подменять его выдумкой нельзя.
+ */
+function autoDayTitle(day: DayItem, eventTitle?: string): string {
+  const own = (day.day_title || '').trim()
+  if (own) return own
+  const n = day.day_index ?? day.day_number
+  const ev = (eventTitle || '').trim()
+  return ev ? `День ${n} — ${ev}` : `День ${n}`
 }
 
 // Модалка-форма: фон БЕЗ onClick (правило проекта — не закрывать по клику мимо).
@@ -135,7 +157,7 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
             >
               <span className="flex items-center gap-2">
                 {live && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
-                {fmtDayDate(d.day_date) || d.day_title?.trim() || `День ${d.day_number}`}
+                {fmtDayDate(d.day_date) || d.day_title?.trim() || `День ${d.day_index ?? d.day_number}`}
               </span>
             </button>
           )
@@ -188,10 +210,10 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
         {/* Сторонний вебинар → только «Эфир» (тип трансляции + одна ссылка),
             что бы ни было выбрано: остального у чужой комнаты просто нет. */}
         {active.room?.stream_type === 'external_link' ? (
-          <RoomSettings section="stream" eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
+          <RoomSettings section="stream" eventId={eventId} day={active} level={level} eventTitle={event?.title} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
         ) : (<>
         {(subView === 'stream' || subView === 'settings') && (
-          <RoomSettings section={subView === 'stream' ? 'stream' : 'room'} eventId={eventId} day={active} level={level} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
+          <RoomSettings section={subView === 'stream' ? 'stream' : 'room'} eventId={eventId} day={active} level={level} eventTitle={event?.title} slug={event?.slug} onSaved={load} daysCount={days.length} zoomEnabled={zoomEnabled} zoomConnectable={zoomConnectable} />
         )}
         {subView === 'blocks' && (
           <BlocksEditor eventId={eventId} day={active} event={event} />
@@ -239,7 +261,8 @@ export default function WebinarTab({ eventId, event }: { eventId: number; event:
 }
 
 // ─────────────────────────── настройки комнаты дня ───────────────────────────
-function RoomSettings({ section = 'room', eventId, day, level, slug, onSaved, daysCount = 1, zoomEnabled = false, zoomConnectable = false }: {
+function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug, onSaved, daysCount = 1, zoomEnabled = false, zoomConnectable = false }: {
+  eventTitle?: string
   /** 'stream' — откуда идёт картинка (тип трансляции, Zoom, видеокодер);
    *  'room'   — как выглядит комната (название, зрители, чат, реакции, форма).
    *  ⚠️ Разделено 19.09.2026: раньше всё лежало одним свитком и терялось. */
@@ -250,7 +273,13 @@ function RoomSettings({ section = 'room', eventId, day, level, slug, onSaved, da
   const { publicBase } = useMe()
   const r = day.room
   const [f, setF] = useState<any>({
-    title: r?.title || day.day_title || '',
+    // ⚠️⚠️ Название ГЕНЕРИТСЯ САМО: «День N — Название события» (правило
+    // владельца, 19.09.2026). Раньше это была серая подсказка (placeholder) —
+    // то есть в базу не попадало ничего, и в рассылках с плейсхолдерами
+    // название дня оказывалось пустым.
+    // ⚠️ N — это `day_index` (порядок ПО ДАТАМ), а НЕ `day_number` (порядок
+    // заведения). У первого по календарю дня `day_number` легко равен 4.
+    title: r?.title || day.day_title || autoDayTitle(day, eventTitle),
     stream_type: r?.stream_type || (level === 'room' ? 'encoder' : 'external_link'),
     external_url: r?.external_url || '',
     speaker_join_url: r?.speaker_join_url || '',
@@ -502,13 +531,13 @@ function RoomSettings({ section = 'room', eventId, day, level, slug, onSaved, da
     <div className="space-y-5 max-w-2xl">
       {/* Дата дня — для ориентира, чтобы понимать какой это день (не редактируется здесь) */}
       <div className="rounded-lg bg-gray-50 border px-3 py-2 text-sm text-gray-600 flex items-center gap-2">
-        <span className="text-gray-400">День {day.day_number}</span>
+        <span className="text-gray-400">День {day.day_index ?? day.day_number}</span>
         {day.day_date && <span className="font-semibold text-gray-800">· {new Date(day.day_date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' })}</span>}
       </div>
       {isRoomSection && (
       <div>
         <label className="label">Название вебинара (дня)</label>
-        <input className="input" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder={day.day_title || `День ${day.day_number}`} />
+        <input className="input" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} placeholder={autoDayTitle(day, eventTitle)} />
       </div>
       )}
 
