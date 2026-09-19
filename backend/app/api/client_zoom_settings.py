@@ -10,12 +10,16 @@
 
 Гейт — фича `zoom_integration` (никогда по tariff_slug), пока только admin.
 """
+import hashlib
+import hmac
+import json
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app.auth import get_current_client
@@ -285,4 +289,100 @@ async def disconnect(
     cid = _cid(client)
     await _assert_feature(db, cid)
     await db.execute("DELETE FROM client_zoom_accounts WHERE client_id=$1", cid)
+    return {"ok": True}
+
+
+# ─────────────────────── вебхук деавторизации (Data Compliance) ───────────────────────
+#
+# ⚠️⚠️ ОБЯЗАТЕЛЕН ДЛЯ ПУБЛИКАЦИИ приложения в Zoom Marketplace. Когда человек
+# удаляет приложение в своём Zoom, Zoom шлёт сюда событие — мы обязаны удалить
+# его данные И ПОДТВЕРДИТЬ это обратным вызовом на `/oauth/data/compliance`.
+# Без подтверждения заявку на публикацию отклоняют (официальная причина №12).
+#
+# ⚠️ Роутер ОТДЕЛЬНЫЙ и без авторизации кабинета: Zoom приходит со своим
+# запросом и наших кук не имеет. Защита — подпись Secret Token-ом.
+webhook_router = APIRouter(prefix="/zoom/webhook", tags=["Zoom — вебхук"])
+
+
+def _zoom_signature(raw_body: bytes, timestamp: str) -> str:
+    """Подпись, которую Zoom ждёт в заголовке `x-zm-signature`.
+
+    Формула Zoom: `v0:{timestamp}:{тело}` → HMAC-SHA256 на Secret Token →
+    строка вида `v0={hex}`.
+    """
+    msg = b"v0:" + timestamp.encode() + b":" + raw_body
+    digest = hmac.new(settings.zoom_webhook_secret.encode(), msg, hashlib.sha256).hexdigest()
+    return f"v0={digest}"
+
+
+@webhook_router.post("", include_in_schema=False)
+async def zoom_webhook(
+    request: Request,
+    x_zm_signature: str = Header(default=""),
+    x_zm_request_timestamp: str = Header(default=""),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Приём событий Zoom: проверка адреса и деавторизация приложения."""
+    if not settings.zoom_webhook_secret:
+        # Принимать неподписанные запросы нельзя: по ним удаляются токены.
+        raise HTTPException(503, "Zoom webhook secret не настроен")
+
+    raw = await request.body()
+    try:
+        payload = json.loads(raw or b"{}")
+    except Exception:
+        raise HTTPException(400, "bad json")
+
+    event = payload.get("event") or ""
+    obj = (payload.get("payload") or {}).get("object") or {}
+
+    # ── 1. Проверка адреса при настройке эндпоинта в кабинете Zoom.
+    # ⚠️ Отвечать нужно ИМЕННО так: Zoom присылает `plainToken`, мы возвращаем
+    # его же плюс подпись. Иначе кнопка «Validate» в настройках приложения не
+    # проходит и вебхук не сохранить.
+    if event == "endpoint.url_validation":
+        plain = (payload.get("payload") or {}).get("plainToken") or ""
+        enc = hmac.new(settings.zoom_webhook_secret.encode(),
+                       plain.encode(), hashlib.sha256).hexdigest()
+        return {"plainToken": plain, "encryptedToken": enc}
+
+    # ── 2. Подпись. Сверяем ДО любых действий с базой.
+    expected = _zoom_signature(raw, x_zm_request_timestamp or "")
+    if not hmac.compare_digest(expected, x_zm_signature or ""):
+        logger.warning("Zoom webhook: подпись не сошлась (event=%s)", event)
+        raise HTTPException(401, "bad signature")
+
+    # ── 3. Человек удалил приложение — стираем его данные и отчитываемся.
+    if event == "app_deauthorized":
+        zoom_user_id = str(obj.get("user_id") or "")
+        account_id = str(obj.get("account_id") or "")
+
+        # ⚠️ Ищем по `zoom_user_id`, а не по client_id: Zoom про наш кабинет
+        # ничего не знает и присылает только свои идентификаторы.
+        rows = await db.fetch(
+            "DELETE FROM client_zoom_accounts WHERE zoom_user_id=$1 RETURNING client_id",
+            zoom_user_id)
+        logger.info("Zoom: деавторизация user=%s, удалено записей: %s",
+                    zoom_user_id, len(rows))
+
+        # ⚠️ ОБЯЗАТЕЛЬНЫЙ обратный вызов: без него Zoom считает, что данные не
+        # удалены, и это прямая причина отказа в публикации.
+        try:
+            async with httpx.AsyncClient(timeout=20) as cli:
+                await cli.post(
+                    "https://api.zoom.us/oauth/data/compliance",
+                    headers={"Authorization": f"Basic {zoom_api._basic_auth()}"},
+                    json={
+                        "client_id": settings.zoom_client_id,
+                        "user_id": zoom_user_id,
+                        "account_id": account_id,
+                        "deauthorization_event_received": obj,
+                        "compliance_completed": True,
+                    },
+                )
+        except Exception as e:
+            # Данные УЖЕ удалены — это главное. Об ошибке отчёта говорим в лог:
+            # Zoom повторит событие, и отчёт уйдёт со следующей попытки.
+            logger.warning("Zoom: не удалось отправить data compliance: %s", e)
+
     return {"ok": True}

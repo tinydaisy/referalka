@@ -304,6 +304,7 @@ app.include_router(client_payment_settings.router,  prefix="/api/v1")           
 # отправитель сверяется по IP внутри обработчика.
 app.include_router(client_call_settings.router,     prefix="/api/v1")           # /api/v1/clients/me/call-settings
 app.include_router(client_zoom_settings.router,     prefix="/api/v1")           # /api/v1/clients/me/zoom — подключение своего Zoom по OAuth (миграция 444)
+app.include_router(client_zoom_settings.webhook_router, prefix="/api/v1")       # /api/v1/zoom/webhook — деавторизация приложения (обязателен для публикации в Marketplace)
 app.include_router(call_campaigns.router,           prefix="/api/v1")           # /api/v1/call-campaigns
 app.include_router(call_campaigns.public_router,    prefix="/api/v1")           # /api/v1/public/calls/webhook
 # Автонастройка Telegram «под ключ» — разовая услуга (миграция 364).

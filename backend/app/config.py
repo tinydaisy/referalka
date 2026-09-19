@@ -148,6 +148,14 @@ class Settings(BaseSettings):
     # Адрес возврата после согласия. ДОЛЖЕН совпадать с тем, что вписан в
     # приложении Zoom (OAuth → Redirect URL for OAuth), буква в букву.
     zoom_oauth_redirect_uri: str = "https://pluson.ru/api/v1/clients/me/zoom/oauth-callback"
+    # ⚠️ Secret Token приложения Zoom (вкладка Feature → Event Subscriptions).
+    # Им Zoom подписывает вебхуки деавторизации, и им же мы отвечаем на
+    # проверочный запрос `endpoint.url_validation` при настройке эндпоинта.
+    # ⚠️ Старый Verification Token задепрекейчен Zoom-ом в октябре 2023 —
+    # использовать только Secret Token.
+    # Пусто → вебхук отвечает 503: принимать неподписанные запросы нельзя,
+    # по ним удаляются токены клиентов.
+    zoom_webhook_secret: str = ""
 
     # ─── Промо своего файлового хранилища ───────────────────────────────────
     # Реферальная ссылка на Cloud.ru в блоке «Подключите бесплатно N ГБ»
