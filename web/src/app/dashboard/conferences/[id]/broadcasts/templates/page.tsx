@@ -564,6 +564,10 @@ export default function TemplatesPage() {
 
   const [templates, setTemplates] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
+  // Свёрнутые группы шаблонов («для участников» / «в чат спикеров»).
+  // Обе развёрнуты по умолчанию: свёрнутый по умолчанию список выглядит как
+  // «шаблонов нет», и человек идёт создавать второй такой же.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [editModal, setEditModal] = useState<any>(null)
   const [createModal, setCreateModal] = useState(false)
   // Модалка выбора при «Добавить шаблон»: новый с нуля / из готовых.
@@ -1645,21 +1649,44 @@ export default function TemplatesPage() {
             const prevSpk = idx > 0 ? !!arr[idx - 1].send_to_speakers_chat : null
             const firstOfGroup = idx === 0 || prevSpk !== isSpk
             const hasBoth = arr.some(x => x.send_to_speakers_chat) && arr.some(x => !x.send_to_speakers_chat)
+            // Ключ группы и её свёрнутость. Сворачивание работает, только когда
+            // групп реально две: при одном списке прятать нечего.
+            const gKey = isSpk ? 'speakers' : 'guests'
+            const collapsed = hasBoth && !!collapsedGroups[gKey]
+            // ⚠️ Свёрнутая группа: обёртку прячем ЦЕЛИКОМ, кроме той, что несёт
+            // заголовок. Пустые обёртки остались бы в потоке и получили отступ
+            // от space-y-4 — под полосой тянулся бы столбик пустот.
+            if (collapsed && !firstOfGroup) return null
             return (
               <div key={tpl.id}>
+                {/* Заголовок группы — персиковая полоса во всю ширину. Она же
+                    кнопка: клик сворачивает группу. Персик (#FFCFA4) — акцентный
+                    цвет бренда, полоса режет список надвое заметнее любой
+                    разделительной линии. */}
                 {firstOfGroup && hasBoth && (
-                  <div className={isSpk ? 'border-t border-gray-200 pt-6 mt-6 mb-3' : 'mb-3'}>
-                    <h3 className="text-sm font-bold uppercase tracking-wide text-[#25455D]">
-                      {isSpk ? 'Шаблоны в чат спикеров' : 'Шаблоны для участников'}
-                    </h3>
-                    {isSpk && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Служебные сообщения команде. Участникам события не уходят —
-                        чат задаётся в «Описании» события, раздел «Чаты и каналы события».
-                      </p>
-                    )}
-                  </div>
+                  <button type="button"
+                    onClick={() => setCollapsedGroups(p => ({ ...p, [gKey]: !p[gKey] }))}
+                    className={`w-full text-left rounded-xl px-4 py-3 mb-3 flex items-center gap-2.5 transition-colors hover:brightness-95 ${isSpk ? 'mt-8' : ''}`}
+                    style={{ background: '#FFCFA4' }}>
+                    <ChevronDown size={16}
+                      className={`shrink-0 text-[#25455D] transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold uppercase tracking-wide text-[#25455D]">
+                        {isSpk ? 'Шаблоны в чат спикеров' : 'Шаблоны для участников'}
+                        <span className="ml-2 font-semibold normal-case opacity-70">
+                          {arr.filter(x => !!x.send_to_speakers_chat === isSpk).length}
+                        </span>
+                      </span>
+                      {isSpk && (
+                        <span className="block text-xs text-[#25455D]/70 mt-0.5">
+                          Служебные сообщения команде. Участникам события не уходят —
+                          чат задаётся в «Описании» события, раздел «Чаты и каналы события».
+                        </span>
+                      )}
+                    </span>
+                  </button>
                 )}
+              {!collapsed && (
               <div className="bg-white rounded-2xl border card-border p-5">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
@@ -1740,6 +1767,7 @@ export default function TemplatesPage() {
                   </div>
                 </div>
               </div>
+              )}
               </div>
             )
           })}
