@@ -80,8 +80,9 @@ async def ensure_for_client(db: asyncpg.Connection, client_id: int) -> Optional[
     `lead_magnets_plusson_uidx` как последняя защита от гонки).
 
     ⚠️ Сбой НЕ должен рвать регистрацию: человек остался бы без кабинета из-за
-    подарка. Поэтому вызывающая сторона ловит исключение и идёт дальше — магнит
-    доедет следующим вызовом (`backfill_missing`).
+    подарка. Поэтому вызывающая сторона ловит исключение и идёт дальше. Цена —
+    клиент без подарка; чтобы это не осталось незамеченным, админка показывает
+    счётчик «Без подарка».
     """
     existing = await db.fetchval(
         "SELECT id FROM lead_magnets WHERE client_id = $1 AND is_plusson", client_id
@@ -111,27 +112,6 @@ async def ensure_for_client(db: asyncpg.Connection, client_id: int) -> Optional[
         return await db.fetchval(
             "SELECT id FROM lead_magnets WHERE client_id = $1 AND is_plusson", client_id
         )
-
-
-async def backfill_missing(db: asyncpg.Connection) -> int:
-    """Раздать магнит всем, у кого его ещё нет. Вернёт число созданных.
-
-    Нужен как кнопка в админке: клиент мог появиться в обход регистрации
-    (перенос базы, ручное заведение), и тогда подарка у него не будет.
-    """
-    ids = [r["id"] for r in await db.fetch(
-        """SELECT id FROM clients c
-            WHERE NOT EXISTS (SELECT 1 FROM lead_magnets lm
-                               WHERE lm.client_id = c.id AND lm.is_plusson)"""
-    )]
-    created = 0
-    for cid in ids:
-        try:
-            if await ensure_for_client(db, cid):
-                created += 1
-        except Exception:  # noqa: BLE001 — один сбойный клиент не должен ронять раздачу
-            log.exception("Плюсоновский лид-магнит: не удалось завести клиенту %s", cid)
-    return created
 
 
 async def sync_all(db: asyncpg.Connection, name: str, description: Optional[str]) -> int:

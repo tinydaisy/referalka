@@ -16,7 +16,7 @@ from typing import Optional
 from app.auth import get_current_admin
 from app.database import get_db
 from app.services.plusson_lead_magnet import (
-    DEFAULT_NAME, SOURCE_CODE, backfill_missing, get_settings, sync_all,
+    DEFAULT_NAME, SOURCE_CODE, get_settings, sync_all,
 )
 
 router = APIRouter(prefix="/admin/plusson-lead-magnet", tags=["Администратор"])
@@ -108,18 +108,3 @@ async def admin_update_plusson_lm(
             await sync_all(db, st["name"], st["description"])
 
     return await admin_get_plusson_lm(db=db, admin=admin)
-
-
-@router.post("/backfill", summary="Раздать лид-магнит клиентам, у которых его нет")
-async def admin_backfill_plusson_lm(
-    db=Depends(get_db),
-    admin=Depends(get_current_admin),
-):
-    """Догоняющая раздача.
-
-    Нужна, потому что клиент может появиться в обход обычной регистрации
-    (перенос базы, ручное заведение) — тогда подарка у него не будет, и узнать
-    об этом иначе неоткуда.
-    """
-    created = await backfill_missing(db)
-    return {"created": created, **await _stats(db)}

@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Gift, AlertCircle, Check, Users, MousePointerClick, UserPlus, RefreshCw } from 'lucide-react'
+import { Gift, AlertCircle, Check, Users, MousePointerClick, UserPlus } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type Delivery = 'direct' | 'funnel'
@@ -22,7 +22,6 @@ export default function AdminPlussonLeadMagnetPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [filling, setFilling] = useState(false)
   const [err, setErr] = useState('')
 
   const [name, setName] = useState('')
@@ -59,16 +58,6 @@ export default function AdminPlussonLeadMagnetPage() {
     setSaving(false)
   }
 
-  async function backfill() {
-    setFilling(true); setErr('')
-    try {
-      apply(await api.adminPlussonLeadMagnet.backfill())
-    } catch (e: any) {
-      setErr(e?.message || 'Не удалось раздать')
-    }
-    setFilling(false)
-  }
-
   if (loading) return <div className="text-gray-500">Загрузка…</div>
 
   return (
@@ -102,16 +91,10 @@ export default function AdminPlussonLeadMagnetPage() {
       {(data?.missing ?? 0) > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex gap-3 items-start">
           <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-amber-900 flex-1">
-            <b>У {data.missing} клиентов подарка нет.</b> Обычно так бывает, если
-            кабинет завели в обход регистрации. Раздать им сейчас:
-            <button
-              onClick={backfill} disabled={filling}
-              className="btn-primary ml-2 px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-60"
-            >
-              <RefreshCw size={13} className={filling ? 'animate-spin' : ''} />
-              {filling ? 'Раздаю…' : 'Раздать недостающим'}
-            </button>
+          <div className="text-sm text-amber-900">
+            <b>У {data.missing} клиентов подарка нет.</b> Так быть не должно —
+            новым он выдаётся при регистрации. Значит кабинет завели в обход
+            регистрации или создание подарка сорвалось. Скажите — раздадим.
           </div>
         </div>
       )}

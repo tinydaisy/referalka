@@ -2319,8 +2319,6 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
-    backfill: () =>
-      request('/api/v1/admin/plusson-lead-magnet/backfill', { method: 'POST' }),
   },
 
   // Вебинарная комната (миграция 221) — комната на день события
