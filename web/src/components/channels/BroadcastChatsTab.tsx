@@ -735,6 +735,15 @@ function RenameChatModal({ chat, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
 
   async function save() {
+    // ⚠️ Тот же запрет, что при добавлении и на бэкенде (PATCH отвечает 400):
+    // чат без ссылки исчезает из меню бота, писем и Mini App. Здесь подсказка
+    // была обратной — «Оставьте пустым, чтобы убрать ссылку», — и человек,
+    // послушавшись, упирался в ошибку сервера вместо понятного объяснения.
+    // WhatsApp — исключение: у его чатов ссылки-приглашения нет в принципе.
+    if (chat.platform !== 'whatsapp' && !chatUrl.trim()) {
+      alert('Добавьте ссылку-приглашение в чат.\n\nБез неё людям некуда переходить — чат не появится ни в меню бота, ни в письмах, ни в рассылках.')
+      return
+    }
     setSaving(true)
     try {
       // chat_url шлём всегда — пустая строка на бэке очищает ссылку до NULL.
@@ -767,7 +776,9 @@ function RenameChatModal({ chat, onClose, onSaved }: {
           placeholder="Чат участников"
           className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
         />
-        <label className="block text-xs text-gray-500 mb-1 mt-3">Ссылка на чат</label>
+        <label className="block text-xs text-gray-500 mb-1 mt-3">
+          Ссылка на чат{chat.platform !== 'whatsapp' && <span className="text-red-500"> *</span>}
+        </label>
         <input
           type="text"
           value={chatUrl}
@@ -775,7 +786,14 @@ function RenameChatModal({ chat, onClose, onSaved }: {
           placeholder="https://telegram.me/+abcDEF…"
           className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
         />
-        <p className="text-[11px] text-gray-400 mt-1">Оставьте пустым, чтобы убрать ссылку.</p>
+        {/* ⚠️ Подсказка была ровно наоборот — «Оставьте пустым, чтобы убрать
+            ссылку», — хотя и фронт при добавлении, и бэкенд это запрещают. */}
+        {chat.platform !== 'whatsapp' && (
+          <p className="text-[11px] text-gray-400 mt-1">
+            Без ссылки чат не покажется ни в Mini App, ни в меню бота.
+            {chat.platform === 'telegram' && ' В Telegram её берут в чате → Управление → Пригласительные ссылки.'}
+          </p>
+        )}
         <p className="text-[11px] text-gray-400 mt-1.5">ID: <span className="font-mono">{chat.chat_id}</span></p>
         <div className="flex gap-2 mt-4">
           <button
