@@ -16,6 +16,7 @@ import { Gift, AlertCircle, Check, Users, MousePointerClick, UserPlus } from 'lu
 import { api } from '@/lib/api'
 
 type Delivery = 'direct' | 'funnel'
+type Visibility = 'testing' | 'all'
 
 export default function AdminPlussonLeadMagnetPage() {
   const [data, setData] = useState<any>(null)
@@ -27,12 +28,14 @@ export default function AdminPlussonLeadMagnetPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [delivery, setDelivery] = useState<Delivery>('direct')
+  const [visibility, setVisibility] = useState<Visibility>('testing')
 
   function apply(r: any) {
     setData(r)
     setName(r.name || '')
     setDescription(r.description || '')
     setDelivery((r.delivery as Delivery) || 'direct')
+    setVisibility((r.visibility as Visibility) || 'testing')
   }
 
   useEffect(() => {
@@ -49,6 +52,7 @@ export default function AdminPlussonLeadMagnetPage() {
         name: name.trim(),
         description: description.trim(),
         delivery,
+        visibility,
       }))
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
@@ -75,7 +79,7 @@ export default function AdminPlussonLeadMagnetPage() {
       {/* Цифры: сколько экземпляров живёт и что подарок принёс */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
-          { icon: Users, label: 'У клиентов', value: data?.magnets ?? 0 },
+          { icon: Users, label: 'Видят сейчас', value: data?.visible ?? 0 },
           { icon: MousePointerClick, label: 'Переходов', value: data?.clicks ?? 0 },
           { icon: UserPlus, label: 'Зарегистрировались', value: data?.signups ?? 0 },
           { icon: AlertCircle, label: 'Без подарка', value: data?.missing ?? 0 },
@@ -125,6 +129,46 @@ export default function AdminPlussonLeadMagnetPage() {
           />
           <p className="text-xs text-gray-500 mt-1.5">
             Что человек получит. Можно оставить пустым.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Кому показывать
+          </label>
+          <div className="space-y-2">
+            {([
+              {
+                v: 'testing' as Visibility,
+                title: 'Пока только мне — админскому и сервисному аккаунту',
+                text: 'Обкатка. Подарок уже лежит у всех клиентов, но в их кабинетах не показывается.',
+              },
+              {
+                v: 'all' as Visibility,
+                title: 'Всем клиентам',
+                text: 'Появится у всех разом, у каждого со своей ссылкой. Ничего заново раздавать не надо.',
+              },
+            ]).map(o => (
+              <label
+                key={o.v}
+                className={`flex gap-3 p-3.5 rounded-xl border cursor-pointer ${
+                  visibility === o.v ? 'border-[#FFCFA4] bg-[#FFF9F3]' : 'border-gray-200'
+                }`}
+              >
+                <input
+                  type="radio" name="visibility" checked={visibility === o.v}
+                  onChange={() => setVisibility(o.v)} className="mt-1"
+                />
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">{o.title}</div>
+                  <div className="text-xs text-gray-600 mt-0.5">{o.text}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Прячется только показ — сам подарок есть у всех {data?.magnets ?? 0} клиентов.
+            Переключили на «всем» → увидят сразу, со своими накопленными ссылками.
           </p>
         </div>
 

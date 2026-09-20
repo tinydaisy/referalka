@@ -206,6 +206,17 @@ async def list_lead_magnets(
         cid
     )
     items = [dict(r) for r in rows]
+
+    # ⚠️ Обкатка Плюсоновского подарка (миграция 473): пока владелец его не
+    # проверил, он виден только админскому и сервисному аккаунту. Прячем ЗДЕСЬ,
+    # в списке, а не в каждом экране по отдельности: этим же эндпоинтом
+    # пользуются выбор подарка в событии, сборка пакета и витрина — фильтр в
+    # одном месте не даст им разъехаться.
+    if any(it.get("is_plusson") for it in items):
+        from app.services.plusson_lead_magnet import is_visible_for
+        if not await is_visible_for(db, cid):
+            items = [it for it in items if not it.get("is_plusson")]
+
     for it in items:
         it["platform_links"] = await _links_for(db, cid, it)
     return {"items": items}

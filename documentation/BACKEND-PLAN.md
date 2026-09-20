@@ -1144,6 +1144,7 @@ WEBHOOK_SECRET=       ← секрет для входящих webhook от ле
 | `platform_settings` | `plusson_lm_name TEXT` | название, одно на всю платформу |
 | `platform_settings` | `plusson_lm_description TEXT` | описание |
 | `platform_settings` | `plusson_lm_delivery TEXT NOT NULL DEFAULT 'direct'` | CHECK `('direct','funnel')` — куда ведёт прямая ссылка |
+| `platform_settings` | `plusson_lm_visibility TEXT NOT NULL DEFAULT 'testing'` | CHECK `('testing','all')` — кому виден (мигр. 473): `testing` — только `admin`/`is_system_service` |
 | `clients` | `referred_source TEXT` | чем привели: `plusson_lm` \| NULL (обычная реф-ссылка) |
 | `contacts` | `plusson_referrer_source TEXT` | то же, но на контакте — до регистрации помнить метку больше негде |
 

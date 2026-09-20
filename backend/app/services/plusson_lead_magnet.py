@@ -62,13 +62,15 @@ async def get_settings(db: asyncpg.Connection) -> dict:
     умолчанию, а не падаем: без них не открылась бы вся админка.
     """
     row = await db.fetchrow(
-        """SELECT plusson_lm_name, plusson_lm_description, plusson_lm_delivery
+        """SELECT plusson_lm_name, plusson_lm_description, plusson_lm_delivery,
+                  plusson_lm_visibility
              FROM platform_settings WHERE id = 1"""
     )
     return {
         "name": (row["plusson_lm_name"] if row else None) or DEFAULT_NAME,
         "description": (row["plusson_lm_description"] if row else None) or "",
         "delivery": (row["plusson_lm_delivery"] if row else None) or "direct",
+        "visibility": (row["plusson_lm_visibility"] if row else None) or "testing",
     }
 
 
@@ -132,6 +134,30 @@ async def sync_all(db: asyncpg.Connection, name: str, description: Optional[str]
         return int(res.rsplit(" ", 1)[1])
     except Exception:  # noqa: BLE001 — формат ответа не критичен
         return 0
+
+
+async def is_visible_for(db: asyncpg.Connection, client_id: int) -> bool:
+    """Показывать ли подарок ЭТОМУ клиенту (миграция 473).
+
+    ⚠️ Прячется ПОКАЗ, а не создание: подарок есть у всех, и переключение на
+    «всем» проявляет его разом, не трогая базу. Не создавать его на время
+    обкатки было бы хуже — включение означало бы раздачу задним числом, то
+    есть новые slug у половины клиентов.
+
+    ⚠️ На обкатке видят АДМИНСКИЙ и СЕРВИСНЫЙ аккаунт, а не список id: сейчас
+    это ровно клиенты 1 и 3, но при заведении второго админского кабинета
+    список пришлось бы дописывать руками, и об этом никто бы не вспомнил.
+    """
+    if (await get_settings(db))["visibility"] == "all":
+        return True
+    return bool(await db.fetchval(
+        """SELECT 1 FROM clients c
+             LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+             LEFT JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE c.id = $1
+              AND (c.is_system_service OR t.slug = 'admin')""",
+        client_id,
+    ))
 
 
 async def share_links(db: asyncpg.Connection, client_id: int, slug: str,

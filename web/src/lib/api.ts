@@ -2314,7 +2314,7 @@ export const api = {
   // Плюсоновский лид-магнит (миграция 472) — текст и режим выдачи, одни на всех
   adminPlussonLeadMagnet: {
     get: () => request('/api/v1/admin/plusson-lead-magnet'),
-    update: (data: { name?: string; description?: string; delivery?: 'direct' | 'funnel' }) =>
+    update: (data: { name?: string; description?: string; delivery?: 'direct' | 'funnel'; visibility?: 'testing' | 'all' }) =>
       request('/api/v1/admin/plusson-lead-magnet', {
         method: 'PATCH',
         body: JSON.stringify(data),
