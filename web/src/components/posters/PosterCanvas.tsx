@@ -166,6 +166,8 @@ export type PosterLayout = {
   day_speaker_rows?: Record<string, number[][]>
   /** Потолок ширины карточки, % колонки спикеров (миграция 468). */
   card_max_w?: number
+  /** Афиши этого вида показаны в кабинете спикера (миграция 469). */
+  published_to_cabinet?: boolean
   /** ⚠️ Положение блоков в ПИКСЕЛЯХ рабочей области (миграция 468).
    *  null/undefined — «как раньше», по прежним настройкам блока. */
   pos_logos_x?: number | null; pos_logos_y?: number | null
