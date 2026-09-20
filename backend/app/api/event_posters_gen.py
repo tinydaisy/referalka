@@ -76,6 +76,21 @@ _FIELDS = (
     "ind_role_color", "ind_topic_color",
     # Ряды спикеров (миграция 445): [[id,id],[id,id,id]].
     "speaker_rows",
+    # Ряды ОТДЕЛЬНО по дням (миграция 466): {"1": [[id,id]], "2": [...]}.
+    "day_speaker_rows",
+    # Положение КАЖДОГО блока в пикселях рабочей области (миграция 468).
+    # NULL = «как раньше», по старым настройкам блока.
+    "pos_logos_x", "pos_logos_y", "pos_text_x", "pos_text_y",
+    "pos_pill1_x", "pos_pill1_y", "pos_pill2_x", "pos_pill2_y",
+    "pos_speakers_x", "pos_speakers_y", "pos_photo_x", "pos_photo_y",
+    "pos_topic_x", "pos_topic_y", "pos_time_x", "pos_time_y",
+    # Выключка текстовых блоков и порядок фото/текста.
+    "pill1_align", "pill2_align", "topic_align", "time_align", "name_align",
+    "card_max_w",
+    "ind_photo_first",
+    # Публикация в кабинет спикера (миграция 469).
+    "published_to_cabinet",
+    # Где стоит пилюля дня (миграция 467): with_pills / under_title / free.
     # Порядок логотипов партнёров (миграция 445).
     "partner_order",
     # Общая строка логотипов (миграция 446): бренд и партнёры вместе.
@@ -114,7 +129,17 @@ _DEFAULTS = {
     "show_brand_logo": True, "brand_logo_variant": "light",
     "brand_logo_x": 50, "brand_logo_y": 5, "brand_logo_size": 6,
     "show_partners": True, "partners_y": 5, "partners_size": 5,
-    "speaker_order": [], "speaker_rows": [], "partner_order": [],
+    "speaker_order": [], "speaker_rows": [], "day_speaker_rows": {}, "partner_order": [],
+    "pos_logos_x": None, "pos_logos_y": None, "pos_text_x": None, "pos_text_y": None,
+    "pos_pill1_x": None, "pos_pill1_y": None, "pos_pill2_x": None, "pos_pill2_y": None,
+    "pos_speakers_x": None, "pos_speakers_y": None,
+    "pos_photo_x": None, "pos_photo_y": None,
+    "pos_topic_x": None, "pos_topic_y": None, "pos_time_x": None, "pos_time_y": None,
+    "pill1_align": "center", "pill2_align": "center", "topic_align": "center",
+    "time_align": "center", "name_align": "center", "ind_photo_first": False,
+    "card_max_w": 30,
+    "published_to_cabinet": False,
+
     "ind_show_role": True, "ind_show_topic": True, "ind_show_time": True,
     "ind_show_event_title": True,
     "ind_photo_size": 45, "ind_photo_x": 50, "ind_photo_y": 55,
@@ -274,6 +299,32 @@ class LayoutIn(BaseModel):
     speaker_order: Optional[list[int]] = None
     # Ряды спикеров (миграция 445). Ряды разной длины — это норма.
     speaker_rows: Optional[list[list[int]]] = None
+    # Ключ — номер дня строкой: JSON не умеет числовые ключи.
+    day_speaker_rows: Optional[dict[str, list[list[int]]]] = None
+    pos_logos_x: Optional[int] = None
+    pos_logos_y: Optional[int] = None
+    pos_text_x: Optional[int] = None
+    pos_text_y: Optional[int] = None
+    pos_pill1_x: Optional[int] = None
+    pos_pill1_y: Optional[int] = None
+    pos_pill2_x: Optional[int] = None
+    pos_pill2_y: Optional[int] = None
+    pos_speakers_x: Optional[int] = None
+    pos_speakers_y: Optional[int] = None
+    pos_photo_x: Optional[int] = None
+    pos_photo_y: Optional[int] = None
+    pos_topic_x: Optional[int] = None
+    pos_topic_y: Optional[int] = None
+    pos_time_x: Optional[int] = None
+    pos_time_y: Optional[int] = None
+    pill1_align: Optional[str] = None
+    pill2_align: Optional[str] = None
+    topic_align: Optional[str] = None
+    time_align: Optional[str] = None
+    name_align: Optional[str] = None
+    ind_photo_first: Optional[bool] = None
+    card_max_w: Optional[float] = None
+    published_to_cabinet: Optional[bool] = None
     # Индивидуальная афиша (миграция 459).
     ind_show_role: Optional[bool] = None
     ind_show_topic: Optional[bool] = None
@@ -364,6 +415,37 @@ def _norm(data: dict) -> dict:
             if clean_row:
                 rows.append(clean_row)
         out["speaker_rows"] = rows
+    # ⚠️ Ряды по дням (миграция 466). Чистим КАЖДЫЙ ДЕНЬ отдельно: человек не
+    # может стоять дважды в одном дне, но в разные дни попадает законно —
+    # общий `seen` на весь словарь выбросил бы его со второго дня.
+    if "day_speaker_rows" in out:
+        raw_map = out["day_speaker_rows"] or {}
+        clean_map: dict[str, list[list[int]]] = {}
+        for day_key, raw in (raw_map.items() if isinstance(raw_map, dict) else []):
+            try:
+                day_no = int(day_key)
+            except (TypeError, ValueError):
+                continue
+            seen_d: set[int] = set()
+            rows_d: list[list[int]] = []
+            for row in raw if isinstance(raw, list) else []:
+                if not isinstance(row, list):
+                    continue
+                clean_row = []
+                for x in row:
+                    try:
+                        n = int(x)
+                    except (TypeError, ValueError):
+                        continue
+                    if n in seen_d:
+                        continue
+                    seen_d.add(n)
+                    clean_row.append(n)
+                if clean_row:
+                    rows_d.append(clean_row)
+            if rows_d:
+                clean_map[str(day_no)] = rows_d
+        out["day_speaker_rows"] = clean_map
     return out
 
 
@@ -376,7 +458,9 @@ _TOP_BY_ORIENTATION = {"horizontal": 40, "vertical": 46, "square": 42}
 
 
 # Поля, которые лежат в базе как jsonb.
-_JSON_FIELDS = ("speaker_order", "speaker_rows", "partner_order",
+# ⚠️ Из них СЛОВАРИ (а не списки) — пустышка у них своя.
+_JSON_OBJECT_FIELDS = ("day_speaker_rows",)
+_JSON_FIELDS = ("speaker_order", "speaker_rows", "day_speaker_rows", "partner_order",
                 "logos_hidden", "logos_order")
 
 
@@ -405,9 +489,12 @@ def _num(row) -> dict:
             try:
                 out[k] = _json.loads(v)
             except ValueError:
-                out[k] = []
+                # ⚠️ Пустышка по ТИПУ поля: `day_speaker_rows` — словарь по
+                # дням, и подставленный сюда список сломал бы чтение по ключу
+                # (`rows[day]` на списке — ошибка, а не «пусто»).
+                out[k] = {} if k in _JSON_OBJECT_FIELDS else []
         elif k in _JSON_FIELDS and v is None:
-            out[k] = []
+            out[k] = {} if k in _JSON_OBJECT_FIELDS else []
     return out
 
 
@@ -613,10 +700,21 @@ async def _days(db: asyncpg.Connection, event_id: int) -> list[dict]:
         event_id,
     )
     out = []
-    for r in rows:
+    # ⚠️⚠️ НОМЕР В ПОДПИСИ — ПОРЯДКОВЫЙ ПО ДАТЕ, а не сырой `day_number`.
+    # В базе номер дня и его дата легко расходятся: клиент добавил день задним
+    # числом, и у события 89 «19 сентября» записано как day_number = 4, а
+    # 24 и 25 сентября — как дни 1 и 2. Список отсортирован по дате (это
+    # верно), и на афишах выходило «День 4» у первого дня, «День 1» у
+    # третьего — нумерация выглядела сломанной (жалоба владельца 20.09.2026).
+    #
+    # Человек считает дни по порядку их наступления, поэтому нумеруем так же.
+    # ⚠️ Сам `day` в ответе остаётся НАСТОЯЩИМ (day_number): по нему ищутся
+    # спикеры дня и раскладываются афиши в `event_posters.day`. Меняется
+    # только то, что написано на картинке.
+    for idx, r in enumerate(rows, start=1):
         d = r["day_date"]
         # «День 1 — 24.09 в 11:00». Год не пишем: афиша живёт недели, не годы.
-        label = f"День {r['day_number']}"
+        label = f"День {idx}"
         if d:
             label += f" — {d.day:02d}.{d.month:02d}"
         if r["start_time"]:
@@ -688,6 +786,34 @@ async def _guard(db: asyncpg.Connection, event_id: int, client_id: int) -> None:
         raise HTTPException(404, detail="Генератор афиш недоступен")
 
 
+async def _existing_count(db: asyncpg.Connection, event_id: int,
+                          orientation: str, kind: str) -> int:
+    """Сколько афиш этого вида и ориентации уже собрано.
+
+    ⚠️ Общие и дневные различаются по `day`: у общих он NULL. Индивидуальные
+    лежат не здесь, а в библиотеках спикеров — их считаем по метке, которую
+    ставит render-all.
+    """
+    if kind == "common":
+        return await db.fetchval(
+            "SELECT COUNT(*) FROM event_posters"
+            " WHERE event_id = $1 AND orientation = $2 AND day IS NULL",
+            event_id, orientation,
+        ) or 0
+    if kind == "day":
+        return await db.fetchval(
+            "SELECT COUNT(*) FROM event_posters"
+            " WHERE event_id = $1 AND orientation = $2 AND day IS NOT NULL",
+            event_id, orientation,
+        ) or 0
+    return await db.fetchval(
+        "SELECT COUNT(*) FROM collaborator_posters cp"
+        "  JOIN event_collaborators ec ON ec.speaker_id = cp.collaborator_id"
+        " WHERE ec.event_id = $1 AND cp.label LIKE $2",
+        event_id, f"%({orientation})",
+    ) or 0
+
+
 @router.get("/events/{event_id}/poster-layout/{orientation}",
             summary="Макет афиши, тема бренда и состав")
 async def get_layout(
@@ -714,6 +840,10 @@ async def get_layout(
         # сохранение записало бы подсказку как «выбор клиента», и правка
         # названия события перестала бы доезжать до афиши.
         "suggested": await _suggested(db, event_id),
+        # ⚠️ Сколько афиш этого вида и ориентации уже лежит. Нужно фронту,
+        # чтобы спросить «заменить или добавить» — и НЕ спрашивать, когда
+        # заменять нечего (первая сборка).
+        "existing": await _existing_count(db, event_id, orientation, kind),
     }
 
 
@@ -745,6 +875,8 @@ async def save_layout(
     import json
     merged["speaker_order"] = json.dumps(merged.get("speaker_order") or [])
     merged["speaker_rows"] = json.dumps(merged.get("speaker_rows") or [])
+    # ⚠️ Словарь, а не список: в базе стоит проверка jsonb_typeof = object.
+    merged["day_speaker_rows"] = json.dumps(merged.get("day_speaker_rows") or {})
     merged["partner_order"] = json.dumps(merged.get("partner_order") or [])
     merged["logos_hidden"] = json.dumps(merged.get("logos_hidden") or [])
     merged["logos_order"] = json.dumps(merged.get("logos_order") or [])
@@ -851,12 +983,105 @@ async def poster_render(
     return saved
 
 
+@router.post("/events/{event_id}/poster-layout/{orientation}/copy-bg",
+             summary="Скопировать фон и оформление во все афиши этой ориентации")
+async def poster_copy_bg(
+    event_id: int,
+    orientation: str,
+    kind: str = "common",
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Копирует фон И ОФОРМЛЕНИЕ текущей афиши во ВСЕ виды этой ориентации.
+
+    ⚠️ ТОЛЬКО В СВОЮ ОРИЕНТАЦИЮ: вертикальный фон на горизонтальной афише
+    растянется или обрежется — это разные картинки, а не один файл в трёх
+    размерах. Поэтому «скопировать из вертикальной» означает «во все
+    вертикальные»: общую, дневную и индивидуальную (владелец, 19.09.2026).
+
+    Копируем оформление целиком: фон, цвета, кегли, логотипы партнёров с их
+    размерами и показанностью, оформление карточек спикеров. НЕ копируем
+    состав и расстановку людей и тексты — они у каждого вида свои (подробности
+    в списке _NOT_COPIED ниже).
+    """
+    _check_orientation(orientation)
+    if kind not in KINDS:
+        raise HTTPException(404, detail="Неизвестный вид афиши")
+    client_id = int(user["sub"])
+    await _guard(db, event_id, client_id)
+    if await assistant_is_restricted(user):
+        raise HTTPException(403, detail="Настройки афиш доступны только владельцу кабинета")
+
+    src = await _row(db, event_id, orientation, kind)
+
+    # ⚠️⚠️ КОПИРУЕМ ВСЁ ОФОРМЛЕНИЕ, а не только картинку фона: показанность и
+    # размер логотипов партнёров, кегли заголовков, все цвета, оформление
+    # карточек спикеров — клиент перечислил это прямо (19.09.2026).
+    #
+    # ⚠️ НЕ КОПИРУЕМ то, что у видов своё по смыслу:
+    #   speaker_rows / day_speaker_rows / speaker_order / partner_order —
+    #     состав и расстановка: в общей афише четырнадцать человек, в дневной
+    #     четверо, в индивидуальной один. Перенос стёр бы расстановку;
+    #   тексты заголовка, подзаголовка и пилюль — они про разное: у дня своя
+    #     метка, у спикера своя тема;
+    #   published_to_cabinet — публикация решается отдельно для каждого вида.
+    _NOT_COPIED = {
+        "speaker_rows", "day_speaker_rows", "speaker_order", "partner_order",
+        "title", "title_2", "subtitle", "subtitle_2",
+        "pill_text", "pill_text_2", "published_to_cabinet",
+    }
+    fields = [f for f in _FIELDS if f not in _NOT_COPIED]
+
+    done = []
+    for k in KINDS:
+        if k == kind:
+            continue
+        # ⚠️⚠️ ИМЕННО UPSERT, а не UPDATE. `_row` строку НЕ создаёт — она
+        # появляется только при первом сохранении макета. Вид, который клиент
+        # ещё не открывал, простым UPDATE не получил бы ничего: команда
+        # отработала бы «успешно», изменив ноль строк, а фон не появился.
+        import json
+        vals = []
+        for f in fields:
+            v = src.get(f, _DEFAULTS[f])
+            # ⚠️ jsonb-поля уходят строкой: asyncpg не умеет списки и словари.
+            if f in _JSON_FIELDS:
+                v = json.dumps(v if v is not None else ([] if f not in _JSON_OBJECT_FIELDS else {}))
+            vals.append(v)
+        cols = ", ".join(fields)
+        ph = ", ".join(f"${i + 4}" for i in range(len(fields)))
+        upd = ", ".join(f"{f} = EXCLUDED.{f}" for f in fields)
+        await db.execute(
+            f"INSERT INTO event_poster_layouts (event_id, kind, orientation, {cols})"
+            f" VALUES ($1, $2, $3, {ph})"
+            f" ON CONFLICT (event_id, kind, orientation) DO UPDATE SET {upd}",
+            event_id, k, orientation, *vals,
+        )
+        done.append(k)
+
+    return {"copied_to": done, "orientation": orientation}
+
+
 @router.post("/events/{event_id}/poster-layout/{orientation}/render-all",
              summary="Собрать все афиши вида и разложить по местам")
 async def poster_render_all(
     event_id: int,
     orientation: str,
     kind: str = "common",
+    # ⚠️⚠️ ЗАМЕНИТЬ ИЛИ ДОБАВИТЬ. Раньше афиши всегда ложились рядом, и после
+    # трёх пересборок у события копилась куча одинаковых картинок. Рассылка
+    # берёт ПЕРВУЮ по (sort, id) — то есть какая из них уйдёт людям, решал
+    # случай: все вставлялись с sort = 0. Клиент прямо сказал, что не понимает,
+    # какая пойдёт в рассылку, — и был прав, это нигде не определено.
+    #
+    # Несколько афиш оставить можно (раньше так делали под разных спикеров),
+    # поэтому выбор, а не жёсткая замена. Спрашивает фронт, сюда приходит ответ.
+    #
+    # ⚠️ Замена трогает ТОЛЬКО ЭТУ ОРИЕНТАЦИЮ (решение владельца): опубликовал
+    # вертикальную — заменилась вертикальная, горизонтальная осталась на месте.
+    replace: bool = False,
+    # Показывать ли афиши этого вида в кабинете спикера (миграция 469).
+    publish: bool = False,
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
@@ -881,6 +1106,23 @@ async def poster_render_all(
         raise HTTPException(403, detail="Сборка афиш доступна только владельцу кабинета")
 
     made: list[dict] = []
+
+    if replace:
+        # ⚠️ Только своя ориентация и только свой вид: общие афиши живут с
+        # day IS NULL, дневные — с проставленным day. Снести всё разом значило
+        # бы выбросить и то, чего клиент не пересобирал.
+        if kind == "common":
+            await db.execute(
+                "DELETE FROM event_posters"
+                " WHERE event_id = $1 AND orientation = $2 AND day IS NULL",
+                event_id, orientation,
+            )
+        elif kind == "day":
+            await db.execute(
+                "DELETE FROM event_posters"
+                " WHERE event_id = $1 AND orientation = $2 AND day IS NOT NULL",
+                event_id, orientation,
+            )
 
     async def _shot(day: int | None = None, speaker_id: int | None = None) -> bytes:
         url = _render_url(event_id, orientation, client_id, kind, day, speaker_id)
@@ -960,4 +1202,16 @@ async def poster_render_all(
             )
             made.append({"what": f"speaker{p['id']}", "url": saved["url"]})
 
-    return {"made": made, "count": len(made)}
+    # ⚠️ Публикация — отдельное осознанное действие (миграция 469). Без неё
+    # афиши собраны, но в кабинете спикера не показываются: клиент подбирает
+    # раскладку в несколько заходов, и каждая проба не должна уезжать людям.
+    if publish:
+        await db.execute(
+            "INSERT INTO event_poster_layouts (event_id, kind, orientation, published_to_cabinet)"
+            " VALUES ($1, $2, $3, TRUE)"
+            " ON CONFLICT (event_id, kind, orientation)"
+            " DO UPDATE SET published_to_cabinet = TRUE",
+            event_id, kind, orientation,
+        )
+
+    return {"made": made, "count": len(made), "replaced": replace, "published": publish}

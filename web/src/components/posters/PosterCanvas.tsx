@@ -162,6 +162,27 @@ export type PosterLayout = {
   ind_topic_color?: string | null
   /** Ряды спикеров (миграция 445): сколько положили в ряд — столько и будет. */
   speaker_rows?: number[][]
+  /** Ряды ОТДЕЛЬНО по дням (миграция 466): ключ — номер дня строкой. */
+  day_speaker_rows?: Record<string, number[][]>
+  /** Потолок ширины карточки, % колонки спикеров (миграция 468). */
+  card_max_w?: number
+  /** ⚠️ Положение блоков в ПИКСЕЛЯХ рабочей области (миграция 468).
+   *  null/undefined — «как раньше», по прежним настройкам блока. */
+  pos_logos_x?: number | null; pos_logos_y?: number | null
+  pos_text_x?: number | null; pos_text_y?: number | null
+  pos_pill1_x?: number | null; pos_pill1_y?: number | null
+  pos_pill2_x?: number | null; pos_pill2_y?: number | null
+  pos_speakers_x?: number | null; pos_speakers_y?: number | null
+  pos_photo_x?: number | null; pos_photo_y?: number | null
+  pos_topic_x?: number | null; pos_topic_y?: number | null
+  pos_time_x?: number | null; pos_time_y?: number | null
+  pill1_align?: 'left' | 'center' | 'right'
+  pill2_align?: 'left' | 'center' | 'right'
+  topic_align?: 'left' | 'center' | 'right'
+  time_align?: 'left' | 'center' | 'right'
+  name_align?: 'left' | 'center' | 'right'
+  /** На афише спикера: фото сверху (TRUE) или текст сверху (FALSE, как в ТЗ). */
+  ind_photo_first?: boolean
   /** Порядок логотипов партнёров (миграция 445). */
   partner_order?: number[]
   /** Общая строка логотипов (миграция 446). */
@@ -189,6 +210,13 @@ export type PosterTheme = {
 
 /** Золото бренда — запасной цвет выделения и заголовка. */
 const GOLD = '#FFCFA4'
+
+/** Выключка текста → justify-content. ⚠️ Одна точка перевода: иначе в разных
+ *  местах «right» once превращается в flex-end, once в end, и блоки ведут себя
+ *  по-разному при одной и той же настройке. */
+function alignToFlex(a?: 'left' | 'center' | 'right'): string {
+  return a === 'left' ? 'flex-start' : a === 'right' ? 'flex-end' : 'center'
+}
 
 export default function PosterCanvas({
   layout: L, theme: th, people, scale = 1, showMargins = false, suggested,
@@ -325,8 +353,14 @@ export default function PosterCanvas({
   // собирает бэкенд: время берётся из ПЕРВОЙ сессии дня, а не из `open_time`
   // (он часто пустой, и в пилюле выходило «в » с оборванным хвостом).
   // Вписал клиент свой текст — остаётся его: подстановка только в пустое.
+  // ⚠️⚠️ У КАЖДОГО ДНЯ СВОЯ МЕТКА, И ОНА ГЛАВНЕЕ РУЧНОГО ПОЛЯ. Поле
+  // `pill_text` одно на весь вид `day` — общее для всех дней. Стояло оно
+  // первым, и любой текст в нём (в том числе подставленный автоматически при
+  // первой загрузке) давал ОДНУ И ТУ ЖЕ пилюлю на всех днях: «День 2» не
+  // появлялся никогда. Поэтому на дневной афише метка дня — не запасной
+  // вариант, а основной: она и должна отличаться от дня к дню.
   const pill1 = kind === 'day'
-    ? ((L.pill_text ?? '').trim() || curDay?.label || suggested?.pill_text || '')
+    ? (curDay?.label || (L.pill_text ?? '').trim() || suggested?.pill_text || '')
     : (L.pill_text ?? '').trim() || suggested?.pill_text || ''
   // Вторая пилюля дневной афиши — «Онлайн-конференция» сверху (формат события).
   const pill2 = (L.pill_text_2 ?? '').trim() || suggested?.pill_text_2 || ''
@@ -431,7 +465,15 @@ export default function PosterCanvas({
 
   // ⚠️ Проверяем, что это ИМЕННО массив: jsonb из базы может приехать строкой
   // («[]»), и тогда `.length` даёт длину текста, а `.map()` роняет страницу.
-  const rawRows = Array.isArray(L.speaker_rows) ? L.speaker_rows : []
+  // ⚠️⚠️ У АФИШИ ДНЯ СВОЙ ПОРЯДОК РЯДОВ (миграция 466). Общий `speaker_rows`
+  // для дней не годится: в первый день выступают одни люди, во второй другие,
+  // и один список рядов на всех оставлял бы половину дня в авторасстановке.
+  // Дня нет в словаре — падаем на общий порядок, а дальше на авторасклад.
+  const dayRowsMap = L.day_speaker_rows && typeof L.day_speaker_rows === 'object'
+    ? L.day_speaker_rows : {}
+  const dayRows = kind === 'day' && curDay ? dayRowsMap[String(curDay.day)] : undefined
+  const rawRows = Array.isArray(dayRows) ? dayRows
+    : Array.isArray(L.speaker_rows) ? L.speaker_rows : []
   const manualRows = rawRows.length > 0
   // ⚠️ Без ручной расстановки раскладываем на ЧИСЛО РЯДОВ по формату
   // (вертикальная — много коротких, горизонтальная — 3-4 длинных), а не
@@ -445,7 +487,25 @@ export default function PosterCanvas({
 
   // ⚠️ Размер карточки задаёт САМЫЙ ДЛИННЫЙ ряд: по нему считается, сколько
   // помещается в ширину. Возьми среднее — длинный ряд вылез бы за поля.
-  const perRow = Math.max(1, ...rows.map(r => r.length))
+  // ⚠️⚠️ НА АФИШАХ ДНЕЙ КАРТОЧКА ОДНОГО РАЗМЕРА ВО ВСЕ ДНИ. Размер считается
+  // от числа людей в ряду, а в разные дни их разное количество: у события 89
+  // это 8, 7, 3 и 1 человек. Каждый день подбирал размер сам — и блоки
+  // выходили разной высоты (803 px против 500 px по расчёту), из-за чего
+  // афиши выглядели «то высоковато, то гигантская карточка», хотя линия
+  // старта у всех одна.
+  //
+  // Настройки у дней общие (одна строка макета на все дни), значит и размер
+  // обязан быть общим: берём самый многолюдный день как образец.
+  const maxDayPerRow = kind === 'day' && dayList.length > 0
+    ? Math.max(...dayList.map(d => {
+        const n = d.speaker_ids.length
+        if (!n) return 1
+        const src = Array.isArray(dayRowsMap[String(d.day)]) ? dayRowsMap[String(d.day)] : null
+        if (src && src.length) return Math.max(1, ...src.map(r => r.length))
+        return Math.max(1, ...splitIntoRows(new Array(n).fill(0), defaultRowCount(L.orientation, n)).map(r => r.length))
+      }))
+    : 0
+  const perRow = Math.max(1, maxDayPerRow, ...rows.map(r => r.length))
 
   // ⚠️⚠️ РАЗМЕР КАРТОЧКИ ОГРАНИЧЕН И ШИРИНОЙ, И ВЫСОТОЙ — берём меньшее.
   // Только по ширине считать нельзя: на горизонтальной афише под людей
@@ -463,7 +523,17 @@ export default function PosterCanvas({
     (availH - gapY * (rowsCount - 1)) / (rowUnit * rowsK),
   )
 
-  const cardW = Math.max(1, Math.min(byWidth, byHeight))
+  // ⚠️⚠️ ПОТОЛОК РАЗМЕРА КАРТОЧКИ (миграция 468, `card_max_w`). При одном
+  // человеке в ряду `byWidth` равен 100 %, и карточка раздувалась на всю
+  // ширину — «карточку организатора расперло», а уменьшить её было нечем:
+  // ползунок один на всех и задаёт ряды, а не размер.
+  //
+  // Проверено арифметикой на дне с одним организатором (вертикальная афиша,
+  // поля 10 мм): byWidth = 100 %, byHeight = 57.7 % — и лицо занимало больше
+  // половины листа. Потолок по умолчанию 30 % ширины колонки: примерно
+  // столько же, сколько у карточки в ряду из трёх человек.
+  const cardMax = Math.max(5, Math.min(100, L.card_max_w ?? 30))
+  const cardW = Math.max(1, Math.min(byWidth, byHeight, cardMax))
   const cardH = cardW * ratio
   // Кегль подписи: либо заданный клиентом, либо ужатый под карточку — иначе
   // на плотной сетке фамилии наезжают друг на друга.
@@ -477,6 +547,27 @@ export default function PosterCanvas({
   const nameSizeFit = cardW * (L.name_size ?? 15) / 100
 
   const bodyFont = brandFontCss(th.lp_font_body || 'Roboto', label(th.lp_font_body))
+  const pillFont = brandFontCss(L.pill_font || th.lp_font_body, label(L.pill_font || th.lp_font_body))
+
+  /**
+   * ⚠️⚠️ УНИВЕРСАЛЬНЫЙ СДВИГ БЛОКА (миграция 468). Каждый блок афиши двигается
+   * сам по себе — в ПИКСЕЛЯХ полотна, а не в процентах: проценты
+   * пересчитывались при каждой правке полей, и блок уезжал сам собой.
+   *
+   * ⚠️ Пусто (null) — блок стоит там же, где стоял раньше: по своим прежним
+   * настройкам. Так уже собранные афиши не поедут от появления этого рычага.
+   */
+  const shift = (x?: number | null, y?: number | null): React.CSSProperties => {
+    const dx = typeof x === 'number' && Number.isFinite(x) ? x : 0
+    const dy = typeof y === 'number' && Number.isFinite(y) ? y : 0
+    if (!dx && !dy) return {}
+    return { transform: `translate(${dx}px, ${dy}px)` }
+  }
+
+  // ⚠️⚠️ ПИЛЮЛЯ ДНЯ СТАВИТСЯ КУДА УГОДНО (миграция 467). Раньше она жила
+  // только в одном ряду с пилюлей формата и двигалась вместе со всем текстовым
+  // блоком — поставить её ПОД ЗАГОЛОВОК было нельзя вовсе, хотя это главный
+  // сценарий: название конференции крупно, под ним — какой это день.
 
   return (
     <div
@@ -533,6 +624,7 @@ export default function PosterCanvas({
           position: 'absolute',
           left: `${cols.tx.x}%`, width: `${cols.tx.w}%`,
           top: `${L.partners_y ?? 5}%`,
+          ...shift(L.pos_logos_x, L.pos_logos_y),
           display: 'flex', alignItems: 'center', flexWrap: 'wrap',
           justifyContent: L.logos_align === 'left' ? 'flex-start'
                         : L.logos_align === 'right' ? 'flex-end' : 'center',
@@ -557,14 +649,32 @@ export default function PosterCanvas({
         position: 'absolute',
         left: `${cols.tx.x}%`, width: `${cols.tx.w}%`,
         top: `${L.text_top ?? 18}%`,
+        ...shift(L.pos_text_x, L.pos_text_y),
         // Выравнивание блока внутри колонки (миграция 454).
         textAlign: L.text_align ?? 'center',
       }}>
-        {L.show_pill !== false && (pill1 || pill2) && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: px(1.5), flexWrap: 'wrap', marginBottom: L.gap_pill_title ?? 18 }}>
-            {[pill1, pill2].filter(Boolean).map((txt, i) => (
-              <Pill key={i} text={txt as string} L={L} px={px} tx={tx} gold={gold} font={brandFontCss(L.pill_font || th.lp_font_body, label(L.pill_font || th.lp_font_body))} />
-            ))}
+        {/* ⚠️⚠️ КАЖДАЯ ПИЛЮЛЯ ДВИГАЕТСЯ И ВЫРАВНИВАЕТСЯ ОТДЕЛЬНО (миграция 468).
+            Раньше обе лежали в одном ряду по центру и двигались только вместе
+            со всем текстовым блоком — поставить дату слева, а формат справа
+            было нельзя вовсе. */}
+        {L.show_pill !== false && !!pill1 && (
+          <div style={{
+            display: 'flex', flexWrap: 'wrap',
+            justifyContent: alignToFlex(L.pill1_align),
+            marginBottom: px(0.6),
+            ...shift(L.pos_pill1_x, L.pos_pill1_y),
+          }}>
+            <Pill text={pill1} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
+          </div>
+        )}
+        {L.show_pill !== false && !!pill2 && (
+          <div style={{
+            display: 'flex', flexWrap: 'wrap',
+            justifyContent: alignToFlex(L.pill2_align),
+            marginBottom: L.gap_pill_title ?? 18,
+            ...shift(L.pos_pill2_x, L.pos_pill2_y),
+          }}>
+            <Pill text={pill2} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
           </div>
         )}
 
@@ -601,7 +711,9 @@ export default function PosterCanvas({
             />
           </div>
         )}
+
       </div>
+
 
       {/* ⚠️⚠️ ИНДИВИДУАЛЬНАЯ АФИША — ОДИН ЧЕЛОВЕК КРУПНО, без сетки.
           Сетка здесь не годится: у неё карточка считается от числа людей в
@@ -615,7 +727,7 @@ export default function PosterCanvas({
           person={persons[0]}
           session={curSession}
           L={L} th={th} gold={gold} px={px} tx={tx} label={label}
-          eventTitle={titleText}
+          eventTitle={titleText} shift={shift}
         />
       ) : (
       <div style={{
@@ -628,8 +740,16 @@ export default function PosterCanvas({
         // середину, и свободное место делится поровну.
         top: `${top}%`,
         height: `${Math.max(5, bottom - top)}%`,
+        ...shift(L.pos_speakers_x, L.pos_speakers_y),
         display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
+        // ⚠️⚠️ БЛОК НАЧИНАЕТСЯ РОВНО С ЗАДАННОЙ ЛИНИИ. Было `center`: блок
+        // висел посередине полосы от «начинать с высоты» до «не ниже», и при
+        // малом числе людей свободное место делилось поровну — карточки
+        // начинались заметно НИЖЕ заданной линии. Настройка называется
+        // «начинать с высоты», значит она и есть линия старта (решение
+        // владельца 19.09.2026), а не верхняя граница полосы, внутри которой
+        // что-то плавает.
+        alignItems: 'center', justifyContent: 'flex-start',
         // Лишнее прячем: если людей больше, чем влезает, они полезли бы за
         // нижнее поле и на снимке пропали бы молча.
         overflow: 'hidden',
@@ -1144,7 +1264,7 @@ function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct,
  * спикера: клиент настраивает лицо один раз, и оно обязано выглядеть
  * одинаково везде. Своя обрезка здесь развалила бы эту договорённость.
  */
-function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTitle }: {
+function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTitle, shift }: {
   person?: PosterPerson
   session?: { topic?: string; when?: string; day?: number }
   L: PosterLayout
@@ -1154,6 +1274,8 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
   tx: (p: number) => number
   label: (k?: string | null) => string | undefined
   eventTitle: string
+  /** Общий сдвиг блока — тот же, что у остальных блоков афиши. */
+  shift: (x?: number | null, y?: number | null) => React.CSSProperties
 }) {
   if (!person) return null
 
@@ -1181,6 +1303,34 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     label(L.name_font || th.lp_font_heading),
   )
 
+  // ⚠️⚠️ ПОРЯДОК ПО ТЗ: пилюля, название, роль, Имя Фамилия, тема, время —
+  // «а потом его фото». В первой версии фото стояло сверху, а подписи под ним:
+  // ровно наоборот. Клиент может переставить их местами галочкой, но по
+  // умолчанию — как в задании.
+  const photoFirst = L.ind_photo_first === true
+
+  const photoEl = (
+    <div style={{
+      width: photoW, height: photoH, position: 'relative',
+      overflow: 'hidden', flexShrink: 0, ...maskCss(L),
+      ...shift(L.pos_photo_x, L.pos_photo_y),
+    }}>
+      {cutout ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="" style={{
+          width: '100%', height: '100%',
+          objectFit: 'contain', objectPosition: 'bottom center',
+        }} />
+      ) : (
+        <MaskedPhoto
+          url={url} shape={shape} focal={focal} settings={person}
+          width={photoW} height={photoH}
+          style={{ position: 'absolute', inset: 0 }}
+        />
+      )}
+    </div>
+  )
+
   return (
     <div style={{
       position: 'absolute',
@@ -1194,26 +1344,18 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       // при крупном фото у края его половина ушла бы за рабочую область.
       maxWidth: '100%',
     }}>
-      <div style={{
-        width: photoW, height: photoH, position: 'relative',
-        overflow: 'hidden', flexShrink: 0, ...maskCss(L),
-      }}>
-        {cutout ? (
-          // Вырезку не режем и прижимаем к низу — человек стоит на афише.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt="" style={{
-            width: '100%', height: '100%',
-            objectFit: 'contain', objectPosition: 'bottom center',
-          }} />
-        ) : (
-          // ⚠️ Тот же расчёт кадра, что в карточке спикера и в сетке.
-          <MaskedPhoto
-            url={url} shape={shape} focal={focal} settings={person}
-            width={photoW} height={photoH}
-            style={{ position: 'absolute', inset: 0 }}
-          />
-        )}
-      </div>
+      {photoFirst && photoEl}
+
+      {/* Название конференции — СВЕРХУ (по ТЗ: пилюля, название, роль, имя…).
+          Раньше стояло мелко внизу — это была моя вольность, в задании оно
+          идёт вторым сверху. */}
+      {L.ind_show_event_title !== false && !!eventTitle && (
+        <div style={{
+          fontSize: tx((L.ind_role_size ?? 24) * 0.9),
+          color: 'rgba(255,255,255,0.75)',
+          textAlign: L.name_align || 'center',
+        }}>{eventTitle}</div>
+      )}
 
       {/* Роль — над именем, брендовым цветом: это подпись к человеку, а не
           часть его имени. */}
@@ -1234,7 +1376,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         fontSize: tx(L.ind_name_size ?? 54),
         fontWeight: 700,
         color: L.name_color || '#fff',
-        textAlign: 'center', lineHeight: 1.1,
+        textAlign: L.name_align || 'center', lineHeight: 1.1,
       }}>{nameText}</div>
 
       {/* Тема выступления. ⚠️ Её может не быть вовсе — у части спикеров
@@ -1245,8 +1387,9 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
           marginTop: px(1.4),
           fontSize: tx(L.ind_topic_size ?? 30),
           color: L.ind_topic_color || '#fff',
-          textAlign: 'center', lineHeight: 1.25,
+          textAlign: L.topic_align || 'center', lineHeight: 1.25,
           maxWidth: '92%',
+          ...shift(L.pos_topic_x, L.pos_topic_y),
         }}>{topic}</div>
       )}
 
@@ -1254,19 +1397,14 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         <div style={{
           marginTop: px(1),
           fontSize: tx((L.ind_topic_size ?? 30) * 0.8),
-          color: gold, textAlign: 'center',
+          color: gold, textAlign: L.time_align || 'center',
+          ...shift(L.pos_time_x, L.pos_time_y),
         }}>{when}</div>
       )}
 
-      {/* Название конференции — мелко внизу: на индивидуальной афише главный
-          герой человек, а не событие. */}
-      {L.ind_show_event_title !== false && !!eventTitle && (
-        <div style={{
-          marginTop: px(1.6),
-          fontSize: tx((L.ind_role_size ?? 24) * 0.9),
-          color: 'rgba(255,255,255,0.75)', textAlign: 'center',
-        }}>{eventTitle}</div>
-      )}
+      {/* Фото — ПОСЛЕ текста: в задании порядок «…Время, а потом его фото».
+          Галочкой можно поднять его наверх. */}
+      {!photoFirst && photoEl}
     </div>
   )
 }

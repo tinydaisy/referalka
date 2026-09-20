@@ -41,12 +41,13 @@ type DayInfo = {
 
 /** Вкладки настроек. ⚠️ Через useUrlTab, а не useState: правило проекта —
  *  обновление страницы не должно сбрасывать на первую вкладку. */
-type SetTab = 'bg' | 'speakers' | 'text' | 'logos' | 'order'
+type SetTab = 'bg' | 'speakers' | 'text' | 'logos' | 'place' | 'order'
 const SET_TABS: { key: SetTab; label: string }[] = [
   { key: 'bg',       label: 'Фон и поля' },
   { key: 'speakers', label: 'Спикеры' },
   { key: 'text',     label: 'Заголовок и дата' },
   { key: 'logos',    label: 'Логотип и партнёры' },
+  { key: 'place',    label: 'Где что стоит' },
   { key: 'order',    label: 'Порядок по рядам' },
 ]
 
@@ -73,7 +74,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [zoom, setZoom] = useState(false)
   const [suggested, setSuggested] = useState<any>(null)
   const [dragLogo, setDragLogo] = useState<string | null>(null)
-  const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','order'])
+  const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','place','order'])
   // ⚠️ Раздел — тоже через useUrlTab: обновил страницу и остался там же, где был.
   const [kind, setKind] = useUrlTab<PosterKind>('pkind', 'common', ['common','day','individual'])
   // Дни события и выступления — нужны дневным и индивидуальным афишам.
@@ -81,6 +82,12 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [sessions, setSessions] = useState<Record<string, { topic?: string; when?: string; day?: number }>>({})
   // Кого показываем в индивидуальной афише. Пусто — первого из списка.
   const [curSpeaker, setCurSpeaker] = useState<number | null>(null)
+  // ⚠️ Какой ДЕНЬ сейчас правим на вкладке порядка. У каждого дня свои спикеры
+  // и свой порядок рядов (миграция 466) — общий список для них бессмыслен.
+  const [curDayNo, setCurDayNo] = useState<number | null>(null)
+  // Сколько афиш этого вида уже собрано — чтобы спрашивать «заменить или
+  // добавить» только когда есть что заменять.
+  const [existing, setExisting] = useState(0)
   const [dragPartner, setDragPartner] = useState<number | null>(null)
   // Ряд, в который сейчас тащат — подсвечиваем, иначе непонятно, куда упадёт.
   const [overRow, setOverRow] = useState<number | null>(null)
@@ -120,6 +127,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         // символам. Берём объект только если это действительно объект.
         setSessions(r.sessions && typeof r.sessions === 'object' ? r.sessions : {})
         setSuggested(sg)
+        setExisting(Number(r.existing) || 0)
         setErr(null)
       })
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить макет'))
@@ -193,21 +201,67 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
    *   по дням    — в афиши СВОЕГО дня;
    *   спикерские — в карточку своего спикера (с проставленной галочкой).
    */
+  /**
+   * ⚠️⚠️ ПУБЛИКАЦИЯ — ОДНА КНОПКА НА ВСЁ. Она же собирает афиши, она же
+   * кладёт их на место, она же открывает их спикерам. Отдельная кнопка
+   * «сохранить в афиши» не нужна: опубликовал — значит сохранил (решение
+   * владельца 19.09.2026).
+   *
+   * ⚠️ СПРАШИВАЕМ, ЗАМЕНИТЬ ИЛИ ДОБАВИТЬ. Раньше афиши всегда ложились рядом,
+   * и после трёх пересборок у события копилась куча одинаковых картинок —
+   * понять, какая уйдёт в рассылку, было нельзя (рассылка берёт первую по
+   * sort и id, а все вставлялись с sort = 0). Несколько афиш оставить можно,
+   * поэтому это вопрос, а не жёсткая замена.
+   */
   async function renderToLibrary() {
     if (!layout) return
+
+    const had = existing
+    let replace = false
+    if (had > 0) {
+      // ⚠️ Заменяем только ЭТУ ориентацию: опубликовал вертикальную —
+      // горизонтальная осталась на месте.
+      replace = window.confirm(
+        `У события уже есть ${had} ${had === 1 ? 'афиша' : 'афиш'} этого вида `
+        + `(${ORIENTATIONS.find(x => x.key === o)?.label.toLowerCase()}).\n\n`
+        + 'ОК — заменить их новыми.\n'
+        + 'Отмена — добавить новые рядом со старыми.',
+      )
+    }
+
     setBusy('render')
     try {
       const { orientation, ...body } = layout
       await api.posterLayout.save(eventId, o, body, kind)
-      const r: any = await api.posterLayout.renderAll(eventId, o, kind)
+      const r: any = await api.posterLayout.renderAll(eventId, o, kind, { replace, publish: true })
       setErr(null)
+      patch({ published_to_cabinet: true })
       const n = Array.isArray(r?.made) ? r.made.length : 0
       alert(
-        kind === 'common' ? 'Афиша собрана и добавлена в афиши события'
-        : kind === 'day' ? `Готово: афиш по дням — ${n}. Каждая легла в афиши своего дня`
-        : `Готово: индивидуальных афиш — ${n}. Каждая легла в карточку своего спикера`,
+        (kind === 'common' ? 'Афиша собрана и добавлена в афиши события'
+         : kind === 'day' ? `Готово: афиш по дням — ${n}. Каждая легла в афиши своего дня`
+         : `Готово: индивидуальных афиш — ${n}. Каждая легла в карточку своего спикера`)
+        + '\nСпикеры уже видят их в кабинете.',
       )
     } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
+    finally { setBusy('') }
+  }
+
+  /** Копирование фона и оформления в другие виды этой же ориентации. */
+  async function copyDesign() {
+    if (!layout) return
+    if (!window.confirm(
+      `Скопировать фон и оформление во все ${ORIENTATIONS.find(x => x.key === o)?.label.toLowerCase()} афиши `
+      + '(общие, по дням, спикерские)?\n\nРасстановка спикеров и тексты останутся своими.',
+    )) return
+    setBusy('render')
+    try {
+      const { orientation, ...body } = layout
+      await api.posterLayout.save(eventId, o, body, kind)
+      await api.posterLayout.copyBg(eventId, o, kind)
+      setErr(null)
+      alert('Готово: фон и оформление скопированы')
+    } catch (e: any) { setErr(e?.message || 'Не удалось скопировать') }
     finally { setBusy('') }
   }
 
@@ -235,12 +289,15 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // (applyManualRows), иначе в списке одно, а на афише другое.
   const rowsView = useMemo(() => {
     if (!layout) return []
+    // ⚠️ В дневном разделе берём ряды СВОЕГО дня и только его спикеров.
+    const src = kind === 'day' ? dayPeople : draggable
+    const raw = kind === 'day' ? curDayRows : layout.speaker_rows
     // ⚠️ Только массив: строка из jsonb иначе сойдёт за «ряды заданы».
-    const rows = Array.isArray(layout.speaker_rows) ? layout.speaker_rows : []
-    if (rows.length) return applyManualRows(draggable, rows)
+    const rows = Array.isArray(raw) ? raw : []
+    if (rows.length) return applyManualRows(src, rows)
     // Ряды ещё не задавали — показываем как один ряд: клиент растащит его сам.
-    return draggable.length ? [draggable] : []
-  }, [draggable, layout?.speaker_rows])
+    return src.length ? [src] : []
+  }, [draggable, dayPeople, kind, curDayRows, layout?.speaker_rows])
 
   // ⚠️ Список логотипов — бренд и партнёры ВМЕСТЕ, как их рисует полотно.
   // Иначе в настройках один порядок, а на афише другой.
@@ -273,6 +330,33 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // непонятно, работает ли раздел вообще.
   const indSpeakerId = curSpeaker ?? draggable[0]?.id ?? null
 
+  // День, который правим сейчас. Пусто — первый.
+  const editDay = kind === 'day' ? (curDayNo ?? days[0]?.day ?? null) : null
+  const editDayInfo = days.find(d => d.day === editDay) || null
+
+  // ⚠️ Кого показываем в расстановке: в дневном разделе — ТОЛЬКО спикеров
+  // этого дня. Иначе клиент таскает по рядам людей, которых на афише дня нет.
+  const dayPeople = useMemo(() => {
+    if (kind !== 'day' || !editDayInfo) return draggable
+    const ids = new Set(editDayInfo.speaker_ids.map(Number))
+    return draggable.filter(p => ids.has(Number(p.id)))
+  }, [draggable, kind, editDayInfo])
+
+  // Ряды выбранного дня — свои, из словаря по дням.
+  const dayRowsMap: Record<string, number[][]> =
+    (layout?.day_speaker_rows && typeof layout.day_speaker_rows === 'object')
+      ? layout.day_speaker_rows as any : {}
+  const curDayRows = editDay != null ? dayRowsMap[String(editDay)] : undefined
+
+  /** Записать ряды: в дневном разделе — в свой день, иначе в общий порядок. */
+  function patchRows(rows: number[][]) {
+    if (kind === 'day' && editDay != null) {
+      patch({ day_speaker_rows: { ...dayRowsMap, [String(editDay)]: rows } } as any)
+    } else {
+      patch({ speaker_rows: rows })
+    }
+  }
+
   const hiddenSet = useMemo(
     () => new Set((Array.isArray(layout?.logos_hidden) ? layout!.logos_hidden : []).map(String)),
     [layout?.logos_hidden],
@@ -302,7 +386,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     // заново из авторасстановки: клиент мог уже переставить кого-то местами,
     // и смена числа рядов не должна это стирать.
     const flat = rowsView.flat()
-    patch({ speaker_rows: splitIntoRows(flat, n).map(r => r.map(p => p.id)) })
+    patchRows(splitIntoRows(flat, n).map(r => r.map(p => p.id)))
   }
 
   function onDropPartner(targetId: number) {
@@ -324,7 +408,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     const cleaned = rows.map(r => r.filter(id => id !== personId))
     while (cleaned.length <= rowIndex) cleaned.push([])
     cleaned[rowIndex].push(personId)
-    patch({ speaker_rows: cleaned.filter(r => r.length) })
+    patchRows(cleaned.filter(r => r.length))
   }
 
   function onDrop(targetId: number) {
@@ -345,7 +429,13 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
 
   const size = POSTER_SIZE[o]
   // Полотно настоящего размера в колонку кабинета не влезает — уменьшаем.
-  const scale = o === 'horizontal' ? 0.28 : o === 'square' ? 0.3 : 0.22
+  // ⚠️⚠️ МАСШТАБ СЧИТАЕТСЯ ОТ ПОСТОЯННОЙ ШИРИНЫ КОЛОНКИ, а не задаётся числом
+  // на каждый формат. Раньше было три числа (0.28 / 0.3 / 0.22) — и лист у
+  // каждого формата получался своей ширины, из-за чего вся раскладка страницы
+  // прыгала при переключении. Теперь лист всегда вписан в одну и ту же
+  // колонку: меняется только его высота, а ширина постоянна.
+  const PREVIEW_W = 340
+  const scale = PREVIEW_W / size.w
   // Крупный просмотр — во всю доступную высоту окна (с запасом на поля).
   const zoomScale = typeof window !== 'undefined'
     ? Math.min((window.innerHeight - 80) / size.h, (window.innerWidth - 80) / size.w, 1)
@@ -394,9 +484,15 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             ⚠️ ЛИПНЕТ К ВЕРХУ при прокрутке (`sticky`): настройки длинные, и без
             этого клиент, правя нижние разделы, переставал видеть, что меняется.
             На узком экране обычный поток — там колонки идут друг под другом. */}
-        <div className="shrink-0 xl:sticky xl:top-4 xl:self-start">
+        {/* ⚠️⚠️ ШИРИНА КОЛОНКИ ПРЕВЬЮ ПОСТОЯННА — не зависит от формата афиши.
+            Раньше колонка была по размеру листа: у горизонтальной одна ширина,
+            у вертикальной другая. Правая колонка (flex-1) подстраивалась под
+            остаток — и на каждое переключение формата ВСЕ НАСТРОЙКИ МЕНЯЛИ
+            ШИРИНУ, а ползунок уезжал из-под курсора. Теперь место под превью
+            одно и то же, лист центрируется внутри. */}
+        <div className="shrink-0 xl:sticky xl:top-4 xl:self-start xl:w-[360px]">
           <div style={{ width: size.w * scale, height: size.h * scale }}
-               className="overflow-hidden rounded-xl shadow-sm border card-border bg-gray-50">
+               className="overflow-hidden rounded-xl shadow-sm border card-border bg-gray-50 mx-auto">
             <PosterCanvas layout={layout} theme={theme} people={people} scale={scale}
                           suggested={suggested} showMargins={showMargins}
                           days={days} sessions={sessions}
@@ -443,13 +539,22 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             <button onClick={download} disabled={!!busy} className="btn-primary px-5 py-2.5 text-sm">
               {busy === 'png' ? 'Собираем…' : 'Скачать PNG'}
             </button>
-            <button onClick={renderToLibrary} disabled={!!busy}
-                    className="text-sm text-gray-500 hover:text-gray-700 underline">
+            {/* ⚠️ Публикация — главное действие экрана, поэтому золотая кнопка.
+                Она же собирает афиши и открывает их спикерам: отдельная
+                «сохранить в афиши» не нужна. */}
+            <button onClick={renderToLibrary} disabled={!!busy} className="btn-gold px-5 py-2.5 text-sm">
               {busy === 'render' ? 'Собираем…'
-                : kind === 'common' ? 'Собрать и добавить в афиши события'
-                : kind === 'day' ? `Собрать все афиши дней (${days.length}) и разложить по дням`
-                : `Собрать афиши всем спикерам (${draggable.length}) и положить в их карточки`}
+                : kind === 'common' ? 'Опубликовать афишу'
+                : kind === 'day' ? `Опубликовать афиши дней (${days.length})`
+                : `Опубликовать афиши спикеров (${draggable.length})`}
             </button>
+            <button onClick={copyDesign} disabled={!!busy}
+                    className="text-sm text-gray-500 hover:text-gray-700 underline">
+              Скопировать оформление во все {ORIENTATIONS.find(x => x.key === o)?.label.toLowerCase()}
+            </button>
+            {layout.published_to_cabinet && (
+              <span className="text-xs text-green-600">Видно спикерам</span>
+            )}
             {saved && <span className="text-sm text-green-600">Сохранено</span>}
           </div>
 
@@ -481,7 +586,9 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         </div>
 
         {/* Настройки. */}
-        <div className="flex-1 min-w-0">
+        {/* ⚠️ Колонка настроек тоже не «остаток», а своя ширина: иначе она
+            всё равно дышала бы вслед за содержимым превью. */}
+        <div className="flex-1 min-w-0 xl:max-w-[640px]">
           {/* ⚠️ Настройки ВКЛАДКАМИ, а не одной длинной колонкой: раньше нижние
               разделы уезжали далеко вниз, и правя их клиент уже не видел
               превью — приходилось скроллить туда-сюда на каждое движение
@@ -595,6 +702,13 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 боковой отступ теперь общий для всей афиши и задаётся выше в мм.
                 Две настройки одного отступа означали бы вопрос «почему спикеры
                 отступают не так, как заголовок». */}
+            {/* ⚠️ Потолок размера карточки: при одном человеке в ряду ширина
+                считается «вся строка на одного» и карточку раздувает на
+                пол-листа. Особенно заметно на афише дня, где выступает только
+                организатор. */}
+            <Range label="Карточка не шире, % ряда" value={layout.card_max_w ?? 30} min={5} max={100}
+                   hint="Не даёт карточке раздуться, когда человек в ряду один"
+                   onChange={v => patch({ card_max_w: v })} />
             <Range label="Между столбцами, %" value={layout.gap ?? 2} min={0} max={20}
                    hint="Расстояние по горизонтали"
                    onChange={v => patch({ gap: v })} />
@@ -860,9 +974,19 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </label>
             {layout.show_pill !== false && (
               <>
+                {/* ⚠️ На афишах по дням текст пилюли дня НЕ вводится руками: он
+                    свой у каждого дня и собирается сам («День 1 — 24.09 в 11:00»).
+                    Одно поле на все дни давало бы одинаковую пилюлю везде. */}
+                {kind === 'day' ? (
+                  <div className="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                    Пилюля дня собирается сама для каждого дня: «{days[0]?.label || 'День 1 — 24.09 в 11:00'}»
+                  </div>
+                ) : (
                 <input value={layout.pill_text || ''} placeholder={suggested?.pill_text || '23–24 апреля'}
                        onChange={e => patch({ pill_text: e.target.value })}
                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+                )}
+
                 <input value={layout.pill_text_2 || ''} placeholder={suggested?.pill_text_2 || 'Онлайн-конференция'}
                        onChange={e => patch({ pill_text_2: e.target.value })}
                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
@@ -983,17 +1107,105 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           </Card>
           </>)}
 
+          {tab === 'place' && (<>
+          {/* ⚠️⚠️ ОДИН И ТОТ ЖЕ РЫЧАГ ДЛЯ КАЖДОГО БЛОКА (миграция 468).
+              Раньше у каждого блока была своя отдельная настройка — или не было
+              вовсе: пилюли двигались только вместе с заголовком, тема и время
+              на афише спикера не двигались никак. Теперь механизм общий:
+              сдвиг вбок и вверх-вниз в ПИКСЕЛЯХ, у текстовых блоков ещё и
+              выключка. Пусто = блок стоит там, где стоял раньше. */}
+          <Card title="Где что стоит">
+            <p className="text-xs text-gray-400 mb-2">
+              Сдвиг в пикселях от обычного места. 0 — как было. Значение можно вписать числом.
+            </p>
+            <PlaceRow label="Логотипы" x={layout.pos_logos_x} y={layout.pos_logos_y}
+                      onX={v => patch({ pos_logos_x: v })} onY={v => patch({ pos_logos_y: v })} />
+            <PlaceRow label="Заголовок с подзаголовком" x={layout.pos_text_x} y={layout.pos_text_y}
+                      onX={v => patch({ pos_text_x: v })} onY={v => patch({ pos_text_y: v })} />
+            <PlaceRow label="Пилюля с датой" x={layout.pos_pill1_x} y={layout.pos_pill1_y}
+                      align={layout.pill1_align} onAlign={v => patch({ pill1_align: v })}
+                      onX={v => patch({ pos_pill1_x: v })} onY={v => patch({ pos_pill1_y: v })} />
+            <PlaceRow label="Пилюля с форматом" x={layout.pos_pill2_x} y={layout.pos_pill2_y}
+                      align={layout.pill2_align} onAlign={v => patch({ pill2_align: v })}
+                      onX={v => patch({ pos_pill2_x: v })} onY={v => patch({ pos_pill2_y: v })} />
+            {kind !== 'individual' && (
+              <PlaceRow label="Спикеры" x={layout.pos_speakers_x} y={layout.pos_speakers_y}
+                        onX={v => patch({ pos_speakers_x: v })} onY={v => patch({ pos_speakers_y: v })} />
+            )}
+            {kind === 'individual' && (
+              <>
+                <PlaceRow label="Фото спикера" x={layout.pos_photo_x} y={layout.pos_photo_y}
+                          onX={v => patch({ pos_photo_x: v })} onY={v => patch({ pos_photo_y: v })} />
+                <PlaceRow label="Тема выступления" x={layout.pos_topic_x} y={layout.pos_topic_y}
+                          align={layout.topic_align} onAlign={v => patch({ topic_align: v })}
+                          onX={v => patch({ pos_topic_x: v })} onY={v => patch({ pos_topic_y: v })} />
+                <PlaceRow label="Время" x={layout.pos_time_x} y={layout.pos_time_y}
+                          align={layout.time_align} onAlign={v => patch({ time_align: v })}
+                          onX={v => patch({ pos_time_x: v })} onY={v => patch({ pos_time_y: v })} />
+                <div className="mt-3">
+                  <div className="mb-1 text-xs text-gray-600">Выключка имени</div>
+                  <Choice value={layout.name_align || 'center'}
+                          onChange={v => patch({ name_align: v as any })}
+                          options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]} />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-700 mt-3">
+                  <input type="checkbox" checked={layout.ind_photo_first === true}
+                         onChange={e => patch({ ind_photo_first: e.target.checked })} />
+                  Фото сверху, текст под ним
+                </label>
+                <p className="text-xs text-gray-400 mt-1">
+                  По умолчанию сверху текст: пилюля, название, роль, имя, тема, время — а потом фото.
+                </p>
+              </>
+            )}
+          </Card>
+          </>)}
+
           {tab === 'order' && (<>
+          {/* ⚠️⚠️ ПОРЯДОК — ОТДЕЛЬНО ПО КАЖДОМУ ДНЮ (требование владельца).
+              В разные дни выступают разные люди: общая расстановка оставляла
+              бы половину дня в авторасскладе. Переключаем день прямо здесь. */}
+          {kind === 'day' && days.length > 0 && (
+            <div className="mb-4">
+              <div className="text-xs text-gray-500 mb-1">Расставляем спикеров для дня:</div>
+              <div className="flex flex-wrap gap-2">
+                {days.map(d => (
+                  <button key={d.day} type="button" onClick={() => setCurDayNo(d.day)}
+                          className={`rounded-lg px-3 py-1.5 text-sm transition ${
+                            editDay === d.day
+                              ? 'bg-[#25455D] text-white'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                    {d.label}
+                    <span className="ml-1.5 opacity-60">{d.speaker_ids.length}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                У каждого дня свой порядок: переставили здесь — другие дни не тронуты.
+              </p>
+            </div>
+          )}
           <SpeakerRowsEditor
             rows={rowsView}
-            manual={Array.isArray(layout.speaker_rows) && layout.speaker_rows.length > 0}
+            manual={kind === 'day'
+              ? Array.isArray(curDayRows) && curDayRows.length > 0
+              : Array.isArray(layout.speaker_rows) && layout.speaker_rows.length > 0}
             dragId={dragId}
             overRow={overRow}
             onDragStart={setDragId}
             onDragEnd={() => { setDragId(null); setOverRow(null) }}
             onOverRow={setOverRow}
             onDropToRow={(ri) => { if (dragId != null) moveToRow(dragId, ri); setDragId(null); setOverRow(null) }}
-            onReset={() => patch({ speaker_rows: [] })}
+            onReset={() => {
+              // Сбрасываем ТОЛЬКО текущий день, а не всю расстановку.
+              if (kind === 'day' && editDay != null) {
+                const next = { ...dayRowsMap }
+                delete next[String(editDay)]
+                patch({ day_speaker_rows: next } as any)
+              } else {
+                patch({ speaker_rows: [] })
+              }
+            }}
             onSetRowCount={setRowCount}
             total={rowsView.reduce((n, r) => n + r.length, 0)}
           />
@@ -1094,13 +1306,47 @@ function Range({ label, value, min, max, hint, onChange }: {
   const step = max <= 10 ? 0.1 : 1
   return (
     <div className="mt-3">
-      <div className="mb-1 flex items-center justify-between text-xs text-gray-600">
-        <span>{label}</span><span className="text-gray-400">{value}</span>
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-gray-600">
+        <span className="min-w-0 truncate">{label}</span>
+        {/* ⚠️⚠️ ЗНАЧЕНИЕ МОЖНО ВПИСАТЬ ЧИСЛОМ (требование владельца). Ползунком
+            точное значение не поймать: экран узкий, шаг крупный, и «попасть
+            в 47» мышью невозможно. Раньше здесь был просто текст. */}
+        <NumBox value={value} min={min} max={max} step={step} onChange={onChange} />
       </div>
       <input type="range" min={min} max={max} step={step} value={value} className="w-full"
              onChange={e => onChange(Number(e.target.value))} />
       {hint && <div className="mt-0.5 text-xs text-gray-400">{hint}</div>}
     </div>
+  )
+}
+
+/**
+ * Числовое поле рядом с ползунком.
+ *
+ * ⚠️ Держит СВОЙ текст, пока его правят: иначе при вводе «-12» строка «-»
+ * превратилась бы в NaN и поле очищалось бы под пальцами. Наружу отдаём
+ * только законченное число, зажатое в границы.
+ */
+function NumBox({ value, min, max, step, onChange }: {
+  value: number; min: number; max: number; step: number
+  onChange: (v: number) => void
+}) {
+  const [raw, setRaw] = useState<string | null>(null)
+  const shown = raw ?? String(value ?? '')
+  return (
+    <input
+      type="text" inputMode="numeric" value={shown}
+      onChange={e => {
+        const t = e.target.value
+        setRaw(t)
+        if (t === '' || t === '-') return
+        const n = Number(t.replace(',', '.'))
+        if (!Number.isFinite(n)) return
+        onChange(Math.max(min, Math.min(max, n)))
+      }}
+      onBlur={() => setRaw(null)}
+      className="w-14 shrink-0 rounded border border-gray-200 px-1.5 py-0.5 text-right text-xs text-gray-700"
+    />
   )
 }
 
@@ -1338,6 +1584,44 @@ function LogoChip({ item, hidden, isDragging, onToggle, onDragStart, onDragEnd, 
         <input type="checkbox" checked={!hidden} onChange={onToggle} />
         показывать
       </label>
+    </div>
+  )
+}
+
+/**
+ * Рычаги положения одного блока: вбок, вверх-вниз и (у текста) выключка.
+ *
+ * ⚠️ Один компонент на все блоки — в этом и смысл: у логотипов, пилюль, темы
+ * и времени рычаг обязан вести себя одинаково. Раньше у каждого блока была
+ * своя настройка со своими единицами, и клиент каждый раз заново угадывал,
+ * что означает число.
+ *
+ * ⚠️ ПИКСЕЛИ, а не проценты: проценты пересчитывались при смене полей, и блок
+ * уезжал сам собой. Диапазон ±400 px — этого хватает, чтобы увести блок в
+ * любой угол листа, а за поля его всё равно не выпустит рабочая область.
+ */
+function PlaceRow({ label, x, y, align, onX, onY, onAlign }: {
+  label: string
+  x?: number | null
+  y?: number | null
+  align?: 'left' | 'center' | 'right'
+  onX: (v: number) => void
+  onY: (v: number) => void
+  onAlign?: (v: 'left' | 'center' | 'right') => void
+}) {
+  return (
+    <div className="mt-4 border-t border-gray-100 pt-3 first:border-0 first:pt-0">
+      <div className="text-xs font-medium text-gray-700">{label}</div>
+      <Range label="Вбок, px" value={x ?? 0} min={-400} max={400} onChange={onX} />
+      <Range label="Вверх-вниз, px" value={y ?? 0} min={-400} max={400} onChange={onY} />
+      {onAlign && (
+        <div className="mt-2">
+          <div className="mb-1 text-xs text-gray-600">Выключка</div>
+          <Choice value={align || 'center'}
+                  onChange={v => onAlign(v as 'left' | 'center' | 'right')}
+                  options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]} />
+        </div>
+      )}
     </div>
   )
 }
