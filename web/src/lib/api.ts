@@ -1712,8 +1712,19 @@ export const api = {
     // и полтора десятка спикеров — иначе это двадцать нажатий подряд.
     // Каждая попадает куда следует: общие — в афиши события, дневные — в афиши
     // своего дня, индивидуальные — в карточки спикеров.
-    renderAll: (eventId: number, o: 'horizontal' | 'vertical' | 'square', kind: PosterKind) =>
-      request(`/api/v1/events/${eventId}/poster-layout/${o}/render-all?kind=${kind}`, { method: 'POST' }),
+    // ⚠️ `replace` — заменить прежние афиши ЭТОЙ ориентации, а не класть рядом.
+    // Без него после нескольких пересборок у события копилась куча картинок, и
+    // какая из них уйдёт в рассылку, решал случай: рассылка берёт первую по
+    // (sort, id), а все вставлялись с sort = 0.
+    // `publish` — показать их в кабинете спикера (галочка «опубликовать»).
+    renderAll: (eventId: number, o: 'horizontal' | 'vertical' | 'square', kind: PosterKind,
+                opts?: { replace?: boolean; publish?: boolean }) =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}/render-all?kind=${kind}`
+              + `&replace=${opts?.replace ? 'true' : 'false'}`
+              + `&publish=${opts?.publish ? 'true' : 'false'}`, { method: 'POST' }),
+    // Копирование фона и оформления в другие виды этой же ориентации.
+    copyBg: (eventId: number, o: 'horizontal' | 'vertical' | 'square', kind: PosterKind) =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}/copy-bg?kind=${kind}`, { method: 'POST' }),
     // ⚠️ Скачивание через тот же `downloadPdf` (он про любой файл, не только
     // PDF): там уже разобран заголовок с кириллическим именем.
     png: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>

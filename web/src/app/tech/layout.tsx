@@ -15,13 +15,16 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList, HelpCircle } from 'lucide-react'
+import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList, HelpCircle, Bell, Coins } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const NAV = [
   { href: '/tech', label: 'Мои клиенты', icon: Users, exact: true },
   { href: '/tech/kpi', label: 'Показатели', icon: TrendingUp },
   { href: '/tech/dialogs', label: 'Диалоги', icon: MessageCircle },
+  // ⚠️ «Мои деньги» — разбор заработка по видам; «Начисления» — список
+  // операций. Это разные экраны: первый объясняет, второй перечисляет.
+  { href: '/tech/money', label: 'Мои деньги', icon: Coins },
   { href: '/tech/accruals', label: 'Начисления', icon: Wallet },
   // Персональные заказы (миграция 439): внедренец собирает услугу под
   // клиента и отдаёт ссылку на оплату. Видит ТОЛЬКО свои — фильтр в SQL.
@@ -29,6 +32,8 @@ const NAV = [
   // Частые вопросы (миграция 460): ОБЩАЯ база готовых ответов — завёл один,
   // видят все. Ответ копируется кнопкой и сразу отправляется клиенту.
   { href: '/tech/faq', label: 'Частые вопросы', icon: HelpCircle },
+  // Куда слать события по своим клиентам: личка в боте + рабочая группа.
+  { href: '/tech/notify', label: 'Уведомления', icon: Bell },
 ]
 
 export default function TechLayout({ children }: { children: React.ReactNode }) {

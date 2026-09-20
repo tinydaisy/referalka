@@ -28,6 +28,13 @@ from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
+
+def _esc(text) -> str:
+    """Экранирование под HTML Telegram: в имени клиента может быть `<`, и одна
+    такая скобка ломает ВСЁ сообщение — площадка отвергает разметку целиком."""
+    import html as _html
+    return _html.escape(str(text or ""))
+
 router = APIRouter(prefix="/admin/custom-orders", tags=["Персональные заказы"])
 tech_router = APIRouter(prefix="/tech/custom-orders", tags=["Персональные заказы"])
 public_router = APIRouter(prefix="/api/v1/public/custom-orders", tags=["Персональные заказы"])
@@ -106,7 +113,7 @@ class PayIn(BaseModel):
 # Общее
 # ─────────────────────────────────────────────────────────────────────────
 
-_FIELDS = """id, number, title, items, amount, status, contact_id, client_id,
+_FIELDS = """id, number, public_token, title, items, amount, status, contact_id, client_id,
              client_name, client_email, client_phone, tech_specialist_id,
              lead_source, source_kind, source_title, source_email,
              owner_tech_id, owner_tech_title,
@@ -186,14 +193,26 @@ async def _resolve_source(db, client_id: Optional[int],
 
 async def _create(db, data: OrderIn, tech_id: Optional[int]) -> dict:
     src = await _resolve_source(db, data.client_id, tech_id)
+
+    # ⚠️⚠️ ПОЧТА И ТЕЛЕФОН ОБЯЗАТЕЛЬНЫ. Почта — потому что без неё платёжка
+    # просто не примет заказ (у LeadPay v2 она обязательна), и человек упрётся
+    # в ошибку уже на странице оплаты. Телефон — потому что по заказу надо
+    # созвониться: объём работ выясняется разговором, а не перепиской.
+    email = (data.client_email or "").strip() or (src["email"] or "")
+    phone = (data.client_phone or "").strip() or (src["phone"] or "")
+    if not email:
+        raise HTTPException(400, "Нужна почта клиента — без неё оплата не пройдёт")
+    if not phone:
+        raise HTTPException(400, "Нужен телефон клиента — по заказу придётся созвониться")
     row = await db.fetchrow(
         f"""INSERT INTO custom_orders
                 (title, items, amount, client_name, client_email, client_phone,
                  note, request_text, contact_id, tech_specialist_id, lead_source,
                  client_id, source_kind, source_title, source_email,
-                 owner_tech_id, owner_tech_title)
+                 owner_tech_id, owner_tech_title, public_token)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                    $12, $13, $14, $15, $16, $17)
+                    $12, $13, $14, $15, $16, $17,
+                    encode(gen_random_bytes(16), 'hex'))
          RETURNING {_FIELDS}""",
         (data.title or "").strip() or "Персональный заказ",
         (data.items or "").strip(),
@@ -201,8 +220,7 @@ async def _create(db, data: OrderIn, tech_id: Optional[int]) -> dict:
         # Контакты берём из карточки клиента, но введённое руками не затираем:
         # у заказа может быть другое контактное лицо.
         (data.client_name or "").strip() or src["name"],
-        (data.client_email or "").strip() or src["email"],
-        (data.client_phone or "").strip() or src["phone"],
+        email, phone,
         data.note, data.request_text, data.contact_id, tech_id,
         src["lead_source"], src["client_id"],
         src["source_kind"], src["source_title"], src["source_email"],
@@ -286,16 +304,23 @@ async def _list(db, *, tech_id: Optional[int], status: Optional[str], limit: int
     where, args = [], []
     if tech_id is not None:
         args.append(tech_id)
-        where.append(f"tech_specialist_id = ${len(args)}")
+        where.append(f"o.tech_specialist_id = ${len(args)}")
     if status:
         args.append(status)
-        where.append(f"status = ${len(args)}")
+        where.append(f"o.status = ${len(args)}")
     args.append(limit)
 
+    # ⚠️ Имя внедренца джойном, а не отдельным запросом на каждую строку:
+    # список открывают целиком, и запрос на заказ превратился бы в сотню.
+    fields = ", ".join(f"o.{f.strip()}" for f in _FIELDS.replace("\n", " ").split(",")
+                       if f.strip())
     rows = await db.fetch(
-        f"""SELECT {_FIELDS} FROM custom_orders
+        f"""SELECT {fields},
+                   ts.name AS spec_name, ts.email AS spec_email
+              FROM custom_orders o
+              LEFT JOIN tech_specialists ts ON ts.id = o.tech_specialist_id
              {'WHERE ' + ' AND '.join(where) if where else ''}
-             ORDER BY created_at DESC LIMIT ${len(args)}""",
+             ORDER BY o.created_at DESC LIMIT ${len(args)}""",
         *args,
     )
     return [dict(r) for r in rows]
@@ -594,33 +619,44 @@ async def public_prices(db: asyncpg.Connection = Depends(get_db)):
     return {"items": [dict(r) for r in rows]}
 
 
-@public_router.get("/{number}", summary="Данные заказа для страницы оплаты")
-async def public_order(number: str, db: asyncpg.Connection = Depends(get_db)):
-    """⚠️ Отдаём ТОЛЬКО то, что человек и так должен видеть: что заказано,
-    сколько стоит, оплачено ли. Никаких заметок, id техспеца и чужих данных —
-    страница открыта по ссылке, без входа."""
+@public_router.get("/{token}", summary="Данные заказа для страницы оплаты")
+async def public_order(token: str, db: asyncpg.Connection = Depends(get_db)):
+    """⚠️⚠️ ИЩЕМ ПО СЛУЧАЙНОМУ ТОКЕНУ, А НЕ ПО НОМЕРУ. Номера `PZ-…` идут
+    подряд — по номеру любой, кому дали одну ссылку, перебором читал чужие
+    заказы: что заказывали, на какую сумму, имя, почту и телефон. Страница
+    публичная по замыслу (открывается без входа), поэтому единственная защита —
+    неугадываемый адрес.
+
+    ⚠️ Отдаём ТОЛЬКО то, что человек и так должен видеть. Никаких заметок,
+    источника лида, внедренца и ставок — это внутренняя кухня.
+    """
     row = await db.fetchrow(
-        "SELECT number, title, items, amount, status, paid_at, "
+        "SELECT number, title, items, amount, status, paid_at, created_at, "
         "       client_name, client_email, client_phone "
-        "  FROM custom_orders WHERE number = $1", number.strip().upper(),
+        "  FROM custom_orders WHERE public_token = $1", token.strip(),
     )
     if not row:
         raise HTTPException(404, "Заказ не найден")
     return {
         "number": row["number"],
+        # ⚠️ Токен возвращаем: страница шлёт по нему запрос на оплату. Номер для
+        # этого не годится — по нему заказ больше не ищется.
+        "token": token.strip(),
         "title": row["title"],
         "items": [s.strip() for s in (row["items"] or "").split("\n") if s.strip()],
         "amount": row["amount"],
         "paid": row["status"] == "paid",
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "paid_at": row["paid_at"].isoformat() if row["paid_at"] else None,
         "name": row["client_name"],
         "email": row["client_email"],
         "phone": row["client_phone"],
     }
 
 
-@public_router.post("/{number}/pay", summary="Получить ссылку на оплату")
+@public_router.post("/{token}/pay", summary="Получить ссылку на оплату")
 async def public_pay(
-    number: str,
+    token: str,
     data: PayIn,
     request: Request,
     db: asyncpg.Connection = Depends(get_db),
@@ -639,8 +675,9 @@ async def public_pay(
         raise HTTPException(400, "Нужна почта — на неё придёт чек")
 
     order = await db.fetchrow(
-        "SELECT id, number, title, amount, status FROM custom_orders WHERE number=$1",
-        number.strip().upper(),
+        "SELECT id, number, public_token, title, amount, status "
+        "  FROM custom_orders WHERE public_token=$1",
+        token.strip(),
     )
     if not order:
         raise HTTPException(404, "Заказ не найден")
@@ -675,8 +712,8 @@ async def public_pay(
             phone=(data.phone or "").strip() or None,
             fio=data.name.strip(),
             notification_url=f"{base}/api/v1/integrations/leadpay/custom-order-webhook",
-            redirect_url_ok=f"{base}/order/{order['number']}?paid=1",
-            redirect_url_error=f"{base}/order/{order['number']}?error=1",
+            redirect_url_ok=f"{base}/order/{order['public_token']}?paid=1",
+            redirect_url_error=f"{base}/order/{order['public_token']}?error=1",
         )
     except RuntimeError as e:
         logger.error("custom order %s: платёжка не создалась: %s", order["number"], e)
@@ -790,8 +827,15 @@ async def _mark_paid(db, order_id: int, *, provider: str,
                      payment_id: str = "", raw: dict | None = None) -> dict:
     """Идемпотентно: повторный вебхук — норма для платёжных систем."""
     order = await db.fetchrow(
-        "SELECT id, number, status, amount, tech_specialist_id, lead_source "
-        "  FROM custom_orders WHERE id=$1", order_id,
+        """SELECT o.id, o.number, o.status, o.amount, o.tech_specialist_id,
+                  o.lead_source, o.title, o.items, o.client_id,
+                  o.client_name, o.client_email, o.client_phone,
+                  o.source_kind, o.source_title, o.owner_tech_title,
+                  ts.name AS spec_name, ts.email AS spec_email
+             FROM custom_orders o
+             LEFT JOIN tech_specialists ts ON ts.id = o.tech_specialist_id
+            WHERE o.id = $1""",
+        order_id,
     )
     if not order:
         return {"ok": True, "ignored": "order not found"}
@@ -810,28 +854,106 @@ async def _mark_paid(db, order_id: int, *, provider: str,
 
     await _accrue_to_tech(db, order)
 
-    # Уведомляем владельца во все его каналы — заказ оплачен, пора делать.
-    # ⚠️ Клиента берём по флагу is_system_service, а не числом: id сервисного
-    # кабинета — не константа, на которую можно опираться в коде.
     try:
-        from app.services.channels import notify_organizer_all_channels
-
-        service_id = await db.fetchval(
-            "SELECT id FROM clients WHERE is_system_service = TRUE ORDER BY id LIMIT 1"
-        )
-        if service_id:
-            who = "техспециалистом" if order["tech_specialist_id"] else "вами"
-            await notify_organizer_all_channels(
-                client_id=service_id,
-                text_html=(f"💰 <b>Персональный заказ оплачен</b>\n"
-                           f"{order['number']} — {order['amount']} ₽\n"
-                           f"Оформлен {who}."),
-                db=db, kind="payments",
-            )
-    except Exception as e:
+        await _notify_paid(db, order)
+    except Exception as e:  # уведомление не должно ронять приём оплаты
         logger.warning("custom order %s: уведомление не ушло: %s", order["number"], e)
 
     return {"ok": True, "status": "paid"}
+
+
+async def _notify_paid(db, order) -> None:
+    """Уведомление об оплате — РАЗВЁРНУТОЕ, а не «оплачен заказ №N».
+
+    ⚠️⚠️ ЧТО ИМЕННО ПОКАЗЫВАЕМ и почему (требование владельца 19.09.2026):
+    контакты человека и его профили в площадках — чтобы написать, не заходя
+    никуда; ссылка на клиента в ПЛЮСОНе — чтобы открыть карточку; за кем
+    закреплён и от кого пришёл — чтобы понимать, чья это работа; размер
+    вознаграждения с процентом — чтобы видеть деньги сразу, а не сверять
+    потом по начислениям. Голый номер заказа заставлял лезть в админку.
+    """
+    from app.services.channels import notify_organizer_all_channels
+    from app.services.client_domains import platform_base_url
+    from app.services.tech_notify import format_person, notify_tech
+
+    base = platform_base_url().rstrip("/")
+
+    # Профили в площадках — по контакту клиента платформы.
+    tg_username = max_username = None
+    if order["client_id"]:
+        rows = await db.fetch(
+            """SELECT pu.platform_slug, pu.username
+                 FROM platform_users pu
+                 JOIN contacts c ON c.id = pu.contact_id
+                WHERE c.client_id = $1 AND COALESCE(pu.username, '') <> ''
+                ORDER BY pu.id DESC""",
+            order["client_id"],
+        )
+        for r in rows:
+            if r["platform_slug"] == "telegram" and not tg_username:
+                tg_username = r["username"]
+            elif r["platform_slug"] == "max" and not max_username:
+                max_username = r["username"]
+
+    person = format_person(
+        name=order["client_name"], email=order["client_email"],
+        phone=order["client_phone"], tg_username=tg_username,
+        max_username=max_username,
+    )
+
+    lines = [
+        f"💰 <b>Персональный заказ оплачен</b>",
+        f"{order['number']} · <b>{order['amount']:,} ₽</b>".replace(",", " "),
+        f"<i>{_esc(order['title'])}</i>",
+        "",
+        person,
+    ]
+
+    # ⚠️ Ссылка на СПИСОК, а не на карточку: отдельной страницы клиента в
+    # админке нет, `/admin/clients/{id}` вёл бы в никуда. Поиск по почте в
+    # адресе список тоже не принимает — поэтому даём почту рядом, её копируют
+    # в поиск. Появится карточка — ссылку здесь и поменять.
+    if order["client_id"]:
+        lines.append(f'<a href="{base}/admin/clients">Клиенты ПЛЮСОНа</a> '
+                     f'(найдите по почте выше)')
+
+    lines.append("")
+    if order["owner_tech_title"]:
+        lines.append(f"Закреплён за: {_esc(order['owner_tech_title'])}")
+    lines.append(
+        "Пришёл: " + ("из базы ПЛЮСОНА" if order["source_kind"] == "none"
+                      else f"{_esc(order['source_title'])}")
+    )
+
+    # Вознаграждение — считаем той же ставкой, что и начисление.
+    if order["tech_specialist_id"]:
+        kind_rate = "setup_own" if order["lead_source"] == "own" else "setup_pluson"
+        rate = await db.fetchrow(
+            "SELECT percent FROM tech_rates WHERE kind=$1 AND is_active = TRUE",
+            kind_rate)
+        pct = float(rate["percent"]) if rate and rate["percent"] else 0
+        payout = int(round(int(order["amount"]) * pct / 100))
+        lines.append(f"Оформил: {_esc(order['spec_name'] or order['spec_email'])}")
+        lines.append(
+            f"Вознаграждение: <b>{payout:,} ₽</b> ({pct:g} % от {order['amount']:,} ₽)"
+            .replace(",", " ")
+        )
+    else:
+        lines.append("Оформлен вами — вознаграждение не начисляется.")
+
+    text = "\n".join(lines)
+
+    service_id = await db.fetchval(
+        "SELECT id FROM clients WHERE is_system_service = TRUE ORDER BY id LIMIT 1")
+    if service_id:
+        await notify_organizer_all_channels(
+            client_id=service_id, text_html=text, db=db, kind="payments")
+
+    # ⚠️ Внедренцу — тоже: это его деньги, и узнавать о них он должен сразу,
+    # а не когда откроет кабинет.
+    if order["tech_specialist_id"]:
+        await notify_tech(db, order["tech_specialist_id"], "payment", text,
+                          client_id=order["client_id"])
 
 
 @leadpay_webhook_router.post("/custom-order-webhook", summary="Оплата персонального заказа (LeadPay)")

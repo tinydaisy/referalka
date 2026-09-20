@@ -31,6 +31,8 @@ type Order = {
   source_kind: string | null
   source_title: string | null
   owner_tech_title: string | null
+  public_token: string
+  spec_name: string | null
   note: string | null
   request_text: string | null
   created_at: string
@@ -57,6 +59,18 @@ type FoundClient = {
   // За кем клиент числится. ⚠️ Не то же, что «привёл»: привести мог один, а
   // вести закреплён другой.
   owner: { id: number; title: string | null; email: string | null } | null
+}
+
+/** Дата по-человечески: «14 сен», а для прошлых лет — с годом. */
+function fmtDate(iso?: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString('ru-RU', {
+    day: 'numeric', month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
 }
 
 const STATUSES = ['all', 'draft', 'sent', 'paid', 'cancelled'] as const
@@ -172,9 +186,11 @@ function OrderCard({ order, prices, api, onChange }: {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
 
+  // ⚠️⚠️ ССЫЛКА ПО ТОКЕНУ, А НЕ ПО НОМЕРУ. Номера идут подряд — по номеру
+  // любой, кому дали одну ссылку, перебором читал чужие заказы.
   const payLink = typeof window !== 'undefined'
-    ? `${window.location.origin}/order/${order.number}`
-    : `/order/${order.number}`
+    ? `${window.location.origin}/order/${order.public_token}`
+    : `/order/${order.public_token}`
 
   async function toggleDone() {
     setBusy(true)
@@ -222,6 +238,7 @@ function OrderCard({ order, prices, api, onChange }: {
             <span className="text-xs font-semibold tracking-wider text-gray-400">
               {order.number}
             </span>
+            <span className="text-xs text-gray-400">{fmtDate(order.created_at)}</span>
             <StatusBadge status={order.status} />
             {order.is_done && (
               <span className="text-xs px-2 py-0.5 rounded-md bg-green-50 text-green-700 font-medium">
@@ -240,6 +257,17 @@ function OrderCard({ order, prices, api, onChange }: {
           )}
           {/* От кого пришёл клиент. ⚠️ Реферальный процент с персональных
               заказов не платим — показываем, чтобы видеть источник. */}
+          {/* Кто оформил заказ — в админке видно, чья это работа. */}
+          {order.spec_name && (
+            <div className="text-xs text-gray-400 mt-0.5">
+              Оформил: {order.spec_name}
+            </div>
+          )}
+          {order.paid_at && (
+            <div className="text-xs text-green-700 mt-0.5">
+              Оплачен {fmtDate(order.paid_at)}
+            </div>
+          )}
           {(order.source_title || order.owner_tech_title) && (
             <div className="text-xs text-gray-400 mt-0.5">
               {order.source_title && <>Привёл: {order.source_title}</>}
@@ -302,14 +330,17 @@ function OrderCard({ order, prices, api, onChange }: {
           <ExternalLink size={14} /> Открыть
         </a>
 
+        {/* ⚠️ Кнопка НЕ зелёная, пока работа не сделана: зелёный цвет читается
+            как «уже исполнено», и заказ выглядел закрытым, хотя им ещё не
+            занимались. Зелёным подсвечена только отметка факта в шапке. */}
         <button onClick={toggleDone} disabled={busy}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                   order.is_done
-                    ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    : 'bg-green-50 text-green-700 hover:bg-green-100'
+                    ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}>
           <Check size={14} />
-          {order.is_done ? 'Снять отметку' : 'Исполнено'}
+          {order.is_done ? 'Исполнено — снять' : 'Отметить исполненным'}
         </button>
 
         {order.status !== 'paid' && (

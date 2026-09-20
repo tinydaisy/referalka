@@ -299,7 +299,94 @@ async def archive_incoming(
         )
         if url:
             await update_message_media(row_id, url)
+
+    # ⚠️⚠️ УВЕДОМЛЕНИЕ ВНЕДРЕНЦУ — ЗДЕСЬ, а не в каждом боте по отдельности.
+    # Это единственная точка, через которую проходят входящие со ВСЕХ трёх
+    # площадок; поставь врезку в ботах — забудешь в одном из них, как уже вышло
+    # с «шагом ноль» (сделали в Telegram, в MAX не работало).
+    if row_id:
+        try:
+            await _notify_assigned_tech(client_id=client_id, platform=platform,
+                                        text=text, row_id=row_id)
+        except Exception as e:  # noqa: BLE001 — уведомление не должно ронять приём
+            log.warning("tech notify from dialog failed: %s", e)
     return row_id
+
+
+async def _notify_assigned_tech(*, client_id: int, platform: str,
+                                text: Optional[str], row_id: int) -> None:
+    """Сообщает внедренцу, что его клиент написал.
+
+    ⚠️ Шлём ТОЛЬКО по сообщениям в СЕРВИСНЫЙ кабинет (@pluson_bot): туда пишут
+    клиенты платформы. В кабинете обычного клиента переписка идёт с его
+    участниками — внедренца она не касается вовсе.
+    """
+    from app.services.tech_notify import format_person, notify_tech
+
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        # Чей это кабинет и сервисный ли он.
+        is_service = await db.fetchval(
+            "SELECT is_system_service FROM clients WHERE id = $1", client_id)
+        if not is_service:
+            return
+
+        msg = await db.fetchrow(
+            """SELECT dm.contact_id, ct.name, ct.email, ct.phone,
+                      ct.client_id AS contact_client_id
+                 FROM direct_messages dm
+                 LEFT JOIN contacts ct ON ct.id = dm.contact_id
+                WHERE dm.id = $1""",
+            row_id,
+        )
+        if not msg or not msg["contact_id"]:
+            return
+
+        # За кем закреплён ЭТОТ человек как клиент платформы.
+        # ⚠️ Связь через почту: в сервисном кабинете он контакт, а клиентом
+        # платформы является отдельной строкой в `clients`.
+        # ⚠️ Сравниваем LOWER(TRIM(email)), а НЕ `email_normalized`: такой
+        # колонки в `clients` нет вовсе — она есть только у `contacts`.
+        spec = await db.fetchrow(
+            """SELECT c.tech_specialist_id, c.id AS client_id,
+                      c.referred_by_tech_id
+                 FROM clients c
+                WHERE LOWER(TRIM(c.email)) = LOWER(TRIM($1))
+                  AND c.tech_specialist_id IS NOT NULL
+                LIMIT 1""",
+            msg["email"] or "",
+        ) if msg["email"] else None
+
+        if not spec or not spec["tech_specialist_id"]:
+            return
+
+        # Ник на площадке — чтобы менеджер мог написать напрямую.
+        username = await db.fetchval(
+            """SELECT username FROM platform_users
+                WHERE contact_id = $1 AND platform_slug = $2
+                ORDER BY id DESC LIMIT 1""",
+            msg["contact_id"], platform,
+        )
+
+        person = format_person(
+            name=msg["name"], email=msg["email"], phone=msg["phone"],
+            tg_username=username if platform == "telegram" else None,
+            max_username=username if platform == "max" else None,
+            platform=platform,
+        )
+        own = spec["referred_by_tech_id"] == spec["tech_specialist_id"]
+        # ⚠️ Текст клиента ЭКРАНИРУЕМ: одна угловая скобка в его сообщении
+        # ломает всю разметку, и Telegram отвергает сообщение целиком.
+        import html as _html
+        safe = _html.escape((text or "(без текста)")[:600])
+        body = (f"{person}\n"
+                f"{'Ваш клиент' if own else 'Из базы ПЛЮСОНА'}\n\n"
+                f"<i>{safe}</i>\n\n"
+                f"Ответьте на это сообщение — текст уйдёт клиенту.")
+
+        await notify_tech(db, spec["tech_specialist_id"], "question", body,
+                          contact_id=msg["contact_id"],
+                          client_id=client_id, platform=platform)
 
 
 async def archive_outgoing_bot(

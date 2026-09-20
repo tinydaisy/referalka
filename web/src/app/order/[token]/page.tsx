@@ -18,10 +18,10 @@ export const dynamic = 'force-dynamic'
 const apiBase =
   process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8000'
 
-async function getOrder(number: string) {
+async function getOrder(token: string) {
   try {
     const res = await fetch(
-      `${apiBase}/api/v1/public/custom-orders/${encodeURIComponent(number)}`,
+      `${apiBase}/api/v1/public/custom-orders/${encodeURIComponent(token)}`,
       { cache: 'no-store' },
     )
     if (!res.ok) return null
@@ -32,9 +32,9 @@ async function getOrder(number: string) {
 }
 
 export async function generateMetadata(
-  { params }: { params: { number: string } },
+  { params }: { params: { token: string } },
 ): Promise<Metadata> {
-  const order = await getOrder(params.number)
+  const order = await getOrder(params.token)
   const title = order
     ? `${order.title} ${order.number} — iViSiON: ПЛЮСОН`
     : 'Заказ — iViSiON: ПЛЮСОН'
@@ -46,8 +46,8 @@ export async function generateMetadata(
   }
 }
 
-export default async function OrderPage({ params }: { params: { number: string } }) {
-  const order = await getOrder(params.number)
+export default async function OrderPage({ params }: { params: { token: string } }) {
+  const order = await getOrder(params.token)
 
   if (!order) {
     return (

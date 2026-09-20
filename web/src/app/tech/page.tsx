@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Search, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 const rub = (kop?: number | null) =>
   `${Math.round((kop || 0) / 100).toLocaleString('ru-RU')} ₽`
@@ -21,9 +22,14 @@ const dt = (v?: string | null) =>
 // ними и работают ради оживления, а спрятанные они выпадут из внимания.
 const TABS: { id: string; label: string }[] = [
   { id: '', label: 'Все' },
-  { id: 'paying', label: 'Платят' },
-  { id: 'trial', label: 'На пробном' },
-  { id: 'cold', label: 'Остыли' },
+  // ⚠️⚠️ CRM-ВОРОНКА — порядок НЕ произвольный, это путь клиента:
+  // триал → активирован (первая оплата) → удержан (вторая) → оживлён.
+  // Отвалившиеся в конце, но не спрятаны: с ними и работают ради оживления.
+  { id: 'trial', label: 'Триал' },
+  { id: 'activated', label: 'Активированные' },
+  { id: 'retained', label: 'Удержанные' },
+  { id: 'revived', label: 'Оживлённые' },
+  { id: 'churned', label: 'Отвалившиеся' },
   // ⚠️ Разрезы по происхождению: «за кого мне идёт процент» и «кого просто
   // дали вести» — разные деньги, и смотрят их отдельно.
   { id: 'mine', label: 'Привёл лично' },
@@ -31,17 +37,50 @@ const TABS: { id: string; label: string }[] = [
   { id: 'assigned', label: 'Назначенные' },
 ]
 
+const CRM_SERVER = ['trial', 'activated', 'retained', 'revived', 'churned',
+                    'paying', 'cold']
+
+const CRM_LABEL: Record<string, { label: string; cls: string }> = {
+  trial: { label: 'Триал', cls: 'bg-gray-100 text-gray-600' },
+  activated: { label: 'Активирован', cls: 'bg-blue-50 text-blue-700' },
+  retained: { label: 'Удержан', cls: 'bg-green-50 text-green-700' },
+  revived: { label: 'Оживлён', cls: 'bg-amber-50 text-amber-700' },
+  churned: { label: 'Отвалился', cls: 'bg-red-50 text-red-700' },
+  lead: { label: 'Лид', cls: 'bg-gray-100 text-gray-400' },
+}
+
+function SumCard({ label, value, accent }: {
+  label: string; value: number; accent?: boolean
+}) {
+  return (
+    <div className="rounded-xl bg-white p-3 shadow-sm">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-xl font-bold"
+           style={{ color: accent ? '#25455D' : '#111827' }}>
+        {value ?? 0}
+      </div>
+    </div>
+  )
+}
+
 export default function TechClientsPage() {
   const [items, setItems] = useState<any[]>([])
-  const [status, setStatus] = useState('')
+  // ⚠️ Вкладка в адресе, а не в useState: обновление страницы не должно
+  // сбрасывать выбранный разрез на «Все» — правило проекта.
+  const [status, setStatus] = useUrlTab<string>('status', '')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [funnel, setFunnel] = useState<any>(null)
+
+  useEffect(() => {
+    api.tech.funnel().then(setFunnel).catch(() => {})
+  }, [])
 
   useEffect(() => {
     setLoading(true)
     const t = setTimeout(() => {
       // Разрезы по уровню считаются здесь же, серверу их слать незачем.
-      const serverStatus = ['paying', 'trial', 'cold'].includes(status) ? status : undefined
+      const serverStatus = CRM_SERVER.includes(status) ? status : undefined
       api.tech.clients({ search: search || undefined, status: serverStatus })
         .then((r: any) => setItems(r.clients || []))
         .catch(() => {})
@@ -61,9 +100,50 @@ export default function TechClientsPage() {
   return (
     <div className="p-4 md:p-8">
       <h1 className="mb-1 text-2xl font-bold text-gray-900">Мои клиенты</h1>
-      <p className="mb-5 text-sm text-gray-500">
-        Всего {items.length}, из них платят {paying}
+      <p className="mb-4 text-sm text-gray-500">
+        Вся база: кто на каком шаге и откуда пришёл.
       </p>
+
+      {/* Сводка по базе. ⚠️ Считает БЭКЕНД тем же выражением, что и статус в
+          списке — иначе в сводке «удержанных 5», а в списке их четыре. */}
+      {funnel && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <SumCard label="Всего в базе" value={funnel.summary.total} />
+          <SumCard label="Свои" value={funnel.summary.own} accent />
+          <SumCard label="Из базы ПЛЮСОНА" value={funnel.summary.from_pluson} />
+          <SumCard label="Действующих" value={funnel.summary.active_now} />
+          <SumCard label="Отвалившихся" value={funnel.summary.churned} />
+        </div>
+      )}
+
+      {/* Движение по месяцам — из начислений: там записан ФАКТ события с
+          датой. По текущему состоянию подписки «когда активировался» уже не
+          восстановить. */}
+      {funnel?.months?.length > 0 && (
+        <div className="mb-5 overflow-x-auto rounded-xl bg-white p-4 shadow-sm">
+          <div className="mb-2 text-sm font-semibold text-gray-700">По месяцам</div>
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-gray-500">
+              <tr>
+                <th className="py-1.5 pr-4">Месяц</th>
+                <th className="py-1.5 pr-4">Активаций</th>
+                <th className="py-1.5 pr-4">Удержаний</th>
+                <th className="py-1.5">Оживлений</th>
+              </tr>
+            </thead>
+            <tbody>
+              {funnel.months.map((m: any) => (
+                <tr key={m.month} className="border-t border-gray-50">
+                  <td className="py-1.5 pr-4 text-gray-600">{m.month}</td>
+                  <td className="py-1.5 pr-4 font-medium">{m.activated}</td>
+                  <td className="py-1.5 pr-4 font-medium">{m.retained}</td>
+                  <td className="py-1.5 font-medium">{m.revived}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {TABS.map(t => (
@@ -93,6 +173,7 @@ export default function TechClientsPage() {
             <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
               <tr>
                 <th className="px-4 py-3">Клиент</th>
+                <th className="px-4 py-3">Статус</th>
                 <th className="px-4 py-3">Тариф</th>
                 <th className="px-4 py-3">Оплат</th>
                 <th className="px-4 py-3">Последняя</th>
@@ -128,6 +209,17 @@ export default function TechClientsPage() {
                         назначен
                       </span>
                     )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.crm_status && (
+                      <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
+                        (CRM_LABEL[c.crm_status] || CRM_LABEL.lead).cls}`}>
+                        {(CRM_LABEL[c.crm_status] || CRM_LABEL.lead).label}
+                      </span>
+                    )}
+                    <div className="mt-1 text-[11px] text-gray-400">
+                      {c.is_own ? 'свой' : 'из базы ПЛЮСОНА'}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div>{c.tariff_name || '—'}</div>

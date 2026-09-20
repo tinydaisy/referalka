@@ -16,6 +16,9 @@ type Order = {
   items: string[]
   amount: number
   paid: boolean
+  token: string
+  created_at?: string | null
+  paid_at?: string | null
   name?: string | null
   email?: string | null
   phone?: string | null
@@ -47,7 +50,7 @@ export default function OrderView({ order }: { order: Order }) {
     setBusy(true)
     try {
       const res = await fetch(
-        `${apiBase}/api/v1/public/custom-orders/${encodeURIComponent(order.number)}/pay`,
+        `${apiBase}/api/v1/public/custom-orders/${encodeURIComponent(order.token)}/pay`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -98,6 +101,12 @@ export default function OrderView({ order }: { order: Order }) {
             <div className="text-xs font-semibold tracking-widest uppercase mb-1"
                  style={{ color: '#FFCFA4' }}>
               {order.number}
+              {order.created_at && (
+                <span className="ml-2 font-normal tracking-normal normal-case text-gray-400">
+                  от {new Date(order.created_at).toLocaleDateString('ru-RU',
+                      { day: 'numeric', month: 'long', year: 'numeric' })}
+                </span>
+              )}
             </div>
             <h1 className="text-2xl font-bold" style={{ color: '#25455D' }}>
               {order.title}
@@ -108,6 +117,12 @@ export default function OrderView({ order }: { order: Order }) {
             <div className="px-6 sm:px-8 py-10 text-center">
               <div className="text-4xl mb-3">✅</div>
               <h2 className="text-xl font-bold text-gray-900 mb-2">Заказ оплачен</h2>
+              {order.paid_at && (
+                <div className="text-sm text-gray-400 mb-2">
+                  {new Date(order.paid_at).toLocaleDateString('ru-RU',
+                    { day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+              )}
               <p className="text-gray-500">
                 Спасибо! Мы уже видим оплату и берёмся за работу.
                 Если понадобятся детали — напишем вам.

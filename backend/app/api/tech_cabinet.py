@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from app.auth import get_current_tech
 from app.database import get_db
@@ -75,12 +76,41 @@ async def my_clients(
     trial = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
              " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
              " AND cs2.expires_at > NOW() AND cs2.source <> 'paid')")
+    # ⚠️⚠️ CRM-СТАТУС СЧИТАЕТСЯ ТЕМИ ЖЕ ПРАВИЛАМИ, ЧТО И НАЧИСЛЕНИЯ
+    # (services/tech_accruals.py). Своя «примерно такая же» логика разошлась бы
+    # с деньгами: человек видел бы в воронке «удержан», а начисления за
+    # удержание не было бы — и наоборот.
+    #
+    #   trial      — активная подписка НЕ за деньги, платежей ещё не было;
+    #   activated  — заплатил ровно один раз (первая оплата после триала);
+    #   retained   — заплатил два и более раз, подписка жива;
+    #   revived    — платил, отваливался, снова платит (есть начисление revival);
+    #   churned    — платил раньше, сейчас подписки нет.
+    paid_cnt = ("(SELECT COUNT(*) FROM subscription_orders so2"
+                " WHERE so2.client_id = c.id AND so2.status='paid'"
+                " AND so2.amount_paid_card_kopecks > 0)")
+    revived = ("EXISTS (SELECT 1 FROM tech_accruals ta"
+               " WHERE ta.client_id = c.id AND ta.kind = 'revival')")
+
+    crm_case = f"""CASE
+        WHEN {revived} AND {paying} THEN 'revived'
+        WHEN {paying} AND {paid_cnt} >= 2 THEN 'retained'
+        WHEN {paying} AND {paid_cnt} = 1 THEN 'activated'
+        WHEN {trial} AND {paid_cnt} = 0 THEN 'trial'
+        WHEN {paid_cnt} > 0 THEN 'churned'
+        ELSE 'lead'
+    END"""
+
+    CRM = ("trial", "activated", "retained", "revived", "churned", "lead")
     if status == "paying":
         where.append(paying)
     elif status == "trial":
         where.append(trial)
     elif status == "cold":
         where.append(f"NOT {paying} AND NOT {trial}")
+    elif status in CRM:
+        args.append(status)
+        where.append(f"({crm_case}) = ${len(args)}")
 
     rows = await db.fetch(
         f"""SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
@@ -108,7 +138,14 @@ async def my_clients(
                    (SELECT COALESCE(SUM(so.amount_paid_card_kopecks),0)
                       FROM subscription_orders so
                      WHERE so.client_id = c.id AND so.status='paid') AS total_paid_kopecks,
-                   (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id) AS contacts_count
+                   (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id) AS contacts_count,
+                   ({crm_case}) AS crm_status,
+                   -- Свой или из базы ПЛЮСОНА: от этого зависят проценты.
+                   (c.referred_by_tech_id = $1) AS is_own,
+                   -- ⚠️ Контакты площадок у клиента — это `work_max`/`work_vk`
+                   -- (рабочие ники, которые он указал сам), а не id профилей:
+                   -- колонок max_username/vk_user_id в `clients` нет вовсе.
+                   c.work_max, c.work_vk
               FROM clients c
               LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
               LEFT JOIN tariffs t ON t.id = cs.tariff_id
@@ -117,6 +154,255 @@ async def my_clients(
         *args,
     )
     return {"clients": [dict(r) for r in rows]}
+
+
+class NotifyIn(BaseModel):
+    """⚠️ `notify_tg_user_id` СЮДА НЕ ВХОДИТ намеренно: личка привязывается
+    автоматически по ссылке-связке. Позволить ввести чужой id значило бы слать
+    уведомления о клиентах не тому человеку."""
+    notify_chat_id: Optional[str] = None
+    notify_kinds: Optional[list[str]] = None
+
+
+@router.get("/notify-settings", summary="Куда мне шлют уведомления")
+async def notify_settings(
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from app.services.support_link import make_support_param
+    from app.services.tech_notify import KINDS
+
+    spec_id = int(user["sub"])
+    row = await db.fetchrow(
+        """SELECT notify_tg_user_id, notify_chat_id, notify_kinds,
+                  notify_tg_linked_at
+             FROM tech_specialists WHERE id = $1""",
+        spec_id,
+    )
+    if not row:
+        raise HTTPException(404, "Не найден")
+
+    kinds = row["notify_kinds"] or []
+    if isinstance(kinds, str):
+        import json as _json
+        kinds = _json.loads(kinds)
+
+    # ⚠️ Ссылка-связка ПОДПИСАНА: без подписи любой подставил бы чужой id
+    # специалиста и увёл бы себе чужие уведомления.
+    param = make_support_param(reason="techlink", client_id=spec_id)
+
+    return {
+        "linked": bool(row["notify_tg_user_id"]),
+        "linked_at": (row["notify_tg_linked_at"].isoformat()
+                      if row["notify_tg_linked_at"] else None),
+        "chat_id": row["notify_chat_id"],
+        "kinds": kinds,
+        "all_kinds": [{"id": k, "tag": v} for k, v in KINDS.items()],
+        "link_url": f"https://telegram.me/pluson_bot?start={param}",
+    }
+
+
+@router.post("/notify-settings", summary="Сохранить настройки уведомлений")
+async def save_notify_settings(
+    data: NotifyIn,
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    import json as _json
+
+    from app.services.tech_notify import KINDS
+
+    spec_id = int(user["sub"])
+    fs = data.model_fields_set
+    sets, args = [], []
+
+    if "notify_chat_id" in fs:
+        chat = (data.notify_chat_id or "").strip() or None
+        # ⚠️ Проверяем формат: id чата — это число (у групп со знаком минус).
+        # Ник вида @group сюда не годится — Telegram примет его не везде, и
+        # ошибка вылезет только в момент отправки уведомления.
+        if chat and not chat.lstrip("-").isdigit():
+            raise HTTPException(
+                400, "ID чата — это число, например -1001234567890. "
+                     "Узнать его можно командой /getmyid в нужной группе.")
+        args.append(chat)
+        sets.append(f"notify_chat_id = ${len(args)}")
+
+    if "notify_kinds" in fs:
+        kinds = [k for k in (data.notify_kinds or []) if k in KINDS]
+        args.append(_json.dumps(kinds))
+        sets.append(f"notify_kinds = ${len(args)}::jsonb")
+
+    if not sets:
+        raise HTTPException(400, "Нечего менять")
+
+    args.append(spec_id)
+    await db.execute(
+        f"UPDATE tech_specialists SET {', '.join(sets)}, updated_at = NOW() "
+        f"WHERE id = ${len(args)}",
+        *args,
+    )
+    return {"ok": True}
+
+
+@router.get("/money", summary="Мои деньги за месяц")
+async def my_money(
+    period: Optional[str] = Query(None, description="YYYY-MM, по умолчанию текущий"),
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Разбивка заработка по видам: сколько человек и сколько денег.
+
+    ⚠️⚠️ БЕРЁМ ИЗ `tech_accruals`, А НЕ СЧИТАЕМ ЗАНОВО. Начисление — это уже
+    принятое решение о деньгах, записанное со ставкой на момент события.
+    Пересчёт «по текущим ставкам» показал бы другие суммы, чем будут выплачены,
+    и экран начал бы спорить с выплатой.
+
+    ⚠️ Оборот — из оплат клиентов, а не из начислений: это разные величины.
+    Оборот показываем СВОЙ и КОМАНДНЫЙ, но без прибыли компании — её внедренец
+    видеть не должен.
+    """
+    from datetime import date
+
+    spec_id = int(user["sub"])
+    period = (period or date.today().strftime("%Y-%m")).strip()
+
+    rows = await db.fetch(
+        """SELECT kind,
+                  COUNT(*) AS cnt,
+                  COUNT(DISTINCT client_id) FILTER (WHERE client_id IS NOT NULL)
+                    AS people,
+                  COALESCE(SUM(amount_kopecks), 0) AS total,
+                  COALESCE(SUM(amount_kopecks) FILTER (WHERE paid_at IS NULL), 0)
+                    AS unpaid
+             FROM tech_accruals
+            WHERE spec_id = $1 AND period = $2
+            GROUP BY kind""",
+        spec_id, period,
+    )
+    by_kind = {r["kind"]: {
+        "count": int(r["cnt"]), "people": int(r["people"]),
+        "amount_kopecks": int(r["total"]),
+        "unpaid_kopecks": int(r["unpaid"]),
+    } for r in rows}
+
+    total = sum(v["amount_kopecks"] for v in by_kind.values())
+    unpaid = sum(v["unpaid_kopecks"] for v in by_kind.values())
+
+    # Свой оборот за месяц — оплаты закреплённых за мной клиентов.
+    own_turnover = await db.fetchval(
+        """SELECT COALESCE(SUM(so.amount_paid_card_kopecks), 0)
+             FROM subscription_orders so
+             JOIN clients c ON c.id = so.client_id
+            WHERE c.tech_specialist_id = $1
+              AND so.status = 'paid'
+              AND to_char(so.paid_at, 'YYYY-MM') = $2""",
+        spec_id, period,
+    )
+
+    # Командный оборот — вся платформа за месяц.
+    # ⚠️ Это ОБОРОТ, а не прибыль: от оборота зависит ступень премиального
+    # фонда, и человеку надо видеть, близко ли она. Прибыль не показываем.
+    team_turnover = await db.fetchval(
+        """SELECT COALESCE(SUM(amount_paid_card_kopecks), 0)
+             FROM subscription_orders
+            WHERE status = 'paid' AND to_char(paid_at, 'YYYY-MM') = $1""",
+        period,
+    )
+
+    # Тип внедренца и веса — из справочника, не из кода.
+    spec = await db.fetchrow(
+        """SELECT ts.bonus_role, w.weight
+             FROM tech_specialists ts
+             LEFT JOIN tech_bonus_weights w ON w.role = ts.bonus_role
+            WHERE ts.id = $1""",
+        spec_id,
+    )
+
+    return {
+        "period": period,
+        "by_kind": by_kind,
+        "total_kopecks": total,
+        "unpaid_kopecks": unpaid,
+        "own_turnover_kopecks": int(own_turnover or 0),
+        "team_turnover_kopecks": int(team_turnover or 0),
+        "role": spec["bonus_role"] if spec else None,
+        "role_weight": float(spec["weight"]) if spec and spec["weight"] else None,
+    }
+
+
+@router.get("/funnel", summary="Моя воронка и сводка по базе")
+async def my_funnel(
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Сводка по базе и воронка по статусам — цифры над списком клиентов.
+
+    ⚠️⚠️ СЧИТАЕТСЯ ТЕМ ЖЕ ВЫРАЖЕНИЕМ, что и статус в списке: одна копия правил
+    на оба экрана. Разъедутся — в сводке будет «удержанных 5», а в списке их
+    окажется четыре, и доверие к цифрам пропадёт.
+    """
+    spec_id = int(user["sub"])
+
+    paying = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
+              " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
+              " AND cs2.expires_at > NOW() AND cs2.source='paid')")
+    trial = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
+             " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
+             " AND cs2.expires_at > NOW() AND cs2.source <> 'paid')")
+    paid_cnt = ("(SELECT COUNT(*) FROM subscription_orders so2"
+                " WHERE so2.client_id = c.id AND so2.status='paid'"
+                " AND so2.amount_paid_card_kopecks > 0)")
+    revived = ("EXISTS (SELECT 1 FROM tech_accruals ta"
+               " WHERE ta.client_id = c.id AND ta.kind = 'revival')")
+
+    row = await db.fetchrow(
+        f"""SELECT
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS own,
+              COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1)
+                AS from_pluson,
+              COUNT(*) FILTER (WHERE {paying}) AS active_now,
+              COUNT(*) FILTER (WHERE NOT {paying} AND {paid_cnt} > 0) AS churned,
+              COUNT(*) FILTER (WHERE {trial} AND {paid_cnt} = 0) AS trial,
+              COUNT(*) FILTER (WHERE {paying} AND {paid_cnt} = 1) AS activated,
+              COUNT(*) FILTER (WHERE {paying} AND {paid_cnt} >= 2
+                               AND NOT {revived}) AS retained,
+              COUNT(*) FILTER (WHERE {paying} AND {revived}) AS revived
+            FROM clients c
+           WHERE c.tech_specialist_id = $1""",
+        spec_id,
+    )
+
+    # По месяцам — чтобы видеть движение, а не только срез «сейчас».
+    # ⚠️ Берём из начислений: там записан ФАКТ события с датой. По текущему
+    # состоянию подписки «когда активировался» уже не восстановить.
+    months = await db.fetch(
+        """SELECT to_char(date_trunc('month', a.created_at), 'YYYY-MM') AS month,
+                  COUNT(*) FILTER (WHERE a.kind = 'activation') AS activated,
+                  COUNT(*) FILTER (WHERE a.kind = 'retention') AS retained,
+                  COUNT(*) FILTER (WHERE a.kind = 'revival') AS revived
+             FROM tech_accruals a
+            WHERE a.spec_id = $1
+              AND a.kind IN ('activation', 'retention', 'revival')
+              AND a.created_at > NOW() - INTERVAL '12 months'
+            GROUP BY 1 ORDER BY 1 DESC""",
+        spec_id,
+    )
+
+    return {
+        "summary": {
+            "total": row["total"], "own": row["own"],
+            "from_pluson": row["from_pluson"],
+            "active_now": row["active_now"], "churned": row["churned"],
+        },
+        "funnel": {
+            "trial": row["trial"], "activated": row["activated"],
+            "retained": row["retained"], "revived": row["revived"],
+            "churned": row["churned"],
+        },
+        "months": [dict(m) for m in months],
+    }
 
 
 @router.get("/clients/{client_id}", summary="Карточка клиента")

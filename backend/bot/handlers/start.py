@@ -352,6 +352,15 @@ async def handle_start(message: Message, command: CommandObject):
         if await _send_saved_text(message, args, platform="telegram"):
             return
 
+    # ⚠️⚠️ ВНЕДРЕНЕЦ ПРИВЯЗЫВАЕТ ЛИЧКУ ДЛЯ УВЕДОМЛЕНИЙ (`techlink-<id>-подпись`).
+    # @pluson_bot общий на всех, но внутри него у каждого свой чат — по нему и
+    # шлём уведомления о ЕГО клиентах. Id берём ИЗ АПДЕЙТА, а специалиста — из
+    # ПОДПИСАННОГО параметра: иначе чужой id в ссылке увёл бы себе чужие
+    # уведомления.
+    if args.startswith("techlink-"):
+        if await _link_tech_notify(message, args):
+            return
+
     # ⚠️⚠️ «ШАГ НОЛЬ»: человек пришёл из кабинета по ПОДПИСАННОЙ ссылке
     # `?start=zero-<client_id>-<подпись>`. Отмечаем, что канал связи с ним
     # заведён, — дальше автонастройка сможет до него достучаться.
@@ -2820,6 +2829,53 @@ async def _send_saved_text(message: Message, token: str, *, platform: str) -> bo
     except Exception as e:  # noqa: BLE001
         log.warning("saved text notify failed: %s", e)
 
+    return True
+
+
+async def _link_tech_notify(message: Message, param: str) -> bool:
+    """Привязывает личку внедренца для уведомлений о его клиентах."""
+    try:
+        from app.services.support_link import parse_support_param
+        parsed = parse_support_param(param)
+    except Exception as e:  # noqa: BLE001
+        log.warning("techlink parse failed: %s", e)
+        return False
+
+    spec_id = parsed.get("client_id")   # в этом параметре лежит id специалиста
+    if not spec_id or not message.from_user:
+        return False
+
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            row = await db.fetchrow(
+                """UPDATE tech_specialists
+                      SET notify_tg_user_id = $2,
+                          notify_tg_linked_at = NOW(),
+                          updated_at = NOW()
+                    WHERE id = $1 AND is_active = TRUE
+                RETURNING name, email""",
+                spec_id, str(message.from_user.id),
+            )
+    except Exception as e:  # noqa: BLE001
+        log.warning("techlink save failed (spec %s): %s", spec_id, e)
+        return False
+
+    if not row:
+        return False
+
+    try:
+        await message.answer(
+            "✅ <b>Готово — уведомления подключены.</b>\n\n"
+            "Сюда будут приходить события по вашим клиентам: вопросы, новые "
+            "лиды и триалы, оплаты и окончание подписок.\n\n"
+            "На вопрос клиента можно ответить прямо отсюда — "
+            "<b>ответьте на уведомление реплаем</b>, и текст уйдёт человеку "
+            "на его площадку.",
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("techlink answer failed: %s", e)
     return True
 
 
