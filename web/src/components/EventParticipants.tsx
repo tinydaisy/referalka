@@ -453,6 +453,36 @@ function ContactCard({
                 (`@rendarevskaya_coach`) наезжал на соседнюю колонку «В чьей
                 базе». Одного `truncate` на бейдже мало: он ограничивает ник в
                 160px, а бейджей в строке до трёх. */}
+            {/* ⚠️⚠️ МОБИЛЬНАЯ СВОДКА (20.09.2026). На узком экране колонки справа
+                (регистрация, оплата, чат, подписка) скрыты — иначе их суммарные
+                ~480px выдавливали колонку имени в НОЛЬ, и список выглядел как
+                аватар, дата и галочка без единой фамилии. Здесь те же данные
+                строкой под именем; на `sm` и шире их показывают колонки. */}
+            <div className="sm:hidden flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-gray-500">
+              {p.registered_at && (
+                <span>
+                  {new Date(p.registered_at).toLocaleDateString('ru', { timeZone: 'Europe/Moscow' })}
+                  {' '}
+                  {new Date(p.registered_at).toLocaleTimeString('ru', {
+                    timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit',
+                  })} МСК
+                </span>
+              )}
+              {Number(p.paid_amount) > 0 && (
+                <span className="font-semibold text-green-700">
+                  {Number(p.paid_amount).toLocaleString('ru-RU')} ₽
+                </span>
+              )}
+              {p.is_unsubscribed
+                ? <span className="text-red-600">отписан</span>
+                : p.is_subscribed ? <span className="text-green-700">подписан</span> : null}
+              {p.chat_check_at && (
+                <span className={p.is_in_chat ? 'text-blue-600' : 'text-gray-400'}>
+                  {p.is_in_chat ? 'в чате' : 'не в чате'}
+                </span>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 w-full min-w-0 overflow-hidden">
               <button
                 type="button"
@@ -505,7 +535,7 @@ function ContactCard({
         {/* Колонка «Дата регистрации» — дата и ВРЕМЯ захода.
             ⚠️ Время считаем в МСК (timeZone), а не в поясе браузера: у клиента
             и у зрителей он разный, а событие живёт по московскому. */}
-        <div className="w-24 text-center shrink-0">
+        <div className="hidden sm:block w-24 text-center shrink-0">
           {p.registered_at ? (
             <span className="text-xs text-gray-500 leading-tight block">
               {new Date(p.registered_at).toLocaleDateString('ru', { timeZone: 'Europe/Moscow' })}
@@ -522,7 +552,7 @@ function ContactCard({
         </div>
 
         {/* Колонка «Оплатил» — сумма по всем оплаченным тарифам события. */}
-        <div className="w-24 shrink-0 text-center">
+        <div className="hidden sm:block w-24 shrink-0 text-center">
           {Number(p.paid_amount) > 0 ? (
             <span title={p.paid_tariffs || ''}
                   className="inline-block rounded-md bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
@@ -534,7 +564,7 @@ function ContactCard({
         </div>
 
         {/* Колонка «Зарегистрирован» — чекбокс */}
-        <div className="w-24 flex justify-center shrink-0">
+        <div className="w-9 sm:w-24 flex justify-center shrink-0">
           <button
             type="button"
             onClick={toggle}
@@ -552,7 +582,7 @@ function ContactCard({
 
 
         {/* Колонка «В чате» — read-only, ставится кнопкой «Проверить чаты» (только TG) */}
-        <div className="w-24 flex justify-center shrink-0">
+        <div className="hidden sm:flex w-24 justify-center shrink-0">
           {p.chat_check_at ? (
             <span
               title={`Проверено ${new Date(p.chat_check_at).toLocaleString('ru')} — ${p.is_in_chat ? 'в чате' : 'не в чате'}`}
@@ -575,7 +605,7 @@ function ContactCard({
         </div>
 
         {/* Колонка «Подписан / Отписан» — read-only */}
-        <div className="w-24 flex justify-center shrink-0">
+        <div className="hidden sm:flex w-24 justify-center shrink-0">
           {p.is_unsubscribed ? (
             <span
               className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-red-50 text-red-600 border border-red-200"
