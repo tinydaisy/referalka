@@ -395,6 +395,36 @@ async def _load_ref_cabinet(db, event, contact_id):
         event["id"],
     )
     hide_rating = True if _hr is None else bool(_hr)
+
+    # «Вы пришли от…» — галочка реф-программы (мигр. 481). Имя спикера берём
+    # из collaborators: там карточка полнее, чем контакт (часто без фамилии).
+    referrer_name = None
+    referrer_is_speaker = False
+    if await db.fetchval(
+        "SELECT show_referrer FROM event_referral_settings WHERE event_id = $1",
+        event["id"],
+    ):
+        _ref = await db.fetchrow(
+            f"""SELECT rc.name AS contact_name,
+                       {DISPLAY_NAME_SQL('co')} AS collab_name,
+                       co.id IS NOT NULL AS is_speaker
+                  FROM event_participants ep
+                  JOIN contacts rc ON (rc.ref_code = ep.referrer_ref_code
+                                       OR rc.merged_ref_codes ? ep.referrer_ref_code)
+                  LEFT JOIN collaborators co ON co.contact_id = rc.id
+                       AND EXISTS (SELECT 1 FROM event_collaborators ec
+                                    WHERE ec.event_id = ep.event_id
+                                      AND ec.speaker_id = co.id
+                                      AND ec.role IN ('speaker', 'headliner'))
+                 WHERE ep.event_id = $1 AND ep.contact_id = $2
+                   AND ep.referrer_ref_code IS NOT NULL
+                 LIMIT 1""",
+            event["id"], c["id"],
+        )
+        if _ref:
+            referrer_is_speaker = bool(_ref["is_speaker"])
+            referrer_name = (_ref["collab_name"] if referrer_is_speaker
+                             else None) or _ref["contact_name"] or None
     top_rows = [] if hide_rating else await db.fetch(
         f"""SELECT ct.name, ct.ref_code,
                    COUNT(*) AS cnt
@@ -447,6 +477,8 @@ async def _load_ref_cabinet(db, event, contact_id):
         "my_people": my_people,
         "top": top,
         "links": links if isinstance(links, dict) else {},
+        "referrer_name": referrer_name,
+        "referrer_is_speaker": referrer_is_speaker,
     }
 
 
@@ -1257,6 +1289,15 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
     # Имя того, чей это кабинет — над пиллами статистики
     if cab_name:
         out += f'<div class="cab-greet">{esc(cab_name)}</div>'
+    # «Вы пришли от…» — галочка реф-программы (мигр. 481). Зритель должен
+    # понимать, в чьей он команде: без этого конкурс между спикерами
+    # превращается в лотерею вслепую. Имя приходит уже готовым — пустое
+    # значит галочка выключена или реферера нет.
+    _ref_name = (rc.get("referrer_name") or "").strip()
+    if _ref_name:
+        _from = "от спикера" if rc.get("referrer_is_speaker") else "от"
+        out += (f'<div class="cab-ref">Вы пришли {_from}: '
+                f'<b>{esc(_ref_name)}</b></div>')
     # Пиллы статистики
     out += (
         '<div class="cab-stats">'
@@ -2077,6 +2118,8 @@ def render_page(event, collabs, days, stages, sessions, gifts,
 
   /* Кабинет (GameTab) */
   .cab-greet {{ font-size:18px; font-weight:900; color:#25455D; margin-bottom:10px; }}
+  .cab-ref {{ font-size:13px; color:#25455D; line-height:1.5; margin-bottom:12px;
+    background:#fff8f0; border:1px solid #FFCFA4; border-radius:10px; padding:9px 12px; }}
   .cab-stats {{ display:flex; gap:8px; margin-bottom:12px; }}
   .cab-stat {{ flex:1; background:#fff; border-radius:10px; padding:10px 12px; text-align:center;
     box-shadow:0 2px 6px rgba(37,69,93,.05); }}

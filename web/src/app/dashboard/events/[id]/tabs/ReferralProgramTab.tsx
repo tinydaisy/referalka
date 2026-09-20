@@ -73,6 +73,7 @@ export default function ReferralProgramTab({ eventId, moduleSlug }: { eventId: n
 function ReferralEnabledToggle({ eventId }: { eventId: number }) {
   const [enabled, setEnabled] = useState<boolean | null>(null)
   const [hideRating, setHideRating] = useState(false)
+  const [showReferrer, setShowReferrer] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -81,6 +82,7 @@ function ReferralEnabledToggle({ eventId }: { eventId: number }) {
       .then((d: any) => {
         setEnabled(!!d?.is_enabled)
         setHideRating(!!d?.hide_rating)
+        setShowReferrer(!!d?.show_referrer)
       })
       .catch(() => setEnabled(false))
   }, [eventId])
@@ -105,6 +107,19 @@ function ReferralEnabledToggle({ eventId }: { eventId: number }) {
     try {
       await api.referralProgram.settings.save(eventId, { hide_rating: next })
       setHideRating(next)
+    } catch (e: any) {
+      setErr(e?.message || 'Не получилось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function toggleShowReferrer() {
+    const next = !showReferrer
+    setSaving(true); setErr(null)
+    try {
+      await api.referralProgram.settings.save(eventId, { show_referrer: next })
+      setShowReferrer(next)
     } catch (e: any) {
       setErr(e?.message || 'Не получилось сохранить')
     } finally {
@@ -170,6 +185,32 @@ function ReferralEnabledToggle({ eventId }: { eventId: number }) {
             {hideRating
               ? 'Блок «🏆 ТОП рейтинг» спрятан в Mini App и в веб-кабинете участника. Подарки и ссылки остаются.'
               : 'Сейчас участники видят таблицу лидеров. Включите, чтобы спрятать её в этом событии.'}
+          </div>
+        </div>
+      </div>
+
+      {/* Показывать участнику, кто его привёл (мигр. 481). Нужно конкурсам
+          между спикерами: без этой строки зритель не знает, в чьей команде. */}
+      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-black/5">
+        <button
+          onClick={toggleShowReferrer}
+          disabled={saving}
+          aria-label="Показывать, от кого пришёл"
+          className={`relative w-12 h-7 rounded-full transition flex-shrink-0 ${
+            showReferrer ? 'bg-[#25455D]' : 'bg-gray-300'
+          } disabled:opacity-50`}>
+          <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition shadow ${
+            showReferrer ? 'translate-x-5' : ''
+          }`} />
+        </button>
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-gray-800">
+            Показывать участнику, от кого он пришёл
+          </div>
+          <div className="text-xs text-gray-600 mt-0.5">
+            {showReferrer
+              ? 'В «Подарках» участник видит строку «Вы пришли от спикера: Имя Фамилия». Пришедшим напрямую строка не показывается.'
+              : 'Включите, если проводите конкурс между спикерами — тогда зритель поймёт, в чьей он команде.'}
           </div>
         </div>
       </div>

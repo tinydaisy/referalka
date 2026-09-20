@@ -148,6 +148,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         gift_count_mode:      part.gift_count_mode,
         gift_count_value:     part.gift_count_value,
         clicked_count:        part.clicked_count,
+        referrer_name:        part.referrer_name,
+        referrer_is_speaker:  part.referrer_is_speaker,
       } : null)
       setPrefill(part?.prefill || null)
     } catch (_) { /* offline / 5xx — оставляем то, что было */ }
@@ -227,6 +229,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
         gift_count_mode:      part.gift_count_mode,
         gift_count_value:     part.gift_count_value,
         clicked_count:        part.clicked_count,
+        referrer_name:        part.referrer_name,
+        referrer_is_speaker:  part.referrer_is_speaker,
       } : null)
       setPrefill(part?.prefill || null)
 

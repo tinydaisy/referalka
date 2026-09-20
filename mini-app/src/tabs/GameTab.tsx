@@ -322,6 +322,21 @@ export default function GameTab({ event, participant, tgUser, botClientId }: Pro
           fontSize: 13, padding: '4px 0', cursor: 'pointer', marginBottom: 8,
         }}>← Назад в кабинет</button>
 
+        {/* «Вы пришли от…» — включается галочкой в реф-программе события
+            (мигр. 481). Нужна конкурсам между спикерами: зритель должен
+            понимать, в чьей он команде. Бэк присылает имя, только когда
+            галочка включена и реферер известен, — проверять тут нечего. */}
+        {participant?.referrer_name && (
+          <div style={{
+            background: 'var(--card-tint)', border: '1px solid rgba(var(--peach-rgb), 0.45)',
+            borderRadius: 'var(--radius)', padding: '10px 12px', marginBottom: 14,
+            fontSize: 12, color: 'var(--text)', lineHeight: 1.5,
+          }}>
+            Вы пришли {participant.referrer_is_speaker ? 'от спикера' : 'от'}:{' '}
+            <strong>{participant.referrer_name}</strong>
+          </div>
+        )}
+
         {/* Жёлтое предупреждение */}
         <div style={{
           // ⚠️ Подложка — АКЦЕНТ клиента на 20%, а не фиксированный жёлтый:

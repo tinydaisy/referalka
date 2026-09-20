@@ -11,6 +11,7 @@ import asyncpg
 
 from app.database import get_db
 from app.services.contact_merge import upsert_contact_with_identity, resolve_ref_code
+from app.services import person_name
 from app.services.share_links import TG_DOMAIN
 
 router = APIRouter(prefix="/participants", tags=["Участники"])
@@ -834,6 +835,9 @@ async def get_participant_in_event(
                   -- интро с замками больше не показываем, даже если человек
                   -- потом отписался: требуем подписку до ПЕРВОГО факта.
                   ep.sub_checked_at,
+                  -- Кто привёл: нужен строке «Вы пришли от…» в «Подарках»
+                  -- (мигр. 481). Показывается только при включённой галочке.
+                  ep.referrer_ref_code,
                   e.title AS event_title, e.module_slug,
                   -- Чей это контакт. Нужен веб-витрине: по кнопке «назад» она
                   -- открывает календарь ЭТОГО организатора. Без него человек
@@ -991,7 +995,8 @@ async def get_participant_in_event(
     # Выбираем «зачёт» по которому считаются подарки: registered / visited / clicked_link.
     # Если event_referral_settings нет — дефолт 'registered'.
     settings_row = await db.fetchrow(
-        "SELECT gift_count_mode, hide_rating FROM event_referral_settings WHERE event_id = $1",
+        "SELECT gift_count_mode, hide_rating, show_referrer "
+        "FROM event_referral_settings WHERE event_id = $1",
         row["event_id"]
     )
     gift_mode = (settings_row["gift_count_mode"] if settings_row else None) or "registered"
@@ -1005,6 +1010,37 @@ async def get_participant_in_event(
         gift_count_value = clicked_count
     else:
         gift_count_value = registered_count
+
+    # Кто привёл участника — показываем в «Подарках», если клиент включил
+    # галочку (мигр. 481). Нужно конкурсам между спикерами: зритель должен
+    # понимать, в чьей он команде.
+    # ⚠️ Имя спикера берём из collaborators, а не из contacts: у коллаба
+    # карточка заполнена полнее, в контакте часто одно имя без фамилии.
+    # merged_ref_codes — обязательно: после склейки дублей старый код
+    # участника живёт там, и без него реферер «терялся».
+    referrer_name = None
+    referrer_is_speaker = False
+    if settings_row and settings_row["show_referrer"] and row["referrer_ref_code"]:
+        # ⚠️ У contacts фамилия НЕ отдельным полем — всё имя лежит в name
+        # (DISPLAY_NAME_SQL рассчитан на collaborators, мигр. 302).
+        ref_row = await db.fetchrow(
+            f"""SELECT rc.name AS contact_name,
+                       {person_name.DISPLAY_NAME_SQL('co')} AS collab_name,
+                       co.id IS NOT NULL AS is_speaker
+                  FROM contacts rc
+                  LEFT JOIN collaborators co ON co.contact_id = rc.id
+                       AND EXISTS (SELECT 1 FROM event_collaborators ec
+                                    WHERE ec.event_id = $2
+                                      AND ec.speaker_id = co.id
+                                      AND ec.role IN ('speaker', 'headliner'))
+                 WHERE rc.ref_code = $1 OR rc.merged_ref_codes ? $1
+                 LIMIT 1""",
+            row["referrer_ref_code"], row["event_id"]
+        )
+        if ref_row:
+            referrer_is_speaker = bool(ref_row["is_speaker"])
+            referrer_name = (ref_row["collab_name"] if referrer_is_speaker
+                             else None) or ref_row["contact_name"] or None
 
     # Сколько подарков получено: пороги, у которых threshold_count <= gift_count_value.
     # Если у события есть подарок за 0 — он засчитан сразу всем участникам.
@@ -1077,6 +1113,10 @@ async def get_participant_in_event(
         "top": [] if hide_rating else top,
         "my_rank": None if hide_rating else my_rank,
         "hide_rating": hide_rating,
+        # Кто привёл участника. None — галочка выключена, реферера нет или
+        # его контакт не нашёлся; строку в «Подарках» тогда не рисуем.
+        "referrer_name": referrer_name,
+        "referrer_is_speaker": referrer_is_speaker,
         "prefill": prefill_dict,
     }
 

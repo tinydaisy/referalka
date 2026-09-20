@@ -317,6 +317,7 @@ class ReferralSettingsIn(BaseModel):
     is_enabled:      Optional[bool] = None   # вкл/выкл вкладки «Игра» в Mini App (миграция 053)
     hide_rating:     Optional[bool] = None   # скрыть ТОП рейтинг в кабинете участника (миграция 162)
     gift_via_funnel: Optional[bool] = None   # выдавать подарки через воронку /m/ (миграция 189)
+    show_referrer:   Optional[bool] = None   # показывать участнику, кто его привёл (миграция 481)
 
 
 @router.get("/referral/settings", summary="Получить настройки реф-программы")
@@ -327,7 +328,7 @@ async def get_referral_settings(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     row = await db.fetchrow(
-        "SELECT gift_count_mode, is_enabled, hide_rating, gift_via_funnel "
+        "SELECT gift_count_mode, is_enabled, hide_rating, gift_via_funnel, show_referrer "
         "FROM event_referral_settings WHERE event_id = $1",
         event_id
     )
@@ -338,7 +339,7 @@ async def get_referral_settings(
     # участвует вовсе, и оставленный здесь False показывал бы рейтинг вопреки
     # настройке по умолчанию.
     return {"gift_count_mode": "registered", "is_enabled": False,
-            "hide_rating": True, "gift_via_funnel": False}
+            "hide_rating": True, "gift_via_funnel": False, "show_referrer": False}
 
 
 @router.put("/referral/settings", summary="Обновить настройки реф-программы (upsert)")
@@ -358,18 +359,21 @@ async def upsert_referral_settings(
     # INSERT новой записи — registered / FALSE / FALSE.
     row = await db.fetchrow(
         """INSERT INTO event_referral_settings
-             (event_id, gift_count_mode, is_enabled, hide_rating, gift_via_funnel)
+             (event_id, gift_count_mode, is_enabled, hide_rating, gift_via_funnel,
+              show_referrer)
            VALUES ($1, COALESCE($2, 'registered'), COALESCE($3, FALSE),
-                   COALESCE($4, FALSE), COALESCE($5, FALSE))
+                   COALESCE($4, FALSE), COALESCE($5, FALSE), COALESCE($6, FALSE))
            ON CONFLICT (event_id) DO UPDATE
              SET gift_count_mode = COALESCE($2, event_referral_settings.gift_count_mode),
                  is_enabled      = COALESCE($3, event_referral_settings.is_enabled),
                  hide_rating     = COALESCE($4, event_referral_settings.hide_rating),
                  gift_via_funnel = COALESCE($5, event_referral_settings.gift_via_funnel),
+                 show_referrer   = COALESCE($6, event_referral_settings.show_referrer),
                  updated_at      = NOW()
-           RETURNING gift_count_mode, is_enabled, hide_rating, gift_via_funnel""",
+           RETURNING gift_count_mode, is_enabled, hide_rating, gift_via_funnel,
+                     show_referrer""",
         event_id, data.gift_count_mode, data.is_enabled, data.hide_rating,
-        data.gift_via_funnel
+        data.gift_via_funnel, data.show_referrer
     )
     return dict(row)
 
