@@ -348,6 +348,21 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // ⚠️ Индивидуальная афиша рисуется по ОДНОМУ человеку. Клиент его
   // переключает, но пока не трогал — берём первого, иначе полотно пустое и
   // непонятно, работает ли раздел вообще.
+  // ⚠️ Добавленные пилюли (миграция 471). Проверяем, что МАССИВ: jsonb умеет
+  // приехать строкой, и тогда `.map()` пошёл бы по символам.
+  const extraPills: { text: string; x?: number | null; y?: number | null }[] =
+    Array.isArray(layout?.extra_pills) ? (layout!.extra_pills as any) : []
+
+  function addPill() {
+    patch({ extra_pills: [...extraPills, { text: '', x: null, y: null }] } as any)
+  }
+  function patchPill(i: number, p: Partial<{ text: string; x: number | null; y: number | null }>) {
+    patch({ extra_pills: extraPills.map((it, k) => (k === i ? { ...it, ...p } : it)) } as any)
+  }
+  function removePill(i: number) {
+    patch({ extra_pills: extraPills.filter((_, k) => k !== i) } as any)
+  }
+
   /** Записать ряды: в дневном разделе — в свой день, иначе в общий порядок. */
   function patchRows(rows: number[][]) {
     if (kind === 'day' && editDay != null) {
@@ -990,6 +1005,46 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 <input value={layout.pill_text_2 || ''} placeholder={suggested?.pill_text_2 || 'Онлайн-конференция'}
                        onChange={e => patch({ pill_text_2: e.target.value })}
                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+                {/* ⚠️⚠️ СКОЛЬКО УГОДНО ПИЛЮЛЬ (миграция 471). Было ровно две и
+                    обе зашиты в код — третью («Бесплатно», «Запись будет»,
+                    город) добавить было нельзя вовсе. Оформление у всех общее:
+                    это те же пилюли, а не новый элемент. */}
+                <div className="mt-3 border-t border-gray-100 pt-3">
+                  <div className="mb-1 text-xs text-gray-600">Ещё пилюли</div>
+                  {extraPills.map((ep, i) => (
+                    <div key={i} className="mb-2 rounded-lg border card-border p-2">
+                      <div className="flex items-center gap-2">
+                        <input value={ep.text || ''} placeholder="Например: Бесплатно"
+                               onChange={e => patchPill(i, { text: e.target.value })}
+                               className="flex-1 min-w-0 rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+                        <button type="button" onClick={() => removePill(i)}
+                                className="shrink-0 text-xs text-red-600 hover:underline">
+                          Убрать
+                        </button>
+                      </div>
+                      <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+                        <input type="checkbox"
+                               checked={ep.x != null || ep.y != null}
+                               onChange={e => patchPill(i, e.target.checked
+                                 ? { x: 50, y: 50 } : { x: null, y: null })} />
+                        Своё место на афише
+                      </label>
+                      {(ep.x != null || ep.y != null) && (
+                        <>
+                          <Range label="Слева направо, %" value={ep.x ?? 50} min={0} max={100}
+                                 onChange={v => patchPill(i, { x: v })} />
+                          <Range label="Сверху вниз, %" value={ep.y ?? 50} min={0} max={100}
+                                 onChange={v => patchPill(i, { y: v })} />
+                        </>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={addPill}
+                          className="text-sm text-[#25455D] hover:underline">
+                    + Добавить пилюлю
+                  </button>
+                </div>
+
                 <div className="mt-3">
                   <div className="mb-1 text-xs text-gray-600">Оформление</div>
                   <Choice value={layout.pill_style || 'border'}

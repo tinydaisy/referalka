@@ -87,6 +87,8 @@ _FIELDS = (
     # Выключка текстовых блоков и порядок фото/текста.
     "pill1_align", "pill2_align", "topic_align", "time_align", "name_align",
     "card_max_w",
+    # Добавленные клиентом пилюли (миграция 471).
+    "extra_pills",
     # Своя точка каждого элемента афиши спикера (миграция 470).
     "ind_title_x", "ind_title_y", "ind_role_x", "ind_role_y",
     "ind_name_x", "ind_name_y", "ind_topic_x", "ind_topic_y",
@@ -141,7 +143,7 @@ _DEFAULTS = {
     "pos_topic_x": None, "pos_topic_y": None, "pos_time_x": None, "pos_time_y": None,
     "pill1_align": "center", "pill2_align": "center", "topic_align": "center",
     "time_align": "center", "name_align": "center", "ind_photo_first": False,
-    "card_max_w": 30,
+    "card_max_w": 30, "extra_pills": [],
     "ind_title_x": None, "ind_title_y": None, "ind_role_x": None, "ind_role_y": None,
     "ind_name_x": None, "ind_name_y": None, "ind_topic_x": None, "ind_topic_y": None,
     "ind_time_x": None, "ind_time_y": None, "ind_topic_w": None, "ind_name_w": None,
@@ -331,6 +333,7 @@ class LayoutIn(BaseModel):
     name_align: Optional[str] = None
     ind_photo_first: Optional[bool] = None
     card_max_w: Optional[float] = None
+    extra_pills: Optional[list[dict]] = None
     ind_title_x: Optional[float] = None
     ind_title_y: Optional[float] = None
     ind_role_x: Optional[float] = None
@@ -434,6 +437,41 @@ def _norm(data: dict) -> dict:
             if clean_row:
                 rows.append(clean_row)
         out["speaker_rows"] = rows
+    # ⚠️ Добавленные пилюли (миграция 471). Чистим так же, как ряды: приходят
+    # они с фронта, и класть их в базу как есть нельзя. Пустой текст выбрасываем
+    # целиком — пустая пилюля это просто рамка ни вокруг чего.
+    if "extra_pills" in out:
+        raw = out["extra_pills"] or []
+        pills = []
+        for it in raw if isinstance(raw, list) else []:
+            if not isinstance(it, dict):
+                continue
+            text = str(it.get("text") or "").strip()
+            if not text:
+                continue
+
+            def _coord(v):
+                # ⚠️ None — законное значение: «пилюля стоит в общем ряду».
+                # Отличать его от кривого числа обязательно, иначе пилюля
+                # молча уедет в угол листа.
+                if v is None:
+                    return None
+                try:
+                    n = float(v)
+                except (TypeError, ValueError):
+                    return None
+                return max(0.0, min(100.0, n))
+
+            align = it.get("align")
+            pills.append({
+                "text": text[:200],
+                "x": _coord(it.get("x")),
+                "y": _coord(it.get("y")),
+                "align": align if align in ("left", "center", "right") else "center",
+            })
+        # Потолок на число: полсотни пилюль — это не макет, а сломанный фронт.
+        out["extra_pills"] = pills[:20]
+
     # ⚠️ Ряды по дням (миграция 466). Чистим КАЖДЫЙ ДЕНЬ отдельно: человек не
     # может стоять дважды в одном дне, но в разные дни попадает законно —
     # общий `seen` на весь словарь выбросил бы его со второго дня.
@@ -480,6 +518,7 @@ _TOP_BY_ORIENTATION = {"horizontal": 40, "vertical": 46, "square": 42}
 # ⚠️ Из них СЛОВАРИ (а не списки) — пустышка у них своя.
 _JSON_OBJECT_FIELDS = ("day_speaker_rows",)
 _JSON_FIELDS = ("speaker_order", "speaker_rows", "day_speaker_rows", "partner_order",
+                "extra_pills",
                 "logos_hidden", "logos_order")
 
 
@@ -899,6 +938,7 @@ async def save_layout(
     merged["partner_order"] = json.dumps(merged.get("partner_order") or [])
     merged["logos_hidden"] = json.dumps(merged.get("logos_hidden") or [])
     merged["logos_order"] = json.dumps(merged.get("logos_order") or [])
+    merged["extra_pills"] = json.dumps(merged.get("extra_pills") or [])
 
     cols = ", ".join(_FIELDS)
     ph = ", ".join(f"${i + 4}" for i in range(len(_FIELDS)))

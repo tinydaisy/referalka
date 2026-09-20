@@ -188,6 +188,8 @@ export type PosterLayout = {
   pos_time_x?: number | null; pos_time_y?: number | null
   pill1_align?: 'left' | 'center' | 'right'
   pill2_align?: 'left' | 'center' | 'right'
+  /** Добавленные клиентом пилюли (миграция 471). x/y пустые — в общем ряду. */
+  extra_pills?: { text: string; x?: number | null; y?: number | null; align?: 'left' | 'center' | 'right' }[]
   topic_align?: 'left' | 'center' | 'right'
   time_align?: 'left' | 'center' | 'right'
   name_align?: 'left' | 'center' | 'right'
@@ -224,6 +226,12 @@ const GOLD = '#FFCFA4'
 /** Выключка текста → justify-content. ⚠️ Одна точка перевода: иначе в разных
  *  местах «right» once превращается в flex-end, once в end, и блоки ведут себя
  *  по-разному при одной и той же настройке. */
+/** Задана ли своя точка. ⚠️ null — законное «стоит в общем потоке». */
+function isFreePt(x?: number | null, y?: number | null): boolean {
+  return (typeof x === 'number' && Number.isFinite(x))
+      || (typeof y === 'number' && Number.isFinite(y))
+}
+
 function alignToFlex(a?: 'left' | 'center' | 'right'): string {
   return a === 'left' ? 'flex-start' : a === 'right' ? 'flex-end' : 'center'
 }
@@ -372,6 +380,14 @@ export default function PosterCanvas({
   const pill1 = kind === 'day'
     ? (curDay?.label || (L.pill_text ?? '').trim() || suggested?.pill_text || '')
     : (L.pill_text ?? '').trim() || suggested?.pill_text || ''
+  // ⚠️ Добавленные пилюли (миграция 471). Проверяем, что это МАССИВ: jsonb из
+  // базы умеет приезжать строкой, и `.map()` тогда пойдёт по символам.
+  const extraPills = (Array.isArray(L.extra_pills) ? L.extra_pills : [])
+    .filter(p => p && String(p.text || '').trim())
+  // В общем ряду — те, у кого нет своей точки; остальные рисуются отдельно.
+  const rowPills = extraPills.filter(p => !isFreePt(p.x, p.y))
+  const freePills = extraPills.filter(p => isFreePt(p.x, p.y))
+
   // Вторая пилюля дневной афиши — «Онлайн-конференция» сверху (формат события).
   const pill2 = (L.pill_text_2 ?? '').trim() || suggested?.pill_text_2 || ''
 
@@ -693,6 +709,11 @@ export default function PosterCanvas({
                 <Pill text={pill2} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
               </div>
             )}
+            {/* Добавленные пилюли — в том же ряду и тем же оформлением: это
+                те же пилюли, а не новый вид элемента. */}
+            {rowPills.map((p, i) => (
+              <Pill key={`x${i}`} text={p.text} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
+            ))}
           </div>
         )}
 
@@ -802,6 +823,22 @@ export default function PosterCanvas({
         ))}
       </div>
       )}
+
+      {/* ⚠️ Пилюли со СВОЕЙ точкой стоят прямо на листе, вне текстового блока:
+          иначе их держали бы его границы — ровно та привязка, от которой мы
+          уходили в миграции 470. Внутри рабочей области, так что за поля они
+          всё равно не выйдут. */}
+      {L.show_pill !== false && freePills.map((p, i) => (
+        <div key={`fp${i}`} style={{
+          position: 'absolute',
+          left: `${Math.max(0, Math.min(100, p.x ?? 50))}%`,
+          top: `${Math.max(0, Math.min(100, p.y ?? 50))}%`,
+          transform: 'translate(-50%, -50%)',
+          display: 'flex', justifyContent: alignToFlex(p.align),
+        }}>
+          <Pill text={p.text} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
+        </div>
+      ))}
 
       </div>{/* конец рабочей области */}
     </div>
