@@ -38,6 +38,30 @@ def enabled_from_row(row) -> set[str]:
     return {p for p in PLATFORM_ORDER if p not in set(disabled)}
 
 
+def has_visible_chat(row) -> bool:
+    """Есть ли у события чат НА ВКЛЮЧЁННОЙ площадке — показывать ли кнопку
+    «Вступить в Чат» в меню бота.
+
+    ⚠️⚠️ НЕ «заведён ли чат вообще». Кнопку показывали по наличию любой
+    chat-ссылки, а само сообщение потом фильтровало чаты по галочкам площадок
+    (`_build_chat_links_message`). Если чат заведён только на выключенной
+    площадке, человек нажимал кнопку и получал «Это чаты события: добавьтесь во
+    все…» — без единой ссылки. Одна проверка на кнопку и на сообщение.
+    """
+    enabled = enabled_from_row(row)
+    for platform, col in (("telegram", "chat_url_tg"),
+                          ("vk", "chat_url_vk"),
+                          ("max", "chat_url_max")):
+        if platform not in enabled:
+            continue
+        try:
+            if (row[col] or "").strip():
+                return True
+        except (KeyError, TypeError, IndexError):
+            continue
+    return False
+
+
 async def enabled_platforms(db, event_id: int) -> set[str]:
     """Включённые площадки события. Сбой чтения → все три (не блокируем людей)."""
     try:

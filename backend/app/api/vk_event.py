@@ -1299,7 +1299,8 @@ async def handle_vk_event(body: VkEventRequest):
 _EVENT_FUNNEL_FIELDS = """
     e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.module_slug, e.status,
     e.landing_url, e.vip_url, e.vip_button_label, e.skip_contact_form,
-    e.is_offline, e.address, e.address_button_label,
+    e.is_offline, e.address, e.address_button_label, e.hide_stream_button,
+    e.disabled_platforms,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
     (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
@@ -1424,27 +1425,63 @@ async def send_vk_event_funnel(
             vip_label = (event_row["vip_button_label"] or "").strip() or "Выбрать формат участия"
             rows.append([{"text": vip_label, "url": vip_target}])
 
-        # 2. Вступить в Чат — callback (если есть хоть одна chat-ссылка).
-        has_chat = bool((event_row["chat_url_tg"] or "").strip()
-                        or (event_row["chat_url_vk"] or "").strip()
-                        or (event_row["chat_url_max"] or "").strip())
-        if has_chat:
+        # 2. Вступить в Чат — только если чат есть на ВКЛЮЧЁННОЙ площадке
+        #    (та же проверка, что у сообщения с чатами).
+        from app.services.event_platforms import has_visible_chat
+        if has_visible_chat(event_row):
             rows.append([{"text": "📝 Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
 
-        # 3. Кабинет и подарки → веб-страница, вкладка кабинета.
+        # 3. Кабинет и подарки → Mini App клиента или веб-страница.
         #    Публичная страница клиента → открываем на его домене.
         _pub_base = await client_public_url(conn, client_id)
+
+        # ⚠️⚠️ РЕЖИМ ССЫЛОК ДЛЯ ВКОНТАКТЕ (clients.link_mode_vk). Раньше меню
+        # ВК-бота всегда вело в веб: настройка «Вход через Мини-апп» не
+        # действовала вовсе, хотя у девяти клиентов своё сообщество с Mini App
+        # и выбран именно он. Та же болезнь, что чинили в Telegram миграциями
+        # 477–478, — режим спрашиваем У ПЛОЩАДКИ, другого источника истины нет.
+        from app.services.share_links import (
+            resolve_event_link_mode, get_client_vk_app_id, vk_link,
+        )
+        _link_mode = await resolve_event_link_mode(
+            conn, client_id=client_id, platform="vk")
+        # Нет своего VK Mini App — строить нечего, остаётся веб (системный
+        # app ПЛЮСОНа для клиентских ссылок не используется).
+        _vk_app_id = (await get_client_vk_app_id(conn, client_id)
+                      if _link_mode == "miniapp" else None)
+
+        def _event_page(tab: str, anchor: str) -> str:
+            """Страница события: Mini App клиента или веб — по настройке ВК.
+            Одна точка на «Кабинет» и «Программу»: разъехаться они не должны."""
+            if _vk_app_id:
+                ma = vk_link(slug, app_id=_vk_app_id, tab=tab,
+                             contact_id=contact_id or None, link_mode="miniapp")
+                if ma:
+                    return ma
+            return public_url_for(_pub_base, f"event/{slug}{cid_q}#{anchor}")
+
+        # ⚠️⚠️ ЗАПИСЬ СОБЫТИЯ ЗДЕСЬ НАЗЫВАЕТСЯ `event_row`. Стояло `ev[...]` —
+        # переменной с таким именем в функции нет, и меню ВК-бота падало с
+        # NameError РОВНО В ЭТОМ МЕСТЕ: зарегистрированный участник не получал
+        # его вовсе — ни чата, ни эфира, ни кабинета (с 11.09 по 20.09.2026;
+        # в журнале `name 'ev' is not defined`, событие 89, 18.09).
         _parts = ["Ваш кабинет"]
-        if ev["referral_enabled"]:
+        if event_row["referral_enabled"]:
             _parts.append("Подарки")
-        if ev["module_slug"] in ("conference", "turnir"):
+        if event_row["module_slug"] in ("conference", "turnir"):
             _parts.append("Спикеры")
-        _cab_label = ("🎁 " if ev["referral_enabled"] else "📋 ") + "·".join(_parts)
+        _cab_label = ("🎁 " if event_row["referral_enabled"] else "📋 ") + "·".join(_parts)
         rows.append([{"text": _cab_label,
-                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
+                      "url": _event_page("game", "cabinet")}])
 
         # 4. Ссылка на эфир — callback.
-        rows.append([{"text": "📺 Ссылка на эфир", "callback_data": f"evlive_{event_id}"}])
+        #    ⚠️ Галочка «Скрыть кнопку стрима» (hide_stream_button) прячет кнопку
+        #    и здесь, как в TG. Раньше её проверял только обработчик: кнопка в
+        #    меню оставалась, и человек в ответ получал «Кнопка на стрим появится
+        #    тут перед эфиром» — при том что организатор её специально убрал.
+        if not event_row["hide_stream_button"]:
+            rows.append([{"text": "📺 Ссылка на эфир",
+                          "callback_data": f"evlive_{event_id}"}])
 
         # 4б. Адрес мероприятия — у офлайн-события с заполненным адресом.
         #     Эфир не отменяет: у офлайн-события бывает трансляция.
@@ -1460,7 +1497,7 @@ async def send_vk_event_funnel(
                       if event_row["module_slug"] in ("conference", "turnir")
                       else "Программа")
         rows.append([{"text": prog_label,
-                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#program")}])
+                      "url": _event_page("program", "program")}])
 
         # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
         rows.append([{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}])
@@ -1495,8 +1532,10 @@ async def send_vk_event_funnel(
     ) or await client_public_link(
         conn, client_id, f"event/{slug}/register"
     )
-    _sep = "&" if "?" in _reg_page else "?"
-    internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
+    # ⚠️ Метка контакта — ПЕРЕД якорем (общая append_query): у лендинга клиента
+    # бывает «#блок», и хвост в конце строки уезжал во фрагмент.
+    from app.services.external_landing import append_query
+    internal_web = append_query(_reg_page, f"c={contact_id}") if contact_id else _reg_page
     landing_url = (event_row["landing_url"] or "").strip()
     _reg_mode = await conn.fetchval("SELECT registration_mode FROM events WHERE id=$1", event_id)
     # ⚠️ Сторонний лендинг — только когда способ регистрации ВЫБРАН явно.

@@ -1419,8 +1419,11 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         # ⚠️ КОЛЛАБА: ссылка регистрации — на домене ТОГО организатора, в чьём
         # боте человек (`_bot_cid`), а не «первого владельца» события.
         _reg_page = await resolve_landing_url(db, ev["id"], client_id=_bot_cid)
-        _sep = "&" if "?" in _reg_page else "?"
-        internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
+        # ⚠️ Метку контакта ставим ПЕРЕД якорем (общая append_query): у лендинга
+        # клиента бывает «#блок», и склейка в конец строки уводила `c=` во
+        # фрагмент — сервер его не видел, человек открывал страницу неопознанным.
+        from app.services.external_landing import append_query
+        internal_web = append_query(_reg_page, f"c={contact_id}") if contact_id else _reg_page
         # Сторонний сайт ведём прежним путём (там свои параметры и webhook),
         # но ТОЛЬКО когда он выбран способом регистрации.
         if landing_url and ev["status"] == "published" and ev["registration_mode"] == "external":
@@ -1601,7 +1604,7 @@ async def send_event_menu(
                   (SELECT eo.client_id FROM event_owners eo
                     WHERE eo.event_id = e.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
-                  vip_url, vip_button_label, hide_stream_button,
+                  vip_url, vip_button_label, hide_stream_button, e.disabled_platforms,
                   e.is_offline, e.address, e.address_button_label,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
@@ -1749,11 +1752,13 @@ async def send_event_menu(
     cabinet_label = ("🎁 " if ev["referral_enabled"] else "📋 ") + "·".join(_parts)
     rows.append([InlineKeyboardButton(text=cabinet_label, url=cabinet_url)])
 
-    # 3. Вступить в Чат — только если есть хоть одна chat-ссылка.
-    has_chat = bool((ev["chat_url_tg"] or "").strip()
-                    or (ev["chat_url_vk"] or "").strip()
-                    or (ev["chat_url_max"] or "").strip())
-    if has_chat:
+    # 3. Вступить в Чат — только если чат есть на ВКЛЮЧЁННОЙ площадке.
+    #    ⚠️ Проверка та же, что у самого сообщения с чатами: раньше кнопку
+    #    показывало наличие любой chat-ссылки, а сообщение резало чаты по
+    #    галочкам — и с чатом только на выключенной площадке человек получал
+    #    «Это чаты события…» без единой ссылки.
+    from app.services.event_platforms import has_visible_chat
+    if has_visible_chat(ev):
         rows.append([InlineKeyboardButton(
             text="📝 Вступить в Чат", callback_data=f"evchat_{event_id}"
         )])

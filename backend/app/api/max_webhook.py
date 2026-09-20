@@ -1835,8 +1835,10 @@ async def _process_start(
                 _reg_page = await client_public_link(
                     conn, client_id, f"event/{event_slug}/register"
                 )
-            _sep = "&" if "?" in _reg_page else "?"
-            internal_web = f"{_reg_page}{_sep}c={contact_id}" if contact_id else _reg_page
+            # ⚠️ Метка контакта — ПЕРЕД якорем (общая append_query): у лендинга
+            # клиента бывает «#блок», и хвост в конце строки уезжал во фрагмент.
+            from app.services.external_landing import append_query
+            internal_web = append_query(_reg_page, f"c={contact_id}") if contact_id else _reg_page
             _reg_mode = await conn.fetchval(
                 "SELECT registration_mode FROM events WHERE id=$1", event_id) if event_id else None
             # ⚠️ Сторонний лендинг — только при явно выбранном способе.
@@ -1976,7 +1978,7 @@ async def _send_max_event_menu(
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
-                  hide_stream_button, start_at,
+                  hide_stream_button, start_at, disabled_platforms,
                   is_offline, address, address_button_label,
                   COALESCE((SELECT ers.is_enabled FROM event_referral_settings ers
                               WHERE ers.event_id = events.id), FALSE) AS referral_enabled,
@@ -2048,15 +2050,20 @@ async def _send_max_event_menu(
         vip_label = (ev["vip_button_label"] or "").strip() or "Выбрать формат участия"
         tg_rows.append([{"text": vip_label, "url": vip_target}])
 
-    # 2. Вступить в Чат — только если есть хоть одна chat-ссылка.
-    has_chat = bool((ev["chat_url_tg"] or "").strip()
-                    or (ev["chat_url_vk"] or "").strip()
-                    or (ev["chat_url_max"] or "").strip())
-    if has_chat:
+    # 2. Вступить в Чат — только если чат есть на ВКЛЮЧЁННОЙ площадке
+    #    (та же проверка, что у сообщения с чатами: иначе кнопка открывала
+    #    список без единой ссылки).
+    from app.services.event_platforms import has_visible_chat
+    if has_visible_chat(ev):
         tg_rows.append([{"text": "Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
 
     # 3. Ссылка на эфир (callback evlive_ — ближайший эфир + кнопка стрима).
-    tg_rows.append([{"text": "📺 Ссылка на эфир", "callback_data": f"evlive_{event_id}"}])
+    #    ⚠️ Галочка «Скрыть кнопку стрима» прячет кнопку и здесь, как в TG.
+    #    Раньше её знал только обработчик: кнопка оставалась, и человек получал
+    #    «Кнопка на стрим появится тут перед эфиром» — хотя её убрали нарочно.
+    if not ev["hide_stream_button"]:
+        tg_rows.append([{"text": "📺 Ссылка на эфир",
+                         "callback_data": f"evlive_{event_id}"}])
 
     # 3б. Адрес мероприятия — у офлайн-события с заполненным адресом.
     #     Эфир не отменяет: у офлайн-события бывает трансляция.

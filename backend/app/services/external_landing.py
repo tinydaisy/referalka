@@ -358,17 +358,45 @@ def enrich_external_url(
             continue  # не перетираем, если клиент уже передал key через extra
         flag_tokens.append(key if val is None else f"{key}={val}")
 
-    sep = "&" if "?" in url else "?"
-    out_url = url
+    # ⚠️⚠️ ЯКОРЬ (`#...`) ВСЕГДА ПОСЛЕДНИЙ — ПАРАМЕТРЫ СТАВИМ ПЕРЕД НИМ.
+    # Раньше хвост клеился в конец строки как есть, и ссылка клиента
+    # `https://pluson.ru/e/ivision9#lp-tariffs` превращалась в
+    # `...#lp-tariffs?pluson_contact_id=42&...`. Ломалось сразу двумя способами:
+    # прокрутка к блоку тарифов не срабатывала (якоря `lp-tariffs?pluson…` на
+    # странице нет), а всё, что стоит после решётки, браузер серверу вообще не
+    # отправляет — контакт, почта и реф-код приведшего терялись молча, и заказ
+    # оформлялся «вслепую» (прод, события ivision9 и ivision8).
+    base, _hash, frag = url.partition("#")
+    sep = "&" if "?" in base else "?"
+    out_url = base
     if qs:
-        out_url = url + sep + urlencode(qs)
+        out_url = base + sep + urlencode(qs)
         sep = "&"
     for tok in flag_tokens:
         out_url += sep + tok
         sep = "&"
     if external_ref_param:
         out_url += sep + external_ref_param.lstrip("?&")
+    if _hash:
+        out_url += "#" + frag
     return out_url
+
+
+def append_query(url: str, query: str) -> str:
+    """Приклеивает готовую строку параметров (`c=42`, `a=1&b=2`) к URL.
+
+    ⚠️⚠️ ПЕРЕД ЯКОРЕМ, а не в конец строки. Ссылку клиента с якорем
+    (`.../e/slug#lp-tariffs`) простая склейка ломает дважды: якорь перестаёт
+    существовать, и параметры уезжают во фрагмент, которого сервер не видит.
+    Одна точка на все боты и рассылки — иначе чинить пришлось бы в каждом файле,
+    а где-нибудь наверняка забыли бы.
+    """
+    if not url or not query:
+        return url
+    base, _hash, frag = url.partition("#")
+    sep = "&" if "?" in base else "?"
+    out = f"{base}{sep}{query.lstrip('?&')}"
+    return f"{out}#{frag}" if _hash else out
 
 
 def build_external_landing_url(
