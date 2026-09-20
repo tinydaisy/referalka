@@ -353,7 +353,7 @@ async def get_me(
                ON pu_max.contact_id = c.contact_id AND pu_max.platform_slug = 'max'
              LEFT JOIN event_raffle_settings ers ON ers.event_id = cse.event_id
              LEFT JOIN conf_conferences cc ON cc.event_id = cse.event_id
-            WHERE cse.id = $1""",
+            WHERE cse.id = $1""" % {"poster_sql_cse": poster_subquery("cse", "c")},
         se_id
     )
     if not row:
@@ -886,7 +886,8 @@ async def verify_channel(
     session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """ % {"poster_sql_cse": poster_subquery("cse", "c")}
+    """Проверить, что бот в канале спикера, и резолвить tg_channel_id.
+
     Используется на форме спикера для самопроверки канала. Если у коллаба
     заполнен tg_channel_url, но tg_channel_id пуст — резолвит через getChat.
     Затем getChatMember(channel, личный_tg_id) — если бот в канале админом
@@ -1119,7 +1120,7 @@ async def get_me_materials(
              JOIN events e           ON e.id = ec.event_id
              JOIN clients cl         ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
         LEFT JOIN contacts ctc       ON ctc.id = c.contact_id
-            WHERE ec.id = $1 AND ec.event_id = $2 AND c.id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND c.id = $3""" % {"poster_sql_ec": poster_subquery("ec", "c")},
         se_id, e_id, c_id,
     )
     if not base:
@@ -1415,7 +1416,7 @@ async def _resolve_landing_link(db, event_id: int, event_slug: str,
     ⚠️ Неопубликованный лендинг тоже не годится — он отдаёт «Страница не
     найдена». Параметр `landing_url` больше не участвует (он про сторонний
     сайт) и оставлен только ради совместимости вызовов.
-    """ % {"poster_sql_ec": poster_subquery("ec", "c")}
+    """
     row = await db.fetchrow(
         """SELECT COALESCE(e.registration_mode, 'form') AS mode,
                   (SELECT p.is_published FROM event_landing_pages p
