@@ -1963,11 +1963,16 @@ async def _send_max_event_menu(
     """Меню кабинета зарегистрированного участника события в MAX.
 
     Зеркало `send_event_menu` из TG-бота (backend/bot/handlers/start.py).
-    Кнопки (по одной в ряд):
+
+    ⚠️⚠️ ПОРЯДОК КНОПОК ОБЯЗАН СОВПАДАТЬ С TELEGRAM. Это одно и то же меню
+    одного события — человек, который видел его в TG, не должен заново искать
+    кнопки в MAX. Кнопки (по одной в ряд):
       • «Выбрать формат участия» — url=vip_url, только если задан;
+      • «Ваш кабинет·Подарки·Спикеры» — внутренний веб события (якорь #cabinet);
       • «Вступить в Чат» — callback evchat_{event_id}, только если есть чат;
-      • «Программа и Спикеры» / «Программа» — внутренний веб с якорем #program;
-      • «Кабинет и подарки» — внутренний веб события.
+      • «Ссылка на эфир» — callback evlive_{event_id}, если не скрыта галочкой;
+      • «Адрес» — callback evaddr_{event_id}, у офлайн-события с адресом;
+      • «Тех. поддержка» — callback evsupport_{event_id}.
     """
     ev = await conn.fetchrow(
         """SELECT id, slug, title, module_slug,
@@ -2011,10 +2016,15 @@ async def _send_max_event_menu(
         conn, event_id=ev["id"], client_id=ev["client_id"],
         source_client_id=bot_client_id, contact_id=contact_id)
 
+    # ⚠️ Текст — как в TG. Прежний обещал «открывайте кабинет, чат и
+    # ПРОГРАММУ по кнопкам ниже», а кнопки «Программа» в меню больше нет:
+    # человек искал бы её глазами. Команда /menu{id} в MAX работает (см.
+    # разбор команд выше по файлу), поэтому подсказка та же, что в Telegram.
     text = (
         "Вы зарегистрированы на событие:\n"
         f"{title}\n\n"
-        "Это ваше меню — открывайте кабинет, чат и программу по кнопкам ниже."
+        "Это ваше меню — вы всегда можете вызвать его командой\n"
+        f"/menu{event_id}"
     )
 
     tg_rows: list[list[dict]] = []
@@ -2050,41 +2060,13 @@ async def _send_max_event_menu(
         vip_label = (ev["vip_button_label"] or "").strip() or "Выбрать формат участия"
         tg_rows.append([{"text": vip_label, "url": vip_target}])
 
-    # 2. Вступить в Чат — только если чат есть на ВКЛЮЧЁННОЙ площадке
-    #    (та же проверка, что у сообщения с чатами: иначе кнопка открывала
-    #    список без единой ссылки).
-    from app.services.event_platforms import has_visible_chat
-    if has_visible_chat(ev):
-        tg_rows.append([{"text": "Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
-
-    # 3. Ссылка на эфир (callback evlive_ — ближайший эфир + кнопка стрима).
-    #    ⚠️ Галочка «Скрыть кнопку стрима» прячет кнопку и здесь, как в TG.
-    #    Раньше её знал только обработчик: кнопка оставалась, и человек получал
-    #    «Кнопка на стрим появится тут перед эфиром» — хотя её убрали нарочно.
-    if not ev["hide_stream_button"]:
-        tg_rows.append([{"text": "📺 Ссылка на эфир",
-                         "callback_data": f"evlive_{event_id}"}])
-
-    # 3б. Адрес мероприятия — у офлайн-события с заполненным адресом.
-    #     Эфир не отменяет: у офлайн-события бывает трансляция.
-    from app.services.event_address import (
-        button_label as _addr_label, has_address as _has_addr,
-    )
-    if _has_addr(ev):
-        tg_rows.append([{"text": f"📍 {_addr_label(ev)}",
-                         "callback_data": f"evaddr_{event_id}"}])
-
-    # 4. Программа (и спикеры для конференций/турниров).
-    prog_label = ("Программа и Спикеры"
-                  if ev["module_slug"] in ("conference", "turnir")
-                  else "Программа")
-    # Страницы события — публичные страницы клиента: домен клиента, если есть.
-    _pub_base = await client_public_url(conn, link_client_id)
-    tg_rows.append([{"text": prog_label,
-                     "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#program")}])
-
-    # 5. Кабинет → вкладка кабинета (#cabinet).
+    # 2. Кабинет → вкладка кабинета (#cabinet). ВТОРЫМ, сразу за VIP — как в TG.
+    #    ⚠️ Кабинет стоял здесь ПРЕДПОСЛЕДНИМ, ниже эфира и адреса, а над ним
+    #    висела «Программа и Спикеры». Главная кнопка меню оказывалась в самом
+    #    низу, и одно и то же меню в трёх ботах выглядело по-разному.
     #    ⚠️ «Подарки» — только при включённой реф-программе, как в TG и VK.
+    #    Страницы события — публичные страницы клиента: домен клиента, если есть.
+    _pub_base = await client_public_url(conn, link_client_id)
     _parts = ["Ваш кабинет"]
     if ev["referral_enabled"]:
         _parts.append("Подарки")
@@ -2093,6 +2075,37 @@ async def _send_max_event_menu(
     _cab_label = ("🎁 " if ev["referral_enabled"] else "📋 ") + "·".join(_parts)
     tg_rows.append([{"text": _cab_label,
                      "url": public_url_for(_pub_base, f"event/{slug}{cid_q}#cabinet")}])
+
+    # 3. Вступить в Чат — только если чат есть на ВКЛЮЧЁННОЙ площадке
+    #    (та же проверка, что у сообщения с чатами: иначе кнопка открывала
+    #    список без единой ссылки).
+    #    ⚠️ Значок 📝 — как в TG и ВК: кнопка была единственной без значка, и
+    #    в общем столбце читалась как чужеродная.
+    from app.services.event_platforms import has_visible_chat
+    if has_visible_chat(ev):
+        tg_rows.append([{"text": "📝 Вступить в Чат",
+                         "callback_data": f"evchat_{event_id}"}])
+
+    # 4. Ссылка на эфир (callback evlive_ — ближайший эфир + кнопка стрима).
+    #    ⚠️ Галочка «Скрыть кнопку стрима» прячет кнопку и здесь, как в TG.
+    #    Раньше её знал только обработчик: кнопка оставалась, и человек получал
+    #    «Кнопка на стрим появится тут перед эфиром» — хотя её убрали нарочно.
+    if not ev["hide_stream_button"]:
+        tg_rows.append([{"text": "📺 Ссылка на эфир",
+                         "callback_data": f"evlive_{event_id}"}])
+
+    # 4б. Адрес мероприятия — у офлайн-события с заполненным адресом.
+    #     Эфир не отменяет: у офлайн-события бывает трансляция.
+    from app.services.event_address import (
+        button_label as _addr_label, has_address as _has_addr,
+    )
+    if _has_addr(ev):
+        tg_rows.append([{"text": f"📍 {_addr_label(ev)}",
+                         "callback_data": f"evaddr_{event_id}"}])
+
+    # (Кнопка «Программа и Спикеры» убрана — как в TG: программа и спикеры
+    #  открываются ВНУТРИ кабинета, на странице события. Отдельной кнопкой они
+    #  вели на ту же страницу, только на другой якорь, и дублировали кабинет.)
 
     # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
     tg_rows.append([{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}])

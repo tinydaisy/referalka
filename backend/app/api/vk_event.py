@@ -1356,7 +1356,10 @@ async def send_vk_event_funnel(
     """Порт TG-воронки события (start.py) в VK ЛС 1:1.
 
     НЕ зарегистрирован → приветствие с афишей + 2 кнопки (Мини-Апп / Веб-версия).
-    Зарегистрирован → меню кабинета (VIP / Чат / Кабинет / Эфир / Программа).
+    Зарегистрирован → меню кабинета. ⚠️⚠️ ПОРЯДОК КНОПОК — КАК В TELEGRAM
+    (эталон — `send_event_menu` в bot/handlers/start.py): VIP → Кабинет → Чат →
+    Эфир → Адрес → Тех. поддержка. Это одно меню одного события, и в трёх
+    ботах оно обязано выглядеть одинаково.
     Чат и Эфир — callback-кнопки (evchat_/evlive_), их ловит vk_main.py.
     """
     from ..services.external_landing import (
@@ -1425,13 +1428,9 @@ async def send_vk_event_funnel(
             vip_label = (event_row["vip_button_label"] or "").strip() or "Выбрать формат участия"
             rows.append([{"text": vip_label, "url": vip_target}])
 
-        # 2. Вступить в Чат — только если чат есть на ВКЛЮЧЁННОЙ площадке
-        #    (та же проверка, что у сообщения с чатами).
-        from app.services.event_platforms import has_visible_chat
-        if has_visible_chat(event_row):
-            rows.append([{"text": "📝 Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
-
-        # 3. Кабинет и подарки → Mini App клиента или веб-страница.
+        # 2. Кабинет и подарки → Mini App клиента или веб-страница.
+        #    ⚠️ ВТОРЫМ, сразу за VIP — как в TG. Раньше над кабинетом стоял
+        #    чат: главная кнопка меню оказывалась третьей.
         #    Публичная страница клиента → открываем на его домене.
         _pub_base = await client_public_url(conn, client_id)
 
@@ -1451,8 +1450,7 @@ async def send_vk_event_funnel(
                       if _link_mode == "miniapp" else None)
 
         def _event_page(tab: str, anchor: str) -> str:
-            """Страница события: Mini App клиента или веб — по настройке ВК.
-            Одна точка на «Кабинет» и «Программу»: разъехаться они не должны."""
+            """Страница события: Mini App клиента или веб — по настройке ВК."""
             if _vk_app_id:
                 ma = vk_link(slug, app_id=_vk_app_id, tab=tab,
                              contact_id=contact_id or None, link_mode="miniapp")
@@ -1474,6 +1472,13 @@ async def send_vk_event_funnel(
         rows.append([{"text": _cab_label,
                       "url": _event_page("game", "cabinet")}])
 
+        # 3. Вступить в Чат — только если чат есть на ВКЛЮЧЁННОЙ площадке
+        #    (та же проверка, что у сообщения с чатами).
+        from app.services.event_platforms import has_visible_chat
+        if has_visible_chat(event_row):
+            rows.append([{"text": "📝 Вступить в Чат",
+                          "callback_data": f"evchat_{event_id}"}])
+
         # 4. Ссылка на эфир — callback.
         #    ⚠️ Галочка «Скрыть кнопку стрима» (hide_stream_button) прячет кнопку
         #    и здесь, как в TG. Раньше её проверял только обработчик: кнопка в
@@ -1492,14 +1497,11 @@ async def send_vk_event_funnel(
             rows.append([{"text": f"📍 {_addr_label(event_row)}",
                           "callback_data": f"evaddr_{event_id}"}])
 
-        # 5. Программа (+ спикеры для конф/турниров).
-        prog_label = ("Программа и Спикеры"
-                      if event_row["module_slug"] in ("conference", "turnir")
-                      else "Программа")
-        rows.append([{"text": prog_label,
-                      "url": _event_page("program", "program")}])
+        # (Кнопка «Программа и Спикеры» убрана — как в TG: программа и
+        #  спикеры открываются ВНУТРИ кабинета, на странице события. Отдельной
+        #  кнопкой они вели на ту же страницу, только на другой якорь.)
 
-        # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
+        # 5. Тех. поддержка — единое сообщение с каналами связи клиента.
         rows.append([{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}])
 
         keyboard = tg_inline_to_vk_keyboard(rows)
