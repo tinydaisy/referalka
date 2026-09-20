@@ -963,7 +963,7 @@ async def export_speaker_materials(
                    -- выгрузке для спикеров человек был без фамилии — и в
                    -- «Реферальные ссылки.txt», и в именах файлов афиш.
                    -- Склейку берём общим хелпером, а не руками (правило проекта).
-                   """ + person_name.DISPLAY_NAME_SQL("co") + """ AS name,
+                   """ + person_name.DISPLAY_NAME_SQL("co") + f""" AS name,
                    ctc.ref_code
               FROM event_collaborators ec
               JOIN collaborators co  ON co.id = ec.speaker_id
