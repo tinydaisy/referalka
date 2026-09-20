@@ -1345,7 +1345,7 @@ export default function ConferenceSpeakerPage() {
                   Логотип для ТЁМНОГО фона
                 </label>
                 <p className="text-xs text-gray-500 mb-2">
-                  Основной знак — им подписывают афиши на тёмном фоне. Обычно светлый или цветной.
+                  Знак для афиш на тёмном фоне. Обычно светлый или цветной.
                 </p>
                 <FileUploader
                   mode="single"
@@ -1364,8 +1364,8 @@ export default function ConferenceSpeakerPage() {
                   Логотип для СВЕТЛОГО фона
                 </label>
                 <p className="text-xs text-gray-500 mb-2">
-                  Тёмная версия того же знака. Не загрузите — на светлой афише возьмётся основной,
-                  и он может слиться с фоном.
+                  Тёмная версия того же знака. Не загрузите — на светлой афише возьмётся
+                  тот, что для тёмного фона, и он может слиться с фоном.
                 </p>
                 <FileUploader
                   mode="single"

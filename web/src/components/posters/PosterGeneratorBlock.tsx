@@ -932,7 +932,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             <p className="text-xs text-gray-400 mt-1 leading-relaxed">
               Действует на все логотипы сразу. Второй вариант загружается в карточке
               партнёра — у карточек с галочкой «Компания» два поля: логотип для тёмного
-              и для светлого фона. Нет второго — возьмётся основной.
+              и для светлого фона. Нет нужного — возьмётся второй.
             </p>
 
             <div className="mt-4">

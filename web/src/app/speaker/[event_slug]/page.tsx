@@ -1243,7 +1243,7 @@ export default function SpeakerCabinetPage() {
             <div style={{ marginTop: 14 }}>
               <label style={labelCss}>Логотип для светлого фона</label>
               <div style={{ fontSize: 11, color: '#7a8c9c', marginBottom: 6, lineHeight: 1.5 }}>
-                Тёмная версия знака. Основной логотип (выше) — для тёмного фона.
+                Тёмная версия знака. Выше — логотип для тёмного фона.
               </div>
               <ImageCard url={me.logo_on_light_url || null} kind="speaker_photo"
                          label="Логотип для светлого фона" field="logo_on_light_url" />
