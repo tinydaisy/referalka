@@ -344,20 +344,29 @@ async def update_lead_magnet(
               SET name        = CASE WHEN is_plusson THEN name        ELSE $1 END,
                   description = CASE WHEN is_plusson THEN description ELSE $2 END,
                   url         = CASE WHEN is_plusson THEN url         ELSE $3 END,
-                  require_survey_id = CASE WHEN $6 THEN $7 ELSE require_survey_id END,
+                  require_survey_id = CASE WHEN is_plusson THEN require_survey_id
+                                           WHEN $6 THEN $7 ELSE require_survey_id END,
                   -- ⚠️ Как и у анкеты: правим ТОЛЬКО присланное. Форма может
                   -- слать не все поля, и без этой проверки сохранение молча
                   -- сбрасывало бы уже настроенную выдачу кнопкой.
-                  link_mode    = CASE WHEN $8  THEN COALESCE($9,'text') ELSE link_mode END,
-                  button_label = CASE WHEN $10 THEN $11 ELSE button_label END,
-                  partner_enabled = CASE WHEN $12 THEN COALESCE($13, FALSE)
+                  -- ⚠️ У Плюсоновского НИЧЕГО не правится клиентом (решение
+                  -- владельца 20.09.2026): подарок настроен платформой целиком,
+                  -- кнопка правки у него в кабинете убрана. Замок держим и
+                  -- здесь — форма спрятана, а запрос мимо формы никуда не делся.
+                  link_mode    = CASE WHEN is_plusson THEN link_mode
+                                      WHEN $8  THEN COALESCE($9,'text') ELSE link_mode END,
+                  button_label = CASE WHEN is_plusson THEN button_label
+                                      WHEN $10 THEN $11 ELSE button_label END,
+                  partner_enabled = CASE WHEN is_plusson THEN partner_enabled
+                                         WHEN $12 THEN COALESCE($13, FALSE)
                                          ELSE partner_enabled END,
                   -- Источник ссылки и кодовое слово (миграция 385) — по тому же
                   -- правилу «правим только присланное».
                   link_source     = CASE WHEN is_plusson THEN link_source
                                          WHEN $14 THEN COALESCE($15,'fixed')
                                          ELSE link_source END,
-                  support_prefill = CASE WHEN $16 THEN $17 ELSE support_prefill END,
+                  support_prefill = CASE WHEN is_plusson THEN support_prefill
+                                         WHEN $16 THEN $17 ELSE support_prefill END,
                   updated_at = NOW()
             WHERE id = $4 AND client_id = $5
             RETURNING id, name, description, url, slug, require_survey_id,

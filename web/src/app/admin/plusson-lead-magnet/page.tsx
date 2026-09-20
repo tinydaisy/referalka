@@ -17,6 +17,7 @@ import { api } from '@/lib/api'
 
 type Delivery = 'direct' | 'funnel'
 type Visibility = 'testing' | 'all'
+type LinkMode = 'button' | 'both'
 
 export default function AdminPlussonLeadMagnetPage() {
   const [data, setData] = useState<any>(null)
@@ -29,6 +30,7 @@ export default function AdminPlussonLeadMagnetPage() {
   const [description, setDescription] = useState('')
   const [delivery, setDelivery] = useState<Delivery>('direct')
   const [visibility, setVisibility] = useState<Visibility>('testing')
+  const [linkMode, setLinkMode] = useState<LinkMode>('both')
 
   function apply(r: any) {
     setData(r)
@@ -36,6 +38,7 @@ export default function AdminPlussonLeadMagnetPage() {
     setDescription(r.description || '')
     setDelivery((r.delivery as Delivery) || 'direct')
     setVisibility((r.visibility as Visibility) || 'testing')
+    setLinkMode((r.link_mode as LinkMode) || 'both')
   }
 
   useEffect(() => {
@@ -53,6 +56,7 @@ export default function AdminPlussonLeadMagnetPage() {
         description: description.trim(),
         delivery,
         visibility,
+        link_mode: linkMode,
       }))
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
@@ -210,6 +214,47 @@ export default function AdminPlussonLeadMagnetPage() {
             Когда подарок выдаётся <b>внутри бота</b> — за рефералов, в воронке
             события, в инфо о бренде — режим ни на что не влияет: человек уже в
             боте и уже контакт клиента, ему просто приходит ссылка.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Как отдавать в сообщении бота
+          </label>
+          {delivery === 'direct' ? (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5 text-xs text-gray-600">
+              При прямом переходе настраивать нечего: человек сразу попадает в
+              бот ПЛЮСОНа, и дальше им занимается <b>наша воронка</b>.
+              <div className="mt-1.5 text-gray-500">
+                Выбор ниже пригодится, если переключите выдачу на бот клиента —
+                сейчас сохранено: <b>{linkMode === 'both' ? 'кнопкой и ссылкой' : 'кнопкой'}</b>.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {([
+                { v: 'both' as LinkMode, title: 'Кнопкой и ссылкой', text: 'Кнопка под сообщением плюс ссылка в тексте — так забирают чаще всего.' },
+                { v: 'button' as LinkMode, title: 'Только кнопкой', text: 'Одна кнопка под сообщением, без ссылки в тексте.' },
+              ]).map(o => (
+                <label
+                  key={o.v}
+                  className={`flex gap-3 p-3.5 rounded-xl border cursor-pointer ${
+                    linkMode === o.v ? 'border-[#FFCFA4] bg-[#FFF9F3]' : 'border-gray-200'
+                  }`}
+                >
+                  <input type="radio" name="linkMode" checked={linkMode === o.v}
+                         onChange={() => setLinkMode(o.v)} className="mt-1" />
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{o.title}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">{o.text}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mt-2">
+            Клиент этот подарок не редактирует: у него в кабинете кнопки правки
+            нет, всё задаётся здесь и применяется у всех разом.
           </p>
         </div>
 

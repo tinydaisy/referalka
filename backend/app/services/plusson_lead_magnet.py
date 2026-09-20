@@ -63,7 +63,7 @@ async def get_settings(db: asyncpg.Connection) -> dict:
     """
     row = await db.fetchrow(
         """SELECT plusson_lm_name, plusson_lm_description, plusson_lm_delivery,
-                  plusson_lm_visibility
+                  plusson_lm_visibility, plusson_lm_link_mode
              FROM platform_settings WHERE id = 1"""
     )
     return {
@@ -71,6 +71,7 @@ async def get_settings(db: asyncpg.Connection) -> dict:
         "description": (row["plusson_lm_description"] if row else None) or "",
         "delivery": (row["plusson_lm_delivery"] if row else None) or "direct",
         "visibility": (row["plusson_lm_visibility"] if row else None) or "testing",
+        "link_mode": (row["plusson_lm_link_mode"] if row else None) or "both",
     }
 
 
@@ -104,10 +105,10 @@ async def ensure_for_client(db: asyncpg.Connection, client_id: int) -> Optional[
             """INSERT INTO lead_magnets
                  (client_id, name, description, url, slug, link_mode,
                   button_label, link_source, is_plusson)
-               VALUES ($1, $2, $3, $4, $5, 'both', $6, 'plusson_self', TRUE)
+               VALUES ($1, $2, $3, $4, $5, $7, $6, 'plusson_self', TRUE)
                RETURNING id""",
             client_id, st["name"], st["description"] or None,
-            URL_PLACEHOLDER, slug, BUTTON_LABEL,
+            URL_PLACEHOLDER, slug, BUTTON_LABEL, st["link_mode"],
         )
     except asyncpg.UniqueViolationError:
         # Гонка: параллельный вызов успел раньше — берём его экземпляр.
@@ -116,8 +117,9 @@ async def ensure_for_client(db: asyncpg.Connection, client_id: int) -> Optional[
         )
 
 
-async def sync_all(db: asyncpg.Connection, name: str, description: Optional[str]) -> int:
-    """Разнести название и описание по всем экземплярам. Вернёт число строк.
+async def sync_all(db: asyncpg.Connection, name: str, description: Optional[str],
+                   link_mode: str = "both") -> int:
+    """Разнести настройки платформы по всем экземплярам. Вернёт число строк.
 
     ⚠️ Переписываем БЕЗУСЛОВНО, а не только там, где текст совпадал со старым:
     клиент мог поправить его у себя в кабинете (форма это запрещает, но правка
@@ -126,9 +128,9 @@ async def sync_all(db: asyncpg.Connection, name: str, description: Optional[str]
     """
     res = await db.execute(
         """UPDATE lead_magnets
-              SET name = $1, description = $2, updated_at = NOW()
+              SET name = $1, description = $2, link_mode = $3, updated_at = NOW()
             WHERE is_plusson""",
-        name, description or None,
+        name, description or None, link_mode if link_mode in ("button", "both") else "both",
     )
     try:
         return int(res.rsplit(" ", 1)[1])

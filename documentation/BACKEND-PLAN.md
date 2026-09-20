@@ -1145,6 +1145,7 @@ WEBHOOK_SECRET=       ← секрет для входящих webhook от ле
 | `platform_settings` | `plusson_lm_description TEXT` | описание |
 | `platform_settings` | `plusson_lm_delivery TEXT NOT NULL DEFAULT 'direct'` | CHECK `('direct','funnel')` — куда ведёт прямая ссылка |
 | `platform_settings` | `plusson_lm_visibility TEXT NOT NULL DEFAULT 'testing'` | CHECK `('testing','all')` — кому виден (мигр. 473): `testing` — только `admin`/`is_system_service` |
+| `platform_settings` | `plusson_lm_link_mode TEXT NOT NULL DEFAULT 'both'` | CHECK `('button','both')` — как отдавать в сообщении бота (мигр. 474) |
 | `clients` | `referred_source TEXT` | чем привели: `plusson_lm` \| NULL (обычная реф-ссылка) |
 | `contacts` | `plusson_referrer_source TEXT` | то же, но на контакте — до регистрации помнить метку больше негде |
 
@@ -1164,8 +1165,11 @@ slug генерируется тем же алфавитом и проверяе
 - Админские ручки — `get_current_admin`, как и вся `/admin/*`.
 - `DELETE /lead-magnets/{id}` при `is_plusson` → **400**, а не удаление.
   Проверка запросом, а не скрытием кнопки: удаление приходит от браузера.
-- `PATCH /lead-magnets/{id}` при `is_plusson` **не меняет** `name`,
-  `description`, `url`, `link_source` — остальное клиент настраивает как обычно.
+- `PATCH /lead-magnets/{id}` при `is_plusson` **не меняет НИЧЕГО**: название,
+  описание, адрес, источник ссылки, режим выдачи, надпись кнопки, анкету и
+  партнёрскую программу. Подарок настроен платформой целиком, кнопка правки у
+  клиента убрана — замок в запросе нужен потому, что спрятанная кнопка
+  обходится запросом мимо формы.
 - Формат payload реф-ссылки: `ref<8симв>` либо `ref<8симв>-lm`. Разбор — только
   через `parse_plusson_ref_payload` / `parse_plusson_ref_source`
   ([plusson_referral.py](backend/app/services/plusson_referral.py)), своих

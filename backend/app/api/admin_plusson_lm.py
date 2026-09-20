@@ -30,6 +30,8 @@ class PlussonLmUpdate(BaseModel):
     # 'testing' — виден только админскому и сервисному аккаунту (миграция 473);
     # 'all' — всем клиентам.
     visibility: Optional[str] = None
+    # Как отдавать в сообщении бота (миграция 474): 'button' | 'both'.
+    link_mode: Optional[str] = None
 
 
 async def _stats(db, visibility: str) -> dict:
@@ -111,6 +113,12 @@ async def admin_update_plusson_lm(
         args.append(data.visibility)
         fields.append(f"plusson_lm_visibility = ${len(args)}")
 
+    if data.link_mode is not None:
+        if data.link_mode not in ("button", "both"):
+            raise HTTPException(400, "Выдача: button или both")
+        args.append(data.link_mode)
+        fields.append(f"plusson_lm_link_mode = ${len(args)}")
+
     if not fields:
         raise HTTPException(400, "Нечего менять")
 
@@ -119,8 +127,11 @@ async def admin_update_plusson_lm(
             f"UPDATE platform_settings SET {', '.join(fields)}, updated_at = now() WHERE id = 1",
             *args,
         )
-        if data.name is not None or data.description is not None:
+        # ⚠️ Разносим по экземплярам при любой из трёх правок: текст и режим
+        # выдачи лежат В САМОМ лид-магните (их читают воронка и рассылки), и
+        # рассинхрон означал бы, что в админке одно, а людям приходит другое.
+        if any(v is not None for v in (data.name, data.description, data.link_mode)):
             st = await get_settings(db)
-            await sync_all(db, st["name"], st["description"])
+            await sync_all(db, st["name"], st["description"], st["link_mode"])
 
     return await admin_get_plusson_lm(db=db, admin=admin)

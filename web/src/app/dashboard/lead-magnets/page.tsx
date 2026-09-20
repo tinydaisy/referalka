@@ -494,10 +494,17 @@ function MagnetsList() {
                 </button>
                 {!isAssistant && (
                   <>
-                    <button onClick={() => setEditing(lm)} title="Редактировать"
-                            className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100">
-                      <Pencil size={16} />
-                    </button>
+                    {/* ⚠️ У Плюсоновского правок НЕТ вовсе (решение владельца
+                        20.09.2026): подарок настроен платформой целиком —
+                        название, описание, ссылка, кнопка. Всё это задаётся в
+                        админке одним текстом на всех клиентов. Карандаш открывал
+                        бы форму, в которой нечего менять. */}
+                    {!lm.is_plusson && (
+                      <button onClick={() => setEditing(lm)} title="Редактировать"
+                              className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100">
+                        <Pencil size={16} />
+                      </button>
+                    )}
                     {/* ⚠️ Плюсоновский не удаляется: это инструмент платформы в
                         кабинете клиента, а не его материал. Сервер такое
                         удаление тоже не примет — кнопку прячем, чтобы человек
