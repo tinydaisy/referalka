@@ -422,31 +422,13 @@ function MagnetsList() {
     catch (e: any) { alert(e.message || 'Ошибка удаления') }
   }
 
-  return (
-    <div>
-      {!isAssistant && (
-        <div className="flex justify-end mb-4">
-          <button
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
-            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
-          >
-            <Plus size={18} /> Добавить
-          </button>
-        </div>
-      )}
+  // Партнёрский подарок ПЛЮСОНа показывается отдельной группой. Сервер сам
+  // решает, отдавать ли его (на обкатке — только админскому и сервисному
+  // аккаунту), поэтому здесь просто разбираем то, что пришло.
+  const plussonItems = items.filter(i => i.is_plusson)
+  const ownItems = items.filter(i => !i.is_plusson)
 
-      {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
-
-      {loading ? (
-        <div className="text-gray-400 text-sm">Загрузка…</div>
-      ) : items.length === 0 ? (
-        isAssistant
-          ? <div className="text-gray-400 text-sm">Лид-магнитов пока нет.</div>
-          : <EmptyState icon={Gift} text="У вас пока нет лид-магнитов" onCreate={() => setCreating(true)} />
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 divide-y">
-          {items.map(lm => (
+  const renderRow = (lm: LeadMagnet) => (
             <div key={lm.id} className="p-4 flex items-start gap-3 hover:bg-gray-50">
               <div className="mt-1 w-9 h-9 rounded-lg flex items-center justify-center text-white"
                    style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
@@ -530,7 +512,66 @@ function MagnetsList() {
                 )}
               </div>
             </div>
-          ))}
+  )
+
+  return (
+    <div>
+      {!isAssistant && (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+          >
+            <Plus size={18} /> Добавить
+          </button>
+        </div>
+      )}
+
+      {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
+
+      {loading ? (
+        <div className="text-gray-400 text-sm">Загрузка…</div>
+      ) : items.length === 0 ? (
+        isAssistant
+          ? <div className="text-gray-400 text-sm">Лид-магнитов пока нет.</div>
+          : <EmptyState icon={Gift} text="У вас пока нет лид-магнитов" onCreate={() => setCreating(true)} />
+      ) : (
+        <div className="space-y-6">
+          {/* ⚠️ Две группы, а не один список (решение владельца 20.09.2026):
+              партнёрский подарок ПЛЮСОНа и материалы клиента — разные вещи, и
+              вперемешку клиент не понимает, что из этого его, а что дано
+              платформой. Заголовок ПЛЮСОНа — персиковой плашкой с тёмным
+              текстом (персиковым ПО белому писать нельзя, не читается). */}
+          {plussonItems.length > 0 && (
+            <div>
+              <div className="rounded-t-xl px-4 py-2.5 bg-[#FFCFA4] text-[#25455D] text-sm font-semibold">
+                Партнёрские лид-магниты ПЛЮСОНа
+              </div>
+              <div className="bg-white rounded-b-xl border border-t-0 border-gray-200 divide-y">
+                {plussonItems.map(renderRow)}
+              </div>
+            </div>
+          )}
+
+          <div>
+            {/* Заголовок «Ваши» нужен только рядом с плюсоновской группой:
+                в одиночку он подписывал бы очевидное. */}
+            {plussonItems.length > 0 && (
+              <div className="rounded-t-xl px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold">
+                Ваши лид-магниты
+              </div>
+            )}
+            {ownItems.length === 0 ? (
+              <div className={`bg-white border border-gray-200 px-4 py-5 text-sm text-gray-400 ${plussonItems.length ? 'rounded-b-xl border-t-0' : 'rounded-xl'}`}>
+                Своих лид-магнитов пока нет — нажмите «Добавить».
+              </div>
+            ) : (
+              <div className={`bg-white border border-gray-200 divide-y ${plussonItems.length ? 'rounded-b-xl border-t-0' : 'rounded-xl'}`}>
+                {ownItems.map(renderRow)}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
