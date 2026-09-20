@@ -3472,7 +3472,14 @@ function formatDate(iso: string, end?: string | null, fromProgram?: boolean): st
     const s1 = d1.toLocaleString('ru-RU', opts)
     if ((fromProgram || multiDay) && d2) {
       if (d2.getTime() !== d1.getTime()) {
-        const sameMonth = d1.getMonth() === d2.getMonth()
+        // ⚠️ Месяц сравниваем В МОСКОВСКОМ поясе — том же, в котором печатаем.
+        // `getMonth()` отдавал месяц по поясу БРАУЗЕРА: у события 1–5 октября
+        // с началом ночью по МСК браузер в UTC видел 30 сентября, месяцы
+        // «разные» — и выходило «1 октября–5 октября» вместо «1–5 октября».
+        // Берём месяц из той же отформатированной даты (en-CA → YYYY-MM-DD).
+        const monthKey = (d: Date) =>
+          d.toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' }).slice(0, 7)
+        const sameMonth = monthKey(d1) === monthKey(d2)
         const left = sameMonth
           ? d1.toLocaleString('ru-RU', { day: 'numeric', timeZone: 'Europe/Moscow' })
           : s1
