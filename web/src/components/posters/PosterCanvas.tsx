@@ -165,6 +165,11 @@ export type PosterLayout = {
   ind_time_color?: string | null
   ind_name_font?: string | null
   ind_role_font?: string | null
+  ind_title_size?: number
+  ind_title_color?: string | null
+  ind_title_font?: string | null
+  ind_title_align?: 'left' | 'center' | 'right'
+  ind_role_align?: 'left' | 'center' | 'right'
   ind_role_color?: string | null
   ind_topic_color?: string | null
   /** Ряды спикеров (миграция 445): сколько положили в ряд — столько и будет. */
@@ -1383,7 +1388,6 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
   // «а потом его фото». В первой версии фото стояло сверху, а подписи под ним:
   // ровно наоборот. Клиент может переставить их местами галочкой, но по
   // умолчанию — как в задании.
-  const photoFirst = L.ind_photo_first === true
 
   /**
    * ⚠️⚠️ КАЖДЫЙ ЭЛЕМЕНТ СТОИТ САМ ПО СЕБЕ (миграция 470). Раньше все они
@@ -1394,10 +1398,14 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
    * остаётся в колонке, как было: иначе уже собранные афиши разъехались бы
    * в момент наката.
    */
-  const freePos = (x?: number | null, y?: number | null, w?: number | null): React.CSSProperties => {
+  const freePos = (x?: number | null, y?: number | null, w?: number | null,
+                   defX = 50, defY = 50): React.CSSProperties => {
     const hasX = typeof x === 'number' && Number.isFinite(x)
     const hasY = typeof y === 'number' && Number.isFinite(y)
-    if (!hasX && !hasY) return {}
+    // ⚠️ Координата не задана — берём УМОЛЧАНИЕ этого элемента, а не середину:
+    // иначе все пять подписей легли бы друг на друга в центре афиши.
+    if (!hasX) x = defX
+    if (!hasY) y = defY
     const px_ = Math.max(0, Math.min(100, hasX ? x! : 50))
     const py_ = Math.max(0, Math.min(100, hasY ? y! : 50))
     // ⚠️⚠️ НА КРАЯХ ПРИЖИМАЕМ, А НЕ ЦЕНТРИРУЕМ. Элемент ставился серединой на
@@ -1419,9 +1427,10 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       maxWidth: '100%',
     }
   }
-  /** Стоит ли элемент отдельно от колонки. */
-  const isFree = (x?: number | null, y?: number | null) =>
-    (typeof x === 'number' && Number.isFinite(x)) || (typeof y === 'number' && Number.isFinite(y))
+  // ⚠️⚠️ КАЖДЫЙ ЭЛЕМЕНТ ВСЕГДА СТОИТ ПО СВОИМ КООРДИНАТАМ. Раньше он стоял в
+  // общей колонке, пока клиент не включит галочку «своё место» — и ползунки
+  // до этого ничего не двигали, выглядя сломанными. Колонки больше нет:
+  // координата пустая — берём умолчание элемента, но он всё равно абсолютный.
 
   const photoEl = (
     <div style={{
@@ -1459,112 +1468,53 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       // при крупном фото у края его половина ушла бы за рабочую область.
       maxWidth: '100%',
     }}>
-      {photoFirst && photoEl}
-
       {/* Название конференции — СВЕРХУ (по ТЗ: пилюля, название, роль, имя…).
           Раньше стояло мелко внизу — это была моя вольность, в задании оно
           идёт вторым сверху. */}
-      {L.ind_show_event_title !== false && !!eventTitle && !isFree(L.ind_title_x, L.ind_title_y) && (
-        <div style={{
-          fontSize: tx((L.ind_role_size ?? 24) * 0.9),
-          color: 'rgba(255,255,255,0.75)',
-          textAlign: L.name_align || 'center',
-        }}>{eventTitle}</div>
-      )}
-
-      {/* Роль — над именем, брендовым цветом: это подпись к человеку, а не
-          часть его имени. */}
-      {L.ind_show_role !== false && !!roleText && !isFree(L.ind_role_x, L.ind_role_y) && (
-        <div style={{
-          marginTop: px(1.2),
-          fontFamily: roleFont,
-          fontSize: tx(L.ind_role_size ?? 24),
-          color: L.ind_role_color || gold,
-          textTransform: 'uppercase', letterSpacing: '0.08em',
-          textAlign: 'center',
-        }}>{roleText}</div>
-      )}
-
-      {!isFree(L.ind_name_x, L.ind_name_y) && (
-      <div style={{
-        marginTop: px(0.8),
-        fontFamily: nameFont,
-        fontSize: tx(L.ind_name_size ?? 54),
-        fontWeight: 700,
-        color: L.name_color || '#fff',
-        textAlign: L.name_align || 'center', lineHeight: 1.1,
-      }}>{nameText}</div>
-      )}
-
-      {/* Тема выступления. ⚠️ Её может не быть вовсе — у части спикеров
-          сессия не заведена; тогда строки просто нет, пустого места не
-          оставляем. */}
-      {L.ind_show_topic !== false && !!topic && !isFree(L.ind_topic_x, L.ind_topic_y) && (
-        <div style={{
-          marginTop: px(1.4),
-          fontFamily: topicFont,
-          fontSize: tx(L.ind_topic_size ?? 30),
-          color: L.ind_topic_color || '#fff',
-          textAlign: L.topic_align || 'center', lineHeight: 1.25,
-          maxWidth: '92%',
-          ...shift(L.pos_topic_x, L.pos_topic_y),
-        }}>{topic}</div>
-      )}
-
-      {L.ind_show_time !== false && !!when && !isFree(L.ind_time_x, L.ind_time_y) && (
-        <div style={{
-          marginTop: px(1),
-          fontFamily: timeFont,
-          fontSize: tx(L.ind_time_size ?? 24),
-          color: L.ind_time_color || gold, textAlign: L.time_align || 'center',
-          ...shift(L.pos_time_x, L.pos_time_y),
-        }}>{when}</div>
-      )}
-
-      {/* Фото — ПОСЛЕ текста: в задании порядок «…Время, а потом его фото».
-          Галочкой можно поднять его наверх. */}
-      {!photoFirst && photoEl}
+      {photoEl}
     </div>
 
     {/* ⚠️ Элементы со своей точкой стоят ОТДЕЛЬНО от колонки — прямо на листе.
         Поэтому тему можно опустить к самому низу афиши, а время унести в
         угол: границы колонки их больше не держат. */}
-    {L.ind_show_event_title !== false && !!eventTitle && isFree(L.ind_title_x, L.ind_title_y) && (
+    {L.ind_show_event_title !== false && !!eventTitle && (
       <div style={{
-        ...freePos(L.ind_title_x, L.ind_title_y, 90),
-        fontSize: tx((L.ind_role_size ?? 24) * 0.9),
-        color: 'rgba(255,255,255,0.75)', textAlign: L.name_align || 'center',
+        ...freePos(L.ind_title_x, L.ind_title_y, 90, 50, 10),
+        fontFamily: L.ind_title_font ? brandFontCss(L.ind_title_font, label(L.ind_title_font)) : undefined,
+        fontSize: tx(L.ind_title_size ?? 22),
+        color: L.ind_title_color || 'rgba(255,255,255,0.75)',
+        textAlign: L.ind_title_align || 'center',
       }}>{eventTitle}</div>
     )}
-    {L.ind_show_role !== false && !!roleText && isFree(L.ind_role_x, L.ind_role_y) && (
+    {L.ind_show_role !== false && !!roleText && (
       <div style={{
-        ...freePos(L.ind_role_x, L.ind_role_y, 90),
+        ...freePos(L.ind_role_x, L.ind_role_y, 90, 50, 18),
         fontFamily: roleFont, fontSize: tx(L.ind_role_size ?? 24),
         color: L.ind_role_color || gold,
         textTransform: 'uppercase', letterSpacing: '0.08em',
-        textAlign: L.name_align || 'center',
+        textAlign: L.ind_role_align || 'center',
       }}>{roleText}</div>
     )}
-    {isFree(L.ind_name_x, L.ind_name_y) && (
+    {!!nameText && (
       <div style={{
-        ...freePos(L.ind_name_x, L.ind_name_y, L.ind_name_w),
+        ...freePos(L.ind_name_x, L.ind_name_y, L.ind_name_w, 50, 26),
         fontFamily: nameFont, fontSize: tx(L.ind_name_size ?? 54), fontWeight: 700,
         color: L.name_color || '#fff',
         textAlign: L.name_align || 'center', lineHeight: 1.1,
       }}>{nameText}</div>
     )}
-    {L.ind_show_topic !== false && !!topic && isFree(L.ind_topic_x, L.ind_topic_y) && (
+    {L.ind_show_topic !== false && !!topic && (
       <div style={{
-        ...freePos(L.ind_topic_x, L.ind_topic_y, L.ind_topic_w),
+        ...freePos(L.ind_topic_x, L.ind_topic_y, L.ind_topic_w, 50, 36),
         fontFamily: topicFont,
         fontSize: tx(L.ind_topic_size ?? 30),
         color: L.ind_topic_color || '#fff',
         textAlign: L.topic_align || 'center', lineHeight: 1.25,
       }}>{topic}</div>
     )}
-    {L.ind_show_time !== false && !!when && isFree(L.ind_time_x, L.ind_time_y) && (
+    {L.ind_show_time !== false && !!when && (
       <div style={{
-        ...freePos(L.ind_time_x, L.ind_time_y, 60),
+        ...freePos(L.ind_time_x, L.ind_time_y, 60, 50, 44),
         fontFamily: timeFont,
         fontSize: tx(L.ind_time_size ?? 24),
         color: L.ind_time_color || gold, textAlign: L.time_align || 'center',

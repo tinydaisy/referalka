@@ -92,6 +92,7 @@ _FIELDS = (
     # Свои шрифты/размер/цвет темы, времени, имени и роли (миграция 473).
     "ind_topic_font", "ind_time_font", "ind_time_size", "ind_time_color",
     "ind_name_font", "ind_role_font",
+    "ind_title_size", "ind_title_color", "ind_title_font", "ind_title_align", "ind_role_align",
     # Своя точка каждого элемента афиши спикера (миграция 470).
     "ind_title_x", "ind_title_y", "ind_role_x", "ind_role_y",
     "ind_name_x", "ind_name_y", "ind_topic_x", "ind_topic_y",
@@ -149,6 +150,8 @@ _DEFAULTS = {
     "card_max_w": 30, "extra_pills": [],
     "ind_topic_font": None, "ind_time_font": None, "ind_time_size": 24,
     "ind_time_color": None, "ind_name_font": None, "ind_role_font": None,
+    "ind_title_size": 22, "ind_title_color": None, "ind_title_font": None,
+    "ind_title_align": "center", "ind_role_align": "center",
     "ind_title_x": None, "ind_title_y": None, "ind_role_x": None, "ind_role_y": None,
     "ind_name_x": None, "ind_name_y": None, "ind_topic_x": None, "ind_topic_y": None,
     "ind_time_x": None, "ind_time_y": None, "ind_topic_w": None, "ind_name_w": None,
@@ -345,6 +348,11 @@ class LayoutIn(BaseModel):
     ind_time_color: Optional[str] = None
     ind_name_font: Optional[str] = None
     ind_role_font: Optional[str] = None
+    ind_title_size: Optional[float] = None
+    ind_title_color: Optional[str] = None
+    ind_title_font: Optional[str] = None
+    ind_title_align: Optional[str] = None
+    ind_role_align: Optional[str] = None
     ind_title_x: Optional[float] = None
     ind_title_y: Optional[float] = None
     ind_role_x: Optional[float] = None
