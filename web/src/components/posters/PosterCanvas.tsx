@@ -655,28 +655,36 @@ export default function PosterCanvas({
         // Выравнивание блока внутри колонки (миграция 454).
         textAlign: L.text_align ?? 'center',
       }}>
-        {/* ⚠️⚠️ КАЖДАЯ ПИЛЮЛЯ ДВИГАЕТСЯ И ВЫРАВНИВАЕТСЯ ОТДЕЛЬНО (миграция 468).
-            Раньше обе лежали в одном ряду по центру и двигались только вместе
-            со всем текстовым блоком — поставить дату слева, а формат справа
-            было нельзя вовсе. */}
-        {L.show_pill !== false && !!pill1 && (
+        {/* ⚠️⚠️ ПИЛЮЛИ СТОЯТ В ОДНУ ЛИНИЮ — так было и так должно остаться
+            (жалоба владельца 20.09.2026: «пилюли съехали», «было же в одну
+            линию... и на вертикальной, и на горизонтальной, и на квадратной»).
+            Когда я делал их двигаемыми по отдельности, я разнёс их на два
+            блока друг под другом — и линия развалилась на всех форматах.
+
+            ⚠️ Двигать по отдельности по-прежнему можно: сдвиг применяется к
+            самой пилюле внутри общего ряда, а не к строке целиком. Ряд с
+            `flex-wrap` переносит вторую пилюлю вниз сам, только если ей не
+            хватило ширины.
+
+            `pill_row_align` задаёт, где стоит вся пара; у каждой пилюли
+            остаётся свой сдвиг. */}
+        {L.show_pill !== false && (!!pill1 || !!pill2) && (
           <div style={{
-            display: 'flex', flexWrap: 'wrap',
+            display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+            gap: px(1.5),
             justifyContent: alignToFlex(L.pill1_align),
-            marginBottom: px(0.6),
-            ...shift(L.pos_pill1_x, L.pos_pill1_y),
-          }}>
-            <Pill text={pill1} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
-          </div>
-        )}
-        {L.show_pill !== false && !!pill2 && (
-          <div style={{
-            display: 'flex', flexWrap: 'wrap',
-            justifyContent: alignToFlex(L.pill2_align),
             marginBottom: L.gap_pill_title ?? 18,
-            ...shift(L.pos_pill2_x, L.pos_pill2_y),
           }}>
-            <Pill text={pill2} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
+            {!!pill1 && (
+              <div style={shift(L.pos_pill1_x, L.pos_pill1_y)}>
+                <Pill text={pill1} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
+              </div>
+            )}
+            {!!pill2 && (
+              <div style={shift(L.pos_pill2_x, L.pos_pill2_y)}>
+                <Pill text={pill2} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
+              </div>
+            )}
           </div>
         )}
 

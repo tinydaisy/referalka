@@ -1122,11 +1122,14 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                       onX={v => patch({ pos_logos_x: v })} onY={v => patch({ pos_logos_y: v })} />
             <PlaceRow label="Заголовок с подзаголовком" x={layout.pos_text_x} y={layout.pos_text_y}
                       onX={v => patch({ pos_text_x: v })} onY={v => patch({ pos_text_y: v })} />
+            {/* ⚠️ Пилюли стоят В ОДНУ ЛИНИЮ (так было изначально). Выключка
+                задаётся один раз для всей пары — иначе они разъезжаются;
+                сдвиг у каждой остаётся свой. */}
             <PlaceRow label="Пилюля с датой" x={layout.pos_pill1_x} y={layout.pos_pill1_y}
                       align={layout.pill1_align} onAlign={v => patch({ pill1_align: v })}
+                      alignHint="Где стоит вся пара пилюль"
                       onX={v => patch({ pos_pill1_x: v })} onY={v => patch({ pos_pill1_y: v })} />
             <PlaceRow label="Пилюля с форматом" x={layout.pos_pill2_x} y={layout.pos_pill2_y}
-                      align={layout.pill2_align} onAlign={v => patch({ pill2_align: v })}
                       onX={v => patch({ pos_pill2_x: v })} onY={v => patch({ pos_pill2_y: v })} />
             {kind !== 'individual' && (
               <PlaceRow label="Спикеры" x={layout.pos_speakers_x} y={layout.pos_speakers_y}
@@ -1600,7 +1603,7 @@ function LogoChip({ item, hidden, isDragging, onToggle, onDragStart, onDragEnd, 
  * уезжал сам собой. Диапазон ±400 px — этого хватает, чтобы увести блок в
  * любой угол листа, а за поля его всё равно не выпустит рабочая область.
  */
-function PlaceRow({ label, x, y, align, onX, onY, onAlign }: {
+function PlaceRow({ label, x, y, align, onX, onY, onAlign, alignHint }: {
   label: string
   x?: number | null
   y?: number | null
@@ -1608,6 +1611,7 @@ function PlaceRow({ label, x, y, align, onX, onY, onAlign }: {
   onX: (v: number) => void
   onY: (v: number) => void
   onAlign?: (v: 'left' | 'center' | 'right') => void
+  alignHint?: string
 }) {
   return (
     <div className="mt-4 border-t border-gray-100 pt-3 first:border-0 first:pt-0">
@@ -1616,7 +1620,7 @@ function PlaceRow({ label, x, y, align, onX, onY, onAlign }: {
       <Range label="Вверх-вниз, px" value={y ?? 0} min={-400} max={400} onChange={onY} />
       {onAlign && (
         <div className="mt-2">
-          <div className="mb-1 text-xs text-gray-600">Выключка</div>
+          <div className="mb-1 text-xs text-gray-600">{alignHint || 'Выключка'}</div>
           <Choice value={align || 'center'}
                   onChange={v => onAlign(v as 'left' | 'center' | 'right')}
                   options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]} />
