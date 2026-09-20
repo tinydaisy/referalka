@@ -219,6 +219,12 @@ async def list_lead_magnets(
 
     for it in items:
         it["platform_links"] = await _links_for(db, cid, it)
+        # ⚠️ У Плюсоновского свой счётчик: ссылка ведёт прямо в бот ПЛЮСОНа
+        # мимо нашего сайта, забега воронки не возникает — считаем дошедших до
+        # бота по контактам, а не клики.
+        if it.get("is_plusson"):
+            from app.services.plusson_lead_magnet import reach_count
+            it["plusson_reach"] = await reach_count(db, cid)
     return {"items": items}
 
 

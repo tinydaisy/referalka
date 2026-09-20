@@ -84,7 +84,7 @@ export default function AdminPlussonLeadMagnetPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {[
           { icon: Users, label: 'Видят сейчас', value: data?.visible ?? 0 },
-          { icon: MousePointerClick, label: 'Переходов', value: data?.clicks ?? 0 },
+          { icon: MousePointerClick, label: 'Дошли до бота', value: data?.clicks ?? 0 },
           { icon: UserPlus, label: 'Зарегистрировались', value: data?.signups ?? 0 },
           { icon: AlertCircle, label: 'Без подарка', value: data?.missing ?? 0 },
         ].map(({ icon: Icon, label, value }) => (

@@ -44,6 +44,8 @@ interface LeadMagnet {
    * каждого клиента, удалить нельзя, название и ссылку задаёт платформа.
    */
   is_plusson?: boolean
+  /** Сколько человек дошло до бота ПЛЮСОНа по этому подарку (только у него). */
+  plusson_reach?: number
   created_at: string
   updated_at: string
 }
@@ -368,20 +370,24 @@ function LandedCounter({
 }
 
 /**
- * Счётчик Плюсоновского лид-магнита: сколько человек перешло по ссылке.
+ * Счётчик Плюсоновского подарка: сколько человек дошло до бота ПЛЮСОНа.
  *
  * ⚠️ Одна цифра, а не три как у обычного подарка: этапов «забрал / не забрал»
- * здесь нет вовсе — материал и есть переход. Что было дальше (завёл ли человек
- * кабинет и заплатил ли), знает партнёрка, туда клик и ведёт.
+ * здесь нет вовсе — материал и есть переход в бот.
+ *
+ * ⚠️ Считаем ДОШЕДШИХ, а не клики: ссылка ведёт прямо в бот платформы, мимо
+ * нашего сайта, и клик мы не видим в принципе. Оно и честнее — клик по ссылке
+ * ещё ничей. Что было дальше (завёл ли человек кабинет и заплатил ли), знает
+ * партнёрка, туда клик по цифре и ведёт.
  */
-function PlussonCounter({ clicks, href }: { clicks: number; href: string }) {
+function PlussonCounter({ reached, href }: { reached: number; href: string }) {
   return (
     <a href={href}
-       title="Сколько человек перешло по ссылке. Кто из них зарегистрировался — в «Партнёрке ПЛЮСОНа»"
+       title="Сколько человек дошло до бота ПЛЮСОНа по вашему подарку. Кто из них зарегистрировался — в «Партнёрке ПЛЮСОНа»"
        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-         clicks ? 'bg-[#FFCFA4] text-[#25455D] hover:brightness-95' : 'bg-gray-100 text-gray-400'
+         reached ? 'bg-[#FFCFA4] text-[#25455D] hover:brightness-95' : 'bg-gray-100 text-gray-400'
        }`}>
-      <Users size={12} /> {clicks}
+      <Users size={12} /> {reached}
     </a>
   )
 }
@@ -477,7 +483,7 @@ function MagnetsList() {
                     кабинет. */}
                 {lm.is_plusson ? (
                   <PlussonCounter
-                    clicks={counts[lm.id]?.landed || 0}
+                    reached={lm.plusson_reach || 0}
                     href="/dashboard/partner-program?tab=referrals&src=plusson_lm"
                   />
                 ) : (

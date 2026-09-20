@@ -42,11 +42,12 @@ async def _stats(db, visibility: str) -> dict:
              (SELECT count(*) FROM clients c
                WHERE NOT EXISTS (SELECT 1 FROM lead_magnets lm
                                   WHERE lm.client_id = c.id AND lm.is_plusson)) AS missing,
-             -- Переходы по ссылке подарка: забеги живут и в прямом режиме,
-             -- это единственное место, где виден сам факт клика.
-             (SELECT count(*) FROM funnel_runs fr
-                JOIN lead_magnets lm ON lm.id = fr.lead_magnet_id
-               WHERE lm.is_plusson)                                            AS clicks,
+             -- Дошли до бота ПЛЮСОНа по подарку. ⚠️ НЕ клики: ссылки ведут
+             -- прямо в боты, мимо нашего сайта, и забега воронки не возникает.
+             -- Контакт появляется, когда человек нажал «Старт», — считается
+             -- пришедший человек, а не клик по ссылке.
+             (SELECT count(*) FROM contacts
+               WHERE plusson_referrer_source = $1)                             AS clicks,
              -- Дошли до кабинета: клиенты, помеченные этим источником.
              (SELECT count(*) FROM clients WHERE referred_source = $1)         AS signups,
              -- Сколько клиентов видят подарок ПРЯМО СЕЙЧАС: на обкатке это

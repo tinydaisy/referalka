@@ -166,18 +166,20 @@ async def share_links(db: asyncpg.Connection, client_id: int, slug: str,
                       base_url: str) -> dict:
     """Ссылки, которые клиент раздаёт аудитории, — по площадкам.
 
-    ⚠️⚠️ НЕ `build_funnel_landing_links`, и это принципиально. Та функция даёт
-    deeplink В БОТ КЛИЕНТА (`t.me/{его бот}?start=m_{slug}`) — то есть в обход
-    нашего перехода `/m/{slug}`: бот разбирает метку сам и запускает обычную
-    воронку. Для этого подарка получилось бы ровно наоборот задуманному —
-    человек попадал бы к клиенту вместо ПЛЮСОНа. А у клиента без единого бота
-    ссылок не было бы вовсе, хотя раздавать подарок он может и без них.
+    ⚠️⚠️ В режиме `direct` это ПРЯМЫЕ ССЫЛКИ НА БОТЫ ПЛЮСОНа, без нашего домена
+    (решение владельца 20.09.2026). Сначала отдавали `pluson.ru/m/{slug}?to=…` —
+    наш переход, который считал клик и уводил дальше. Отказались: подарок ведёт
+    в бот платформы, и лишний прыжок через сайт тут только теряет людей —
+    у части браузер открывает страницу вместо мессенджера.
 
-    Поэтому в режиме `direct` отдаём СВОЙ адрес `/m/{slug}?to=…`: он считает
-    переход и уводит в бот ПЛЮСОНа нужной площадки. В режиме `funnel` подарок
-    ведёт себя как обычный лид-магнит, и ссылки строит общая функция.
+    ⚠️ Цена решения: клик минует наш сервер, и «сколько перешло» считать
+    нечем. Поэтому счётчик считает не клики, а ДОШЕДШИХ ДО БОТА
+    (`plusson_reach`) — это и честнее: клик по ссылке ещё ничей.
 
-    ⚠️ Площадки берём по ботам ПЛЮСОНа, а не клиента: человек идёт к нам.
+    ⚠️⚠️ `build_funnel_landing_links` годится ТОЛЬКО для режима `funnel`. Она
+    отдаёт deeplink в бот КЛИЕНТА по его площадкам — что и нужно, когда подарок
+    выдаётся через его воронку. В прямом режиме это увело бы человека к клиенту
+    вместо ПЛЮСОНа, а у клиента без ботов ссылок не было бы вовсе.
     """
     st = await get_settings(db)
     if st["delivery"] != "direct":
@@ -185,11 +187,30 @@ async def share_links(db: asyncpg.Connection, client_id: int, slug: str,
         return await build_funnel_landing_links(
             db, client_id=client_id, slug=slug, kind='m', base_url=base_url)
 
-    from app.services.plusson_ref_links import plusson_bot_handle
+    from app.services.plusson_ref_links import plusson_ref_links
 
-    base = (base_url or "").rstrip("/")
-    links = {"telegram": f"{base}/m/{slug}?to=tg"}
-    for platform, param in (("max", "max"), ("vk", "vk")):
-        if await plusson_bot_handle(db, platform):
-            links[platform] = f"{base}/m/{slug}?to={param}"
-    return links
+    code = await db.fetchval(
+        "SELECT referral_code FROM clients WHERE id = $1", client_id) or ""
+    return await plusson_ref_links(db, code, SOURCE_CODE)
+
+
+async def reach_count(db: asyncpg.Connection, client_id: int) -> int:
+    """Сколько человек дошло до бота ПЛЮСОНа по подарку ЭТОГО клиента.
+
+    ⚠️ Считаем по КОНТАКТАМ, а не по забегам воронки: в прямом режиме ссылка
+    ведёт в бот платформы мимо нашего сайта, и забега не возникает вовсе.
+    Контакт же появляется ровно тогда, когда человек нажал «Старт» в боте
+    ПЛЮСОНа, — то есть считается не клик, а пришедший человек.
+
+    ⚠️ Метка `plusson_referrer_source` отделяет пришедших С ПОДАРКА от пришедших
+    по обычной реф-ссылке клиента: код в обоих случаях один и тот же.
+    """
+    code = await db.fetchval(
+        "SELECT referral_code FROM clients WHERE id = $1", client_id)
+    if not code:
+        return 0
+    return int(await db.fetchval(
+        """SELECT count(*) FROM contacts
+            WHERE plusson_referrer_code = $1
+              AND plusson_referrer_source = $2""",
+        code, SOURCE_CODE) or 0)
