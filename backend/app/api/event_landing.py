@@ -268,6 +268,9 @@ BLOCK_PATCH_FIELDS: tuple = (
         "title_size", "title_align", "subtitle_size", "text_size",
         "title_color", "title_metallic",
         "cards_bordered", "card_style", "columns", "display_mode", "show_date", "date_position", "show_divider", "cards_glow", "icon_size", "logo_height", "gallery_source", "marker",
+        # Блок «Партнёры»: какой из двух логотипов компании брать и какой фон
+        # рисовать под ним ('none' — без фона).
+        "partner_logo_variant", "logo_bg",
         "card_img_radius_x", "card_img_radius_y", "card_img_ratio", "card_img_size", "card_img_fit",
         "media_size", "show_captions", "featured_tariff_id", "offer_id", "date_size", "kicker",
         "overline", "overline_size", "hero_align",
@@ -415,8 +418,15 @@ class BlockPatch(BaseModel):
     show_divider: Optional[bool] = None
     cards_glow: Optional[bool] = None
     icon_size: Optional[int] = None
-    # Высота белого поля с логотипом в блоке «Партнёры», px.
+    # Высота поля с логотипом в блоке «Партнёры», px.
     logo_height: Optional[int] = None
+    # ⚠️ Блок «Партнёры»: какой логотип брать у партнёра-КОМПАНИИ. 'main' —
+    # основной (`collaborators.photo_url`), 'light' — версия «для светлого
+    # фона» (`logo_on_light_url`). Пусто = 'main', как было до настройки.
+    partner_logo_variant: Optional[str] = None
+    # Фон поля под логотипами: цвет (#RRGGBB) либо 'none' — без фона вовсе.
+    # Пусто = белый, каким он был жёстко зашит раньше.
+    logo_bg: Optional[str] = None
     gallery_source: Optional[str] = None
     gallery_tags: Optional[list] = None
     card_img_fit: Optional[str] = None
@@ -1033,6 +1043,11 @@ async def patch_block(
         # Границы те же, что у ползунка в конструкторе и у рендерера лендинга.
         if field == "logo_height" and val is not None:
             val = max(80, min(320, int(val)))
+        # ⚠️ Чужое значение обнуляем, а не пишем в базу: на колонке стоит CHECK
+        # (миграция 479), и неизвестная строка уронила бы сохранение всего
+        # блока — клиент потерял бы заодно и остальные правки формы.
+        if field == "partner_logo_variant" and val not in ("main", "light"):
+            val = None
         if field in ("card_img_radius_x", "card_img_radius_y") and val is not None:
             val = max(0, min(50, int(val)))
         if field == "card_img_ratio" and val is not None:

@@ -833,6 +833,40 @@ export default function BlockCard({
                       </p>
                     </Field>
                   )}
+                  {/* ⚠️ Выбор ВЕРСИИ ЛОГОТИПА (миграция 479). В карточке
+                      партнёра-компании их два: основной и «для светлого фона».
+                      Лендинг всегда брал основной — а он часто светлый и на
+                      белой плашке пропадал совсем. Настройка одна на секцию:
+                      фон под логотипами общий, значит и версия нужна общая. */}
+                  {block.kind === 'partners' && (
+                    <Field label="Логотип у партнёров-компаний">
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          ['main', 'Основной'],
+                          ['light', 'Для светлого фона'],
+                        ] as const).map(([val, label]) => (
+                          <button
+                            key={val}
+                            onClick={() => onPatch({ partner_logo_variant: val })}
+                            className={`rounded-lg border px-3 py-1.5 text-sm ${
+                              (block.partner_logo_variant || 'main') === val
+                                ? 'border-brand bg-brand/5 font-medium text-brand'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Оба логотипа загружаются в карточке партнёра, в разделе
+                        «Люди». Если фон под логотипами тёмный — берите
+                        основной, если светлый — версию «для светлого фона».
+                        Нужной версии у партнёра нет — покажется вторая, пустой
+                        карточка не останется.
+                      </p>
+                    </Field>
+                  )}
                   {['values', 'difference', 'audience'].includes(block.kind) && (
                     <Field label={`Размер иконок: ${block.icon_size || 88} px`}>
                       <input type="range" min={24} max={200} step={4}
@@ -1380,6 +1414,51 @@ export default function BlockCard({
                         onChange={e => onPatch({ card_text_size: Number(e.target.value) })}
                         className="w-full" />
                     </Field>
+                  </div>
+                )}
+
+                {/* ⚠️ ФОН ПОЛЯ ПОД ЛОГОТИПАМИ (миграция 479). Был жёстко
+                    белым: под светлым логотипом он съедал его целиком, а под
+                    логотипом с прозрачностью сам выглядел заплаткой поверх
+                    карточки. Какой логотип брать — во вкладке «Содержимое»:
+                    там решают, ЧТО показывать, здесь — КАК это выглядит. */}
+                {block.kind === 'partners' && (
+                  <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+                    <div className="text-sm font-medium text-gray-700">
+                      Поле под логотипами
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={block.logo_bg === 'none'}
+                        onChange={e => onPatch({
+                          logo_bg: e.target.checked ? 'none' : '#FFFFFF',
+                        })}
+                        className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Без фона
+                      </span>
+                    </label>
+                    {block.logo_bg === 'none' ? (
+                      <p className="text-xs text-gray-500">
+                        Логотипы лягут прямо на карточку. Так лучше, когда они с
+                        прозрачным фоном — плашка под ними выглядит заплаткой.
+                      </p>
+                    ) : (
+                      <>
+                        <ColorField
+                          label="Цвет фона под логотипами"
+                          value={block.logo_bg || '#FFFFFF'}
+                          onChange={v => onPatch({ logo_bg: v })}
+                        />
+                        <p className="text-xs text-gray-500">
+                          Белый подходит почти всем логотипам. Если у партнёров
+                          логотипы светлые — сделайте фон тёмным и выберите во
+                          вкладке «Содержимое» основной логотип.
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
 

@@ -2783,6 +2783,17 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
   // у собранных лендингов вид не меняется сам по себе.
   const logoH = Math.max(80, Math.min(320, Number(block.logo_height) || 120))
 
+  // ⚠️ КАКОЙ ЛОГОТИП У ПАРТНЁРА-КОМПАНИИ (миграция 479). В карточке человека
+  // их два: основной (`photo_url`) и «для светлого фона» (`logo_on_light_url`).
+  // Лендинг знал только первый — а он часто СВЕТЛЫЙ и на белой плашке
+  // пропадал совсем. Выбор на уровне СЕКЦИИ, не у каждого партнёра: фон под
+  // логотипами один на весь блок, значит и версия логотипа нужна одна.
+  const logoVariant = block.partner_logo_variant === 'light' ? 'light' : 'main'
+  // Фон поля под логотипом. Пусто = белый (каким он был жёстко зашит), 'none'
+  // = без фона: логотипы с прозрачностью ложатся прямо на карточку, и белая
+  // плашка не выглядит заплаткой.
+  const logoBg = (block.logo_bg || '').trim() || '#FFFFFF'
+
   const scrollBy = (dir: 1 | -1) => {
     scroller.current?.scrollBy({ left: dir * (cardW + 20), behavior: 'smooth' })
   }
@@ -2796,7 +2807,7 @@ function PartnersBlock({ list, block, page, cardStyle, iconColor }: any) {
       key={p.id} p={p} page={page} cardStyle={cardStyle} iconColor={iconColor}
       open={open} onToggle={() => setOpen(o => !o)}
       gift={gift} nameAlign={nameAlign} textAlign={textAlign} ts={ts}
-      logoH={logoH}
+      logoH={logoH} logoVariant={logoVariant} logoBg={logoBg}
       className={scroll ? 'shrink-0 snap-start'
                         : (i === tail.tailIndex ? 'lp-tail-start' : '')}
       width={scroll ? cardW : undefined}
@@ -3022,6 +3033,7 @@ function RoleBadge({ role, page, align = 'left' }: { role?: string; page: any; a
 function PartnerCard({
   p, page, cardStyle, iconColor, open, onToggle, className = '', width,
   nameAlign = 'center', textAlign = 'center', gift, ts, logoH = 120,
+  logoVariant = 'main', logoBg = '#FFFFFF',
 }: any) {
   // ⚠️ Должность и регалии РАЗДЕЛЕНЫ (16.09.2026). Раньше они склеивались в
   // один список `lines` и выравнивались одинаково — из-за этого нельзя было
@@ -3068,6 +3080,13 @@ function PartnerCard({
   const byName = Boolean(p.last_name && String(p.last_name).trim())
   const isPerson = hasFlag ? !p.is_company : byName
 
+  // Логотип компании: выбранная секцией версия, запасная — вторая. Пустой
+  // карточки быть не должно оттого, что клиент залил логотип в одно поле,
+  // а в секции выбрано другое.
+  const companyLogo = logoVariant === 'light'
+    ? (p.logo_on_light_url || p.photo_url)
+    : (p.photo_url || p.logo_on_light_url)
+
   const inner = (
     <>
       {/* Человек — фото во всю ширину квадратом, как у спикеров. */}
@@ -3076,18 +3095,24 @@ function PartnerCard({
              className="block w-full object-cover"
              style={{ objectPosition: focalCss(p.photo_focal), aspectRatio: '1 / 1', background: 'rgba(255,255,255,.06)' }} />
       )}
-      {/* ⚠️ Логотип на БЕЛОМ поле и целиком: у партнёров он может быть
-          узким горизонтальным, тёмным или с прозрачным фоном. */}
-      {p.photo_url && !isPerson && (
-        <div className="flex items-center justify-center bg-white p-5"
-             style={{ height: logoH }}>
+      {/* ⚠️ Логотип вписан ЦЕЛИКОМ: у партнёров он может быть узким
+          горизонтальным, тёмным или с прозрачным фоном.
+          ⚠️ Фон поля — НАСТРОЙКА секции, а не жёсткий `bg-white`: под белой
+          плашкой светлый логотип пропадал, а у логотипов с прозрачностью она
+          сама выглядела заплаткой поверх карточки. 'none' = без фона.
+          ⚠️ Версия логотипа тоже из настройки: берём выбранную, а если её у
+          этого партнёра нет — вторую, чтобы карточка не осталась пустой. */}
+      {companyLogo && !isPerson && (
+        <div className="flex items-center justify-center p-5"
+             style={{ height: logoH,
+                      background: logoBg === 'none' ? 'transparent' : logoBg }}>
           {/* ⚠️ Потолок по высоте — от ВЫСОТЫ ПОЛЯ, а не жёсткие 90px: иначе
               настройка высоты растила бы белую плашку, оставляя логотип
               прежним, и пустоты становилось бы только больше.
               ⚠️ `w-full` убран: он растягивал узкий горизонтальный логотип на
               всю ширину карточки, и тот лез на паддинги. `object-contain`
               сам впишет картинку в поле, сохранив пропорции. */}
-          <img src={p.photo_url} alt={p.name} loading="lazy"
+          <img src={companyLogo} alt={p.name} loading="lazy"
                className="max-w-full object-contain"
                style={{ maxHeight: '100%' }} />
         </div>
