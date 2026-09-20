@@ -1387,10 +1387,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                       onX={v => patch({ pos_pill1_x: v })} onY={v => patch({ pos_pill1_y: v })} />
             <PlaceRow label="Пилюля с форматом" x={layout.pos_pill2_x} y={layout.pos_pill2_y}
                       onX={v => patch({ pos_pill2_x: v })} onY={v => patch({ pos_pill2_y: v })} />
-            {kind !== 'individual' && (
-              <PlaceRow label="Спикеры" x={layout.pos_speakers_x} y={layout.pos_speakers_y}
-                        onX={v => patch({ pos_speakers_x: v })} onY={v => patch({ pos_speakers_y: v })} />
-            )}
+            {/* ⚠️ Проверка вида здесь не нужна: эта ветка и так только для
+                общих и дневных афиш — у спикерской свой редактор. */}
+            <PlaceRow label="Спикеры" x={layout.pos_speakers_x} y={layout.pos_speakers_y}
+                      onX={v => patch({ pos_speakers_x: v })} onY={v => patch({ pos_speakers_y: v })} />
           </Card>
           </>)}
 
