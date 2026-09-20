@@ -1475,7 +1475,27 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         reg_btn = InlineKeyboardButton(
             text="ЗАРЕГИСТРИРОВАТЬСЯ", callback_data=f"evsignup_{ev['id']}")
     else:
-        reg_btn = InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=web_url)
+        # ⚠️⚠️ РЕЖИМ ПЛОЩАДКИ СПРАШИВАЕМ И ЗДЕСЬ. Кнопка вела на `web_url`
+        # ВСЕГДА, настройку «Telegram: Вход через Мини-апп» этот код не
+        # спрашивал вовсе: у клиента стоит miniapp, а `/menu{id}` открывал
+        # веб-версию. Ровно та же ошибка, что чинили миграциями 477–478 в
+        # меню зарегистрированного (см. ниже) — там режим уже учтён, а на
+        # кнопке регистрации остался старый безусловный web_url.
+        #
+        # ⚠️ Сторонний лендинг и лендинг-конструктор НЕ перебиваем: если
+        # способом регистрации выбран 'external'/'landing', там своя форма и
+        # свой заказ — увести оттуда в Mini App значит потерять тарифы.
+        reg_target = web_url
+        if ev["registration_mode"] not in ("landing", "external"):
+            try:
+                from app.services.share_links import resolve_event_link_mode
+                _mode = await resolve_event_link_mode(
+                    db, client_id=ev["client_id"], platform="telegram")
+                if _mode == "miniapp" and mini_app_link:
+                    reg_target = mini_app_link
+            except Exception as e:  # noqa: BLE001
+                log.warning("reg button link_mode failed (event=%s): %s", ev["id"], e)
+        reg_btn = InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=reg_target)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [reg_btn],
         [InlineKeyboardButton(text="🆘 Тех. поддержка", callback_data=f"evsupport_{ev['id']}")],
