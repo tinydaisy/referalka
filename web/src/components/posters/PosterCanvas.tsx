@@ -840,7 +840,11 @@ export default function PosterCanvas({
           position: 'absolute',
           left: `${Math.max(0, Math.min(100, p.x ?? 50))}%`,
           top: `${Math.max(0, Math.min(100, p.y ?? 50))}%`,
-          transform: 'translate(-50%, -50%)',
+          // ⚠️ На краях прижимаем, а не центрируем — иначе при 100 % половина
+          // пилюли уходит за поле (та же причина, что у текстовых элементов).
+          transform: `translate(${
+            (p.x ?? 50) <= 0 ? '0' : (p.x ?? 50) >= 100 ? '-100%' : '-50%'}, ${
+            (p.y ?? 50) <= 0 ? '0' : (p.y ?? 50) >= 100 ? '-100%' : '-50%'})`,
           display: 'flex', justifyContent: alignToFlex(p.align),
         }}>
           <Pill text={p.text} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
@@ -1394,12 +1398,25 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     const hasX = typeof x === 'number' && Number.isFinite(x)
     const hasY = typeof y === 'number' && Number.isFinite(y)
     if (!hasX && !hasY) return {}
+    const px_ = Math.max(0, Math.min(100, hasX ? x! : 50))
+    const py_ = Math.max(0, Math.min(100, hasY ? y! : 50))
+    // ⚠️⚠️ НА КРАЯХ ПРИЖИМАЕМ, А НЕ ЦЕНТРИРУЕМ. Элемент ставился серединой на
+    // указанную точку (`translate(-50%, -50%)`), поэтому при 100 % его нижняя
+    // половина уходила за нижнее поле и обрезалась — «тема не двигалась вниз».
+    // Теперь 0 % прижимает элемент верхом к верхнему полю, 100 % — низом к
+    // нижнему, а между ними он по-прежнему центрируется по точке. Так ползунок
+    // проходит ВСЮ рабочую область и ничего не выходит за поля.
+    const tx_ = px_ <= 0 ? '0' : px_ >= 100 ? '-100%' : '-50%'
+    const ty_ = py_ <= 0 ? '0' : py_ >= 100 ? '-100%' : '-50%'
     return {
       position: 'absolute',
-      left: `${Math.max(0, Math.min(100, hasX ? x! : 50))}%`,
-      top: `${Math.max(0, Math.min(100, hasY ? y! : 50))}%`,
-      transform: 'translate(-50%, -50%)',
+      left: `${px_}%`,
+      top: `${py_}%`,
+      transform: `translate(${tx_}, ${ty_})`,
       width: `${Math.max(5, Math.min(100, w ?? 80))}%`,
+      // ⚠️ Не даём уехать вбок: при выключке вправо длинная строка иначе
+      // вылезла бы за правое поле.
+      maxWidth: '100%',
     }
   }
   /** Стоит ли элемент отдельно от колонки. */

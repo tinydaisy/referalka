@@ -42,6 +42,24 @@ type DayInfo = {
 /** Вкладки настроек. ⚠️ Через useUrlTab, а не useState: правило проекта —
  *  обновление страницы не должно сбрасывать на первую вкладку. */
 type SetTab = 'bg' | 'speakers' | 'text' | 'logos' | 'place' | 'order'
+
+/** ⚠️⚠️ У АФИШИ СПИКЕРА — СВОИ ПОДВКЛАДКИ, ПО ОДНОЙ НА ЭЛЕМЕНТ (требование
+ *  владельца 20.09.2026). Раньше настройки одного и того же элемента лежали в
+ *  разных местах: размер и цвет темы — во вкладке «Спикеры», а её положение —
+ *  во вкладке «Где что стоит». Чтобы подвинуть тему и перекрасить её, надо
+ *  было ходить туда-сюда и помнить, где что; «устройство непонятное».
+ *  Теперь всё про элемент собрано в одном месте. */
+type IndTab = 'photo' | 'title' | 'role' | 'name' | 'topic' | 'time' | 'pills' | 'logos'
+const IND_TABS: { key: IndTab; label: string }[] = [
+  { key: 'photo', label: 'Фото спикера' },
+  { key: 'title', label: 'Название конфы' },
+  { key: 'role',  label: 'Роль' },
+  { key: 'name',  label: 'Имя и фамилия' },
+  { key: 'topic', label: 'Тема' },
+  { key: 'time',  label: 'Время' },
+  { key: 'pills', label: 'Пилюли' },
+  { key: 'logos', label: 'Логотипы' },
+]
 const SET_TABS: { key: SetTab; label: string }[] = [
   { key: 'bg',       label: 'Фон и поля' },
   { key: 'speakers', label: 'Спикеры' },
@@ -77,6 +95,9 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','place','order'])
   // ⚠️ Раздел — тоже через useUrlTab: обновил страницу и остался там же, где был.
   const [kind, setKind] = useUrlTab<PosterKind>('pkind', 'common', ['common','day','individual'])
+  // Подвкладка редактора афиши спикера — тоже через useUrlTab.
+  const [indTab, setIndTab] = useUrlTab<IndTab>(
+    'pind', 'photo', ['photo','title','role','name','topic','time','pills','logos'])
   // Дни события и выступления — нужны дневным и индивидуальным афишам.
   const [days, setDays] = useState<DayInfo[]>([])
   const [sessions, setSessions] = useState<Record<string, { topic?: string; when?: string; day?: number }>>({})
@@ -667,83 +688,134 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           {/* ⚠️ Настройки ИНДИВИДУАЛЬНОЙ афиши: там один человек крупно, и
               сеточные настройки (сколько в ряд, промежутки) к ней неприменимы.
               Показываем их только в своём разделе, чтобы не путать. */}
-          {kind === 'individual' && (
-          <Card title="Афиша спикера">
-            <Range label="Размер фото, % ширины" value={layout.ind_photo_size ?? 45} min={10} max={100}
-                   hint="Сколько места занимает фото — от ширины рабочей области"
-                   onChange={v => patch({ ind_photo_size: v })} />
-            <Range label="Положение по горизонтали, %" value={layout.ind_photo_x ?? 50} min={0} max={100}
-                   onChange={v => patch({ ind_photo_x: v })} />
-            <Range label="Положение по вертикали, %" value={layout.ind_photo_y ?? 55} min={0} max={100}
-                   hint="Весь блок — фото с подписями — двигается целиком"
-                   onChange={v => patch({ ind_photo_y: v })} />
-            {/* ⚠️ У КАЖДОГО элемента свой шрифт, размер и цвет (миграция 473).
-                Раньше у времени не было НИ ОДНОЙ настройки: размер считался как
-                80 % от кегля темы, цвет жёстко брендовый. У темы цвет лежал в
-                базе, но в интерфейс выведен не был, шрифтов не было вовсе. */}
-            <div className="mt-4 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-700">Имя и фамилия</div>
-              <Range label="Размер, px" value={layout.ind_name_size ?? 54} min={10} max={200}
-                     onChange={v => patch({ ind_name_size: v })} />
-              <ColorRow label="Цвет" value={layout.name_color}
-                        onChange={v => patch({ name_color: v })} />
-              <FontPicker theme={theme} value={layout.ind_name_font}
-                          onChange={v => patch({ ind_name_font: v })} />
-            </div>
+{kind === 'individual' ? (<>
+          {/* ⚠️⚠️ ПОДВКЛАДКА НА КАЖДЫЙ ЭЛЕМЕНТ (требование владельца 20.09.2026).
+              Раньше настройки одного элемента жили в разных вкладках: размер и
+              цвет темы — здесь, а её положение — в «Где что стоит». Приходилось
+              помнить, где что лежит, и половина настроек просто не находилась:
+              «тема до сих пор не двигается», хотя код был написан.
+              Теперь всё про элемент собрано в одном месте. */}
+          <div className="flex flex-wrap gap-1 mb-4">
+            {IND_TABS.map(t => (
+              <button key={t.key} type="button" onClick={() => setIndTab(t.key)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        indTab === t.key
+                          ? 'bg-[#25455D] text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
 
-            <div className="mt-4 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-700">Роль</div>
-              <Range label="Размер, px" value={layout.ind_role_size ?? 24} min={8} max={100}
-                     onChange={v => patch({ ind_role_size: v })} />
-              <ColorRow label="Цвет" value={layout.ind_role_color}
-                        onChange={v => patch({ ind_role_color: v })} />
-              <FontPicker theme={theme} value={layout.ind_role_font}
-                          onChange={v => patch({ ind_role_font: v })} />
-            </div>
-
-            <div className="mt-4 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-700">Тема выступления</div>
-              <Range label="Размер, px" value={layout.ind_topic_size ?? 30} min={8} max={120}
-                     onChange={v => patch({ ind_topic_size: v })} />
-              <ColorRow label="Цвет" value={layout.ind_topic_color}
-                        onChange={v => patch({ ind_topic_color: v })} />
-              <FontPicker theme={theme} value={layout.ind_topic_font}
-                          onChange={v => patch({ ind_topic_font: v })} />
-            </div>
-
-            <div className="mt-4 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-700">Время выступления</div>
-              <Range label="Размер, px" value={layout.ind_time_size ?? 24} min={8} max={120}
-                     onChange={v => patch({ ind_time_size: v })} />
-              <ColorRow label="Цвет" value={layout.ind_time_color}
-                        onChange={v => patch({ ind_time_color: v })} />
-              <FontPicker theme={theme} value={layout.ind_time_font}
-                          onChange={v => patch({ ind_time_font: v })} />
-            </div>
-            <div className="mt-3 space-y-1.5">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" checked={layout.ind_show_role !== false}
-                       onChange={e => patch({ ind_show_role: e.target.checked })} />
-                Показывать роль
+          {indTab === 'photo' && (
+            <IndElement title="Фото спикера" theme={theme}
+                        size={layout.ind_photo_size ?? 45} sizeMin={10} sizeMax={100}
+                        onSize={v => patch({ ind_photo_size: v })}>
+              <Range label="Слева направо, %" value={layout.ind_photo_x ?? 50} min={0} max={100}
+                     hint="0 — левое поле, 100 — правое"
+                     onChange={v => patch({ ind_photo_x: v })} />
+              <Range label="Сверху вниз, %" value={layout.ind_photo_y ?? 55} min={0} max={100}
+                     hint="0 — верхнее поле, 100 — нижнее"
+                     onChange={v => patch({ ind_photo_y: v })} />
+              <label className="flex items-center gap-2 text-sm text-gray-700 mt-3">
+                <input type="checkbox" checked={layout.ind_photo_first === true}
+                       onChange={e => patch({ ind_photo_first: e.target.checked })} />
+                Фото сверху, текст под ним
               </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" checked={layout.ind_show_topic !== false}
-                       onChange={e => patch({ ind_show_topic: e.target.checked })} />
-                Показывать тему выступления
-              </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" checked={layout.ind_show_time !== false}
-                       onChange={e => patch({ ind_show_time: e.target.checked })} />
-                Показывать время
-              </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" checked={layout.ind_show_event_title !== false}
-                       onChange={e => patch({ ind_show_event_title: e.target.checked })} />
-                Показывать название конференции
-              </label>
-            </div>
-          </Card>
+              <p className="text-xs text-gray-400 mt-1">
+                По умолчанию сверху текст: название, роль, имя, тема, время — а потом фото.
+              </p>
+              <p className="text-xs text-gray-400 mt-2">
+                Форма фото (круг, квадрат, вырезка) — во вкладке «Фон и поля», она общая для афиши.
+              </p>
+            </IndElement>
           )}
+
+          {indTab === 'title' && (
+            <IndElement title="Название конференции" theme={theme}
+                        shown={layout.ind_show_event_title !== false}
+                        onShown={v => patch({ ind_show_event_title: v })}
+                        x={layout.ind_title_x} y={layout.ind_title_y}
+                        onX={v => patch({ ind_title_x: v })} onY={v => patch({ ind_title_y: v })} />
+          )}
+
+          {indTab === 'role' && (
+            <IndElement title="Роль спикера" theme={theme}
+                        shown={layout.ind_show_role !== false}
+                        onShown={v => patch({ ind_show_role: v })}
+                        x={layout.ind_role_x} y={layout.ind_role_y}
+                        onX={v => patch({ ind_role_x: v })} onY={v => patch({ ind_role_y: v })}
+                        size={layout.ind_role_size ?? 24} sizeMin={8} sizeMax={100}
+                        onSize={v => patch({ ind_role_size: v })}
+                        color={layout.ind_role_color} onColor={v => patch({ ind_role_color: v })}
+                        font={layout.ind_role_font} onFont={v => patch({ ind_role_font: v })} />
+          )}
+
+          {indTab === 'name' && (
+            <IndElement title="Имя и фамилия" theme={theme}
+                        x={layout.ind_name_x} y={layout.ind_name_y}
+                        onX={v => patch({ ind_name_x: v })} onY={v => patch({ ind_name_y: v })}
+                        size={layout.ind_name_size ?? 54} sizeMin={10} sizeMax={200}
+                        onSize={v => patch({ ind_name_size: v })}
+                        width={layout.ind_name_w} onWidth={v => patch({ ind_name_w: v })}
+                        color={layout.name_color} onColor={v => patch({ name_color: v })}
+                        align={layout.name_align} onAlign={v => patch({ name_align: v })}
+                        font={layout.ind_name_font} onFont={v => patch({ ind_name_font: v })} />
+          )}
+
+          {indTab === 'topic' && (
+            <IndElement title="Тема выступления" theme={theme}
+                        shown={layout.ind_show_topic !== false}
+                        onShown={v => patch({ ind_show_topic: v })}
+                        x={layout.ind_topic_x} y={layout.ind_topic_y}
+                        onX={v => patch({ ind_topic_x: v })} onY={v => patch({ ind_topic_y: v })}
+                        size={layout.ind_topic_size ?? 30} sizeMin={8} sizeMax={120}
+                        onSize={v => patch({ ind_topic_size: v })}
+                        width={layout.ind_topic_w} onWidth={v => patch({ ind_topic_w: v })}
+                        color={layout.ind_topic_color} onColor={v => patch({ ind_topic_color: v })}
+                        align={layout.topic_align} onAlign={v => patch({ topic_align: v })}
+                        font={layout.ind_topic_font} onFont={v => patch({ ind_topic_font: v })} />
+          )}
+
+          {indTab === 'time' && (
+            <IndElement title="Время выступления" theme={theme}
+                        shown={layout.ind_show_time !== false}
+                        onShown={v => patch({ ind_show_time: v })}
+                        x={layout.ind_time_x} y={layout.ind_time_y}
+                        onX={v => patch({ ind_time_x: v })} onY={v => patch({ ind_time_y: v })}
+                        size={layout.ind_time_size ?? 24} sizeMin={8} sizeMax={120}
+                        onSize={v => patch({ ind_time_size: v })}
+                        color={layout.ind_time_color} onColor={v => patch({ ind_time_color: v })}
+                        align={layout.time_align} onAlign={v => patch({ time_align: v })}
+                        font={layout.ind_time_font} onFont={v => patch({ ind_time_font: v })} />
+          )}
+
+          {indTab === 'pills' && (
+            <Card title="Пилюли">
+              <p className="text-xs text-gray-400">
+                Текст, оформление и дополнительные пилюли — во вкладке «Заголовок и дата».
+                Здесь только положение на этой афише.
+              </p>
+              <PlaceRow label="Пилюля с датой" x={layout.pos_pill1_x} y={layout.pos_pill1_y}
+                        align={layout.pill1_align} onAlign={v => patch({ pill1_align: v })}
+                        alignHint="Где стоит вся пара пилюль"
+                        onX={v => patch({ pos_pill1_x: v })} onY={v => patch({ pos_pill1_y: v })} />
+              <PlaceRow label="Пилюля с форматом" x={layout.pos_pill2_x} y={layout.pos_pill2_y}
+                        onX={v => patch({ pos_pill2_x: v })} onY={v => patch({ pos_pill2_y: v })} />
+            </Card>
+          )}
+
+          {indTab === 'logos' && (
+            <Card title="Логотипы">
+              <p className="text-xs text-gray-400">
+                Какие логотипы показывать и в каком порядке — во вкладке «Логотип и партнёры»:
+                настройки общие со всеми афишами. Здесь только положение.
+              </p>
+              <PlaceRow label="Ряд логотипов" x={layout.pos_logos_x} y={layout.pos_logos_y}
+                        onX={v => patch({ pos_logos_x: v })} onY={v => patch({ pos_logos_y: v })} />
+            </Card>
+          )}
+          </>) : (
           <Card title="Где стоят спикеры">
             <Range label="Начинать с высоты, %" value={layout.speakers_top ?? 45} min={0} max={95}
                    hint="Линия, ниже которой начинается блок людей — чтобы они не легли на рисунок фона"
@@ -890,6 +962,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                         onChange={v => patch({ role_badge_color: v })} />
             </div>
           </Card>
+          )}
 
           </>)}
 
@@ -1226,50 +1299,6 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             {kind !== 'individual' && (
               <PlaceRow label="Спикеры" x={layout.pos_speakers_x} y={layout.pos_speakers_y}
                         onX={v => patch({ pos_speakers_x: v })} onY={v => patch({ pos_speakers_y: v })} />
-            )}
-            {kind === 'individual' && (
-              <>
-                {/* ⚠️⚠️ КАЖДЫЙ ЭЛЕМЕНТ СТОИТ САМ ПО СЕБЕ (миграция 470).
-                    Раньше все они лежали в одной колонке, привязанной к фото:
-                    опустить тему к низу афиши было нельзя — держали границы
-                    колонки. Галочка «своё место» отвязывает элемент, и он
-                    встаёт по своим координатам на листе. */}
-                <FreeRow label="Название конференции"
-                         x={layout.ind_title_x} y={layout.ind_title_y}
-                         onX={v => patch({ ind_title_x: v })} onY={v => patch({ ind_title_y: v })} />
-                <FreeRow label="Роль" x={layout.ind_role_x} y={layout.ind_role_y}
-                         onX={v => patch({ ind_role_x: v })} onY={v => patch({ ind_role_y: v })} />
-                <FreeRow label="Имя и фамилия" x={layout.ind_name_x} y={layout.ind_name_y}
-                         w={layout.ind_name_w} onW={v => patch({ ind_name_w: v })}
-                         onX={v => patch({ ind_name_x: v })} onY={v => patch({ ind_name_y: v })} />
-                <FreeRow label="Тема выступления" x={layout.ind_topic_x} y={layout.ind_topic_y}
-                         w={layout.ind_topic_w} onW={v => patch({ ind_topic_w: v })}
-                         onX={v => patch({ ind_topic_x: v })} onY={v => patch({ ind_topic_y: v })} />
-                <FreeRow label="Время" x={layout.ind_time_x} y={layout.ind_time_y}
-                         onX={v => patch({ ind_time_x: v })} onY={v => patch({ ind_time_y: v })} />
-                <PlaceRow label="Фото спикера" x={layout.pos_photo_x} y={layout.pos_photo_y}
-                          onX={v => patch({ pos_photo_x: v })} onY={v => patch({ pos_photo_y: v })} />
-                <PlaceRow label="Тема выступления" x={layout.pos_topic_x} y={layout.pos_topic_y}
-                          align={layout.topic_align} onAlign={v => patch({ topic_align: v })}
-                          onX={v => patch({ pos_topic_x: v })} onY={v => patch({ pos_topic_y: v })} />
-                <PlaceRow label="Время" x={layout.pos_time_x} y={layout.pos_time_y}
-                          align={layout.time_align} onAlign={v => patch({ time_align: v })}
-                          onX={v => patch({ pos_time_x: v })} onY={v => patch({ pos_time_y: v })} />
-                <div className="mt-3">
-                  <div className="mb-1 text-xs text-gray-600">Выключка имени</div>
-                  <Choice value={layout.name_align || 'center'}
-                          onChange={v => patch({ name_align: v as any })}
-                          options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]} />
-                </div>
-                <label className="flex items-center gap-2 text-sm text-gray-700 mt-3">
-                  <input type="checkbox" checked={layout.ind_photo_first === true}
-                         onChange={e => patch({ ind_photo_first: e.target.checked })} />
-                  Фото сверху, текст под ним
-                </label>
-                <p className="text-xs text-gray-400 mt-1">
-                  По умолчанию сверху текст: пилюля, название, роль, имя, тема, время — а потом фото.
-                </p>
-              </>
             )}
           </Card>
           </>)}
@@ -1740,46 +1769,99 @@ function PlaceRow({ label, x, y, align, onX, onY, onAlign, alignHint }: {
   )
 }
 
+
 /**
- * Элемент афиши спикера со СВОИМ местом на листе.
+ * Всё про ОДИН элемент афиши спикера: положение, размер, цвет, шрифт.
  *
- * ⚠️ Галочка отвязывает элемент от общей колонки: без неё он стоит в потоке
- * под фото (как было до миграции 470), с ней — встаёт по своим координатам и
- * может уехать хоть в самый низ афиши. Пустые координаты = «в колонке»,
- * поэтому снятие галочки просто возвращает прежний вид.
+ * ⚠️⚠️ ПОЧЕМУ ОДИН БЛОК НА ЭЛЕМЕНТ. Раньше настройки одного элемента жили в
+ * разных вкладках: размер и цвет темы — в «Спикерах», её положение — в «Где
+ * что стоит». Приходилось помнить, где что лежит, и половина настроек просто
+ * не находилась — «тема до сих пор не двигается» при том, что код был.
+ *
+ * ⚠️⚠️ ПОЛЗУНОК ХОДИТ ПО ВСЕЙ РАБОЧЕЙ ОБЛАСТИ: 0 % — верх (или левый край)
+ * области, 100 % — низ (правый край), уже С УЧЁТОМ полей от края. Поэтому
+ * элемент доезжает до самого низа афиши и никогда не вылезает за поля —
+ * границы заданы самой шкалой.
  */
-function FreeRow({ label, x, y, w, onX, onY, onW }: {
-  label: string
-  x?: number | null
-  y?: number | null
-  w?: number | null
-  onX: (v: number | null) => void
-  onY: (v: number | null) => void
-  onW?: (v: number) => void
+function IndElement({
+  title, x, y, onX, onY,
+  size, sizeMin, sizeMax, onSize,
+  color, onColor, font, onFont, theme,
+  align, onAlign, width, onWidth,
+  shown, onShown, children,
+}: {
+  title: string
+  x?: number | null; y?: number | null
+  onX?: (v: number | null) => void; onY?: (v: number | null) => void
+  size?: number; sizeMin?: number; sizeMax?: number; onSize?: (v: number) => void
+  color?: string | null; onColor?: (v: string | null) => void
+  font?: string | null; onFont?: (v: string | null) => void
+  theme: PosterTheme
+  align?: 'left' | 'center' | 'right'; onAlign?: (v: 'left' | 'center' | 'right') => void
+  width?: number | null; onWidth?: (v: number) => void
+  shown?: boolean; onShown?: (v: boolean) => void
+  children?: React.ReactNode
 }) {
+  // Свободное положение включено, если хоть одна координата задана.
   const free = (typeof x === 'number' && Number.isFinite(x))
     || (typeof y === 'number' && Number.isFinite(y))
   return (
-    <div className="mt-4 border-t border-gray-100 pt-3">
-      <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
-        <input type="checkbox" checked={free}
-               onChange={e => {
-                 if (e.target.checked) { onX(50); onY(80) }
-                 else { onX(null as any); onY(null as any) }
-               }} />
-        {label} — своё место на афише
-      </label>
-      {free && (
+    <Card title={title}>
+      {onShown && (
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={shown !== false}
+                 onChange={e => onShown(e.target.checked)} />
+          Показывать
+        </label>
+      )}
+
+      {onX && onY && (
         <>
-          <Range label="Слева направо, %" value={x ?? 50} min={0} max={100} onChange={onX} />
-          <Range label="Сверху вниз, %" value={y ?? 80} min={0} max={100} onChange={onY} />
-          {onW && (
-            <Range label="Ширина, %" value={w ?? 80} min={5} max={100}
-                   hint="Чтобы длинный текст переносился, а не уезжал за поля"
-                   onChange={onW} />
+          <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={free}
+                   onChange={e => {
+                     if (e.target.checked) { onX(50); onY(80) }
+                     else { onX(null); onY(null) }
+                   }} />
+            Ставить в своё место на афише
+          </label>
+          {free ? (
+            <>
+              <Range label="Слева направо, %" value={x ?? 50} min={0} max={100}
+                     hint="0 — левое поле, 100 — правое"
+                     onChange={v => onX(v)} />
+              <Range label="Сверху вниз, %" value={y ?? 80} min={0} max={100}
+                     hint="0 — верхнее поле, 100 — нижнее: элемент доезжает до самого низа"
+                     onChange={v => onY(v)} />
+            </>
+          ) : (
+            <p className="mt-1 text-xs text-gray-400">
+              Сейчас стоит в общей колонке под фото. Включите галочку, чтобы двигать свободно.
+            </p>
           )}
         </>
       )}
-    </div>
+
+      {onSize && (
+        <Range label="Размер, px" value={size ?? 24} min={sizeMin ?? 8} max={sizeMax ?? 120}
+               onChange={onSize} />
+      )}
+      {onWidth && (
+        <Range label="Ширина, %" value={width ?? 80} min={5} max={100}
+               hint="Чтобы длинный текст переносился, а не уезжал за поля"
+               onChange={onWidth} />
+      )}
+      {onColor && <ColorRow label="Цвет" value={color} onChange={onColor} />}
+      {onAlign && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs text-gray-600">Выключка</div>
+          <Choice value={align || 'center'}
+                  onChange={v => onAlign(v as 'left' | 'center' | 'right')}
+                  options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]} />
+        </div>
+      )}
+      {onFont && <FontPicker theme={theme} value={font} onChange={onFont} />}
+      {children}
+    </Card>
   )
 }
