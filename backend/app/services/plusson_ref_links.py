@@ -17,43 +17,24 @@
 """
 from __future__ import annotations
 
-from app.services.share_links import TG_DOMAIN
-
-# Ник телеграм-бота ПЛЮСОНа. ⚠️ В отличие от MAX и VK, он захардкожен
-# намеренно: это бот самой платформы, он один и не перевыпускается — а лишний
-# запрос в базу тут пришлось бы делать на каждую выдачу подарка.
-PLUSON_TG_BOT = "pluson_bot"
 
 
 async def plusson_bot_handle(db, platform: str) -> str:
-    """Ник бота ПЛЮСОНа на площадке (`max` / `vk`). Пусто — бота нет.
+    """Ник бота ПЛЮСОНа на площадке (`telegram` / `max` / `vk`). Пусто — не показываем.
 
-    ⚠️ ОБЯЗАТЕЛЬНО `bot_token <> ''`. У сервисного клиента встречается карточка
-    канала БЕЗ токена — бот за ней фактически не заведён, его вебхук не
-    резолвится, и ссылка молча ведёт в пустоту.
-
-    ⚠️ Сервисный клиент в приоритете, но при отсутствии у него живого бота
-    падаем на любой другой бот ПЛЮСОНа: реф-код разбирается в ЛЮБОМ боте
-    платформы, поэтому ссылка остаётся рабочей.
+    ⚠️ Тонкая обёртка над общей `plusson_platforms.platform_handles`: своего
+    отбора здесь больше НЕТ. Раньше он был, и площадки разъехались — подарок
+    показывал ВК, партнёрка про него не знала, поддержка жила хардкодом во
+    фронте. Правило «отмечено в админке И бот живой» существует в одном месте.
     """
-    return await db.fetchval(
-        """SELECT ch.handle
-             FROM channels ch
-             JOIN client_channels cc ON cc.channel_id = ch.id
-             JOIN clients cl ON cl.id = cc.client_id
-            WHERE ch.platform_slug = $1
-              AND COALESCE(ch.handle, '') <> ''
-              AND COALESCE(ch.bot_token, '') <> ''
-            ORDER BY cl.is_system_service DESC, cc.is_active DESC, ch.id
-            LIMIT 1""",
-        platform,
-    ) or ""
+    from app.services.plusson_platforms import platform_handles
+    return (await platform_handles(db)).get(platform, "")
 
 
 async def plusson_ref_links(db, ref_code: str, source: str | None = None) -> dict[str, str]:
     """Все ссылки на боты ПЛЮСОНа с реф-кодом: `{telegram, max, vk}`.
 
-    Ключа нет, если бота на площадке нет или у него пустой токен.
+    Ключа нет, если площадка выключена в админке или бота на ней нет.
 
     `source` — чем привели человека (`plusson_lm` у Плюсоновского лид-магнита).
     ⚠️ Дописывается в САМ payload, а не отдельным параметром ссылки: у ВК и MAX
@@ -65,21 +46,9 @@ async def plusson_ref_links(db, ref_code: str, source: str | None = None) -> dic
         return {}
 
     from app.services.plusson_referral import plusson_ref_payload
-    pl = plusson_ref_payload(code, source)
+    from app.services.plusson_platforms import platform_links
 
-    links = {"telegram": f"https://{TG_DOMAIN}/{PLUSON_TG_BOT}?start={pl}"}
-
-    h = await plusson_bot_handle(db, "max")
-    if h:
-        links["max"] = f"https://max.ru/{h.lstrip('@')}?start={pl}"
-
-    # ⚠️ У ВКонтакте payload приходит параметром `ref`, а не `start`: формат
-    # ссылки на сообщество другой, чем у ботов TG и MAX.
-    h = await plusson_bot_handle(db, "vk")
-    if h:
-        links["vk"] = f"https://vk.me/{h.lstrip('@')}?ref={pl}"
-
-    return links
+    return await platform_links(db, plusson_ref_payload(code, source))
 
 
 async def plusson_ref_link(db, ref_code: str, platform: str = "telegram",

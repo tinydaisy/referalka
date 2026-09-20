@@ -35,6 +35,126 @@ async function adminFetch(path: string, init: RequestInit = {}): Promise<any> {
   return r.json()
 }
 
+interface PlussonPlatform {
+  slug: string
+  label: string
+  /** Отмечена в админке — показываем клиентам. */
+  enabled: boolean
+  /** У платформы есть бот на этой площадке (handle + токен). */
+  has_bot: boolean
+  handle: string
+  /** Реально показывается прямо сейчас = enabled И has_bot. */
+  shown: boolean
+}
+
+/**
+ * ⚠️⚠️ ОДНА НАСТРОЙКА НА ТРИ МЕСТА (миграция 476). Что отмечено здесь, то
+ * клиент и видит: ссылки Плюсоновского подарка, «Написать в тех.поддержку» и
+ * «Партнёрка ПЛЮСОНа». Раньше каждое место решало само, и они разъехались —
+ * в подарке ВК показывался, в партнёрке его не было вовсе, а поддержка вообще
+ * жила захардкоженным списком во фронте.
+ */
+function PlussonPlatformsBlock() {
+  const [items, setItems] = useState<PlussonPlatform[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState('')
+  const [error, setError] = useState('')
+
+  async function load() {
+    setLoading(true)
+    try {
+      const r = await adminFetch('/api/v1/admin/plusson-platforms')
+      setItems(r.items || [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { load() }, [])
+
+  async function toggle(slug: string) {
+    const next = items.map(p => p.slug === slug ? { ...p, enabled: !p.enabled } : p)
+    setItems(next)          // сразу рисуем новое состояние — галочка не должна «думать»
+    setSaving(slug); setError('')
+    try {
+      await adminFetch('/api/v1/admin/plusson-platforms', {
+        method: 'PATCH',
+        body: JSON.stringify({ platforms: next.filter(p => p.enabled).map(p => p.slug) }),
+      })
+      await load()          // перечитываем: `shown` считает бэкенд, а не экран
+    } catch (e: any) {
+      setError(e.message)
+      await load()          // не сохранилось — возвращаем то, что в базе
+    } finally {
+      setSaving('')
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-[#25455D]/20 overflow-hidden mb-6">
+      <div className="px-4 py-3" style={{ background: '#FFCFA4' }}>
+        <h2 className="font-semibold" style={{ color: '#25455D' }}>
+          Площадки ПЛЮСОНа, которые видят клиенты
+        </h2>
+      </div>
+      <div className="p-4">
+        <p className="text-sm text-gray-500 mb-3">
+          Действует сразу в трёх местах: ссылки Плюсоновского подарка, «Написать
+          в тех.поддержку» и «Партнёрка ПЛЮСОНа». Снимете галочку — площадка
+          пропадёт везде, без пересборки сайта.
+        </p>
+
+        {error && (
+          <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+            <AlertTriangle size={16} /> {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="text-gray-400 flex items-center gap-2 text-sm">
+            <Loader2 className="animate-spin" size={16} /> Загрузка…
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {items.map(p => (
+              <label
+                key={p.slug}
+                className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                  p.enabled ? 'border-[#25455D]/30 bg-[#25455D]/[0.04]' : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={p.enabled}
+                  disabled={!!saving}
+                  onChange={() => toggle(p.slug)}
+                  className="w-4 h-4 accent-[#25455D] shrink-0"
+                />
+                <span className="font-medium text-gray-900 w-28 shrink-0">{p.label}</span>
+                <span className="text-xs text-gray-500 flex-1 min-w-0 truncate">
+                  {p.has_bot ? `@${p.handle}` : 'бота нет — ссылку показать не из чего'}
+                </span>
+                {saving === p.slug ? (
+                  <Loader2 className="animate-spin text-gray-400 shrink-0" size={14} />
+                ) : p.shown ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold flex items-center gap-1 shrink-0">
+                    <CheckCircle2 size={10} /> показывается
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-semibold shrink-0">
+                    скрыта
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function AdminSystemChannelsPage() {
   const [items, setItems] = useState<SystemChannel[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,6 +200,8 @@ export default function AdminSystemChannelsPage() {
           <AlertTriangle size={16} /> {error}
         </div>
       )}
+
+      <PlussonPlatformsBlock />
 
       {loading && <div className="text-gray-400 flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> Загрузка…</div>}
 

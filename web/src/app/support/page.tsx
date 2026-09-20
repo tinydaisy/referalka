@@ -1,25 +1,33 @@
 /**
  * Публичная страница поддержки — /support
  *
- * ⚠️ Ведём сюда, а не прямо в бота: поддержка работает в двух мессенджерах,
- * и человек должен выбрать свой. Список каналов общий с кабинетом
- * (lib/support.ts) — двух копий быть не должно.
+ * ⚠️ Ведём сюда, а не прямо в бота: поддержка работает в нескольких
+ * мессенджерах, и человек должен выбрать свой. Какие показывать — задаётся в
+ * АДМИНКЕ и приходит с бэкенда (lib/support.ts → /api/v1/support-channels),
+ * одной общей настройкой с Плюсоновским подарком и партнёркой.
  */
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { LifeBuoy, ExternalLink } from 'lucide-react'
 import PublicShell from '@/components/public/PublicShell'
-import { SUPPORT_CHANNELS } from '@/lib/support'
+import { fetchSupportChannels } from '@/lib/support'
+import { PlatformLogo, PLATFORM_COLORS } from '@/components/PlatformLogo'
 
 const BRAND = '#25455D'
 
 export const metadata: Metadata = {
   title: 'Поддержка — iViSiON: ПЛЮСОН',
-  description: 'Напишите нам в Telegram или MAX — отвечают живые люди. Плюс инструкции по шагам в базе знаний.',
+  description: 'Напишите нам в удобный мессенджер — отвечают живые люди. Плюс инструкции по шагам в базе знаний.',
   alternates: { canonical: 'https://pluson.ru/support' },
 }
 
-export default function PublicSupportPage() {
+// ⚠️ Страница рендерится на КАЖДЫЙ заход, а не собирается заранее: список
+// мессенджеров задаётся в админке, и статическая страница показывала бы то, что
+// было отмечено в момент сборки, — до следующего деплоя.
+export const dynamic = 'force-dynamic'
+
+export default async function PublicSupportPage() {
+  const channels = await fetchSupportChannels()
   return (
     <PublicShell>
       <div className="max-w-2xl">
@@ -37,12 +45,15 @@ export default function PublicSupportPage() {
         </div>
 
         <div className="grid sm:grid-cols-2 gap-3">
-          {SUPPORT_CHANNELS.map(ch => (
+          {channels.map(ch => (
             <a key={ch.key} href={ch.url} target="_blank" rel="noopener noreferrer"
                className="flex items-center gap-3 p-4 bg-white rounded-2xl border card-border hover:border-gray-300 hover:shadow-sm transition-all">
-              <span className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0"
-                    style={{ background: ch.color }}>
-                {ch.label[0]}
+              {/* ⚠️ Логотип площадки, а не первая буква названия: «T» и «M» в
+                  кружке читаются как заглушка, а у MAX первая буква ещё и не
+                  опознаётся. Компонент общий — PlatformLogo. */}
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                    style={{ background: PLATFORM_COLORS[ch.key] || BRAND }}>
+                <PlatformLogo slug={ch.key} size={22} color="#fff" />
               </span>
               <span className="flex-1 min-w-0">
                 <span className="block font-semibold" style={{ color: BRAND }}>{ch.label}</span>

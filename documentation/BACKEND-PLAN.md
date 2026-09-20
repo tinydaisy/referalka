@@ -1146,6 +1146,7 @@ WEBHOOK_SECRET=       ← секрет для входящих webhook от ле
 | `platform_settings` | `plusson_lm_delivery TEXT NOT NULL DEFAULT 'direct'` | CHECK `('direct','funnel')` — куда ведёт прямая ссылка |
 | `platform_settings` | `plusson_lm_visibility TEXT NOT NULL DEFAULT 'testing'` | CHECK `('testing','all')` — кому виден (мигр. 473): `testing` — только `admin`/`is_system_service` |
 | `platform_settings` | `plusson_lm_link_mode TEXT NOT NULL DEFAULT 'both'` | CHECK `('button','both')` — как отдавать в сообщении бота (мигр. 474) |
+| `platform_settings` | `plusson_platforms TEXT[] NOT NULL DEFAULT ARRAY['telegram','max']` | CHECK `<@ ARRAY['telegram','max','vk']` — площадки ПЛЮСОНа, которые видит клиент (мигр. 476). **Одна настройка на три места: подарок, тех.поддержка, партнёрка.** Отбор — только [plusson_platforms.py](backend/app/services/plusson_platforms.py) |
 | `clients` | `referred_source TEXT` | чем привели: `plusson_lm` \| NULL (обычная реф-ссылка) |
 | `contacts` | `plusson_referrer_source TEXT` | то же, но на контакте — до регистрации помнить метку больше негде |
 
@@ -1158,6 +1159,9 @@ slug генерируется тем же алфавитом и проверяе
 | Метод | Путь | Что |
 |---|---|---|
 | `GET` | `/admin/plusson-lead-magnet` | текст, режим и цифры (сколько экземпляров, переходов, регистраций, у скольких клиентов подарка нет) |
+| `GET` | `/admin/plusson-platforms` | площадки ПЛЮСОНа: что отмечено, есть ли бот, показывается ли сейчас |
+| `PATCH` | `/admin/plusson-platforms` | сохранить набор площадок — действует сразу во всех трёх местах, без пересборки |
+| `GET` | `/support-channels` | **публичный** — мессенджеры тех.поддержки (`/support` открыта всем). Собран той же функцией |
 | `PATCH` | `/admin/plusson-lead-magnet` | сохранить; текст разносится по всем экземплярам в той же транзакции |
 
 ### Правила доступа

@@ -1303,6 +1303,77 @@ class SystemChannelUpdate(BaseModel):
     is_test: Optional[bool] = None   # FALSE = выпустить в бой → backfill всем клиентам
 
 
+class PlussonPlatformsUpdate(BaseModel):
+    # Площадки ПЛЮСОНа, которые показываем клиентам. Пустой список допустим —
+    # это «не показывать ни одной», у каждого места есть запасной путь на сайт.
+    platforms: list[str]
+
+
+@router.get("/plusson-platforms", summary="Площадки ПЛЮСОНа, которые видят клиенты")
+async def get_plusson_platforms(
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Что отмечено в админке и что из этого реально работает.
+
+    ⚠️ Одна настройка на ТРИ места сразу: ссылки Плюсоновского подарка,
+    «Написать в тех.поддержку» и «Партнёрка ПЛЮСОНа». До миграции 476 каждое
+    место решало само — и они разъехались: в подарке ВК был, в партнёрке нет.
+
+    Кроме галочек отдаём факт: заведён ли у платформы бот на этой площадке.
+    Галочка без бота ничего не показывает (ссылка вела бы в пустоту), и админ
+    должен видеть, почему площадка не появилась.
+    """
+    from app.services.plusson_platforms import (
+        PLATFORM_LABEL, PLATFORM_ORDER, enabled_platforms, platform_channels,
+    )
+    enabled = set(await enabled_platforms(db))
+    live = {c["slug"]: c for c in await platform_channels(db)}
+    # Бот есть, даже если площадка выключена, — иначе админ не поймёт, можно ли
+    # её включать. Спрашиваем по всем площадкам сразу, одним запросом.
+    bots = await db.fetch(
+        """SELECT DISTINCT ON (ch.platform_slug) ch.platform_slug, ch.handle
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+             JOIN clients cl ON cl.id = cc.client_id
+            WHERE ch.platform_slug = ANY($1::text[])
+              AND COALESCE(ch.handle, '') <> ''
+              AND COALESCE(ch.bot_token, '') <> ''
+            ORDER BY ch.platform_slug, cl.is_system_service DESC,
+                     cc.is_active DESC, ch.id""",
+        list(PLATFORM_ORDER),
+    )
+    handles = {r["platform_slug"]: (r["handle"] or "").lstrip("@") for r in bots}
+    return {"items": [{
+        "slug": p,
+        "label": PLATFORM_LABEL.get(p, p),
+        "enabled": p in enabled,
+        "has_bot": bool(handles.get(p)) or p == "telegram",
+        "handle": handles.get(p) or ("pluson_bot" if p == "telegram" else ""),
+        "shown": p in live,
+    } for p in PLATFORM_ORDER]}
+
+
+@router.patch("/plusson-platforms", summary="Изменить набор площадок ПЛЮСОНа")
+async def set_plusson_platforms(
+    data: PlussonPlatformsUpdate,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Сохранить галочки. Действует сразу во всех трёх местах, без пересборки."""
+    from app.services.plusson_platforms import PLATFORM_ORDER
+    bad = [p for p in data.platforms if p not in PLATFORM_ORDER]
+    if bad:
+        raise HTTPException(400, f"Неизвестные площадки: {', '.join(bad)}")
+    # Порядок нормализуем сразу: в базе лежит тот же порядок, что и на экране.
+    value = [p for p in PLATFORM_ORDER if p in set(data.platforms)]
+    await db.execute(
+        "UPDATE platform_settings SET plusson_platforms = $1::text[], updated_at = NOW() WHERE id = 1",
+        value,
+    )
+    return {"ok": True, "platforms": value}
+
+
 @router.get("/system-channels", summary="Список системных каналов с метриками")
 async def list_system_channels(
     admin=Depends(get_current_admin),

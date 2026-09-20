@@ -1,18 +1,22 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { LifeBuoy, ExternalLink } from 'lucide-react'
-import { SUPPORT_CHANNELS } from '@/lib/support'
-import { PlatformLogo } from '@/components/PlatformLogo'
+import { fetchSupportChannels, SUPPORT_CHANNELS_FALLBACK, type SupportChannel } from '@/lib/support'
+import { PlatformLogo, PLATFORM_COLORS } from '@/components/PlatformLogo'
 
 const BRAND = '#25455D'
 
 /** Боты техподдержки ПЛЮСОНа (сервисный клиент id 3).
  *  Сообщение из любого падает в Диалоги + уведомление #user_message. */
-// Список общий с публичной страницей /support — см. lib/support.ts
-const CHANNELS = SUPPORT_CHANNELS
-
 export default function SupportContactPage() {
+  // ⚠️ Какие мессенджеры показывать, решает АДМИНКА (одна настройка на подарок,
+  // поддержку и партнёрку). Пока ответ не пришёл — рисуем запасной список, а не
+  // пустоту: человек открыл страницу, чтобы задать вопрос прямо сейчас.
+  const [channels, setChannels] = useState<SupportChannel[]>(SUPPORT_CHANNELS_FALLBACK)
+  useEffect(() => { fetchSupportChannels().then(setChannels) }, [])
+
   return (
     <div className="pb-24 max-w-3xl">
       <div className="flex items-center gap-3 mb-2">
@@ -34,7 +38,7 @@ export default function SupportContactPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {CHANNELS.map(ch => (
+        {channels.map(ch => (
           <a
             key={ch.key}
             href={ch.url}
@@ -46,7 +50,7 @@ export default function SupportContactPage() {
                 кружке читались как заглушка. Компонент общий — PlatformLogo. */}
             <div
               className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: ch.color }}
+              style={{ background: PLATFORM_COLORS[ch.key] || BRAND }}
             >
               <PlatformLogo slug={ch.key} size={24} color="#fff" />
             </div>

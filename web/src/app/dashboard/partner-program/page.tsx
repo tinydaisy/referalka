@@ -5,10 +5,21 @@ import { Copy, Check, ArrowRight, Users, Wallet, X, ExternalLink } from 'lucide-
 import { api } from '@/lib/api'
 import MaterialsTab from './MaterialsTab'
 
+/** Подписи площадок ПЛЮСОНа в порядке показа. Какие из них реально появятся,
+ *  решает админка — здесь только как их назвать. */
+const PLUSSON_PLATFORM_LABELS = [
+  { key: 'telegram', label: 'Telegram' },
+  { key: 'max', label: 'MAX' },
+  { key: 'vk', label: 'ВКонтакте' },
+]
+
 interface RefData {
   referral_code: string
-  // max приходит, только если у ПЛЮСОНа подключён MAX-бот с handle
-  links: { web: string; telegram: string; max?: string }
+  // ⚠️ Площадки задаются В АДМИНКЕ (одна настройка на подарок, поддержку и
+  // партнёрку — см. services/plusson_platforms.py). Поэтому ключи, кроме
+  // `web`, приходят не всегда: выключили площадку — ключа нет. Перечислять их
+  // на экране руками нельзя, иначе экран снова разъедется с остальными.
+  links: { web: string; telegram?: string; max?: string; vk?: string }
   balance_kopecks: number
   balance_rub: number
   can_withdraw: boolean
@@ -244,12 +255,15 @@ function PartnerProgramPageInner() {
               Реф-код: <code className="bg-gray-50 px-1.5 py-0.5 rounded">{data.referral_code}</code>
             </p>
             <div className="space-y-2">
-              {[
+              {/* Рисуем то, что прислал бэкенд, — в его порядке. Список площадок
+                  живёт в админке, и экран про него ничего не знает: добавится
+                  площадка — появится строка, выключат — исчезнет. */}
+              {([
                 { key: 'web', label: 'Сайт', url: data.links.web },
-                { key: 'telegram', label: 'Telegram', url: data.links.telegram },
-                // MAX — только если бэкенд прислал (у ПЛЮСОНа подключён MAX-бот)
-                ...(data.links.max ? [{ key: 'max', label: 'MAX', url: data.links.max }] : []),
-              ].map(({ key, label, url }) => (
+                ...PLUSSON_PLATFORM_LABELS
+                  .filter(({ key }) => (data.links as any)[key])
+                  .map(({ key, label }) => ({ key, label, url: (data.links as any)[key] as string })),
+              ]).map(({ key, label, url }) => (
                 <div key={key} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
                   <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>
                   <code className="flex-1 text-xs text-gray-700 truncate">{url}</code>

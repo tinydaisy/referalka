@@ -15,6 +15,7 @@ from app.api import client_offers, client_testimonials, client_payment_settings,
 from app.api import client_call_settings, call_campaigns, client_zoom_settings
 from app.api import tg_autosetup, admin_tg_setup, support_onboarding
 from app.api import admin_plusson_lm
+from app.api import support_public
 from app.api import partner_program, partner_public
 from app.api import platform_news
 # Генератор афиш события (миграции 435, 436, 440): макет + сборка картинки
@@ -314,6 +315,7 @@ app.include_router(support_onboarding.router,       prefix="/api/v1")           
 app.include_router(tg_autosetup.leadpay_webhook_router,  prefix="/api/v1")      # оплата услуги (LeadPay)
 app.include_router(tg_autosetup.prodamus_webhook_router, prefix="/api/v1")      # оплата услуги (Продамус)
 app.include_router(admin_tg_setup.router,           prefix="/api/v1")           # /api/v1/admin/tg-setup/*
+app.include_router(support_public.router,           prefix="/api/v1")           # /api/v1/support-channels — мессенджеры поддержки; ПУБЛИЧНЫЙ (страница /support открыта всем), миграция 476
 app.include_router(admin_plusson_lm.router,         prefix="/api/v1")           # /api/v1/admin/plusson-lead-magnet — текст и режим Плюсоновского лид-магнита (миграция 472)
 # Автонастройка Telegram «под ключ» — разовая услуга (миграция 364).
 app.include_router(event_orders.router)                                         # /api/v1/public/event-orders — заказ тарифа события с лендинга

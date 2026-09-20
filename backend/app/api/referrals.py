@@ -25,7 +25,6 @@ from app.services.bonuses import (
     mark_withdrawal_done,
     debit_bonus_for_payment,
 )
-from app.services.share_links import TG_DOMAIN
 from app.services import tariff_periods
 
 logger = logging.getLogger(__name__)
@@ -139,36 +138,22 @@ async def get_my_referral_dashboard(
 
     # Реф-ссылки. Payload `ref<код>` — один формат на все площадки; ветку его
     # разбора обязан иметь бот КАЖДОЙ площадки, иначе код молча теряется.
+    #
+    # ⚠️⚠️ ПЛОЩАДКИ СПРАШИВАЕМ У ОБЩЕЙ ФУНКЦИИ (`plusson_platforms`), своего
+    # списка здесь больше НЕТ. Раньше три ссылки склеивались тут руками, вместе
+    # с копией запроса про живой токен MAX-бота, — и ветку ВК в эту копию
+    # просто не добавили: в Плюсоновском подарке ВК был, в партнёрке его не
+    # было вовсе. Что показывать, решает админка, и решает один раз на все
+    # места сразу.
     ref_code = client["referral_code"]
     web_link = f"https://pluson.ru/?pid={ref_code}"
-    bot_link = f"https://{TG_DOMAIN}/pluson_bot?start=ref{ref_code}"
 
-    # MAX-ссылка — handle бота ПЛЮСОНа берём из БД, а не хардкодом: бот может
-    # быть перевыпущен, и захардкоженный ник увёл бы людей в никуда.
-    #
-    # ⚠️ ОБЯЗАТЕЛЬНО `bot_token <> ''`. У сервисного клиента есть карточка MAX-
-    # канала БЕЗ токена (`id890306512862_1_bot`) — бот за ней фактически не
-    # заведён: его вебхук не резолвится (`unknown secret` → 404), отвечать
-    # нечем. Ссылка на него молча вела в пустоту.
-    #
-    # Сервисный клиент в приоритете, но при отсутствии у него живого бота
-    # падаем на любой другой MAX-бот ПЛЮСОНа: реф-код разбирается в ЛЮБОМ боте
-    # платформы (см. _handle_max_plusson_ref), поэтому ссылка рабочая.
-    # Нет ни одного бота с токеном → ключа в ответе нет, строка не рисуется.
-    max_handle = await db.fetchval(
-        """SELECT ch.handle
-             FROM channels ch
-             JOIN client_channels cc ON cc.channel_id = ch.id
-             JOIN clients cl ON cl.id = cc.client_id
-            WHERE ch.platform_slug = 'max'
-              AND COALESCE(ch.handle, '') <> ''
-              AND COALESCE(ch.bot_token, '') <> ''
-            ORDER BY cl.is_system_service DESC, cc.is_active DESC, ch.id
-            LIMIT 1"""
-    )
-    links: dict[str, str] = {"web": web_link, "telegram": bot_link}
-    if max_handle:
-        links["max"] = f"https://max.ru/{max_handle.lstrip('@')}?start=ref{ref_code}"
+    from app.services.plusson_ref_links import plusson_ref_links
+    # source не передаём: это ОБЫЧНАЯ реф-ссылка клиента. Метка `-lm` в payload
+    # означает «пришёл с Плюсоновского подарка», и ставить её здесь нельзя —
+    # иначе в «Приведённых» все станут пришедшими с подарка.
+    links: dict[str, str] = {"web": web_link}
+    links.update(await plusson_ref_links(db, ref_code))
 
     # История бонусных операций — последние 100
     tx_rows = await db.fetch(
