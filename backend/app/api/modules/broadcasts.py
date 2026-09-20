@@ -48,6 +48,53 @@ async def _support_link_preview(db, client_id: int) -> str:
     return build_support_inline_html(row["work_tg_username"], row["work_vk"], row["work_max"])
 
 
+# Подписи кнопок регистрации в ПИСЬМЕ — одни на всю систему: боевая рассылка
+# (tasks/broadcast.py), тестовая отправка и превью. Расходиться им нельзя:
+# клиент проверяет одно, человек получает другое.
+SIGNUP_BTN_LABELS: tuple[tuple[str, str], ...] = (
+    ("telegram", "Зарегистрироваться через ТГ"),
+    ("max", "Зарегистрироваться через МАХ"),
+    ("vk", "Зарегистрироваться через ВК"),
+)
+
+
+async def _buttons_by_platform(db, client_id: int, event_id: int,
+                               buttons: list, platforms: list[str]) -> dict:
+    """Кнопки для КАЖДОЙ площадки превью.
+
+    ⚠️ В письме кнопка с {signup_link} разворачивается в ТРИ — по одной на
+    площадку (ограничение «один адрес» идёт от Telegram, к письму не
+    относится). В мессенджере остаётся одна, со ссылкой своей площадки.
+    Превью обязано показывать это различие, иначе клиент не видит, что
+    реально уйдёт на почту.
+    """
+    from app.services.share_links import resolve_gift_funnel_tokens
+    out: dict[str, list] = {}
+    for p in platforms:
+        signup = await _signup_link_preview(db, client_id, event_id, p)
+        rows: list[dict] = []
+        for b in (buttons or []):
+            raw = (b.get("url") or "").strip()
+            is_signup = raw in ("{signup_link}", "⟦SIGNUP⟧")
+            if is_signup and p == "email":
+                # Письмо: разворачиваем в три кнопки со своими адресами.
+                for pp, label in SIGNUP_BTN_LABELS:
+                    one = await _signup_link_preview(db, client_id, event_id, pp)
+                    # ⚠️ У площадки без своего бота ссылка приходит СПИСКОМ
+                    # (pick_signup_link отдаёт все с подписями) — такую кнопку
+                    # не показываем: в кнопку помещается один адрес.
+                    if one and "\n" not in one:
+                        rows.append({"text": label, "url": one})
+                continue
+            url = await resolve_gift_funnel_tokens(
+                db, client_id=client_id, text=raw, platform=p) if raw else ""
+            url = (url or "").replace("⟦SIGNUP⟧", signup).replace("{signup_link}", signup)
+            if url and "\n" not in url:
+                rows.append({"text": b.get("text") or "Открыть", "url": url})
+        out[p] = rows
+    return out
+
+
 async def _signup_link_preview(db, client_id: int, event_id: int,
                                platform: str = "telegram") -> str:
     """Значение {signup_link} для ПРЕВЬЮ и ТЕСТА — ссылка ЗАДАННОЙ площадки.
@@ -3194,18 +3241,26 @@ async def preview_schedule(
         # Подарки-лид-магниты в снимке помечены токенами ⟦GF:kind:slug⟧ — раскрываем
         # ссылкой на воронку по каждой площадке (как в обычном превью).
         from app.services.share_links import resolve_gift_funnel_tokens
-        _plats_sent = ["telegram", "vk", "max"]
+        # ⚠️ Email — такая же вкладка превью: текст письма отличается
+        # ({signup_link} разворачивается во все площадки), и кнопок там три.
+        _plats_sent = ["telegram", "vk", "max", "email"]
         text_by_platform = {}
         btn_by_platform = {}
         for _p in _plats_sent:
-            text_by_platform[_p] = await resolve_gift_funnel_tokens(
+            _sg = await _signup_link_preview(db, client_id, event_id, _p) if event_id else ""
+            text_by_platform[_p] = (await resolve_gift_funnel_tokens(
                 db, client_id=client_id, text=snap_text, platform=_p)
-            btn_by_platform[_p] = await resolve_gift_funnel_tokens(
+            ).replace("⟦SIGNUP⟧", _sg).replace("{signup_link}", _sg)
+            btn_by_platform[_p] = (await resolve_gift_funnel_tokens(
                 db, client_id=client_id, text=snap_btn, platform=_p)
+            ).replace("⟦SIGNUP⟧", _sg).replace("{signup_link}", _sg)
         return {
             "text": text_by_platform.get("telegram") or snap_text,
             "text_by_platform": text_by_platform,
             "button_url_by_platform": btn_by_platform,
+            "buttons_by_platform": (await _buttons_by_platform(
+                db, client_id, event_id, snap_buttons or [], _plats_sent)
+            ) if event_id else {},
             "subject": schedule.get("snapshot_subject"),
             "photo": schedule.get("snapshot_photo"),
             "video": schedule.get("snapshot_video"),
@@ -3288,7 +3343,17 @@ async def preview_schedule(
             WHERE cc.client_id = $1 AND ch.is_system = FALSE""",
         client_id)
     _active = {r["platform_slug"] for r in _rows}
+    # \u26a0\ufe0f EMAIL \u2014 \u0442\u0430\u043a\u0430\u044f \u0436\u0435 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0430 \u043f\u0440\u0435\u0432\u044c\u044e, \u043a\u0430\u043a \u043c\u0435\u0441\u0441\u0435\u043d\u0434\u0436\u0435\u0440\u044b, \u0438 \u0442\u0435\u043a\u0441\u0442 \u0442\u0430\u043c \u0414\u0420\u0423\u0413\u041e\u0419:
+    # {signup_link} \u0440\u0430\u0437\u0432\u043e\u0440\u0430\u0447\u0438\u0432\u0430\u0435\u0442\u0441\u044f \u0432\u043e \u0412\u0421\u0415 \u0441\u0441\u044b\u043b\u043a\u0438 \u0441 \u043f\u043e\u0434\u043f\u0438\u0441\u044f\u043c\u0438 (\u0432 \u043c\u0435\u0441\u0441\u0435\u043d\u0434\u0436\u0435\u0440
+    # \u0443\u0445\u043e\u0434\u0438\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0441\u0432\u043e\u044f). \u0411\u0435\u0437 \u0432\u043a\u043b\u0430\u0434\u043a\u0438 \u043a\u043b\u0438\u0435\u043d\u0442 \u043f\u0440\u043e\u0432\u0435\u0440\u044f\u043b \u043f\u0438\u0441\u044c\u043c\u043e \u0432\u0441\u043b\u0435\u043f\u0443\u044e.
+    # \u26a0\ufe0f Email-\u043a\u0430\u043d\u0430\u043b \u0443 \u0431\u043e\u043b\u044c\u0448\u0438\u043d\u0441\u0442\u0432\u0430 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u0421\u0418\u0421\u0422\u0415\u041c\u041d\u042b\u0419 (is_system=TRUE) \u0438 \u0432
+    # \u0432\u044b\u0431\u043e\u0440\u043a\u0443 \u0432\u044b\u0448\u0435 \u043d\u0435 \u043f\u043e\u043f\u0430\u0434\u0430\u0435\u0442 \u2014 \u043f\u043e\u044d\u0442\u043e\u043c\u0443 \u0434\u043e\u0431\u0430\u0432\u043b\u044f\u0435\u043c \u0435\u0433\u043e \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u043e\u0439 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u043e\u0439.
     _plats = [p for p in ("telegram", "vk", "max") if p in _active]
+    if await db.fetchval(
+        """SELECT 1 FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND ch.platform_slug = 'email'
+              AND cc.is_active = TRUE LIMIT 1""", client_id):
+        _plats.append("email")
     text_by_platform = {}
     btn_by_platform = {}
     for _p in _plats:
@@ -3309,6 +3374,11 @@ async def preview_schedule(
                  or next(iter(text_by_platform.values()), base_text)),
         "text_by_platform": text_by_platform,
         "button_url_by_platform": btn_by_platform,
+        # ⚠️ Кнопки ПО ПЛОЩАДКАМ: в письме кнопка {signup_link} разворачивается
+        # в три (см. tasks/broadcast.py), в мессенджере остаётся одна. Без
+        # этого превью показывало одну кнопку на всех вкладках.
+        "buttons_by_platform": await _buttons_by_platform(
+            db, client_id, event_id, content.get("buttons") or [], _plats),
         "subject": content.get("subject"),
         "photo": content["photo"],
         "video": content.get("video"),

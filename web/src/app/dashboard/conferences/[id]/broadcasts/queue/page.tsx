@@ -232,7 +232,7 @@ export default function QueuePage() {
   const [previewModal, setPreviewModal] = useState<any>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   // Площадка превью (Telegram/VK/MAX) — вкладки, если у подарков разные ссылки воронки.
-  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'max'>('telegram')
+  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'max' | 'email'>('telegram')
   const [manualModal, setManualModal] = useState(false)
   // Модалка «Сформировать из программы» — выбор шаблонов галочками.
   const [genModal, setGenModal] = useState(false)
@@ -1999,7 +1999,7 @@ export default function QueuePage() {
                 активная вкладка (не прячем, чтобы было видно, куда уйдёт). */}
             {previewModal.text_by_platform && (
               <div className="flex gap-1 mb-3">
-                {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX']] as const)
+                {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX'], ['email', 'Email']] as const)
                   .filter(([pk]) => pk in (previewModal.text_by_platform || {}))
                   .map(([pk, label]) => (
                     <button key={pk} onClick={() => setPreviewPlatform(pk)}
@@ -2029,9 +2029,16 @@ export default function QueuePage() {
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed break-words"
                 style={{ overflowWrap: 'anywhere' }}
                 dangerouslySetInnerHTML={{ __html: (previewModal.text_by_platform?.[previewPlatform] ?? previewModal.text) || '' }} />
-              {previewModal.buttons && previewModal.buttons.length > 0 ? (
+              {/* ⚠️ Кнопки берём ПО ПЛОЩАДКЕ: в письме кнопка регистрации
+                  разворачивается в три, в мессенджере остаётся одна. Список
+                  считает бэк (_buttons_by_platform) — одной логикой с боевой
+                  отправкой. Старый снимок без этого поля → общий список. */}
+              {(() => {
+                const perPlat = previewModal.buttons_by_platform?.[previewPlatform]
+                const btns = (perPlat && perPlat.length) ? perPlat : previewModal.buttons
+                return btns && btns.length > 0 ? (
                 <div className="mt-3 space-y-1.5">
-                  {previewModal.buttons.map((b: any, i: number) => (
+                  {btns.map((b: any, i: number) => (
                     <div key={i}>
                       <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
                         {b.text}
@@ -2051,7 +2058,8 @@ export default function QueuePage() {
                     </p>
                   )}
                 </>
-              ) : null}
+              ) : null
+              })()}
             </div>
             <p className="text-xs text-gray-400 mt-3 text-center">
               Данные подставлены из БД на момент открытия превью
