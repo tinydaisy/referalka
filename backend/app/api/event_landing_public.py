@@ -516,6 +516,7 @@ async def get_public_landing(
             "t.discount_kind, t.discount_value, t.pay_url, t.pay_product_id, "
             "t.order_hint, t.sort_order, t.is_featured, "
             "t.bonus_feature_id, COALESCE(t.bonus_days, 30) AS bonus_days, COALESCE(t.bonus_line_auto, TRUE) AS bonus_line_auto, "
+            "COALESCE(t.bonus_trial, FALSE) AS bonus_trial, "
             "f.name AS bonus_feature_name "
             "FROM event_tariffs t "
             "LEFT JOIN features f ON f.id = t.bonus_feature_id "
@@ -582,16 +583,25 @@ async def get_public_landing(
             # ⚠️ Галочка (мигр. 311): клиент может писать бонус сам в
             # описании тарифа — тогда автостроку не рисуем, иначе в
             # карточке получится дубль.
-            if d.get("bonus_feature_id") and d.get("bonus_line_auto"):
-                from app.services.plusson_bonus_texts import tariff_bonus_line
+            # ⚠️ Триал считается включённым бонусом наравне с модулем:
+            # тариф может дарить только подписку ПЛЮСОН, без модуля — такая
+            # плашка раньше не рисовалась вовсе.
+            if (d.get("bonus_feature_id") or d.get("bonus_trial")) and d.get("bonus_line_auto"):
+                from app.services.plusson_bonus_texts import tariff_bonus_lines
                 from app.services.plusson_bonus_days import bonus_day_numbers
                 _trial, _extra = await bonus_day_numbers(db)
-                d["bonus_line"] = tariff_bonus_line(
+                _lines = tariff_bonus_lines(
                     feature_name=d.get("bonus_feature_name"),
                     days=int(d.get("bonus_days") or 30),
-                    trial_days=_trial, extra_days=_extra,
+                    trial_days=_trial if d.get("bonus_trial") else 0,
+                    extra_days=_extra,
                 )
+                # Каждый бонус — своей плашкой. bonus_line оставлен для
+                # старых клиентов страницы, которые ждут одну строку.
+                d["bonus_lines"] = _lines
+                d["bonus_line"] = " + ".join(_lines)
             d.pop("bonus_feature_id", None)
+            d.pop("bonus_trial", None)
             d.pop("bonus_line_auto", None)
             items.append(d)
         # Данные для согласий на странице заказа: чья политика и от чьего

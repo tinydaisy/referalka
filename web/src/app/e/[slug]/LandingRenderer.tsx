@@ -1990,16 +1990,28 @@ function BlockBody(props: any) {
                     в настройке. Названы оба случая («для новых» / «для
                     действующих»), иначе человек с кабинетом решит, что его
                     обманули: ждал 30 дней, получил 3. */}
-                {x.bonus_line && (
-                  <div className="mt-4 rounded-xl px-3.5 py-3 text-[.85em] leading-relaxed"
-                       style={{
-                         border: `1px solid ${hexToRgba(iconColor, .45)}`,
-                         background: hexToRgba(iconColor, .08),
-                       }}>
-                    <span className="font-bold" style={{ color: iconColor }}>Бонус: </span>
-                    <span className="opacity-90">{x.bonus_line}</span>
-                  </div>
-                )}
+                {/* Каждый бонус — своя плашка: модуль и подписка ПЛЮСОН
+                    это два разных подарка, склеенные в одну строку они
+                    читались как один длинный абзац. Нумеруем, только когда
+                    подарков больше одного. bonus_line — запасной вариант
+                    для ответа старого формата (одна строка). */}
+                {(() => {
+                  const bonuses: string[] = x.bonus_lines?.length
+                    ? x.bonus_lines
+                    : (x.bonus_line ? [x.bonus_line] : []);
+                  return bonuses.map((line, i) => (
+                    <div key={i} className="mt-4 rounded-xl px-3.5 py-3 text-[.85em] leading-relaxed"
+                         style={{
+                           border: `1px solid ${hexToRgba(iconColor, .45)}`,
+                           background: hexToRgba(iconColor, .08),
+                         }}>
+                      <span className="font-bold" style={{ color: iconColor }}>
+                        {bonuses.length > 1 ? `Бонус ${i + 1}: ` : 'Бонус: '}
+                      </span>
+                      <span className="opacity-90">{line}</span>
+                    </div>
+                  ));
+                })()}
                 {/* Кнопка ведёт на НАШУ форму заказа: она опознаёт человека
                     по email/телефону, создаёт заказ и уводит на оплату.
                     Бесплатный тариф форма регистрирует сразу. */}

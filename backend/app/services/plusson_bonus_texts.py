@@ -194,15 +194,30 @@ def tariff_bonus_line(*, feature_name: Optional[str], days: int,
 
     Пусто → строки нет (у тарифа бонус не настроен).
     """
-    if not feature_name and not trial_days:
-        return ""
+    lines = tariff_bonus_lines(feature_name=feature_name, days=days,
+                               trial_days=trial_days, extra_days=extra_days)
+    return " + ".join(lines)
 
-    plusson = (
-        f"{_plural_days(trial_days)} доступа к iViSiON: ПЛЮСОН для новых клиентов "
-        f"или + {_plural_days(extra_days)} продления для действующих "
-        f"(система автоматизации привлечения клиентов для экспертов, спикеров "
-        f"и организаторов)"
-    )
+
+def tariff_bonus_lines(*, feature_name: Optional[str], days: int,
+                       trial_days: int, extra_days: int) -> list[str]:
+    """Бонусы тарифа ОТДЕЛЬНЫМИ строками — по одной плашке на бонус.
+
+    ⚠️ Модуль и подписка ПЛЮСОН — это два разных подарка, и в карточке они
+    должны читаться как два. Склеенные через «+» в одно предложение, они
+    давали плашку в четыре строки, где не видно, что подарков два.
+
+    ⚠️ Подписка попадает сюда и без модуля: тариф может дарить только
+    доступ к ПЛЮСОНу. Раньше такой бонус не показывался вовсе.
+    """
+    lines: list[str] = []
     if feature_name:
-        return (f"Доступ к модулю «{feature_name}» на {_plural_days(days)} + {plusson}")
-    return plusson
+        lines.append(f"Доступ к модулю «{feature_name}» на {_plural_days(days)}")
+    if trial_days:
+        lines.append(
+            f"{_plural_days(trial_days)} доступа к iViSiON: ПЛЮСОН для новых клиентов "
+            f"или + {_plural_days(extra_days)} продления для действующих "
+            f"(система автоматизации привлечения клиентов для экспертов, спикеров "
+            f"и организаторов)"
+        )
+    return lines
