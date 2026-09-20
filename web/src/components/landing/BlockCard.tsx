@@ -446,7 +446,20 @@ export default function BlockCard({
               {has('cards') && (
                 <CardsEditor
                   items={Array.isArray(items)
-                    ? items.filter((i: any) => i && typeof i === 'object' && 'title' in i)
+                    ? items.flatMap((i: any) => {
+                        if (i && typeof i === 'object' && 'title' in i) return [i]
+                        // ⚠️ Пункт-СТРОКА — так блок сохраняли раньше, и на проде
+                        // такие блоки живы. Лендинг их рисует (LandingRenderer
+                        // делит строку по переносу на название и описание), а
+                        // редактор их ОТБРАСЫВАЛ фильтром `'title' in i`: на
+                        // сайте секция есть, в кабинете «Карточки» пусто и
+                        // починить нечем. Разбираем так же, как рендерер.
+                        if (typeof i === 'string' && i) {
+                          const [head, ...rest] = i.split('\n')
+                          return [{ title: head, text: rest.join('\n').trim() }]
+                        }
+                        return []
+                      })
                     : []}
                   onChange={next => onPatch({ items: next })}
                 />
