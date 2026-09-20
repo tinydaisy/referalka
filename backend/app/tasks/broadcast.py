@@ -490,6 +490,9 @@ async def _send_broadcast(schedule_id: int):
         needs_signup = ("{signup_link}" in (text or "")) or ("{signup_link}" in (button_url or ""))
         signup_by_platform: dict[str, str] = {}
         signup_btn_by_platform: dict[str, str] = {}
+        # Ссылки регистрации по площадкам «как есть» — нужны письму, чтобы
+        # развернуть одну кнопку {signup_link} в три (см. email-часть ниже).
+        _slinks_for_email: dict[str, str] = {}
         support_by_platform: dict[str, str] = {}
         support_all_block = ""
         support_cmd_by_platform: dict[str, str] = {}
@@ -544,6 +547,7 @@ async def _send_broadcast(schedule_id: int):
                 p: pick_single_link(_slinks, p, _web)
                 for p in ("telegram", "vk", "max", "email")
             }
+            _slinks_for_email = dict(_slinks)
 
         def _with_support(txt: str | None, platform: str, *, as_url: bool = False) -> str:
             """{support_platform}/{support_link} → ОДИН контакт по площадке;
@@ -934,12 +938,40 @@ async def _send_broadcast(schedule_id: int):
         # === Email подписчики (доп. слой, после MAX) ===
         # Email-получатели клиента получают рассылку через локальный Postfix
         # с главного email-канала клиента. Один человек = один email = одно письмо.
+        # ⚠️⚠️ В ПИСЬМЕ КНОПКА С {signup_link} РАЗВОРАЧИВАЕТСЯ В ТРИ — по одной
+        # на площадку. Ограничение «строго один адрес» (см. signup_btn_by_platform)
+        # идёт от Telegram: он отвергает многострочный URL и роняет всё
+        # сообщение. К письму это не относится — build_email_body рисует список
+        # кнопок, и список там главнее одиночной кнопки.
+        #
+        # Без этого получатель письма видел ОДНУ кнопку на первую доступную
+        # площадку (Telegram), хотя текстом {signup_link} даёт ему все три:
+        # кнопки и текст противоречили друг другу.
+        #
+        # ⚠️ Разворачиваем ТОЛЬКО кнопки, чей адрес — ровно `{signup_link}`.
+        # Прочие кнопки клиента (оплата, лендинг) не трогаем.
+        _email_buttons = buttons
+        if needs_signup and _slinks_for_email:
+            _expanded: list = []
+            for _b in (buttons or []):
+                if (_b.get("url") or "").strip() == "{signup_link}":
+                    for _p, _label in (("telegram", "Через Телеграм"),
+                                       ("max", "Через МАКС"),
+                                       ("vk", "Через ВК")):
+                        _u = _slinks_for_email.get(_p)
+                        if _u:
+                            _expanded.append({"text": _label, "url": _u})
+                else:
+                    _expanded.append(_b)
+            if _expanded:
+                _email_buttons = _expanded
+
         try:
             email_sent = await _send_broadcast_email_part(
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text_for_email, "email"), "email"),
                 photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "email", as_url=True), "email", as_url=True)),
-                buttons=buttons, target_channel_set=target_channel_set,
+                buttons=_email_buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
                 video_url=video_url, media_type=media_type,
             )
