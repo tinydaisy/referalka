@@ -15,8 +15,8 @@ Endpoints:
     3. Возвращаем 302 на t.me/<bot>?start=fnl_<run_id>.
        run_id (а не slug) — чтобы бот мог сразу найти забег и не плодить дубликаты.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Response
+from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, Literal
 from urllib.parse import quote_plus
@@ -433,11 +433,126 @@ async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db:
     raise HTTPException(status_code=400, detail=f"Неизвестная платформа: {platform}")
 
 
-async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
-    qp = dict(request.query_params)
-    to_raw = (qp.get('to') or 'tg').lower()
-    platform = _PLATFORM_ALIASES.get(to_raw)
+_CHOOSE_PLATFORM_LABELS = {
+    "telegram": ("Telegram", "#229ED9"),
+    "max":      ("MAX",      "#6D4AFF"),
+    "vk":       ("ВКонтакте", "#0077FF"),
+}
+
+
+def _choose_messenger_page(name: str, links: dict) -> HTMLResponse:
+    """Страница «выберите мессенджер» — когда ссылку открыли в браузере.
+
+    ⚠️ Нужна только Плюсоновскому лид-магниту в режиме прямого перехода: у
+    обычной воронки площадка всегда известна из самой ссылки (`?to=`), а эту
+    клиент может кинуть в сторис голой — и тогда угадывать мессенджер за
+    человека нельзя. Отправить всех в Telegram значило бы потерять тех, у кого
+    его нет.
+
+    ⚠️ Страница своя, а не редирект на кабинет: человек ещё никто для нас, ему
+    нужен один выбор из трёх, а не интерфейс.
+    """
+    import html as _html
+    rows = "".join(
+        f'<a class="b" style="--c:{color}" href="{_html.escape(links[p])}">{label}</a>'
+        for p, (label, color) in _CHOOSE_PLATFORM_LABELS.items() if links.get(p)
+    )
+    return HTMLResponse(f"""<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Забрать подарок — iViSiON: ПЛЮСОН</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{{box-sizing:border-box}}
+  body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       padding:24px 16px;font-family:Roboto,system-ui,sans-serif;
+       background:linear-gradient(45deg,#25455D,#0a1520);color:#fff}}
+  .card{{width:100%;max-width:420px;text-align:center}}
+  h1{{font-size:20px;line-height:1.35;font-weight:700;margin:0 0 12px}}
+  p{{font-size:15px;line-height:1.5;color:#cfdae4;margin:0 0 28px}}
+  .b{{display:block;padding:15px 20px;margin-bottom:12px;border-radius:14px;
+      background:var(--c);color:#fff;text-decoration:none;font-weight:500;font-size:16px}}
+  .b:active{{opacity:.85}}
+  .n{{font-size:13px;color:#8fa3b5;margin-top:22px}}
+</style></head>
+<body><div class="card">
+  <h1>{_html.escape(name or 'Ваш подарок')}</h1>
+  <p>Выберите мессенджер, в котором вам удобно забрать — там и продолжим.</p>
+  {rows}
+  <div class="n">iViSiON: ПЛЮСОН</div>
+</div></body></html>""")
+
+
+async def _plusson_direct_landing(slug: str, lm_id: int, client_id: int,
+                                  name: str, platform: Optional[str],
+                                  qp: dict, db) -> Response:
+    """Прямой переход по Плюсоновскому лид-магниту — сразу в бот ПЛЮСОНа.
+
+    ⚠️⚠️ Режим «direct» (решение владельца 20.09.2026): человека догревает
+    команда ПЛЮСОНа, а не клиент. Поэтому в бот КЛИЕНТА мы его не заводим —
+    лишний шаг только терял бы часть людей.
+
+    ⚠️ Свой бот клиенту здесь НЕ НУЖЕН, и проверку на него мы осознанно не
+    делаем: подарок ведёт в бот ПЛЮСОНа, а не в клиентский. Клиент без единого
+    подключённого бота должен уметь раздавать эту ссылку — таких большинство в
+    первые дни после регистрации.
+
+    ⚠️ Забег пишем всё равно (`stage='landed'`): это единственное место, где
+    виден сам факт перехода. Дальше человек уходит в наш бот, и его путь
+    считается уже партнёркой.
+    """
+    from app.services.plusson_ref_links import plusson_ref_links
+    from app.services.plusson_lead_magnet import SOURCE_CODE
+
+    owner_code = await db.fetchval(
+        "SELECT referral_code FROM clients WHERE id = $1", client_id) or ""
+
+    # UTM: к метками из адреса добавляем свою — чтобы в отчётах переход по
+    # подарку отличался от перехода по обычной реф-ссылке клиента.
+    utm = {k: v for k, v in qp.items() if k.startswith('utm_')}
+    utm.setdefault('utm_source', SOURCE_CODE)
+
+    await db.execute(
+        """INSERT INTO funnel_runs
+             (client_id, type, lead_magnet_id, contact_id, utm, stage, landed_at, platform_slug)
+           VALUES ($1, 'lead_magnet', $2, NULL, $3::jsonb, 'landed', NOW(), $4)""",
+        client_id, lm_id, json.dumps(utm), platform,
+    )
+
+    links = await plusson_ref_links(db, owner_code, SOURCE_CODE)
+
+    # Площадка неизвестна (ссылку открыли в браузере) → выбор из трёх.
     if not platform:
+        if not links:
+            # Ботов ПЛЮСОНа нет ни на одной площадке — ведём на сайт с тем же
+            # реф-кодом: пустая страница хуже, чем регистрация на сайте.
+            from app.services.client_domains import platform_base_url
+            web = f"{platform_base_url().rstrip('/')}/?pid={owner_code}&src={SOURCE_CODE}"
+            return RedirectResponse(url=web, status_code=302)
+        if len(links) == 1:
+            return RedirectResponse(url=next(iter(links.values())), status_code=302)
+        return _choose_messenger_page(name, links)
+
+    # ⚠️ Бота на выбранной площадке нет → не 404, а страница выбора: человек
+    # пришёл за подарком, и отдать ему ошибку вместо рабочей ссылки нельзя.
+    url = links.get(platform)
+    if url:
+        return RedirectResponse(url=url, status_code=302)
+    return _choose_messenger_page(name, links)
+
+
+async def _landing(slug: str, kind: str, request: Request) -> Response:
+    qp = dict(request.query_params)
+    # ⚠️ Отличаем «площадку не указали» от «указали телеграм»: у Плюсоновского
+    # лид-магнита в прямом режиме голая ссылка означает «спроси человека», а
+    # молчаливый телеграм по умолчанию увёл бы в мессенджер, которого у него
+    # может не быть. У обычных воронок поведение прежнее — `tg`.
+    to_raw = (qp.get('to') or '').lower()
+    platform = _PLATFORM_ALIASES.get(to_raw) if to_raw else None
+    if to_raw and not platform:
         raise HTTPException(status_code=400, detail=f"Параметр to должен быть одним из: tg, vk, max")
 
     pool = await get_pool()
@@ -446,6 +561,17 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
         if not resolved:
             raise HTTPException(status_code=404, detail="Воронка не найдена")
         client_id, lm_id, pkg_id, _name = resolved
+
+        # ─── Плюсоновский лид-магнит: сразу в бот ПЛЮСОНа (миграция 472) ───
+        if lm_id and await db.fetchval(
+                "SELECT is_plusson FROM lead_magnets WHERE id = $1", lm_id):
+            from app.services.plusson_lead_magnet import get_settings
+            if (await get_settings(db))["delivery"] == "direct":
+                return await _plusson_direct_landing(
+                    slug, lm_id, client_id, _name, platform, qp, db)
+
+        # Дальше — обычная воронка. Площадка по умолчанию телеграмная, как было.
+        platform = platform or 'telegram'
 
         # Проверяем что у клиента подключён СВОЙ канал на выбранной платформе
         # (channels.is_system=FALSE). Системные каналы ПЛЮСОНа не используются —

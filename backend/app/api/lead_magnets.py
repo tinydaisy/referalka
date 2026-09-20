@@ -178,10 +178,15 @@ async def list_lead_magnets(
 ):
     cid = int(client["sub"])
     rows = await db.fetch(
+        # ⚠️ Плюсоновский — ПЕРВЫМ в списке (миграция 472): это готовый подарок,
+        # который у клиента уже настроен и работает. В общем алфавитном порядке
+        # он терялся бы среди своих материалов, и клиент про него не узнал бы —
+        # ровно та беда, из-за которой режимом `plusson_self` не пользовались.
         """SELECT id, name, description, url, slug, require_survey_id,
-                  link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at
+                  link_mode, button_label, link_source, support_prefill, partner_enabled,
+                  is_plusson, created_at, updated_at
            FROM lead_magnets WHERE client_id = $1
-           ORDER BY name""",
+           ORDER BY is_plusson DESC, name""",
         cid
     )
     items = [dict(r) for r in rows]
@@ -209,7 +214,8 @@ async def create_lead_magnet(
            VALUES ($1, $2, $3, $4, $5, COALESCE($6,'text'), $7, COALESCE($8, FALSE),
                    COALESCE($9,'fixed'), $10)
            RETURNING id, name, description, url, slug, require_survey_id,
-                      link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at""",
+                      link_mode, button_label, link_source, support_prefill, partner_enabled,
+                      is_plusson, created_at, updated_at""",
         cid, data.name.strip(), data.description,
         _url_for_source(data.url, _src), slug,
         _norm_link_mode(data.link_mode), _norm_button_label(data.button_label),
@@ -278,7 +284,8 @@ async def get_lead_magnet(
     cid = int(client["sub"])
     row = await db.fetchrow(
         """SELECT id, name, description, url, slug, require_survey_id,
-                  link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at
+                  link_mode, button_label, link_source, support_prefill, partner_enabled,
+                  is_plusson, created_at, updated_at
            FROM lead_magnets WHERE id = $1 AND client_id = $2""",
         lead_magnet_id, cid
     )
@@ -304,8 +311,19 @@ async def update_lead_magnet(
         # ⚠️ `require_survey_id` меняем только если фронт его прислал
         # (`model_fields_set`) — иначе сохранение формы без этого поля молча
         # снимало бы уже настроенный шлагбаум.
+        #
+        # ⚠️⚠️ У ПЛЮСОНОВСКОГО ЛИД-МАГНИТА название, описание, адрес и источник
+        # ссылки НЕ МЕНЯЮТСЯ (миграция 472). Это текст предложения платформы,
+        # он задаётся в админке один на всех, а ссылку собирает сервер. Правка
+        # здесь жила бы до следующего обновления текста из админки — то есть
+        # клиент решил бы, что сохранилось, а назавтра увидел прежнее.
+        # ⚠️ Проверка ЗАПРОСОМ, а не только замком в форме: значение приходит от
+        # браузера. Остальное (кнопка, анкета-шлагбаум, партнёрка) клиент
+        # настраивает как у любого своего материала.
         """UPDATE lead_magnets
-              SET name = $1, description = $2, url = $3,
+              SET name        = CASE WHEN is_plusson THEN name        ELSE $1 END,
+                  description = CASE WHEN is_plusson THEN description ELSE $2 END,
+                  url         = CASE WHEN is_plusson THEN url         ELSE $3 END,
                   require_survey_id = CASE WHEN $6 THEN $7 ELSE require_survey_id END,
                   -- ⚠️ Как и у анкеты: правим ТОЛЬКО присланное. Форма может
                   -- слать не все поля, и без этой проверки сохранение молча
@@ -316,13 +334,15 @@ async def update_lead_magnet(
                                          ELSE partner_enabled END,
                   -- Источник ссылки и кодовое слово (миграция 385) — по тому же
                   -- правилу «правим только присланное».
-                  link_source     = CASE WHEN $14 THEN COALESCE($15,'fixed')
+                  link_source     = CASE WHEN is_plusson THEN link_source
+                                         WHEN $14 THEN COALESCE($15,'fixed')
                                          ELSE link_source END,
                   support_prefill = CASE WHEN $16 THEN $17 ELSE support_prefill END,
                   updated_at = NOW()
             WHERE id = $4 AND client_id = $5
             RETURNING id, name, description, url, slug, require_survey_id,
-                      link_mode, button_label, link_source, support_prefill, partner_enabled, created_at, updated_at""",
+                      link_mode, button_label, link_source, support_prefill, partner_enabled,
+                      is_plusson, created_at, updated_at""",
         data.name.strip(), data.description,
         _url_for_source(data.url, _src),
         lead_magnet_id, cid,
@@ -349,6 +369,20 @@ async def delete_lead_magnet(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    # ⚠️⚠️ Плюсоновский лид-магнит удалению не подлежит (миграция 472): это не
+    # материал клиента, а инструмент платформы у него в кабинете. Проверяем
+    # ЗАПРОСОМ, а не скрытием кнопки: удаление приходит от браузера, и спрятанная
+    # кнопка обходится обычным запросом мимо интерфейса.
+    is_plusson = await db.fetchval(
+        "SELECT is_plusson FROM lead_magnets WHERE id = $1 AND client_id = $2",
+        lead_magnet_id, int(client["sub"])
+    )
+    if is_plusson:
+        raise HTTPException(
+            status_code=400,
+            detail="Этот подарок от платформы — его нельзя удалить. "
+                   "Не хотите показывать его аудитории — просто не используйте ссылку.",
+        )
     result = await db.execute(
         "DELETE FROM lead_magnets WHERE id = $1 AND client_id = $2",
         lead_magnet_id, int(client["sub"])

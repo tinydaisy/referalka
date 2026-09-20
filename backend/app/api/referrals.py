@@ -196,7 +196,10 @@ async def get_my_referral_dashboard(
 
     # Привлечённые рефералы — все клиенты с referred_by_client_id = $1
     referrals = await db.fetch(
-        """SELECT c.id, c.name, c.email, c.created_at,
+        # ⚠️ `referred_source` (миграция 472) — чем привели человека: пусто —
+        # обычной реф-ссылкой, `plusson_lm` — Плюсоновским лид-магнитом. Без
+        # этого поля два потока в списке неразличимы: реф-код у них один.
+        """SELECT c.id, c.name, c.email, c.created_at, c.referred_source,
                   cs.source AS sub_source, t.slug AS tariff_slug, t.name AS tariff_name,
                   cs.expires_at, (cs.expires_at > NOW()) AS sub_active,
                   COALESCE(c.referral_rate_percent, 10) AS rate_percent,

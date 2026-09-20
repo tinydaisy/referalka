@@ -233,7 +233,8 @@ async def _upgrade_pseudo_identities(user) -> None:
         log.warning("upgrade_pseudo_identities failed: %s", e)
 
 
-async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: str) -> None:
+async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: str,
+                                         source: str | None = None) -> None:
     """Закрепить ПЛЮСОН-реф-код за TG-контактом человека в базе клиента ЭТОГО бота.
 
     Резолвит клиента по боту (bot_id → channels → client_channels) и передаёт
@@ -255,6 +256,7 @@ async def _persist_plusson_referrer_code(conn, *, bot_id, tg_id, referral_code: 
         await persist_plusson_referrer_code(
             conn, client_id=client_id, platform="telegram",
             platform_user_id=str(tg_id), referral_code=referral_code,
+            source=source,
         )
     except Exception as e:
         log.warning("persist_plusson_referrer_code failed: %s", e)
@@ -989,10 +991,19 @@ async def handle_start(message: Message, command: CommandObject):
     #      (contacts.plusson_referrer_code), чтобы привязка не терялась, даже если
     #      кнопку нажмут не сразу. При регистрации /register возьмёт код отсюда,
     #      если в URL нет pid.
-    import re as _re
-    m = _re.fullmatch(r"ref([23456789abcdefghjkmnpqrstuvwxyz]{8})", args)
-    if m:
-        referral_code = m.group(1)
+    # ⚠️⚠️ РАЗБОР — ОБЩЕЙ ФУНКЦИЕЙ, а не своим `re.fullmatch` (20.09.2026).
+    # Здесь лежала копия выражения, и она не знала про хвост `-lm`, которым
+    # Плюсоновский лид-магнит помечает источник: payload `ref<код>-lm` ей не
+    # подходил вовсе, код молча терялся, и приведённый человек не засчитывался
+    # рефоводу. ВК и MAX эту же функцию звали с самого начала — расходилась
+    # только телеграмная ветка.
+    from app.services.plusson_referral import (
+        parse_plusson_ref_payload as _parse_ref,
+        parse_plusson_ref_source as _parse_ref_source,
+    )
+    referral_code = _parse_ref(args)
+    if referral_code:
+        referral_source = _parse_ref_source(args)
         try:
             from app.database import get_pool as _get_pool
             from app.services.plusson_referral import resolve_plusson_referrer
@@ -1011,6 +1022,7 @@ async def handle_start(message: Message, command: CommandObject):
                         bot_id=(message.bot.id if message.bot else None),
                         tg_id=user.id if user else None,
                         referral_code=referral_code,
+                        source=referral_source,
                     )
                     # «Новый интерес» — РЕФОВОДУ, а не владельцу бота: партнёрская
                     # программа принадлежит тому, чей код в ссылке.
@@ -1029,7 +1041,12 @@ async def handle_start(message: Message, command: CommandObject):
             if referrer_client_id:
                 # Регистрация в САМОЙ платформе — всегда основной домен,
                 # доменом клиента тут не пахнет.
+                # ⚠️ Источник тащим В АДРЕС РЕГИСТРАЦИИ, а не только на контакт:
+                # человек может зарегистрироваться сразу этой кнопкой, и тогда
+                # контакт с меткой ещё не успеет найтись по почте/телефону.
                 register_url = f"{platform_base_url()}/register?pid={referral_code}"
+                if referral_source:
+                    register_url += f"&src={referral_source}"
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="📝 Зарегистрироваться", url=register_url)
                 ]])

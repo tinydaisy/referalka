@@ -50,31 +50,40 @@ async def plusson_bot_handle(db, platform: str) -> str:
     ) or ""
 
 
-async def plusson_ref_links(db, ref_code: str) -> dict[str, str]:
+async def plusson_ref_links(db, ref_code: str, source: str | None = None) -> dict[str, str]:
     """Все ссылки на боты ПЛЮСОНа с реф-кодом: `{telegram, max, vk}`.
 
     Ключа нет, если бота на площадке нет или у него пустой токен.
+
+    `source` — чем привели человека (`plusson_lm` у Плюсоновского лид-магнита).
+    ⚠️ Дописывается в САМ payload, а не отдельным параметром ссылки: у ВК и MAX
+    лишние параметры до бота не доезжают вовсе, а payload доезжает всегда — он
+    и есть то единственное, что площадка передаёт боту.
     """
     code = (ref_code or "").strip()
     if not code:
         return {}
 
-    links = {"telegram": f"https://{TG_DOMAIN}/{PLUSON_TG_BOT}?start=ref{code}"}
+    from app.services.plusson_referral import plusson_ref_payload
+    pl = plusson_ref_payload(code, source)
+
+    links = {"telegram": f"https://{TG_DOMAIN}/{PLUSON_TG_BOT}?start={pl}"}
 
     h = await plusson_bot_handle(db, "max")
     if h:
-        links["max"] = f"https://max.ru/{h.lstrip('@')}?start=ref{code}"
+        links["max"] = f"https://max.ru/{h.lstrip('@')}?start={pl}"
 
     # ⚠️ У ВКонтакте payload приходит параметром `ref`, а не `start`: формат
     # ссылки на сообщество другой, чем у ботов TG и MAX.
     h = await plusson_bot_handle(db, "vk")
     if h:
-        links["vk"] = f"https://vk.me/{h.lstrip('@')}?ref=ref{code}"
+        links["vk"] = f"https://vk.me/{h.lstrip('@')}?ref={pl}"
 
     return links
 
 
-async def plusson_ref_link(db, ref_code: str, platform: str = "telegram") -> str:
+async def plusson_ref_link(db, ref_code: str, platform: str = "telegram",
+                           source: str | None = None) -> str:
     """Ссылка (или список ссылок) на бот ПЛЮСОНа — по площадке человека.
 
     ⚠️⚠️ ПРАВИЛО ТО ЖЕ, ЧТО У ВСЕХ ПОДАРКОВ (`pick_gift_funnel_link`), и оно
@@ -95,7 +104,7 @@ async def plusson_ref_link(db, ref_code: str, platform: str = "telegram") -> str
     if not code:
         return ""
 
-    links = await plusson_ref_links(db, code)
+    links = await plusson_ref_links(db, code, source)
     # ⚠️ Ботов нет ни на одной площадке (все отключены / без токена) → ведём на
     # САЙТ платформы с тем же реф-кодом. Пустая строка означала бы подарок без
     # ссылки, а сайт хотя бы доводит человека до регистрации — код лендинг
@@ -105,6 +114,8 @@ async def plusson_ref_link(db, ref_code: str, platform: str = "telegram") -> str
     # `pluson.ru` в коде быть не должно).
     from app.services.client_domains import platform_base_url
     web = f"{platform_base_url().rstrip('/')}/?pid={code}"
+    if source:
+        web += f"&src={source}"
     if not links:
         return web
     return pick_gift_funnel_link(links, (platform or "").lower()) or web

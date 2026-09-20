@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone, Wrench, ClipboardList } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone, Wrench, ClipboardList, Gift } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const adminNav = [
@@ -21,6 +21,9 @@ const adminNav = [
   { href: '/admin/custom-orders', label: 'Персональные заказы', icon: ClipboardList },
   { href: '/admin/withdrawals', label: 'Заявки на вывод', icon: CreditCard },
   { href: '/admin/referral-settings', label: 'Реф-программа', icon: Percent },
+  // Рядом с реф-программой: это её инструмент — подарок, которым клиенты
+  // приводят нам новых клиентов (миграция 472).
+  { href: '/admin/plusson-lead-magnet', label: 'Плюсоновский лид-магнит', icon: Gift },
   { href: '/admin/storage', label: 'Файловое хранилище', icon: HardDrive },
   { href: '/admin/legal-docs', label: 'Правовые документы', icon: FileText },
 ]

@@ -2311,6 +2311,18 @@ export const api = {
       }),
   },
 
+  // Плюсоновский лид-магнит (миграция 472) — текст и режим выдачи, одни на всех
+  adminPlussonLeadMagnet: {
+    get: () => request('/api/v1/admin/plusson-lead-magnet'),
+    update: (data: { name?: string; description?: string; delivery?: 'direct' | 'funnel' }) =>
+      request('/api/v1/admin/plusson-lead-magnet', {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    backfill: () =>
+      request('/api/v1/admin/plusson-lead-magnet/backfill', { method: 'POST' }),
+  },
+
   // Вебинарная комната (миграция 221) — комната на день события
   webinar: {
     listRooms: (eventId: number) => request(`/api/v1/events/${eventId}/webinar`),

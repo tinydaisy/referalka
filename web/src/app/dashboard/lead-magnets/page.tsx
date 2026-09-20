@@ -38,6 +38,11 @@ interface LeadMagnet {
   require_survey_id?: number | null
   partner_enabled?: boolean
   platform_links?: PlatformLinks
+  /**
+   * Плюсоновский лид-магнит — подарок от платформы (миграция 472). Есть у
+   * каждого клиента, удалить нельзя, название и ссылку задаёт платформа.
+   */
+  is_plusson?: boolean
   created_at: string
   updated_at: string
 }
@@ -361,6 +366,25 @@ function LandedCounter({
   )
 }
 
+/**
+ * Счётчик Плюсоновского лид-магнита: сколько человек перешло по ссылке.
+ *
+ * ⚠️ Одна цифра, а не три как у обычного подарка: этапов «забрал / не забрал»
+ * здесь нет вовсе — материал и есть переход. Что было дальше (завёл ли человек
+ * кабинет и заплатил ли), знает партнёрка, туда клик и ведёт.
+ */
+function PlussonCounter({ clicks, href }: { clicks: number; href: string }) {
+  return (
+    <a href={href}
+       title="Сколько человек перешло по ссылке. Кто из них зарегистрировался — в «Партнёрке ПЛЮСОНа»"
+       className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+         clicks ? 'bg-[#FFCFA4] text-[#25455D] hover:brightness-95' : 'bg-gray-100 text-gray-400'
+       }`}>
+      <Users size={12} /> {clicks}
+    </a>
+  )
+}
+
 function MagnetsList() {
   const { isAssistant } = useMe()
   const [items, setItems] = useState<LeadMagnet[]>([])
@@ -429,18 +453,47 @@ function MagnetsList() {
                 <Gift size={18} />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-gray-900">{lm.name}</div>
+                <div className="font-medium text-gray-900">
+                  {lm.name}
+                  {lm.is_plusson && (
+                    <span className="ml-2 align-middle inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#FFCFA4] text-[#25455D]">
+                      от платформы
+                    </span>
+                  )}
+                </div>
+                {/* ⚠️ У Плюсоновского адрес в базе — плейсхолдер `{plsn_bot}`:
+                    настоящую ссылку собирает сервер под площадку человека.
+                    Показать его как ссылку значило бы дать клиенту неработающий
+                    адрес — вместо этого объясняем словами. */}
+                {lm.is_plusson ? (
+                  <div className="text-xs mt-1 text-gray-500">
+                    Ссылку настраивать не надо — человек попадёт в ПЛЮСОН через
+                    свой мессенджер, а приведённый закрепится за вами.
+                  </div>
+                ) : (
                 <a href={lm.url} target="_blank" rel="noreferrer"
                    className="inline-flex items-center gap-1 text-xs mt-1 text-gray-400 hover:underline truncate">
                   <ExternalLink size={12} />
                   <span className="truncate">{lm.url}</span>
                 </a>
+                )}
                 <div><CopyIdButton slug={lm.slug} /></div>
                 <div className="mt-2">
                   <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} name={lm.name} blocked={!!channelsReady && channelsReady.has_bot && !channelsReady.ready} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
+                {/* ⚠️ У Плюсоновского считать нечего в обычной CRM: человек
+                    уходит в бот ПЛЮСОНа, а не в бот клиента, и контактом
+                    клиента не становится. Поэтому и цифры, и клик по ним — про
+                    партнёрку: сколько людей перешло и сколько из них завело
+                    кабинет. */}
+                {lm.is_plusson ? (
+                  <PlussonCounter
+                    clicks={counts[lm.id]?.landed || 0}
+                    href="/dashboard/partner-program?tab=referrals&src=plusson_lm"
+                  />
+                ) : (
                 <LandedCounter
                   reached={counts[lm.id]?.known || 0}
                   received={counts[lm.id]?.delivered || 0}
@@ -448,6 +501,7 @@ function MagnetsList() {
                   href={`/dashboard/clients?lead_magnet_ids=${lm.id}`}
                   crmHref={`/dashboard/lead-magnets/crm?lead_magnet_id=${lm.id}`}
                 />
+                )}
                 <button onClick={() => setAnalyticsOpen(lm)} title="Аналитика"
                         className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
                   <BarChart3 size={16} />
@@ -458,10 +512,16 @@ function MagnetsList() {
                             className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100">
                       <Pencil size={16} />
                     </button>
-                    <button onClick={() => handleDelete(lm.id)} title="Удалить"
-                            className="p-2 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
-                      <Trash2 size={16} />
-                    </button>
+                    {/* ⚠️ Плюсоновский не удаляется: это инструмент платформы в
+                        кабинете клиента, а не его материал. Сервер такое
+                        удаление тоже не примет — кнопку прячем, чтобы человек
+                        не жал в пустоту. */}
+                    {!lm.is_plusson && (
+                      <button onClick={() => handleDelete(lm.id)} title="Удалить"
+                              className="p-2 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -520,6 +580,8 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   const isAdminTariff = (meForSurveys as any)?.subscription?.tariff_slug === 'admin'
   const [partnerOn, setPartnerOn] = useState<boolean>(
     !!(initial as any)?.partner_enabled)
+  // Подарок от платформы (миграция 472): текст и ссылка задаются в админке.
+  const isPlusson = !!(initial as any)?.is_plusson
   useEffect(() => {
     if (!hasSurveys) return
     api.surveys.list().then(setSurveys).catch(() => setSurveys([]))
@@ -531,7 +593,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
     // ⚠️ При «ссылке на ПЛЮСОН» поле «Ссылка» НЕ обязательно: адрес
     // подставляет сервер под площадку человека, вписывать его руками нечем и
     // незачем. Требовать его здесь значило бы не дать сохранить форму.
-    const linkNeeded = !linkSource.startsWith('plusson_')
+    const linkNeeded = !linkSource.startsWith('plusson_') && !isPlusson
     if (!name.trim() || (linkNeeded && !url.trim())) {
       setErr(linkNeeded ? 'Название и ссылка обязательны' : 'Название обязательно'); return
     }
@@ -556,22 +618,37 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
   return (
     <Modal title={initial ? 'Редактировать лид-магнит' : 'Новый лид-магнит'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* ⚠️⚠️ У Плюсоновского название, описание и ссылку задаёт платформа —
+            поля показываем для чтения. Дать их править значило бы дать правке
+            прожить до следующего обновления текста из админки: клиент решил бы,
+            что сохранилось, а назавтра увидел прежнее. */}
+        {isPlusson && (
+          <div className="rounded-xl bg-[#FFF9F3] border border-[#FFCFA4] p-3.5 text-xs text-[#25455D]">
+            <b>Это подарок от платформы.</b> Название, описание и ссылку задаёт
+            ПЛЮСОН — они одинаковые у всех и обновляются сами. Ваше здесь — кнопка,
+            анкета перед выдачей и партнёрская программа.
+          </div>
+        )}
         <Field label="Название *">
           <textarea value={name} onChange={e => setName(e.target.value)} rows={2}
-                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                 placeholder="Чек-лист по продажам" autoFocus />
+                 disabled={isPlusson}
+                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y disabled:bg-gray-50 disabled:text-gray-500"
+                 placeholder="Чек-лист по продажам" autoFocus={!isPlusson} />
         </Field>
+        {!isPlusson && (
         <Field label="Ссылка *">
           <input type="url" value={url} onChange={e => setUrl(e.target.value)}
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                  placeholder="https://example.com/file.pdf" />
         </Field>
+        )}
         <Field label="Описание">
           <textarea value={description} onChange={e => setDescription(e.target.value)}
-                 rows={2}
-                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                 rows={2} disabled={isPlusson}
+                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                  placeholder="Короткое описание — покажется в воронке под названием подарка (плейсхолдер {materials_list_description})" />
         </Field>
+        {!isPlusson && (
         <Field label="Откуда берётся ссылка">
           <select value={linkSource} onChange={e => setLinkSource(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -591,6 +668,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
             </p>
           )}
         </Field>
+        )}
         <Field label="Как выдавать материал">
           <select value={linkMode} onChange={e => setLinkMode(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">

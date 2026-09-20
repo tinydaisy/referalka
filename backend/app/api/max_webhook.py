@@ -1577,7 +1577,9 @@ async def _process_start(
     # Без этой ветки payload проваливался в разбор `ref_pg{slug}` и код рефовода
     # молча терялся: человек регистрировался, но за партнёром не закреплялся.
     if payload:
-        from app.services.plusson_referral import parse_plusson_ref_payload
+        from app.services.plusson_referral import (
+            parse_plusson_ref_payload, parse_plusson_ref_source,
+        )
         _ref_code = parse_plusson_ref_payload(payload)
         if _ref_code:
             try:
@@ -1585,6 +1587,7 @@ async def _process_start(
                     _ref_code, user_id=user_id, chat_id=chat_id,
                     username=username, first_name=first_name, last_name=last_name,
                     bot_token=bot_token, client_id_override=client_id_override,
+                    source=parse_plusson_ref_source(payload),
                 )
             except Exception as e:  # noqa: BLE001
                 logger.exception(f"MAX plusson ref handler failed: {e}")
@@ -2254,6 +2257,7 @@ async def _handle_max_plusson_ref(
     referral_code: str, *, user_id: int, chat_id: int,
     username: str | None, first_name: str | None, last_name: str | None,
     bot_token: str, client_id_override: int | None,
+    source: str | None = None,
 ) -> None:
     """Вход по ПЛЮСОН-реф-ссылке в MAX: `max.ru/{handle}?start=ref<8симв>`.
 
@@ -2314,6 +2318,7 @@ async def _handle_max_plusson_ref(
             await persist_plusson_referrer_code(
                 conn, client_id=client_id, platform="max",
                 platform_user_id=str(user_id), referral_code=referral_code,
+                source=source,
             )
             # «Новый интерес» — РЕФОВОДУ, а не владельцу бота: партнёрская
             # программа принадлежит тому, чей код в ссылке.
@@ -2331,7 +2336,11 @@ async def _handle_max_plusson_ref(
             )
 
     # Регистрация в САМОЙ платформе — всегда основной домен, не клиентский.
+    # ⚠️ Источник тащим и в адрес: человек может зарегистрироваться сразу этой
+    # кнопкой, до того как метку найдут по контакту.
     register_url = f"{platform_base_url()}/register?pid={referral_code}"
+    if source:
+        register_url += f"&src={source}"
     hello = (first_name or "").strip()
     if referrer_client_id:
         text = (

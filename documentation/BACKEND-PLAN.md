@@ -1127,3 +1127,47 @@ WEBHOOK_SECRET=       ← секрет для входящих webhook от ле
 предпросмотр (`poster_render.py`), — не Pillow и не canvas: иначе предпросмотр
 разошёлся бы с готовым файлом на переносах фамилий и кегле. Очередь печати
 `_PRINT_LOCK` общая с PDF лендингов и обложками — по одной картинке за раз.
+
+---
+
+## Плюсоновский лид-магнит (миграция 472, 20.09.2026)
+
+Подарок платформы в кабинете КАЖДОГО клиента: он раздаёт доступ к ПЛЮСОНу и
+получает за пришедших реферальные начисления. Подробно — в
+[BOTS-AND-MINIAPP.md](architecture/BOTS-AND-MINIAPP.md#плюсоновский-лид-магнит--подарок-платформы-у-каждого-клиента-миграция-472-от-2026-09-20).
+
+### Изменения в БД
+
+| Таблица | Колонка | Что |
+|---|---|---|
+| `lead_magnets` | `is_plusson BOOLEAN NOT NULL DEFAULT FALSE` | признак платформенного подарка; уникальный частичный индекс `lead_magnets_plusson_uidx ON (client_id) WHERE is_plusson` — ровно один на клиента |
+| `platform_settings` | `plusson_lm_name TEXT` | название, одно на всю платформу |
+| `platform_settings` | `plusson_lm_description TEXT` | описание |
+| `platform_settings` | `plusson_lm_delivery TEXT NOT NULL DEFAULT 'direct'` | CHECK `('direct','funnel')` — куда ведёт прямая ссылка |
+| `clients` | `referred_source TEXT` | чем привели: `plusson_lm` \| NULL (обычная реф-ссылка) |
+| `contacts` | `plusson_referrer_source TEXT` | то же, но на контакте — до регистрации помнить метку больше негде |
+
+Миграция раздаёт подарок всем существующим клиентам (163 на момент выката) —
+slug генерируется тем же алфавитом и проверяется на уникальность И по
+`lead_magnet_packages`.
+
+### API
+
+| Метод | Путь | Что |
+|---|---|---|
+| `GET` | `/admin/plusson-lead-magnet` | текст, режим и цифры (сколько экземпляров, переходов, регистраций, у скольких клиентов подарка нет) |
+| `PATCH` | `/admin/plusson-lead-magnet` | сохранить; текст разносится по всем экземплярам в той же транзакции |
+| `POST` | `/admin/plusson-lead-magnet/backfill` | раздать тем, у кого нет (клиент мог появиться в обход регистрации) |
+
+### Правила доступа
+
+- Админские ручки — `get_current_admin`, как и вся `/admin/*`.
+- `DELETE /lead-magnets/{id}` при `is_plusson` → **400**, а не удаление.
+  Проверка запросом, а не скрытием кнопки: удаление приходит от браузера.
+- `PATCH /lead-magnets/{id}` при `is_plusson` **не меняет** `name`,
+  `description`, `url`, `link_source` — остальное клиент настраивает как обычно.
+- Формат payload реф-ссылки: `ref<8симв>` либо `ref<8симв>-lm`. Разбор — только
+  через `parse_plusson_ref_payload` / `parse_plusson_ref_source`
+  ([plusson_referral.py](backend/app/services/plusson_referral.py)), своих
+  регулярных выражений в ботах быть не должно: копия, не знающая про хвост,
+  молча теряет реф-код целиком.

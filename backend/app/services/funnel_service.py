@@ -230,7 +230,7 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
     if run["lead_magnet_id"]:
         rows = await db.fetch(
             "SELECT id, slug, name, url, description, link_mode, button_label, "
-            "       link_source, support_prefill "
+            "       link_source, support_prefill, is_plusson "
             "  FROM lead_magnets WHERE id = $1",
             run["lead_magnet_id"]
         )
@@ -238,7 +238,7 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
         rows = await db.fetch(
             """SELECT lm.id, lm.slug, lm.name, lm.url, lm.description,
                       lm.link_mode, lm.button_label,
-                      lm.link_source, lm.support_prefill
+                      lm.link_source, lm.support_prefill, lm.is_plusson
                  FROM lead_magnet_package_items pi
                  JOIN lead_magnets lm ON lm.id = pi.lead_magnet_id
                 WHERE pi.package_id = $1
@@ -315,6 +315,7 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
              or (m.get("link_source") or "").startswith("plusson_")]
     if _plsn:
         from app.services.plusson_ref_links import plusson_ref_link
+        from app.services.plusson_lead_magnet import SOURCE_CODE as PLUSSON_LM_SOURCE
         platform = (run.get("platform_slug") or "telegram")
 
         # Реф-код ВЛАДЕЛЬЦА бота — он же запасной для режима «ссылка рефовода».
@@ -334,7 +335,11 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
             # Отдать пустоту нельзя: подарок без ссылки хуже, чем подарок,
             # приведший человека владельцу бота.
             code = (referrer_code or owner_code) if src == "plusson_referrer" else owner_code
-            link = await plusson_ref_link(db, code, platform)
+            # ⚠️ Плюсоновский лид-магнит помечает ссылку источником (миграция
+            # 472): иначе пришедшего с подарка не отличить в партнёрке от
+            # пришедшего по обычной реф-ссылке — код-то один и тот же.
+            _src_tag = PLUSSON_LM_SOURCE if m.get("is_plusson") else None
+            link = await plusson_ref_link(db, code, platform, source=_src_tag)
             if m.get("url"):
                 m["url"] = m["url"].replace("{plsn_bot}", link)
             if src.startswith("plusson_") and not (m.get("url") or "").strip():

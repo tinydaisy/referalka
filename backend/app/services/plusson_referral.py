@@ -43,16 +43,58 @@ log = logging.getLogger(__name__)
 # Формат ПЛЮСОН-реф-кода в deeplink: `ref` + 8 символов безопасного алфавита
 # (без визуально похожих 0/o/1/l/i). Один и тот же во всех ботах.
 PLUSSON_REF_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
-PLUSSON_REF_RE = r"ref([" + PLUSSON_REF_ALPHABET + r"]{8})"
+# ⚠️ Хвост `-<источник>` НЕОБЯЗАТЕЛЕН и появился 20.09.2026 вместе с
+# Плюсоновским лид-магнитом: по нему видно, ЧЕМ привели человека, — подарком
+# или обычной реф-ссылкой. Без хвоста payload разбирается как раньше, поэтому
+# все выданные до этого ссылки продолжают работать.
+#
+# ⚠️⚠️ РАЗБОР ОДИН НА ВСЕ ПЛОЩАДКИ и живёт только здесь. Свой `re.fullmatch` в
+# боте ровно этим и опасен: он не знает про хвост, `ref<код>-lm` ему не
+# подходит вовсе — и реф-код молча теряется, а приведённый человек не
+# засчитывается никому. Ровно так уже было, когда копия жила в start.py.
+PLUSSON_REF_RE = r"ref([" + PLUSSON_REF_ALPHABET + r"]{8})(?:-([a-z_]{1,16}))?"
+
+# Источник «привели Плюсоновским лид-магнитом». Одна константа на payload,
+# `contacts.plusson_referrer_source` и `clients.referred_source`.
+PLUSSON_REF_SOURCE_LM = "plusson_lm"
+
+# В ссылке источник пишем коротко: payload у Telegram ограничен 64 символами,
+# и длинное слово там ни к чему.
+_SOURCE_BY_TAG = {"lm": PLUSSON_REF_SOURCE_LM}
+_TAG_BY_SOURCE = {v: k for k, v in _SOURCE_BY_TAG.items()}
+
+
+def plusson_ref_payload(code: str, source: Optional[str] = None) -> str:
+    """Собрать payload реф-ссылки: `ref<код>` либо `ref<код>-lm`.
+
+    ⚠️ Собираем функцией, а не строкой на месте: формат разбирается в трёх
+    ботах, и склеенный вручную хвост «почти того же вида» ни в одном из них не
+    распознается.
+    """
+    tag = _TAG_BY_SOURCE.get(source or "")
+    return f"ref{code}-{tag}" if tag else f"ref{code}"
 
 
 def parse_plusson_ref_payload(payload: Optional[str]) -> Optional[str]:
-    """Из deeplink-payload `ref<8симв>` достать сам код. Не подошло → None."""
+    """Из deeplink-payload `ref<8симв>[-<источник>]` достать сам код."""
     import re as _re
     if not payload:
         return None
     m = _re.fullmatch(PLUSSON_REF_RE, payload.strip())
     return m.group(1) if m else None
+
+
+def parse_plusson_ref_source(payload: Optional[str]) -> Optional[str]:
+    """Из того же payload достать источник (`plusson_lm`) или None.
+
+    Неизвестный хвост игнорируем, а не считаем ошибкой: ссылку мог собрать
+    старый код или человек руками — код в ней важнее источника.
+    """
+    import re as _re
+    if not payload:
+        return None
+    m = _re.fullmatch(PLUSSON_REF_RE, payload.strip())
+    return _SOURCE_BY_TAG.get(m.group(2) or "") if m else None
 
 
 async def persist_plusson_referrer_code(
@@ -62,6 +104,7 @@ async def persist_plusson_referrer_code(
     platform: str,
     platform_user_id: Optional[str],
     referral_code: str,
+    source: Optional[str] = None,
 ) -> None:
     """Закрепить ПЛЮСОН-реф-код за контактом человека в базе клиента этого бота.
 
@@ -72,20 +115,26 @@ async def persist_plusson_referrer_code(
     Первый рефовод выигрывает: перезаписываем, только если поле пустое
     (миграция 206). Ошибки глушим — это вспомогательная привязка, она не должна
     ронять обработку /start.
+
+    ⚠️ `source` (миграция 472) записывается ТЕМ ЖЕ запросом и по тому же
+    правилу «первый выигрывает»: источник обязан относиться к тому же коду, что
+    лёг рядом. Отдельным UPDATE он мог бы приписаться к коду другого рефовода —
+    и в партнёрке чужой приход засчитался бы как приведённый лид-магнитом.
     """
     if not client_id or not platform_user_id or not referral_code:
         return
     try:
         await conn.execute(
             """UPDATE contacts c
-                  SET plusson_referrer_code = $1
+                  SET plusson_referrer_code = $1,
+                      plusson_referrer_source = $5
                  FROM platform_users p
                 WHERE p.contact_id = c.id
                   AND c.client_id = $2
                   AND p.platform_slug = $3
                   AND p.platform_user_id = $4
                   AND (c.plusson_referrer_code IS NULL OR c.plusson_referrer_code = '')""",
-            referral_code, client_id, platform, str(platform_user_id),
+            referral_code, client_id, platform, str(platform_user_id), source,
         )
     except Exception as e:  # noqa: BLE001
         log.warning("persist_plusson_referrer_code failed: %s", e)

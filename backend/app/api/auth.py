@@ -46,6 +46,10 @@ class RegisterRequest(BaseModel):
     password: str
     partner_code: str | None = None
     pid: str | None = None  # реф-код пригласившего клиента (миграция 125)
+    # Чем именно привели (миграция 472): `plusson_lm` — Плюсоновским
+    # лид-магнитом партнёра, пусто — обычной реф-ссылкой. Нужен, чтобы в
+    # партнёрке эти два потока не слипались: реф-код у них один и тот же.
+    src: str | None = None
     # Идентичность на площадке (если регистрация пришла из МедиаЛифта прямо из
     # бота): передаётся гет-параметром, чтобы СРАЗУ связать карточку коллаба
     # этого человека в событии medialift с новым клиентским аккаунтом.
@@ -152,6 +156,11 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
     # понимает оба и возвращает нужного клиента. Невалидный код → None (без связи).
     referred_by_client_id = await resolve_plusson_referrer(db, data.pid)
 
+    # Чем привели (миграция 472). ⚠️ Берём ТОЛЬКО вместе с рефоводом: метка без
+    # рефовода ничего не значит и в партнёрке ни к кому не относится.
+    from app.services.plusson_lead_magnet import SOURCE_CODE as _LM_SOURCE
+    referred_source = _LM_SOURCE if (referred_by_client_id and data.src == _LM_SOURCE) else None
+
     # Фолбэк (миграция 206): если в URL не было pid, но человек ранее заходил в
     # ЛЮБОЙ VIP-бот по ссылке /start ref<код> — код закреплён за его контактом
     # (contacts.plusson_referrer_code). Находим контакт по email/телефону/TG-нику
@@ -160,8 +169,8 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
     if not referred_by_client_id:
         _uname = (data.telegram_username or "").lstrip("@").strip().lower()
         _phone_digits = "".join(ch for ch in (data.phone or "") if ch.isdigit())
-        saved_code = await db.fetchval(
-            """SELECT c.plusson_referrer_code
+        saved = await db.fetchrow(
+            """SELECT c.plusson_referrer_code, c.plusson_referrer_source
                  FROM contacts c
                  LEFT JOIN platform_users p
                         ON p.contact_id = c.id AND p.platform_slug = 'telegram'
@@ -180,8 +189,13 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
                 LIMIT 1""",
             data.email, _phone_digits, _uname,
         )
-        if saved_code:
-            referred_by_client_id = await resolve_plusson_referrer(db, saved_code)
+        if saved and saved["plusson_referrer_code"]:
+            referred_by_client_id = await resolve_plusson_referrer(
+                db, saved["plusson_referrer_code"])
+            # ⚠️ Источник берём ОТТУДА ЖЕ, откуда код: метка относится именно к
+            # тому рефоводу, что лежит рядом с ней на контакте.
+            if referred_by_client_id and saved["plusson_referrer_source"] == _LM_SOURCE:
+                referred_source = _LM_SOURCE
 
     # Генерим реф-код для нового клиента
     import random
@@ -271,6 +285,7 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
                                  offer_accepted_at, offer_accepted_version,
                                  privacy_consent_at, privacy_consent_version,
                                  acceptance_ip, work_tg_username, is_tech_test,
+                                 referred_source,
                                  -- ⚠️ Почта оператора персданных = почта
                                  -- кабинета (решение владельца 16.09.2026).
                                  -- Это обязательное поле для публикации
@@ -281,7 +296,7 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
                                  -- Юридические данные».
                                  legal_operator_email)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                    NOW(), $13, NOW(), $14, $15, $16, $17, $3)
+                    NOW(), $13, NOW(), $14, $15, $16, $17, $18, $3)
             RETURNING id, name, last_name, email
             """,
             data.name, data.last_name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
@@ -290,6 +305,7 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
             OFFER_VERSION, PRIVACY_POLICY_VERSION, _accept_ip,
             work_tg or None,
             bool(data.is_tech_test),
+            referred_source,
         )
 
         # Создаём запись бонусного баланса (NULL не допустим, всегда нулевая запись)
@@ -316,6 +332,15 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
             "INSERT INTO client_modules (client_id, module_slug) VALUES ($1, 'base') ON CONFLICT DO NOTHING",
             client["id"]
         )
+
+        # Плюсоновский лид-магнит — сразу, с первой минуты (миграция 472).
+        # ⚠️ Сбой ГЛУШИМ: подарок не стоит того, чтобы из-за него не создался
+        # кабинет. Пропущенных доберёт кнопка «Раздать недостающим» в админке.
+        try:
+            from app.services.plusson_lead_magnet import ensure_for_client
+            await ensure_for_client(db, client["id"])
+        except Exception:  # noqa: BLE001
+            logger.exception("Плюсоновский лид-магнит: не создан при регистрации клиента %s", client["id"])
 
         # Архитектура G: новым клиентам привязываем ТОЛЬКО системный email-канал.
         # Общие TG/VK/MAX-каналы ПЛЮСОНа как fallback больше не используются —

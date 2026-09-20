@@ -161,6 +161,15 @@ async def _create_client(db, *, email: str, name: str | None, phone: str | None,
         client_id,
     )
 
+    # Плюсоновский лид-магнит — у каждого клиента с первой минуты (мигр. 472).
+    # ⚠️ Заводится и здесь, а не только в обычной регистрации: клиент, рождённый
+    # этим путём, тоже попадает в кабинет и ждёт увидеть тот же набор.
+    try:
+        from app.services.plusson_lead_magnet import ensure_for_client
+        await ensure_for_client(db, client_id)
+    except Exception:  # noqa: BLE001 — подарок не стоит несозданного кабинета
+        logger.warning("bonus: не создан Плюсоновский лид-магнит у клиента %s", client_id)
+
     # Ставка реф-программы замораживается на клиенте при рождении (мигр. 227).
     if referrer_client_id:
         try:

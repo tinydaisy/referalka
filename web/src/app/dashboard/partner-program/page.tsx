@@ -41,7 +41,11 @@ const WD_STATUS: Record<string, { label: string; color: string }> = {
 }
 
 type Tab = 'main' | 'materials' | 'referrals' | 'payouts'
-type RefFilter = 'all' | 'active' | 'inactive'
+// 'lm' — пришли с Плюсоновского лид-магнита (миграция 472). Это отдельный
+// поток: реф-код у него тот же, что у обычной ссылки, и без метки два способа
+// привлечения в списке слипались бы в один.
+type RefFilter = 'all' | 'active' | 'inactive' | 'lm'
+const LM_SOURCE = 'plusson_lm'
 
 
 // ⚠️⚠️ ОБЯЗАТЕЛЬНАЯ ОБЁРТКА. У страницы нет динамического сегмента в адресе,
@@ -73,6 +77,16 @@ function PartnerProgramPageInner() {
   }
   useEffect(() => { load() }, [])
 
+  // Пришли сюда кликом по счётчику Плюсоновского лид-магнита (`?src=plusson_lm`)
+  // → сразу показываем только его поток, иначе человек попал бы в общий список
+  // и не понял, где те люди, за которыми он шёл.
+  // ⚠️ В эффекте, а не в начальном состоянии: страница пререндерится на сборке,
+  // и разное значение на сервере и в браузере дало бы расхождение гидрации.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('src') === LM_SOURCE) setRefFilter('lm')
+  }, [])
+
   function copy(label: string, text: string) {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(label)
@@ -86,8 +100,12 @@ function PartnerProgramPageInner() {
   // Реферал «действующий» = есть активная подписка (sub_active). Иначе — недействующий (подписка остановилась/истекла).
   const activeCount = data.referrals.filter((r: any) => r.sub_active).length
   const inactiveCount = data.referrals.length - activeCount
+  const lmCount = data.referrals.filter((r: any) => r.referred_source === LM_SOURCE).length
   const filteredReferrals = data.referrals.filter((r: any) =>
-    refFilter === 'all' ? true : refFilter === 'active' ? r.sub_active : !r.sub_active
+    refFilter === 'all' ? true
+      : refFilter === 'lm' ? r.referred_source === LM_SOURCE
+      : refFilter === 'active' ? r.sub_active
+      : !r.sub_active
   )
 
   const TABS: { key: Tab; label: string }[] = [
@@ -267,6 +285,9 @@ function PartnerProgramPageInner() {
                 { key: 'all' as RefFilter, label: `Все · ${data.referrals.length}` },
                 { key: 'active' as RefFilter, label: `Действующие · ${activeCount}` },
                 { key: 'inactive' as RefFilter, label: `Остановлены · ${inactiveCount}` },
+                // Показываем, только если такие люди есть: пустая вкладка у
+                // клиента, который подарок ещё не раздавал, только мешает.
+                ...(lmCount ? [{ key: 'lm' as RefFilter, label: `С подарка · ${lmCount}` }] : []),
               ].map(f => (
                 <button
                   key={f.key}
@@ -296,6 +317,12 @@ function PartnerProgramPageInner() {
                       }`}>
                         {r.sub_active ? 'Действует' : 'Остановлена'}
                       </span>
+                      {r.referred_source === LM_SOURCE && (
+                        <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-[#FFCFA4] text-[#25455D]"
+                              title="Пришёл по вашему Плюсоновскому лид-магниту">
+                          с подарка
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-gray-400">
                       {r.email} · с {new Date(r.created_at).toLocaleDateString('ru-RU')}

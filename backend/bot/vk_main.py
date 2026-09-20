@@ -142,19 +142,25 @@ def _extract_ref_with_prefix(message_or_event: dict, prefix: str) -> int | None:
     return None
 
 
-def _extract_plusson_ref_code(message_or_event: dict) -> str | None:
-    """Ищет ПЛЮСОН-реф-код: `ref=ref<8симв>` (реф-программа самой платформы).
+def _extract_plusson_ref(message_or_event: dict) -> tuple[str | None, str | None]:
+    """Ищет ПЛЮСОН-реф-код: `ref=ref<8симв>[-<источник>]`. Вернёт (код, источник).
 
     ⚠️ Не путать с `ref_pg{slug}` (ссылка на событие) — там после `ref` идёт
     `_pg`, а строгий формат кода (8 символов безопасного алфавита) его не
     матчит. Проверять этот код надо ДО разбора ссылок событий.
+
+    ⚠️ Источник достаём ЗДЕСЬ ЖЕ, одним проходом по кандидатам: вторым проходом
+    он мог бы прийти из другой метки того же события и приписаться к чужому
+    коду.
     """
-    from app.services.plusson_referral import parse_plusson_ref_payload
+    from app.services.plusson_referral import (
+        parse_plusson_ref_payload, parse_plusson_ref_source,
+    )
     for s in _ref_candidates(message_or_event):
         code = parse_plusson_ref_payload(s)
         if code:
-            return code
-    return None
+            return code, parse_plusson_ref_source(s)
+    return None, None
 
 
 def _extract_partner_invite(message_or_event: dict) -> int | None:
@@ -487,7 +493,8 @@ async def _vk_handle_product_link(parsed: dict, vk_user_id: int,
 
 async def _vk_handle_plusson_ref(referral_code: str, vk_user_id: int,
                                  username: str | None, first_name: str | None,
-                                 last_name: str | None, db, ctx) -> None:
+                                 last_name: str | None, db, ctx,
+                                 source: str | None = None) -> None:
     """Вход по ПЛЮСОН-реф-ссылке в ВК: `vk.me/{group}?ref=ref<8симв>`.
 
     Зеркало TG-ветки в bot/handlers/start.py и MAX-ветки в max_webhook.py:
@@ -524,6 +531,7 @@ async def _vk_handle_plusson_ref(referral_code: str, vk_user_id: int,
         await persist_plusson_referrer_code(
             db, client_id=ctx.client_id, platform="vk",
             platform_user_id=str(vk_user_id), referral_code=referral_code,
+            source=source,
         )
         # «Новый интерес» — РЕФОВОДУ, а не владельцу сообщества: партнёрская
         # программа принадлежит тому, чей код в ссылке.
@@ -542,7 +550,11 @@ async def _vk_handle_plusson_ref(referral_code: str, vk_user_id: int,
 
     hello = (first_name or "").strip()
     # Регистрация в САМОЙ платформе — всегда основной домен, не клиентский.
+    # ⚠️ Источник тащим и в адрес: человек может зарегистрироваться сразу этой
+    # кнопкой, до того как метку найдут по контакту.
     register_url = f"{platform_base_url()}/register?pid={referral_code}"
+    if source:
+        register_url += f"&src={source}"
     if referrer_client_id:
         text = (
             f"Привет{', ' + hello if hello else ''}! 👋\n\n"
@@ -1044,11 +1056,11 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
 
     # ПЛЮСОН-реф-код: ref=ref<8симв>. Проверяем ПЕРВЫМ среди ref-веток — формат
     # строгий, с событийным `ref_pg{slug}` не пересекается.
-    _pl_code = _extract_plusson_ref_code(event)
+    _pl_code, _pl_src = _extract_plusson_ref(event)
     if _pl_code:
         try:
             await _vk_handle_plusson_ref(
-                _pl_code, int(user_id), None, None, None, db, ctx)
+                _pl_code, int(user_id), None, None, None, db, ctx, source=_pl_src)
             return
         except Exception as e:  # noqa: BLE001
             logger.warning("VK plusson ref (message_allow) failed: %s", e)
@@ -2017,11 +2029,12 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
 
     # ПЛЮСОН-реф-код: ref=ref<8симв> (если ЛС уже разрешены, ref приходит сюда).
     # Первым среди ref-веток — формат строгий, с `ref_pg{slug}` не пересекается.
-    _pl_code_new = _extract_plusson_ref_code(event_obj)
+    _pl_code_new, _pl_src_new = _extract_plusson_ref(event_obj)
     if _pl_code_new:
         try:
             await _vk_handle_plusson_ref(
-                _pl_code_new, int(from_id), None, None, None, db, ctx)
+                _pl_code_new, int(from_id), None, None, None, db, ctx,
+                source=_pl_src_new)
             return
         except Exception as e:  # noqa: BLE001
             logger.warning("VK plusson ref (message_new) failed: %s", e)
