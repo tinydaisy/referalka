@@ -181,6 +181,10 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
                   COALESCE(NULLIF(lm.name,''), NULLIF(pk.name,''), 'Подарок') AS title,
                   t.gift_template_text AS description,
                   lm.url AS link_url,
+                  -- ⚠️ Плюсоновский подарок ссылку НЕ хранит: она собирается
+                  -- под площадку человека с реф-кодом владельца (link_source).
+                  lm.link_source AS link_source,
+                  COALESCE(lm.is_plusson, FALSE) AS is_plusson,
                   COALESCE(lm.slug, pk.slug) AS lm_slug,
                   COALESCE(lm.client_id, pk.client_id) AS lm_client_id,
                   (t.package_id IS NOT NULL) AS is_package,
@@ -213,6 +217,11 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
         for g in gifts:
             if not g.get("lm_slug"):
                 continue
+            # ⚠️⚠️ ПЛЮСОНОВСКИЙ ПОДАРОК ЗДЕСЬ НЕ ТРОГАЕМ: воронка и боты у него
+            # НАШИ, а `build_funnel_landing_links` отдаёт боты КЛИЕНТА — человек
+            # ушёл бы к организатору вместо ПЛЮСОНа.
+            if (g.get("link_source") or "").startswith("plusson_"):
+                continue
             web_url = await client_public_link(
                 db, g.get("lm_client_id"),
                 f"{'p' if g.get('is_package') else 'm'}/{g['lm_slug']}")
@@ -225,6 +234,28 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
             g["platform_links"] = {k: v for k, v in (links or {}).items() if v}
             g["web_url"] = web_url
             g["link_url"] = web_url
+
+    # ── Подарки, ведущие в бот ПЛЮСОНа ────────────────────────────────────
+    # ⚠️⚠️ Без этого страница отдавала `{plsn_bot}` КАК АДРЕС — плейсхолдер
+    # раскрывался только при выдаче в боте, и человек попадал на «Не удалось
+    # загрузить событие». Сборка — в ОБЩЕЙ функции с Mini App (`api/gifts.py`).
+    #
+    # ⚠️ Площадка зрителя здесь неизвестна (он в браузере), поэтому предпочтения
+    # не задаём: страница покажет выбор по `platform_links`.
+    from app.services.plusson_lead_magnet import fill_gift_links
+    _plsn_referrer = ""
+    if viewer_contact_id:
+        _plsn_referrer = await db.fetchval(
+            """SELECT rc.ref_code
+                 FROM event_participants ep
+                 JOIN contacts rc ON (rc.ref_code = ep.referrer_ref_code
+                                      OR rc.merged_ref_codes ? ep.referrer_ref_code)
+                WHERE ep.event_id = $1 AND ep.contact_id = $2
+                  AND ep.referrer_ref_code IS NOT NULL
+                LIMIT 1""",
+            event_id, int(viewer_contact_id),
+        ) or ""
+    await fill_gift_links(db, gifts, referrer_code=_plsn_referrer)
 
     def _has_ph(s):
         return "{plsn_ref}" in (s or "") or "{ext_ref}" in (s or "")

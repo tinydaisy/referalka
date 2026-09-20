@@ -214,3 +214,69 @@ async def reach_count(db: asyncpg.Connection, client_id: int) -> int:
             WHERE plusson_referrer_code = $1
               AND plusson_referrer_source = $2""",
         code, SOURCE_CODE) or 0)
+
+
+async def fill_gift_links(db: asyncpg.Connection, gifts: list[dict], *,
+                          referrer_code: str = "",
+                          prefer_platform: Optional[str] = None) -> None:
+    """Проставить ссылки подаркам, которые ведут в бот ПЛЮСОНа. Меняет на месте.
+
+    ⚠️⚠️ ОДНА ФУНКЦИЯ НА ВСЕ ВИТРИНЫ. Подарки участнику показывают Mini App
+    (`api/gifts.py`) и веб-страница события (`api/event_page_html.py`), и обе
+    отдавали `{plsn_bot}` СТРОКОЙ КАК ЕСТЬ: плейсхолдер раскрывался только при
+    выдаче в боте (`funnel_service`). Фронт открывал его как относительный
+    адрес, и человек попадал на «Не удалось загрузить событие». У самого
+    Плюсоновского подарка `url` пустой вовсе — ссылка собирается из
+    `link_source`, и пустое поле выглядело так же.
+
+    Ждёт в каждом подарке: `link_source`, `is_plusson`, `link_url`,
+    `lm_client_id`. Проставляет `platform_links`, `web_url`, `link_url`.
+
+    `referrer_code` — код рефовода зрителя (режим `plusson_referrer`).
+    `prefer_platform` — площадка, с которой пришёл человек: её ссылка ставится
+    в `link_url`. Неизвестна — берём первую включённую, а фронт покажет выбор
+    по `platform_links`.
+    """
+    targets = [g for g in gifts
+               if (g.get("link_source") or "").startswith("plusson_")
+               or URL_PLACEHOLDER in (g.get("link_url") or "")]
+    if not targets:
+        return
+
+    from app.services.plusson_ref_links import plusson_ref_links
+    from app.services.client_domains import platform_base_url
+
+    for g in targets:
+        src = g.get("link_source") or ""
+        owner_code = await db.fetchval(
+            "SELECT referral_code FROM clients WHERE id = $1", g.get("lm_client_id")) or ""
+        # ⚠️ «Ссылка рефовода» — с ЗАПАСНЫМ вариантом на владельца: рефовода
+        # может не быть или он не клиент ПЛЮСОНа, и тогда код никуда не
+        # резолвится. Подарок без ссылки хуже, чем подарок, приведший человека
+        # владельцу.
+        code = (referrer_code or owner_code) if src == "plusson_referrer" else owner_code
+
+        # ⚠️ Площадки спрашиваем у общей функции: какие показывать, решает
+        # админка (миграция 476), и знать это витрине неоткуда.
+        # Метка источника — только у самого Плюсоновского подарка: по ней
+        # пришедшие с него отличаются в партнёрке от пришедших по обычной
+        # реф-ссылке, код-то один и тот же.
+        links = await plusson_ref_links(
+            db, code, SOURCE_CODE if g.get("is_plusson") else None)
+
+        # Запасной адрес — сайт платформы с тем же кодом: включённых ботов
+        # может не остаться вовсе, а пустая кнопка хуже сайта.
+        web = ""
+        if code:
+            web = f"{platform_base_url().rstrip('/')}/?pid={code}"
+            if g.get("is_plusson"):
+                web += f"&src={SOURCE_CODE}"
+
+        one = (links.get(prefer_platform) if prefer_platform else None) \
+            or next(iter(links.values()), "") or web
+
+        g["platform_links"] = links
+        g["web_url"] = web
+        url = g.get("link_url") or ""
+        g["link_url"] = (url.replace(URL_PLACEHOLDER, one)
+                         if URL_PLACEHOLDER in url else (url or one))

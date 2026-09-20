@@ -162,6 +162,10 @@ async def _fetch_gifts_for_event(
                COALESCE(lm.description, pk.description) AS description,
                t.threshold_count                       AS points_cost,
                lm.url                                  AS link_url,
+               -- ⚠️ Плюсоновский подарок ссылку НЕ хранит: она собирается под
+               -- площадку человека с реф-кодом владельца (link_source).
+               lm.link_source                          AS link_source,
+               COALESCE(lm.is_plusson, FALSE)          AS is_plusson,
                COALESCE(lm.slug, pk.slug)              AS lm_slug,
                COALESCE(lm.client_id, pk.client_id)    AS lm_client_id,
                (t.package_id IS NOT NULL)              AS is_package,
@@ -191,6 +195,11 @@ async def _fetch_gifts_for_event(
         for g in gifts:
             if not g.get("lm_slug"):
                 continue
+            # ⚠️⚠️ ПЛЮСОНОВСКИЙ ПОДАРОК ЗДЕСЬ НЕ ТРОГАЕМ. Воронка и боты у него
+            # НАШИ, а `build_funnel_landing_links` отдаёт боты КЛИЕНТА — человек
+            # ушёл бы к организатору вместо ПЛЮСОНа. Его ссылки собираются ниже.
+            if (g.get("link_source") or "").startswith("plusson_"):
+                continue
             # ⚠️ У ПАКЕТА свой префикс адреса: `/p/{slug}`, у магнита `/m/`.
             # Один префикс на оба вида вёл бы пакет на несуществующую страницу.
             _kind = "p" if g.get("is_package") else "m"
@@ -218,6 +227,18 @@ async def _fetch_gifts_for_event(
             g["web_url"] = web_url
             g["link_url"] = web_url
 
+    # ── Подарки, ведущие в бот ПЛЮСОНа ────────────────────────────────────
+    # ⚠️ Сборка — в ОБЩЕЙ функции: ровно то же самое нужно веб-странице события
+    # (`event_page_html`), и вторая копия разъехалась бы с этой.
+    from app.services.plusson_lead_magnet import fill_gift_links
+    _rp = await _referrer_link_params(event_id, tg_id, db)
+    await fill_gift_links(
+        db, gifts,
+        referrer_code=_rp.get("plsn_ref") or "",
+        # Витрина знает tg_id → человек пришёл из Telegram, ему нашу ТГ-ссылку.
+        prefer_platform="telegram" if tg_id else None,
+    )
+
     # Подставляем плейсхолдеры только если они реально встречаются — иначе не
     # трогаем БД лишним запросом рефовода. (При via_funnel прямые url заменены на
     # воронку, где плейсхолдеров нет — подстановка тут просто не сработает.)
@@ -235,6 +256,8 @@ async def _fetch_gifts_for_event(
     for g in gifts:
         g.pop("lm_slug", None)
         g.pop("lm_client_id", None)   # служебное поле резолва домена
+        g.pop("link_source", None)    # служебное: как собирается ссылка
+        g.pop("is_plusson", None)
     return gifts
 
 
