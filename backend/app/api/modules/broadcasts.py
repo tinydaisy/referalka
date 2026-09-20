@@ -3459,6 +3459,7 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                 # Тест-отправка = истинная ссылка: подставляем реальный contact_id
                 # тестового получателя (по его tg_id), как в боевой рассылке.
                 _tt, _tb = tg_text, tg_burl
+                _rep = ""          # подстановка ?c={contact_id}; пусто — если контакт не найден
                 if db and client_id and ("?c=__CT__" in (tg_text or "") or "?c=__CT__" in (tg_burl or "")):
                     _ct = await db.fetchval(
                         "SELECT pu.contact_id FROM platform_users pu "
@@ -3469,9 +3470,22 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                     _rep = f"?c={_ct}" if _ct else ""
                     _tt = (tg_text or "").replace("?c=__CT__", _rep)
                     _tb = (tg_burl or "").replace("?c=__CT__", _rep) if tg_burl else tg_burl
+                # ⚠️⚠️ КНОПКИ РАСКРЫВАЕМ, как ВК и МАКС ниже (_burl_raw). Здесь
+                # список уходил СЫРЫМ: в кнопке оставался маркер ⟦SIGNUP⟧, и
+                # Telegram отклонял ВСЁ сообщение («inline keyboard button URL
+                # is invalid»). До получателя доходила только картинка — текст
+                # и кнопки пропадали молча.
+                _tg_buttons = []
+                for _b in (buttons or []):
+                    _u = await _burl_raw(_b.get("url") or "", "telegram")
+                    if _u:
+                        _tg_buttons.append({
+                            "text": _b.get("text") or "Открыть",
+                            "url": _u.replace("?c=__CT__", _rep),
+                        })
                 ok, err = await send_telegram_message(
                     http, bot_token, chat_id, _tt, photo, btn_text, _tb,
-                    buttons=buttons or None,
+                    buttons=_tg_buttons or None,
                     video_url=video if m_type == "video" else None)
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
     if test_vk_ids:
@@ -3593,6 +3607,37 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
             # обязательно передать в sender.send — иначе <img src="cid:…">
             # останется битым.
             email_btn_url = await _burl("email")
+            # ⚠️⚠️ КНОПКИ ПИСЬМА: маркер ⟦SIGNUP⟧ раскрываем (иначе в письмо
+            # уходила кнопка с сырым маркером), а кнопку регистрации
+            # РАЗВОРАЧИВАЕМ В ТРИ — по одной на площадку, ровно как боевая
+            # рассылка (tasks/broadcast.py). Тест обязан показывать то же, что
+            # получит человек, иначе проверять письмо бессмысленно.
+            _email_buttons: list[dict] = []
+            for _b in (buttons or []):
+                _raw = (_b.get("url") or "").strip()
+                if _raw == "⟦SIGNUP⟧" and db and client_id and event_id:
+                    from app.services.share_links import (
+                        get_client_bot_handles as _gh, get_client_vk_app_id as _gv,
+                        build_event_signup_links as _bl,
+                    )
+                    _slug = await db.fetchval("SELECT slug FROM events WHERE id=$1", event_id)
+                    _mm = await db.fetchrow(
+                        "SELECT link_mode_telegram, link_mode_vk, link_mode_max "
+                        "FROM clients WHERE id=$1", client_id)
+                    _lnk = _bl(
+                        await _gh(db, client_id), _slug or "",
+                        modes={"telegram": _mm["link_mode_telegram"], "vk": _mm["link_mode_vk"],
+                               "max": _mm["link_mode_max"]} if _mm else {},
+                        vk_app_id=await _gv(db, client_id),
+                    )
+                    for _p, _lbl in (("telegram", "Через Телеграм"),
+                                     ("max", "Через МАКС"), ("vk", "Через ВК")):
+                        if _lnk.get(_p):
+                            _email_buttons.append({"text": _lbl, "url": _lnk[_p]})
+                else:
+                    _u = await _burl_raw(_raw, "email")
+                    if _u:
+                        _email_buttons.append({"text": _b.get("text") or "Открыть", "url": _u})
             built = await build_email_body(
                 text=str(email_body),
                 photo_url=photo,
@@ -3600,7 +3645,7 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                 media_type=m_type,
                 button_text=btn_text,
                 button_url=email_btn_url,
-                buttons=buttons or None,
+                buttons=_email_buttons or None,
             )
             html = built.html
             email_body = built.text
