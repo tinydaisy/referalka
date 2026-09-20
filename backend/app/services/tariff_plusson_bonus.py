@@ -164,9 +164,15 @@ async def _create_client(db, *, email: str, name: str | None, phone: str | None,
     # Плюсоновский лид-магнит — у каждого клиента с первой минуты (мигр. 472).
     # ⚠️ Заводится и здесь, а не только в обычной регистрации: клиент, рождённый
     # этим путём, тоже попадает в кабинет и ждёт увидеть тот же набор.
+    #
+    # ⚠️⚠️ В ТОЧКЕ СОХРАНЕНИЯ, как и в обычной регистрации: эта функция тоже
+    # вызывается внутри транзакции (`grant_tariff_bonus`), а упавший запрос
+    # переводит всю транзакцию в аварийное состояние — выдача модуля и запись
+    # о бонусе свалились бы следом. Один `try/except` от этого не спасает.
     try:
         from app.services.plusson_lead_magnet import ensure_for_client
-        await ensure_for_client(db, client_id)
+        async with db.transaction():
+            await ensure_for_client(db, client_id)
     except Exception:  # noqa: BLE001 — подарок не стоит несозданного кабинета
         logger.warning("bonus: не создан Плюсоновский лид-магнит у клиента %s", client_id)
 

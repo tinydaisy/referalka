@@ -92,9 +92,10 @@ export default function AdminPlussonLeadMagnetPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex gap-3 items-start">
           <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
           <div className="text-sm text-amber-900">
-            <b>У {data.missing} клиентов подарка нет.</b> Так быть не должно —
-            новым он выдаётся при регистрации. Значит кабинет завели в обход
-            регистрации или создание подарка сорвалось. Скажите — раздадим.
+            <b>У {data.missing} клиентов подарка нет.</b> Так быть не должно:
+            подарок заводится в обеих точках создания кабинета, других нет.
+            Значит создание сорвалось на уровне базы — скажите, разберёмся и
+            раздадим.
           </div>
         </div>
       )}

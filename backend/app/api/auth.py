@@ -334,11 +334,19 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
         )
 
         # Плюсоновский лид-магнит — сразу, с первой минуты (миграция 472).
-        # ⚠️ Сбой ГЛУШИМ: подарок не стоит того, чтобы из-за него не создался
-        # кабинет. Пропущенных доберёт кнопка «Раздать недостающим» в админке.
+        #
+        # ⚠️⚠️ ОБЯЗАТЕЛЬНО В ТОЧКЕ СОХРАНЕНИЯ (`db.transaction()` вложенной —
+        # asyncpg делает из неё SAVEPOINT). Мы внутри большой транзакции
+        # регистрации, и одного `try/except` тут МАЛО: упавший запрос переводит
+        # ВСЮ транзакцию в аварийное состояние, и всё, что идёт ниже
+        # (email-канал, бренд, приветственное письмо), свалится с «current
+        # transaction is aborted». То есть перехват исключения выглядел бы
+        # защитой, а на деле ронял бы регистрацию целиком — ровно то, от чего
+        # мы страховались. Savepoint откатывает только подарок.
         try:
             from app.services.plusson_lead_magnet import ensure_for_client
-            await ensure_for_client(db, client["id"])
+            async with db.transaction():
+                await ensure_for_client(db, client["id"])
         except Exception:  # noqa: BLE001
             logger.exception("Плюсоновский лид-магнит: не создан при регистрации клиента %s", client["id"])
 
