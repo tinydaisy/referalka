@@ -171,6 +171,22 @@ class LeadMagnetIn(BaseModel):
     partner_enabled: Optional[bool] = None
 
 
+async def _links_for(db, client_id: int, item: dict) -> dict:
+    """Ссылки для раздачи — по площадкам.
+
+    ⚠️ У Плюсоновского подарка они СВОИ (см. `share_links` в
+    services/plusson_lead_magnet.py): обычная функция дала бы deeplink в бот
+    КЛИЕНТА, то есть мимо нашего перехода — и человек попадал бы к клиенту
+    вместо ПЛЮСОНа. А у клиента без ботов ссылок не было бы вовсе.
+    """
+    base = await _public_base(db, client_id)
+    if item.get("is_plusson"):
+        from app.services.plusson_lead_magnet import share_links
+        return await share_links(db, client_id, item["slug"], base)
+    return await build_funnel_landing_links(
+        db, client_id=client_id, slug=item["slug"], kind='m', base_url=base)
+
+
 @router.get("", summary="Список лид-магнитов клиента")
 async def list_lead_magnets(
     client=Depends(get_current_client),
@@ -190,11 +206,8 @@ async def list_lead_magnets(
         cid
     )
     items = [dict(r) for r in rows]
-    base = await _public_base(db, cid)
     for it in items:
-        it["platform_links"] = await build_funnel_landing_links(
-            db, client_id=cid, slug=it["slug"], kind='m', base_url=base
-        )
+        it["platform_links"] = await _links_for(db, cid, it)
     return {"items": items}
 
 
@@ -224,9 +237,7 @@ async def create_lead_magnet(
         _norm_support_prefill(data.support_prefill),
     )
     out = dict(row)
-    out["platform_links"] = await build_funnel_landing_links(
-        db, client_id=cid, slug=out["slug"], kind='m', base_url=await _public_base(db, cid)
-    )
+    out["platform_links"] = await _links_for(db, cid, out)
     return out
 
 
@@ -292,9 +303,7 @@ async def get_lead_magnet(
     if not row:
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")
     out = dict(row)
-    out["platform_links"] = await build_funnel_landing_links(
-        db, client_id=cid, slug=out["slug"], kind='m', base_url=await _public_base(db, cid)
-    )
+    out["platform_links"] = await _links_for(db, cid, out)
     return out
 
 
@@ -357,9 +366,7 @@ async def update_lead_magnet(
     if not row:
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")
     out = dict(row)
-    out["platform_links"] = await build_funnel_landing_links(
-        db, client_id=cid, slug=out["slug"], kind='m', base_url=await _public_base(db, cid)
-    )
+    out["platform_links"] = await _links_for(db, cid, out)
     return out
 
 

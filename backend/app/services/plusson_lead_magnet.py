@@ -152,3 +152,36 @@ async def sync_all(db: asyncpg.Connection, name: str, description: Optional[str]
         return int(res.rsplit(" ", 1)[1])
     except Exception:  # noqa: BLE001 — формат ответа не критичен
         return 0
+
+
+async def share_links(db: asyncpg.Connection, client_id: int, slug: str,
+                      base_url: str) -> dict:
+    """Ссылки, которые клиент раздаёт аудитории, — по площадкам.
+
+    ⚠️⚠️ НЕ `build_funnel_landing_links`, и это принципиально. Та функция даёт
+    deeplink В БОТ КЛИЕНТА (`t.me/{его бот}?start=m_{slug}`) — то есть в обход
+    нашего перехода `/m/{slug}`: бот разбирает метку сам и запускает обычную
+    воронку. Для этого подарка получилось бы ровно наоборот задуманному —
+    человек попадал бы к клиенту вместо ПЛЮСОНа. А у клиента без единого бота
+    ссылок не было бы вовсе, хотя раздавать подарок он может и без них.
+
+    Поэтому в режиме `direct` отдаём СВОЙ адрес `/m/{slug}?to=…`: он считает
+    переход и уводит в бот ПЛЮСОНа нужной площадки. В режиме `funnel` подарок
+    ведёт себя как обычный лид-магнит, и ссылки строит общая функция.
+
+    ⚠️ Площадки берём по ботам ПЛЮСОНа, а не клиента: человек идёт к нам.
+    """
+    st = await get_settings(db)
+    if st["delivery"] != "direct":
+        from app.services.share_links import build_funnel_landing_links
+        return await build_funnel_landing_links(
+            db, client_id=client_id, slug=slug, kind='m', base_url=base_url)
+
+    from app.services.plusson_ref_links import plusson_bot_handle
+
+    base = (base_url or "").rstrip("/")
+    links = {"telegram": f"{base}/m/{slug}?to=tg"}
+    for platform, param in (("max", "max"), ("vk", "vk")):
+        if await plusson_bot_handle(db, platform):
+            links[platform] = f"{base}/m/{slug}?to={param}"
+    return links

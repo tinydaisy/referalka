@@ -479,7 +479,11 @@ function MagnetsList() {
                 )}
                 <div><CopyIdButton slug={lm.slug} /></div>
                 <div className="mt-2">
-                  <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} name={lm.name} blocked={!!channelsReady && channelsReady.has_bot && !channelsReady.ready} />
+                  {/* ⚠️ Плюсоновский не блокируем проверкой каналов: она про
+                      подписку на каналы основателя в воронке КЛИЕНТА, а этот
+                      подарок ведёт в бот ПЛЮСОНа и ни бота, ни каналов клиента
+                      не требует. */}
+                  <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} name={lm.name} blocked={!lm.is_plusson && !!channelsReady && channelsReady.has_bot && !channelsReady.ready} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
