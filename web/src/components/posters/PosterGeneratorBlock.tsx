@@ -815,7 +815,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                         onX={v => patch({ pos_logos_x: v })} onY={v => patch({ pos_logos_y: v })} />
             </Card>
           )}
-          </>) : (
+          </>) : (<>
           <Card title="Где стоят спикеры">
             <Range label="Начинать с высоты, %" value={layout.speakers_top ?? 45} min={0} max={95}
                    hint="Линия, ниже которой начинается блок людей — чтобы они не легли на рисунок фона"
@@ -962,7 +962,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                         onChange={v => patch({ role_badge_color: v })} />
             </div>
           </Card>
-          )}
+          </>)}
 
           </>)}
 
