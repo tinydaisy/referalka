@@ -527,7 +527,23 @@ async def _send_broadcast(schedule_id: int):
             # номеру: обработчика /start evsignup_{id} в ботах нет.
             _eslug = await conn.fetchval(
                 "SELECT slug FROM events WHERE id = $1", schedule["event_id"])
-            _slinks = build_event_signup_links(_sh, _eslug or "")
+            # ⚠️ Режимы площадок (Mini App / бот) — те же, что у «Публичных
+            # ссылок» и кнопок кабинета. Без них рассылка вела в бота даже при
+            # настройке «Вход через Мини-апп».
+            _mrow = await conn.fetchrow(
+                "SELECT link_mode_telegram, link_mode_vk, link_mode_max "
+                "FROM clients WHERE id = $1", schedule["client_id"])
+            _modes = {
+                "telegram": _mrow["link_mode_telegram"],
+                "vk": _mrow["link_mode_vk"],
+                "max": _mrow["link_mode_max"],
+            } if _mrow else {}
+            # ⚠️ VK App ID лежит в channels.platform_meta, а не в clients —
+            # берём тем же хелпером, что и «Публичные ссылки».
+            from app.services.share_links import get_client_vk_app_id
+            _vk_app = await get_client_vk_app_id(conn, schedule["client_id"])
+            _slinks = build_event_signup_links(
+                _sh, _eslug or "", modes=_modes, vk_app_id=_vk_app)
             # Площадки, выключенные у события (миграция 263) — как будто бота нет:
             # сработает приоритет подмены (из ВК уводим в MAX).
             for _p in await get_event_disabled_platforms(conn, event_id=schedule["event_id"]):

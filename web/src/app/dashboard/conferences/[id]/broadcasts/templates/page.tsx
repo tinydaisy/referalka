@@ -611,7 +611,7 @@ export default function TemplatesPage() {
   const [previewModal, setPreviewModal] = useState<{ tpl: any; def: TypeDef } | null>(null)
   const [previewSpeakerId, setPreviewSpeakerId] = useState<number | null>(null)
   // Площадка превью (вкладки Telegram/VK/MAX) — ссылка воронки подарка зависит от неё.
-  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'max'>('telegram')
+  const [previewPlatform, setPreviewPlatform] = useState<'telegram' | 'vk' | 'max' | 'email'>('telegram')
   const [varsOpen, setVarsOpen] = useState(false)
   const [testModal, setTestModal] = useState<{ def: TypeDef; tpl: any } | null>(null)
   const [testSending, setTestSending] = useState(false)
@@ -962,7 +962,7 @@ export default function TemplatesPage() {
   // Ссылка на воронку подарка-лид-магнита по площадке (тот же формат, что бэк
   // build_funnel_landing_links). kind: 'm' лид-магнит | 'p' пакет.
   // Приоритет по площадке рассылки: max→vk→tg, vk→max→tg, tg→max→vk.
-  function giftFunnelLink(kind: string, slug: string, platform: 'telegram' | 'vk' | 'max'): string {
+  function giftFunnelLink(kind: string, slug: string, platform: 'telegram' | 'vk' | 'max' | 'email'): string {
     const bh = (me as any)?.bot_handles || {}
     const vkApp = (me as any)?.vk_app_id
     const tg = bh.telegram ? `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?start=${kind}_${slug}` : ''
@@ -996,13 +996,33 @@ export default function TemplatesPage() {
   // ⚠️ Формат ref_pg{slug}, как в «Публичных ссылках»: evsignup_ — это
   // callback уже нажатой кнопки ВНУТРИ бота, обработчика /start с таким
   // аргументом нет, и ссылка вела в никуда.
-  function signupLink(platform: 'telegram' | 'vk' | 'max'): string {
+  function signupLink(platform: 'telegram' | 'vk' | 'max' | 'email'): string {
     const bh = (me as any)?.bot_handles || {}
     const slug = (confData as any)?.event_slug || ''
     const payload = `ref_pg${slug}`
-    const tg = bh.telegram ? `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?start=${payload}` : ''
-    const vk = bh.vk ? `https://vk.me/${String(bh.vk).replace(/^@/, '')}?ref=${payload}` : ''
-    const max = bh.max ? `https://max.ru/${String(bh.max).replace(/^@/, '')}?start=${payload}` : ''
+    // ⚠️ Режим площадки (Mini App / бот) — как на сервере
+    // (share_links.build_event_signup_links). Превью строило ТОЛЬКО бот-ссылки
+    // и настройку «Вход через Мини-апп» не спрашивало: клиент видел одно, а
+    // человеку уходило другое.
+    const lm = (me as any)?.link_modes || {}
+    const isApp = (p: string) => lm[p] === 'miniapp'
+    const vkAppId = (me as any)?.vk_app_id
+    const tg = bh.telegram
+      ? (isApp('telegram')
+          ? `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?startapp=${payload}`
+          : `https://telegram.me/${String(bh.telegram).replace(/^@/, '')}?start=${payload}`)
+      : ''
+    // ⚠️ У ВК Mini App живёт по НОМЕРУ приложения: без него — бот-ссылка.
+    const vk = bh.vk
+      ? (isApp('vk') && vkAppId
+          ? `https://vk.com/app${vkAppId}#${payload}`
+          : `https://vk.me/${String(bh.vk).replace(/^@/, '')}?ref=${payload}`)
+      : ''
+    const max = bh.max
+      ? (isApp('max')
+          ? `https://max.ru/${String(bh.max).replace(/^@/, '')}?startapp=${payload}`
+          : `https://max.ru/${String(bh.max).replace(/^@/, '')}?start=${payload}`)
+      : ''
     const links: Record<string, string> = { telegram: tg, vk, max }
     // ⚠️ Выключенные у события площадки исключаем — ровно как сервер при
     // отправке. Иначе в превью на вкладке ВК стояла вк-ссылка, хотя ВК у
@@ -1024,7 +1044,7 @@ export default function TemplatesPage() {
   // выдаётся через бот ТОГО, ЧЕЙ ЭТО ПОДАРОК, а не того, кто шлёт рассылку.
   // Раньше собиралось из своих ботов — чужой подарок вёл в свой бот.
   // Ручной подарок — прямая ссылка как есть.
-  function giftMagnetUrl(g: any, platform: 'telegram' | 'vk' | 'max'): string {
+  function giftMagnetUrl(g: any, platform: 'telegram' | 'vk' | 'max' | 'email'): string {
     const ol = g?.owner_links
     if (ol) {
       // Правило то же, что при отправке (share_links.pick_gift_funnel_link):
@@ -1038,7 +1058,7 @@ export default function TemplatesPage() {
     return g?.url || ''
   }
 
-  function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number, platform: 'telegram' | 'vk' | 'max' = 'telegram'): string {
+  function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number, platform: 'telegram' | 'vk' | 'max' | 'email' = 'telegram'): string {
     if (!text) return ''
     // Нормализуем литеральные \n на случай старых данных из БД
     let out = text.replace(/\\n/g, '\n')
@@ -2519,7 +2539,13 @@ export default function TemplatesPage() {
             <div className="mb-4">
                 <label className="text-xs text-gray-500 mb-1.5 block">Площадка получателя:</label>
                 <div className="flex gap-1">
-                  {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX']] as const).map(([pk, label]) => (
+                  {/* ⚠️ Email — полноценная площадка рассылки, и текст там
+                      отличается: {signup_link} разворачивается в ВСЕ ссылки
+                      площадок с подписями (у мессенджера — только своя), а
+                      кнопка «Зарегистрироваться» становится тремя. Без этой
+                      вкладки клиент не видел, что уйдёт на почту, и проверял
+                      письмо вслепую. */}
+                  {([['telegram', 'Telegram'], ['vk', 'VK'], ['max', 'MAX'], ['email', 'Email']] as const).map(([pk, label]) => (
                     <button key={pk} onClick={() => setPreviewPlatform(pk)}
                       className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${
                         previewPlatform === pk ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -2630,24 +2656,53 @@ export default function TemplatesPage() {
                   testDay,
                   previewPlatform
                 )}} />
-              {previewModal.tpl.button_text && (
-                <div className="mt-3">
-                  <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
-                    {previewModal.tpl.button_text}
+              {previewModal.tpl.button_text && (() => {
+                // ⚠️ В ПИСЬМЕ кнопка с {signup_link} разворачивается в ТРИ — по
+                // одной на площадку (tasks/broadcast.py). Ограничение «один
+                // адрес в кнопке» идёт от Telegram, к письму оно не относится.
+                // Показываем это и в превью, иначе клиент проверяет одну
+                // кнопку, а человеку приходит три.
+                const isEmail = previewPlatform === 'email'
+                const rawUrl = (previewModal.tpl.button_url || '').trim()
+                const bh = (me as any)?.bot_handles || {}
+                if (isEmail && rawUrl === '{signup_link}') {
+                  const per = (['telegram', 'max', 'vk'] as const)
+                    .filter(p => bh[p])
+                    .map(p => ({ label: PLATFORM_LABEL_RU[p], url: signupLink(p) }))
+                  if (per.length) {
+                    return (
+                      <div className="mt-3 space-y-2">
+                        {per.map(b => (
+                          <div key={b.label}>
+                            <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
+                              {b.label}
+                            </div>
+                            <p className="text-xs text-gray-400 mt-1 text-center break-all">{b.url}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }
+                }
+                return (
+                  <div className="mt-3">
+                    <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
+                      {previewModal.tpl.button_text}
+                    </div>
+                    {previewModal.tpl.button_url && (
+                      <p className="text-xs text-gray-400 mt-1 text-center break-all">
+                        {renderPreviewText(
+                          previewModal.tpl.button_url,
+                          previewModal.def.hasSpeaker ? previewSpeaker : null,
+                          previewModal.def.type,
+                          testDay,
+                          previewPlatform
+                        )}
+                      </p>
+                    )}
                   </div>
-                  {previewModal.tpl.button_url && (
-                    <p className="text-xs text-gray-400 mt-1 text-center break-all">
-                      {renderPreviewText(
-                        previewModal.tpl.button_url,
-                        previewModal.def.hasSpeaker ? previewSpeaker : null,
-                        previewModal.def.type,
-                        testDay,
-                        previewPlatform
-                      )}
-                    </p>
-                  )}
-                </div>
-              )}
+                )
+              })()}
             </div>
 
             <button onClick={() => setPreviewModal(null)}

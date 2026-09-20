@@ -699,6 +699,10 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 -- не имело переключателя в кабинете и подменяло собой
                 -- настройку площадки. Кабинету нужен режим TELEGRAM.
                 c.link_mode_telegram,
+                -- ⚠️ Режимы ВК и МАКС нужны превью рассылок: оно строит
+                -- ссылки само и без них показывало бот-ссылку там, где
+                -- человеку уходит Mini App.
+                c.link_mode_vk, c.link_mode_max,
                 c.start_mode, c.start_event_id,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                    FROM channels ch
@@ -839,6 +843,14 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     # нет своего канала на платформе). Используется UI для построения
     # «ссылок возврата партнёра» (миграция 105) — t.me/{bot}?start=partner_done_{id} и т.п.
     out["bot_handles"] = await get_client_bot_handles(db, client_id)
+    # ⚠️ Режимы открытия ссылок по площадкам одним объектом — превью рассылок
+    # строит ссылки на фронте и должно показывать РОВНО то, что уйдёт человеку
+    # (см. share_links.build_event_signup_links на сервере).
+    out["link_modes"] = {
+        "telegram": out.get("link_mode_telegram") or "bot",
+        "vk": out.get("link_mode_vk") or "bot",
+        "max": out.get("link_mode_max") or "bot",
+    }
     # Какие платформы показывать в PublicLinks / RefLinkInline:
     # — ТОЛЬКО те, где у клиента подключён собственный канал (channels.is_system=FALSE).
     # Системные каналы ПЛЮСОНа (@pluson_bot и т.п.) больше не дают ссылок —

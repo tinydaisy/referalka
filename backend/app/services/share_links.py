@@ -230,7 +230,13 @@ async def get_client_bot_handles(db, client_id: int) -> dict[str, str | None]:
     return result
 
 
-def build_event_signup_links(handles: dict[str, str | None], event_slug: str) -> dict[str, str]:
+def build_event_signup_links(
+    handles: dict[str, str | None],
+    event_slug: str,
+    *,
+    modes: dict[str, str] | None = None,
+    vk_app_id: str | int | None = None,
+) -> dict[str, str]:
     """Ссылки «Зарегистрироваться» по площадкам: клик → бот присылает сообщение
     события с кнопкой регистрации (тот же вход, что в «Публичных ссылках»).
 
@@ -238,20 +244,54 @@ def build_event_signup_links(handles: dict[str, str | None], event_slug: str) ->
     только как callback УЖЕ НАЖАТОЙ кнопки внутри бота, обработчика команды
     /start с таким аргументом в Telegram нет вовсе. Ссылка с ним вела в бота,
     где ничего не происходило.
-      • TG:  t.me/{handle}?start=ref_pg{slug}
-      • VK:  vk.me/{handle}?ref=ref_pg{slug}
-      • MAX: max.ru/{handle}?start=ref_pg{slug}
     Нет своего бота на площадке → пустая строка (системный бот не используется).
+
+    ⚠️⚠️ РЕЖИМ ПЛОЩАДКИ (`modes`) — clients.link_mode_{telegram|vk|max}.
+    Функция ВСЕГДА строила бот-ссылки (`?start=`) и настройку не спрашивала
+    вовсе: у клиента с «Telegram: Вход через Мини-апп» рассылка и предпросмотр
+    всё равно вели в бота, хотя все остальные ссылки события (кнопки кабинета,
+    «Публичные ссылки») открывали Mini App. Человек попадал в разный интерфейс
+    в зависимости от того, откуда кликнул.
+
+    `modes` не передан → прежнее поведение (бот) — на случай вызова оттуда,
+    где режим ещё не прочитан.
     """
     tg = (handles.get("telegram") or "").lstrip('@')
     vk = (handles.get("vk") or "").lstrip('@')
     mx = (handles.get("max") or "").lstrip('@')
+    m = modes or {}
+
+    def _mode(p: str) -> str:
+        v = (m.get(p) or "").strip()
+        return v if v in ("miniapp", "bot") else "bot"
+
     payload = f"ref_pg{event_slug}"
-    return {
-        "telegram": f"https://{TG_DOMAIN}/{tg}?start={payload}" if tg else "",
-        "vk": f"https://vk.me/{vk}?ref={payload}" if vk else "",
-        "max": f"https://max.ru/{mx}?start={payload}" if mx else "",
-    }
+    out: dict[str, str] = {"telegram": "", "vk": "", "max": ""}
+
+    # ⚠️ Mini App-ссылки собираем ОБЩИМИ хелперами (telegram_link/vk_link/
+    # max_link) — теми же, что строят «Публичные ссылки» и кнопки кабинета.
+    # Свою копию формата здесь держать нельзя: разойдётся с ними молча.
+    if tg:
+        out["telegram"] = (
+            telegram_link(event_slug, bot_handle=tg, link_mode="miniapp")
+            if _mode("telegram") == "miniapp"
+            else f"https://{TG_DOMAIN}/{tg}?start={payload}"
+        )
+    if vk:
+        # ⚠️ Mini App ВКонтакте живёт по номеру приложения, а не по адресу
+        # сообщества: без `vk_app_id` ссылку не собрать — остаёмся на боте.
+        out["vk"] = (
+            vk_link(event_slug, app_id=vk_app_id, link_mode="miniapp")
+            if (_mode("vk") == "miniapp" and vk_app_id)
+            else f"https://vk.me/{vk}?ref={payload}"
+        )
+    if mx:
+        out["max"] = (
+            max_link(event_slug, bot_handle=mx, link_mode="miniapp")
+            if _mode("max") == "miniapp"
+            else f"https://max.ru/{mx}?start={payload}"
+        )
+    return out
 
 
 # Приоритет подмены, когда на площадке получателя ссылки нет (бота нет или

@@ -60,12 +60,24 @@ async def _signup_link_preview(db, client_id: int, event_id: int,
     """
     from app.services.share_links import (
         get_client_bot_handles, build_event_signup_links, pick_signup_link,
-        get_event_disabled_platforms,
+        get_event_disabled_platforms, get_client_vk_app_id,
     )
     from app.services.message_builder import resolve_landing_url
     handles = await get_client_bot_handles(db, client_id)
     slug = await db.fetchval("SELECT slug FROM events WHERE id = $1", event_id)
-    links = build_event_signup_links(handles, slug or "")
+    # ⚠️ Режимы площадок — как в реальной рассылке (tasks/broadcast.py).
+    # Иначе превью показывает бот-ссылку, а получателю уходит Mini App: клиент
+    # проверяет одно, люди получают другое.
+    _m = await db.fetchrow(
+        "SELECT link_mode_telegram, link_mode_vk, link_mode_max FROM clients WHERE id=$1",
+        client_id,
+    )
+    links = build_event_signup_links(
+        handles, slug or "",
+        modes={"telegram": _m["link_mode_telegram"], "vk": _m["link_mode_vk"],
+               "max": _m["link_mode_max"]} if _m else {},
+        vk_app_id=await get_client_vk_app_id(db, client_id),
+    )
     for p in await get_event_disabled_platforms(db, event_id=event_id):
         links[p] = ""
     web = await resolve_landing_url(db, event_id) or ""
