@@ -279,7 +279,14 @@ if need '^backend/(app/(tasks|services)|celery_app)'; then
   RESTARTED="$RESTARTED plusson-celery"
 fi
 
-if need '^backend/(bot|app/services)/'; then
+# ⚠️⚠️ БОТЫ РЕСТАРТУЕМ НА ЛЮБОЙ ФАЙЛ В `backend/app/` И `backend/bot/` — та же
+# история, что с api выше. Стояло `^backend/(bot|app/services)/`, а боты
+# импортируют и из `app/api/`: меню события ВК живёт в `app/api/vk_event.py` и
+# зовётся из `bot/vk_main.py`. 20.09.2026 правка меню приехала на прод, api
+# перезапустился, а процесс ВК-бота остался на старом коде — в логе успешный
+# деплой, в боте старое меню. Перечисление папок ошибается молча и в опасную
+# сторону; лишний рестарт бота стоит секунды.
+if need '^backend/(bot|app)/'; then
   systemctl restart plusson-bot plusson-vk-bot 2>/dev/null || true
   RESTARTED="$RESTARTED plusson-bot plusson-vk-bot"
 fi

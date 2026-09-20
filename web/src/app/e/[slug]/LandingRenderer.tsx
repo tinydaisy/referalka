@@ -157,6 +157,90 @@ export default function LandingRenderer({
     return () => document.removeEventListener('click', onClick)
   }, [])
 
+  /**
+   * Заход ПО ССЫЛКЕ С ЯКОРЕМ (`.../e/slug#lp-tariffs`) — УДЕРЖИВАЕМ позицию,
+   * пока страница дорисовывается.
+   *
+   * ⚠️⚠️ Браузер прыгает к якорю ОДИН раз — как только встретит элемент в
+   * разметке. Дальше лендинг продолжает РАСТИ: подгружаются афиша, фото
+   * спикеров и логотипы партнёров (высота у них заранее не известна),
+   * подменяются шрифты. Всё, что оказалось ВЫШЕ якоря, сдвигает его вниз, а
+   * прокрутка остаётся там, куда прыгнули, — и человек, пришедший по кнопке
+   * «ПОВЫСИТЬ ДО ТАРИФА», открывал страницу на «Наших ценностях» вместо
+   * тарифов. Чем медленнее связь, тем сильнее промах.
+   *
+   * Поэтому позицию подправляем, пока высоты не устаканятся (до 6 секунд), и
+   * ОТПУСКАЕМ сразу, как человек тронул страницу сам: иначе она дёргалась бы
+   * под пальцем, а на телефоне ещё и гасила инерцию прокрутки.
+   *
+   * ⚠️ Клики по якорям здесь ни при чём — ими занимается обработчик выше.
+   * Этот эффект работает ровно один раз, на заходе с `#` в адресе.
+   */
+  useEffect(() => {
+    let id = ''
+    try { id = decodeURIComponent((window.location.hash || '').slice(1)) } catch { id = '' }
+    if (!id) return
+
+    // ⚠️ Браузер умеет сам возвращать прокрутку на прежнее место («назад»,
+    // обновление страницы). Вместе с якорем это две силы, тянущие в разные
+    // стороны, — пока держим якорь, восстановление выключено.
+    let prevRestore: ScrollRestoration | undefined
+    try {
+      if ('scrollRestoration' in history) {
+        prevRestore = history.scrollRestoration
+        history.scrollRestoration = 'manual'
+      }
+    } catch { /* старый браузер — переживём */ }
+
+    let timer = 0
+    let released = false
+    const release = () => {
+      released = true
+      if (timer) { window.clearInterval(timer); timer = 0 }
+    }
+
+    const keep = () => {
+      if (released) return
+      const el = document.getElementById(id)
+      if (!el) return
+      // Целевая точка — с учётом `scroll-mt` секции: иначе заголовок уезжает
+      // под липкую шапку страницы.
+      const gap = parseFloat(getComputedStyle(el).scrollMarginTop) || 0
+      const top = el.getBoundingClientRect().top + window.scrollY - gap
+      // Двигаем, ТОЛЬКО если реально уехали: иначе прокрутка дёргается на
+      // каждом тике, даже когда всё уже на месте.
+      if (Math.abs(window.scrollY - top) > 2) window.scrollTo(0, Math.max(0, top))
+    }
+
+    keep()
+    timer = window.setInterval(keep, 100)
+    const stopAt = window.setTimeout(release, 6000)
+    // Шрифты и картинки — два главных источника сдвига: после них позиция
+    // почти всегда окончательная.
+    window.addEventListener('load', keep)
+    const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts
+    fonts?.ready?.then?.(keep)
+    // Человек тронул страницу — больше не вмешиваемся.
+    const passive = { passive: true } as AddEventListenerOptions
+    window.addEventListener('wheel', release, passive)
+    window.addEventListener('touchstart', release, passive)
+    window.addEventListener('keydown', release)
+
+    return () => {
+      release()
+      window.clearTimeout(stopAt)
+      window.removeEventListener('load', keep)
+      window.removeEventListener('wheel', release)
+      window.removeEventListener('touchstart', release)
+      window.removeEventListener('keydown', release)
+      try {
+        if (prevRestore && 'scrollRestoration' in history) {
+          history.scrollRestoration = prevRestore
+        }
+      } catch { /* не критично */ }
+    }
+  }, [])
+
   /* Заголовок: сплошной цвет или металлический перелив по тексту. */
   const headingStyle = useMemo(() => {
     const base: React.CSSProperties = {
