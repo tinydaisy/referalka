@@ -558,7 +558,7 @@ function MagnetsList() {
               лид-магниты» серой плашкой выглядели второсортными рядом с
               партнёрскими. */}
           {plussonItems.length > 0 && (
-            <CollapsibleGroup title="Партнёрские лид-магниты ПЛЮСОНа" count={plussonItems.length}>
+            <CollapsibleGroup title="Партнёрские от ПЛЮСОНа" count={plussonItems.length}>
               <div className="divide-y divide-gray-200">
                 {plussonItems.map(renderRow)}
               </div>

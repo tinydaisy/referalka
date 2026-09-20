@@ -27,6 +27,8 @@ export interface MagnetItem {
   id: number
   name: string
   kind: MagnetKind
+  /** Плюсоновский подарок — он партнёрский, а не свой, и стоит отдельной группой. */
+  isPlusson?: boolean
 }
 
 /** Нормализация для поиска: регистр и «ё» не должны мешать найти. */
@@ -63,6 +65,7 @@ async function loadAll() {
     _cache = {
       magnets: arr(m).map((x: any) => ({
         id: x.id, name: x.name || 'Без названия', kind: 'magnet' as const,
+        isPlusson: !!x.is_plusson,
       })),
       packages: arr(p).map((x: any) => ({
         id: x.id, name: x.name || 'Без названия', kind: 'package' as const,
@@ -142,7 +145,11 @@ export default function LeadMagnetPicker({
     return all.filter(i => norm(i.name).includes(needle))
   }, [all, q])
 
-  const magnets = filtered.filter(i => i.kind === 'magnet')
+  // ⚠️ Плюсоновский подарок — ОТДЕЛЬНОЙ группой и первым: он партнёрский, его
+  // клиент не заводил и не редактирует. В общей куче «Лид-магниты» он читался
+  // как ещё один свой материал.
+  const plusson = filtered.filter(i => i.kind === 'magnet' && i.isPlusson)
+  const magnets = filtered.filter(i => i.kind === 'magnet' && !i.isPlusson)
   const packages = filtered.filter(i => i.kind === 'package')
 
   const pick = (item: MagnetItem | null) => {
@@ -227,15 +234,29 @@ export default function LeadMagnetPicker({
               </div>
             )}
 
-            {/* ⚠️⚠️ ДВЕ ГРУППЫ ВСЕГДА: «Лид-магниты» и «Пакеты». Заголовки
-                выделены персиковой плашкой — список без подписей читался как
-                сплошная куча, и было непонятно, что выбираешь. Магнит и пакет
-                — разные сущности (один материал против набора). */}
+            {/* ⚠️⚠️ ГРУППЫ С ПЕРСИКОВОЙ ШАПКОЙ. Список без подписей читался как
+                сплошная куча, и было непонятно, что выбираешь: магнит и пакет —
+                разные сущности (один материал против набора), а Плюсоновский
+                подарок вообще не свой, а партнёрский.
+
+                ⚠️ Названия те же, что на странице «Лид-магниты», — человек
+                видит один и тот же список в двух местах, и подписи не должны
+                расходиться. */}
+            {!!plusson.length && (
+              <>
+                <div className="sticky top-0 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide"
+                     style={{ background: '#FFCFA4', color: '#25455D' }}>
+                  Партнёрские от ПЛЮСОНа · {plusson.length}
+                </div>
+                {plusson.map(row)}
+              </>
+            )}
+
             {!!magnets.length && (
               <>
                 <div className="sticky top-0 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide"
                      style={{ background: '#FFCFA4', color: '#25455D' }}>
-                  Лид-магниты · {magnets.length}
+                  Ваши лид-магниты · {magnets.length}
                 </div>
                 {magnets.map(row)}
               </>
@@ -245,7 +266,7 @@ export default function LeadMagnetPicker({
               <>
                 <div className="sticky top-0 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide"
                      style={{ background: '#FFCFA4', color: '#25455D' }}>
-                  Пакеты · {packages.length}
+                  Ваши пакеты · {packages.length}
                 </div>
                 {packages.map(row)}
               </>
