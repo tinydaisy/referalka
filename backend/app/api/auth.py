@@ -694,7 +694,11 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                   c.payments_telegram_chat_id, c.payments_max_chat_id, c.payments_vk_peer_id,
                 c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
                 c.speaker_achievements_limit,
-                c.integration_token, c.default_link_mode,
+                c.integration_token,
+                -- ⚠️ «Общего режима» больше нет (миграции 477–478): поле
+                -- не имело переключателя в кабинете и подменяло собой
+                -- настройку площадки. Кабинету нужен режим TELEGRAM.
+                c.link_mode_telegram,
                 c.start_mode, c.start_event_id,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                    FROM channels ch

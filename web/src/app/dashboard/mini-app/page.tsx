@@ -82,8 +82,10 @@ interface Profile {
   // отдельный ключ `telegram_channels` — МАССИВ TG-каналов основателя (миграция 114).
   social_links: Record<string, any>
   // Бот и ссылки
-  default_link_mode?: 'miniapp' | 'bot' | null
-  // Режим на каждую площадку (миграция 200). null → наследует default_link_mode.
+  // ⚠️ Режим задаётся ТОЛЬКО по площадкам (миграция 200). «Общего режима»
+  // (default_link_mode) больше нет: переключателя для него здесь никогда не
+  // было, а код читал его вместо этих полей — и настройка не действовала
+  // (миграции 477–478). Пусто → 'bot' (ссылка ведёт в бота).
   link_mode_telegram?: 'miniapp' | 'bot' | null
   link_mode_vk?: 'miniapp' | 'bot' | null
   link_mode_max?: 'miniapp' | 'bot' | null
@@ -455,8 +457,7 @@ function MiniAppSettings() {
         bio:                profile.bio || null,
         social_links:       profile.social_links,
         // бот и ссылки
-        default_link_mode:      profile.default_link_mode || 'miniapp',
-        // Режимы по площадкам: пусто → бэк запишет NULL (наследовать общий).
+        // Режимы по площадкам — единственная настройка ссылок.
         link_mode_telegram:     profile.link_mode_telegram || '',
         link_mode_vk:           profile.link_mode_vk || '',
         link_mode_max:          profile.link_mode_max || '',
@@ -963,11 +964,12 @@ function MiniAppSettings() {
                 const field = linkTab === 'telegram' ? 'link_mode_telegram'
                             : linkTab === 'vk'       ? 'link_mode_vk'
                             : 'link_mode_max'
-                // Пусто → наследуем общий режим кабинета. Для MAX режим всегда
-                // 'bot' — Mini App там отключён (нет подписки на бота, см. выше).
+                // Пусто → 'bot': ссылка ведёт в бота, человек подписывается сам.
+                // Для MAX режим всегда 'bot' — Mini App там отключён (нет
+                // подписки на бота, см. выше).
                 const current = linkTab === 'max'
                   ? 'bot'
-                  : ((profile as any)[field] || profile.default_link_mode || 'miniapp')
+                  : ((profile as any)[field] || 'bot')
                 const active = current === opt.v
                 // Mini App в Telegram недоступен, если приложение не привязано к боту.
                 // Mini App в MAX недоступен всегда — человек не подписывается на бота.

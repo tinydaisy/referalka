@@ -700,10 +700,6 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
                       (SELECT eo.client_id FROM event_owners eo
                         WHERE eo.event_id = e.id AND eo.status='accepted'
                         ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
-                      (SELECT c.default_link_mode FROM event_owners eo
-                         JOIN clients c ON c.id = eo.client_id
-                        WHERE eo.event_id = e.id AND eo.status='accepted'
-                        ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS default_link_mode
                  FROM events e WHERE e.id = $1 LIMIT 1""",
             event_id,
         )
@@ -721,11 +717,14 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
         from app.services.event_client import resolve_event_client
         link_client_id = await resolve_event_client(
             db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
-        # Режим ссылок (Mini App / веб) — настройка ТОГО ЖЕ клиента: иначе
-        # человек уходил бы в Mini App одного организатора по настройке другого.
-        link_mode = await db.fetchval(
-            "SELECT default_link_mode FROM clients WHERE id = $1", link_client_id
-        ) if link_client_id != ev["client_id"] else ev["default_link_mode"]
+        # Режим ссылок (Mini App / веб) — настройка ТОГО ЖЕ клиента ДЛЯ
+        # TELEGRAM: иначе человек уходил бы в Mini App одного организатора по
+        # настройке другого.
+        # ⚠️ Раньше читался `default_link_mode` — «общий режим», которого нет в
+        # интерфейсе и который проставлялся сам (миграции 477–478).
+        from app.services.share_links import resolve_event_link_mode
+        link_mode = await resolve_event_link_mode(
+            db, client_id=link_client_id, platform="telegram")
 
         now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
         live_when = ""   # «3 мая 12:00 МСК»

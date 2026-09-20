@@ -1420,7 +1420,6 @@ class ProfileUpdate(BaseModel):
     bio:                Optional[str]  = None       # биография основателя
     social_links:       Optional[dict] = None       # соцсети основателя
     # Общая настройка открытия ссылок: 'miniapp' | 'bot'
-    default_link_mode:  Optional[str]  = None
     # Режим на КАЖДУЮ площадку (миграция 200). Пусто → наследуем общий.
     # Mini App может быть подключён в Telegram и отсутствовать во ВКонтакте.
     link_mode_telegram: Optional[str]  = None
@@ -1476,7 +1475,6 @@ async def get_my_profile(
                   -- Точки лица на фото (миграция 434).
                   owner_photo_focal, profile_photo_focal,
                   bio, social_links,
-                  default_link_mode,
                   link_mode_telegram, link_mode_vk, link_mode_max,
                   start_greeting_text,
                   start_btn_events_label, start_btn_owner_label,
@@ -1577,7 +1575,7 @@ async def update_my_profile(
     # Правило: ругаемся, только если человек ПЕРЕКЛЮЧАЕТ режим на `miniapp`
     # с другого значения. Пришло то же, что уже стоит в базе, — молчим.
     _cur_modes = await db.fetchrow(
-        "SELECT default_link_mode, link_mode_telegram FROM clients WHERE id = $1",
+        "SELECT link_mode_telegram FROM clients WHERE id = $1",
         int(client["sub"]),
     ) or {}
 
@@ -1589,18 +1587,13 @@ async def update_my_profile(
         if st["has_mini_app"] is False:
             raise HTTPException(status_code=400, detail=st["reason"])
 
-    if data.default_link_mode is not None:
-        if data.default_link_mode not in ("miniapp", "bot"):
-            raise HTTPException(status_code=400, detail="default_link_mode должен быть 'miniapp' или 'bot'")
-        # Общий режим применяется и к Telegram — значит проверяем Mini App, но
-        # только если для TG не задан свой режим (он бы перекрыл общий).
-        if (data.default_link_mode == "miniapp"
-                and (data.link_mode_telegram or "") != "bot"
-                and _cur_modes.get("default_link_mode") != "miniapp"):
-            await _guard_tg_miniapp()
-        add("default_link_mode", data.default_link_mode)
+    # ⚠️⚠️ «ОБЩЕГО РЕЖИМА» (`default_link_mode`) БОЛЬШЕ НЕТ (миграции 477–478).
+    # Переключателя для него в кабинете никогда не было: значение проставлялось
+    # само (DEFAULT 'bot'), а код читал его ВМЕСТО площадочных колонок — и
+    # настройка «Telegram: Вход через Мини-апп» не действовала, меню в боте
+    # открывало веб. Режим задаётся только по площадкам, ниже.
 
-    # Режимы по площадкам. Пустая строка → NULL (наследовать общий).
+    # Режимы по площадкам — единственная настройка. Пустая строка → NULL.
     for field, col, platform in (
         (data.link_mode_telegram, "link_mode_telegram", "telegram"),
         (data.link_mode_vk,       "link_mode_vk",       "vk"),

@@ -260,7 +260,7 @@ class UpdateEventRequest(BaseModel):
     video_url: Optional[str] = None
     # ⚠️ link_mode у события УДАЛЁН (миграция 240). Режим открытия ссылок
     # (Mini App / веб-версия) задаётся только в настройках кабинета
-    # (clients.link_mode_{telegram|vk|max} / default_link_mode). Поле оставлено
+    # (clients.link_mode_{telegram|vk|max}). Поле оставлено
     # в модели как no-op — старые клиенты могут его слать, update_event его
     # молча выбрасывает.
     link_mode: Optional[str] = None

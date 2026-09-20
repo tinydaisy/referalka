@@ -1129,7 +1129,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                   LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
                   WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
                   ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_date,
-               cl.default_link_mode,
+               COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                   WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
                     AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
@@ -1149,7 +1149,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
     topic, topic_full, topic_desc = await _speaker_topics_strings(conn, ec_id)
     # Ссылка регистрации — общий резолвер (непустой, учитывает способ регистрации).
     _reg_link = await resolve_landing_url(conn, sp["event_id"])
-    card_link = speaker_card_link(sp["event_slug"], sp["ec_id"], sp["default_link_mode"], sp["bot_handle"],
+    card_link = speaker_card_link(sp["event_slug"], sp["ec_id"], sp["tg_link_mode"], sp["bot_handle"],
                                   base_url=await event_public_base(conn, sp["event_id"]))
     sp_time, sp_date, sp_dt = _build_speaker_slot_strings(sp["slot_start"], sp["slot_end"], sp["slot_date"])
 
@@ -1204,7 +1204,7 @@ async def _resolve_day_placeholders(conn, event_id: int, ref_date):
     row = await conn.fetchrow(
         """
         SELECT cd.day_number, cd.day_date, cd.title AS day_title, cd.open_time,
-               e.slug AS event_slug, cl.default_link_mode,
+               e.slug AS event_slug, COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                   WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
                     AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
@@ -1256,7 +1256,7 @@ async def _resolve_day_placeholders(conn, event_id: int, ref_date):
         speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
         lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
         if name:
-            _link = speaker_card_link(row["event_slug"], s["ec_id"], row["default_link_mode"], row["bot_handle"],
+            _link = speaker_card_link(row["event_slug"], s["ec_id"], row["tg_link_mode"], row["bot_handle"],
                                       base_url=_base)
             name_html = f'<a href="{_link}">{name}</a>' if _link else name
             speaker_part_l = f" (<b>{name_html}{' — ' + role_label if role_label else ''}</b>)"
@@ -1471,7 +1471,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                    COALESCE(cd.day_date,
                             (e.start_at AT TIME ZONE 'Europe/Moscow')::date) AS day_date,
                    (e.start_at AT TIME ZONE 'Europe/Moscow') AS event_start_msk,
-                   cl.default_link_mode,
+                   COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                    (SELECT ch.handle FROM client_channels cc2 JOIN channels ch ON ch.id=cc2.channel_id
                       WHERE cc2.client_id=cl.id AND cc2.is_active AND ch.platform_slug='telegram'
                         AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
@@ -1534,7 +1534,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             event_id, day
         ) if is_program_event else []
         _prog_slug = conf_row["event_slug"] if conf_row else None
-        _prog_link_mode = conf_row["default_link_mode"] if conf_row else None
+        _prog_link_mode = conf_row["tg_link_mode"] if conf_row else None
         _prog_bot = conf_row["bot_handle"] if conf_row else None
         program_lines = []
         program_lines_links = []   # для {day_program_with_links} — имя спикера ссылкой
@@ -1778,7 +1778,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                           LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
                           WHERE cs.event_id = e.id AND cs.speaker_id = cse.id
                           ORDER BY cs.day, cs.sort_order, cs.start_time LIMIT 1) AS slot_date,
-                       cl.default_link_mode,
+                       COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                           WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
                             AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
@@ -1809,7 +1809,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     else:
                         photo = sp["speaker_poster"] or sp["speaker_photo"]
                 card_link = speaker_card_link(sp["event_slug"], sp["ec_id"],
-                                              sp["default_link_mode"], sp["bot_handle"],
+                                              sp["tg_link_mode"], sp["bot_handle"],
                                               base_url=_pub_base)
                 sp_time, sp_date, sp_dt = _build_speaker_slot_strings(
                     sp["slot_start"], sp["slot_end"], sp["slot_date"])
@@ -1919,7 +1919,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                            WHERE eclm.ec_id = cse.id
                        ) g) AS gift_magnets_json,
                        cs.day AS session_day, cs.event_id AS session_event_id,
-                       cl.default_link_mode,
+                       COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                           WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
                             AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
@@ -2039,7 +2039,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     _nx_time, _, _ = _build_speaker_slot_strings(
                         _nx["start_time"], _nx["end_time"], _pre_date)
             card_link = speaker_card_link(session_data.get("event_slug"), session_data.get("ec_id"),
-                                          session_data.get("default_link_mode"), session_data.get("bot_handle"),
+                                          session_data.get("tg_link_mode"), session_data.get("bot_handle"),
                                           base_url=_pub_base)
             text = build_pre_start_message(
                 text,
@@ -2163,7 +2163,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             """
             SELECT e.title as conf_title, e.description as conf_description,
                    e.landing_url AS registration_url, e.slug AS event_slug, cc.raffle_url,
-                   cl.default_link_mode,
+                   COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                    (SELECT ch.handle FROM client_channels cc2 JOIN channels ch ON ch.id=cc2.channel_id
                       WHERE cc2.client_id=cl.id AND cc2.is_active AND ch.platform_slug='telegram'
                         AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
@@ -2179,7 +2179,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         reg_url = await resolve_landing_url(conn, event_id)
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         _c_slug = conf_row["event_slug"] if conf_row else None
-        _c_link_mode = conf_row["default_link_mode"] if conf_row else None
+        _c_link_mode = conf_row["tg_link_mode"] if conf_row else None
         _c_bot = conf_row["bot_handle"] if conf_row else None
 
         raw_first_date = first_day["day_date"] if first_day else None

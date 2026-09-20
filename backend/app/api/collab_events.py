@@ -465,7 +465,7 @@ async def get_organizer_card(event_id: int, client_id: int, mode: Optional[str] 
     #
     # ⚠️ Режим задаётся ОТДЕЛЬНО НА КАЖДУЮ ПЛОЩАДКУ (clients.link_mode_{telegram|vk|max},
     # миграция 200): Mini App может быть в Telegram и не быть во ВКонтакте. Раньше тут
-    # резолвился ОДИН общий режим (без platform=) — читался только default_link_mode,
+    # резолвился ОДИН режим (без platform=) — читался «общий» режим клиента,
     # и карточка писала «через Mini App», хотя у Telegram стояла «Веб-версия».
     link_modes: dict[str, str] = {}
     for _p in ("telegram", "vk", "max"):

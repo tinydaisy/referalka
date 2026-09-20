@@ -74,15 +74,18 @@ export default function PublicLinks({
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // Активный режим. Источник истины — общая настройка клиента
-  // (clients.default_link_mode из /auth/me). Проп linkMode — необязательный
+  // Активный режим. Источник истины — настройка клиента ДЛЯ TELEGRAM
+  // (clients.link_mode_telegram из /auth/me). Проп linkMode — необязательный
   // override (заложено на будущее пер-событийное переопределение).
+  // ⚠️ «Общего режима» (default_link_mode) больше нет: поля не было в
+  // интерфейсе, а код читал его вместо площадочной настройки — и переключатель
+  // в кабинете не действовал (миграции 477–478).
   const [mode, setMode] = useState<'miniapp' | 'bot'>(linkMode === 'bot' ? 'bot' : 'miniapp')
   useEffect(() => {
     if (linkMode === 'miniapp' || linkMode === 'bot') { setMode(linkMode); return }
-    // Иначе берём общий клиентский флаг.
+    // Иначе берём настройку клиента для Telegram.
     api.auth.me().then((m: any) => {
-      setMode(m?.default_link_mode === 'bot' ? 'bot' : 'miniapp')
+      setMode(m?.link_mode_telegram === 'bot' ? 'bot' : 'miniapp')
     }).catch(() => {})
   }, [linkMode])
 

@@ -314,7 +314,9 @@ async def get_me(
                   own.lp_color_heading, own.lp_color_body,
                   -- Для ссылок «посмотреть себя» в шапке профиля (см. ниже).
                   e.landing_url,
-                  own.default_link_mode,
+                  -- ⚠️ Режим ДЛЯ TELEGRAM: карточка спикера открывается
+                  -- телеграм-ссылкой. «Общего режима» больше нет (мигр. 477–478).
+                  own.tg_link_mode,
                   -- Сколько символов клиент разрешил в регалиях (миграция 420).
                   -- ⚠️ Отдаём спикеру, чтобы счётчик в поле показывал ровно то,
                   -- по чему потом откажет сохранение.
@@ -333,7 +335,7 @@ async def get_me(
              LEFT JOIN LATERAL (
                -- ⚠️ Поля перечислены ЯВНО: снаружи own.* не работает, колонку
                -- надо добавлять и сюда, иначе «column own.X does not exist».
-               SELECT cl.id, cl.default_link_mode,
+               SELECT cl.id, COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                       cl.brand_logo_url, cl.brand_logo_light_url,
                       cl.brand_name, cl.name, cl.speaker_achievements_limit,
                       -- Тема кабинета: те же цвета, что клиент задал в
@@ -521,7 +523,7 @@ async def get_me(
     _base = await event_public_base(db, int(session["e_id"]))
     d["card_link"] = _card_link_for_self(
         speaker_card_link(
-            row["event_slug"], se_id, row["default_link_mode"], row["bot_handle"],
+            row["event_slug"], se_id, row["tg_link_mode"], row["bot_handle"],
             base_url=_base,
         ),
         row["my_contact_id"],
@@ -1460,7 +1462,7 @@ async def get_me_broadcasts(
     me = await db.fetchrow(
         """SELECT cse.event_id, e.slug AS event_slug, e.landing_url,
                   col.contact_id AS my_contact_id,
-                  cl.default_link_mode,
+                  COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                   (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
                      WHERE cc.client_id=cl.id AND cc.is_active AND ch.platform_slug='telegram'
                        AND ch.is_system=FALSE AND ch.handle IS NOT NULL LIMIT 1) AS bot_handle
@@ -1481,10 +1483,10 @@ async def get_me_broadcasts(
     # Спикер шлёт эти ссылки СВОЕЙ аудитории → домен клиента, не платформы.
     _base = await event_public_base(db, event_id)
     # Ссылка на карточку спикера в кабинете участника (Mini App или веб —
-    # по глобальной настройке клиента default_link_mode).
+    # по настройке клиента ДЛЯ TELEGRAM).
     card_link = _card_link_for_self(
         speaker_card_link(me["event_slug"], se_id,
-                          me["default_link_mode"], me["bot_handle"],
+                          me["tg_link_mode"], me["bot_handle"],
                           base_url=_base),
         me["my_contact_id"],
     )

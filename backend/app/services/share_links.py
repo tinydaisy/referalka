@@ -30,8 +30,15 @@ async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | 
 
     Приоритет:
       1. режим клиента ДЛЯ ЭТОЙ ПЛОЩАДКИ (clients.link_mode_{telegram|vk|max});
-      2. общий режим клиента (clients.default_link_mode);
-      3. 'bot' (веб-версия).
+      2. 'bot' (веб-версия).
+
+    ⚠️⚠️ «ОБЩЕГО РЕЖИМА» БОЛЬШЕ НЕТ (2026-09-20, миграции 477–478 удалили
+    `clients.default_link_mode`). Переключателя для него в кабинете никогда не
+    существовало: значение проставлялось само (DEFAULT 'bot' при создании
+    клиента), а часть кода читала именно его вместо площадочных колонок,
+    которые клиент настраивает в Mini App. У шести клиентов меню в боте вело
+    себя ОБРАТНО настройке — стоял Telegram «Вход через Мини-апп», а
+    `/menu{id}` открывал веб. Единственный источник истины — режим площадки.
 
     ⚠️ Режима У СОБЫТИЯ больше нет (2026-07-28, миграция 240 удалила колонку
     `events.link_mode`). Переключателя для неё в дашборде никогда не было —
@@ -60,13 +67,16 @@ async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | 
         return 'bot'
     if client_id:
         col = _PLATFORM_MODE_COL.get(platform or "")
-        cols = f"{col}, default_link_mode" if col else "default_link_mode"
-        row = await db.fetchrow(f"SELECT {cols} FROM clients WHERE id = $1", client_id)
-        if row:
-            if col and row[col] in ('miniapp', 'bot'):
-                return row[col]
-            if row["default_link_mode"] in ('miniapp', 'bot'):
-                return row["default_link_mode"]
+        # ⚠️ Без `platform` спросить больше нечего: общего режима нет. Раньше
+        # такой вызов молча читал `default_link_mode` — и площадочная настройка
+        # клиента не действовала вовсе. Теперь честно отвечаем 'bot' (ссылка
+        # ведёт в бота, человек подписывается сам), а вызывающий обязан
+        # указывать площадку.
+        if not col:
+            return 'bot'
+        row = await db.fetchrow(f"SELECT {col} FROM clients WHERE id = $1", client_id)
+        if row and row[col] in ('miniapp', 'bot'):
+            return row[col]
     return 'bot'
 
 
@@ -457,9 +467,10 @@ async def build_share_links(
     handles = await get_client_bot_handles(db, client_id)
     vk_app_id = await get_client_vk_app_id(db, client_id)
 
-    # Режим открытия — СВОЙ на каждую площадку (миграция 200): Mini App может быть
-    # подключён в TG и отсутствовать в VK. Колонка площадки перекрывает общий режим;
-    # если она пуста — остаётся `link_mode`, который передал вызывающий код.
+    # Режим открытия — СВОЙ на каждую площадку (миграция 200): Mini App может
+    # быть подключён в TG и отсутствовать в VK. ⚠️ Общего режима больше нет
+    # (миграции 477–478): колонки заполнены у всех клиентов, а `link_mode`
+    # из аргумента остаётся лишь на случай пустого значения у новой записи.
     per = await db.fetchrow(
         "SELECT link_mode_telegram, link_mode_vk, link_mode_max FROM clients WHERE id = $1",
         client_id,

@@ -1502,7 +1502,7 @@ async def _send_finished_event_menu(message: Message, ev, contact_id: int | None
     общего хелпера `resolve_event_finish_state` — того же, на котором работает
     приветствие при открытии события (kind `next_event_cta`/`ecosystem_thanks`).
     Есть предстоящее событие → кнопка-ссылка прямо на него (Mini App или
-    бот-флоу — по `clients.default_link_mode`, как у «Кабинет·Подарки»).
+    бот-флоу — по режиму клиента ДЛЯ TELEGRAM, как у «Кабинет·Подарки»).
     Нет предстоящих → только текст, без кнопок.
     """
     from app.services.event_welcome import resolve_event_finish_state, _fmt_event_period
@@ -1533,8 +1533,8 @@ async def _send_finished_event_menu(message: Message, ev, contact_id: int | None
             text += f"\n🗓 {succ_date}"
 
         # Ссылка на следующее событие — тем же способом, что «Кабинет·Подарки»:
-        # Mini App клиента, если default_link_mode='miniapp' и есть свой бот,
-        # иначе веб-страница события.
+        # Mini App клиента, если он выбран ДЛЯ TELEGRAM и есть свой бот, иначе
+        # веб-страница события.
         # Веб-страница события — публичная страница клиента: домен клиента,
         # если подключён (Mini App-ветка ниже её перебивает).
         # ⚠️ КОЛЛАБА: ведём в Mini App/на домен ТОГО организатора, в чьей базе
@@ -1542,9 +1542,13 @@ async def _send_finished_event_menu(message: Message, ev, contact_id: int | None
         from app.services.event_client import resolve_event_client
         succ_client_id = await resolve_event_client(
             db, event_id=ev["id"], client_id=ev["client_id"], contact_id=contact_id)
-        succ_mode = (await db.fetchval(
-            "SELECT default_link_mode FROM clients WHERE id = $1", succ_client_id
-        ) if succ_client_id != ev["client_id"] else ev["default_link_mode"]) or "miniapp"
+        # ⚠️ Режим спрашиваем ОБЩЕЙ функцией и ОБЯЗАТЕЛЬНО с площадкой: человек
+        # сейчас в телеграм-боте. Раньше здесь читался `default_link_mode` —
+        # поле, которого нет в интерфейсе, — и настройка «Telegram: Мини-апп»
+        # не действовала вовсе (миграции 477–478).
+        from app.services.share_links import resolve_event_link_mode
+        succ_mode = await resolve_event_link_mode(
+            db, client_id=succ_client_id, platform="telegram")
         succ_url = await client_public_link(db, succ_client_id, f"event/{succ['slug']}")
         if succ_mode == "miniapp" and succ_client_id:
             from app.services.share_links import get_client_bot_handles, telegram_link
@@ -1597,10 +1601,6 @@ async def send_event_menu(
                   (SELECT eo.client_id FROM event_owners eo
                     WHERE eo.event_id = e.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
-                  (SELECT c.default_link_mode FROM event_owners eo
-                     JOIN clients c ON c.id = eo.client_id
-                    WHERE eo.event_id = e.id AND eo.status = 'accepted'
-                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS default_link_mode,
                   vip_url, vip_button_label, hide_stream_button,
                   e.is_offline, e.address, e.address_button_label,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
@@ -1671,13 +1671,18 @@ async def send_event_menu(
     ev = dict(ev)
     ev["client_id"] = link_client_id
 
-    # Куда ведёт «Кабинет и подарки»: по глобальной настройке клиента
-    # (clients.default_link_mode). miniapp → Mini App клиента; иначе → веб события.
+    # Куда ведёт «Кабинет и подарки»: по настройке клиента ДЛЯ TELEGRAM
+    # (кабинет → Mini App). miniapp → Mini App клиента; иначе → веб события.
     # Настройка берётся у ТОГО ЖЕ клиента, иначе режим одного организатора
     # применился бы к ссылкам другого.
-    link_mode = (await db.fetchval(
-        "SELECT default_link_mode FROM clients WHERE id = $1", link_client_id
-    ) if link_client_id != ev["client_id"] else ev["default_link_mode"]) or "miniapp"
+    #
+    # ⚠️⚠️ ПЛОЩАДКУ ПЕРЕДАВАТЬ ОБЯЗАТЕЛЬНО. Здесь читался `default_link_mode` —
+    # «общий режим», которого нет в интерфейсе и который проставлялся сам
+    # (DEFAULT 'bot'). Из-за этого у клиента с настройкой «Telegram: Вход через
+    # Мини-апп» команда `/menu{id}` открывала ВЕБ-ВЕРСИЮ (миграции 477–478).
+    from app.services.share_links import resolve_event_link_mode
+    link_mode = await resolve_event_link_mode(
+        db, client_id=link_client_id, platform="telegram")
     # Веб-страница события — публичная страница клиента: домен клиента,
     # если подключён. Mini App-ветка ниже её перебивает (адрес Mini App
     # на домен клиента не переезжает).
@@ -2139,7 +2144,8 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
             client = await db.fetchrow(
                 """SELECT id, name, brand_name,
                           profile_photo_url, owner_photo_url,
-                          default_link_mode, start_greeting_text,
+                          COALESCE(link_mode_telegram, 'bot') AS tg_link_mode,
+                          start_greeting_text,
                           start_btn_events_label, start_btn_owner_label,
                           start_buttons,
                           start_mode, start_event_id,
@@ -2186,7 +2192,12 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
 
         brand_name = (client["brand_name"] or client["name"] or "").strip()
         greet_name = (user.first_name or "").strip()
-        web_mode = (client["default_link_mode"] or "miniapp") == "bot"
+        # ⚠️ Режим — ДЛЯ TELEGRAM (человек в телеграм-боте), а не «общий»:
+        # общего режима больше нет, см. миграции 477–478.
+        # ⚠️⚠️ Берём из УЖЕ ВЫБРАННОЙ строки клиента, а не отдельным запросом:
+        # соединение пула к этому месту уже освобождено, и `db.fetchrow` здесь
+        # падает с «connection has been released back to the pool».
+        web_mode = (client["tg_link_mode"] or "bot") == "bot"
         # Адрес Mini App: всегда основной домен — он вбит в @BotFather и на
         # домен клиента не переезжает (web-ссылки кнопок резолвятся отдельно).
         base = f"{platform_base_url()}/c/{client_id}/tg"
