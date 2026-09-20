@@ -373,6 +373,23 @@ export const api = {
       reorder: (collabId: number, ids: number[]) =>
         request(`/api/v1/collaborators/${collabId}/posters/reorder`, { method: 'POST', body: JSON.stringify({ ids }) }),
     },
+    // ⚠️ Библиотека ФОТО (миграция 472): под каждое событие клиент готовит
+    // свои варианты — карикатуры, снимки с предметами. У каждого варианта
+    // СВОЙ кадр: снимки кадрированы по-разному, общая точка разъезжалась бы.
+    photos: {
+      list: (collabId: number) =>
+        request(`/api/v1/collaborators/${collabId}/photos`),
+      add: (collabId: number, data: { url: string; cutout_url?: string; label?: string }) =>
+        request(`/api/v1/collaborators/${collabId}/photos`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (collabId: number, photoId: number, data: any) =>
+        request(`/api/v1/collaborators/${collabId}/photos/${photoId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (collabId: number, photoId: number) =>
+        request(`/api/v1/collaborators/${collabId}/photos/${photoId}`, { method: 'DELETE' }),
+      // Какое фото взято В ЭТОМ событии. Пусто — профильное.
+      setForEvent: (eventId: number, collabId: number, photoId: number | null) =>
+        request(`/api/v1/collaborators/events/${eventId}/speakers/${collabId}/photo`
+                + (photoId != null ? `?photo_id=${photoId}` : ''), { method: 'PUT' }),
+    },
   },
   gifts: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/gifts/`),

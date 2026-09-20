@@ -1221,6 +1221,8 @@ async def list_event_speakers(
                   cse.show_knowledge_base_field, cse.show_notes_field,
                   cse.show_partner_registration_link,
                   cse.poster_id,
+                  -- Фото, выбранное для этого события (миграция 472).
+                  cse.photo_id,
                   cse.announcement_poster_ids,
                   (SELECT COALESCE(array_agg(ecs.stage_id), ARRAY[]::int[])
                      FROM event_collaborator_stages ecs WHERE ecs.ec_id = cse.id) AS stage_ids,
@@ -1429,6 +1431,8 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
                   cse.speaker_topic, (SELECT COALESCE(g1.manual_title, l1.name, p1.name) FROM event_collaborator_lead_magnets g1 LEFT JOIN lead_magnets l1 ON l1.id = g1.lead_magnet_id LEFT JOIN lead_magnet_packages p1 ON p1.id = g1.package_id WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_title, (SELECT g1.manual_url FROM event_collaborator_lead_magnets g1 WHERE g1.ec_id = cse.id ORDER BY g1.sort_order, g1.id LIMIT 1) AS gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.poster_id,
+                  -- Фото, выбранное для этого события (миграция 472).
+                  cse.photo_id,
                   cse.use_photo_instead_of_poster,
                   CASE WHEN cse.use_photo_instead_of_poster THEN NULL
                        ELSE cp_cse.url END AS event_poster_url,

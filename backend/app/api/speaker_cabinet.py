@@ -55,6 +55,8 @@ POSITIONING_LIMIT = 140
 from app.services.field_limits import (  # noqa: E402
     ACHIEVEMENTS_LIMIT_DEFAULT, achievements_limit,
 )
+# ⚠️ Единая точка правды про выбор афиши спикера (event_photo.py).
+from app.services.event_photo import poster_subquery  # noqa: E402
 
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])
 
@@ -281,12 +283,7 @@ async def get_me(
                   c.crop_dy_portrait, c.is_company, c.logo_on_light_url,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                   -- Заодно уважаем per-event выбор афиши (cse.poster_id).
-                  (SELECT url FROM collaborator_posters cp
-                     WHERE NOT cse.use_photo_instead_of_poster
-                       AND (cp.id = cse.poster_id OR
-                            (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
-                     ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
-                     LIMIT 1) AS poster_url,
+                  %(poster_sql_cse)s AS poster_url,
                   c.photo_folder_url, c.video_folder_url,
                   c.video_url AS speaker_video_url,
                   c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
@@ -889,7 +886,7 @@ async def verify_channel(
     session: dict = Depends(_auth_session_write),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """
+    """ % {"poster_sql_cse": poster_subquery("cse", "c")}
     Используется на форме спикера для самопроверки канала. Если у коллаба
     заполнен tg_channel_url, но tg_channel_id пуст — резолвит через getChat.
     Затем getChatMember(channel, личный_tg_id) — если бот в канале админом
@@ -1112,12 +1109,7 @@ async def get_me_materials(
                   ec.use_photo_instead_of_poster,
                   -- Миграция 237: тумблер «не использовать индивидуальную афишу»
                   -- → афиша не отдаётся, спикер видит только своё фото.
-                  (SELECT url FROM collaborator_posters cp
-                     WHERE NOT ec.use_photo_instead_of_poster
-                       AND (cp.id = ec.poster_id OR
-                            (ec.poster_id IS NULL AND cp.collaborator_id = c.id))
-                     ORDER BY (cp.id = ec.poster_id) DESC, cp.sort_order, cp.id
-                     LIMIT 1) AS speaker_poster_url,
+                  %(poster_sql_ec)s AS speaker_poster_url,
                   c.video_url AS speaker_video_url,
                   ctc.ref_code AS speaker_ref_code,
                   ctc.first_referrer_contact_id,
@@ -1140,6 +1132,31 @@ async def get_me_materials(
     # афиши — не показываем и «для анонсов» (они из той же библиотеки).
     announcement_ids = ([] if base.get("use_photo_instead_of_poster")
                         else list(base.get("announcement_poster_ids") or []))
+    # ⚠️ Индивидуальные афиши — тоже только после публикации (миграция 469).
+    # Собранные генератором афиши спикеров сразу попадают в их карточки; без
+    # этой проверки они показывались бы людям ещё до того, как клиент решил,
+    # что вариант окончательный.
+    ind_published = await db.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM event_poster_layouts"
+        "  WHERE event_id = $1 AND kind = 'individual' AND published_to_cabinet)",
+        e_id,
+    )
+    # ⚠️ Афиши, загруженные клиентом ВРУЧНУЮ в карточку, галочкой генератора не
+    # управляются: они лежали там и до него. Гасим только автособранные — их
+    # видно по метке вида «Название события (vertical)», которую ставит
+    # render-all. Не различишь — спикер потеряет свои старые афиши.
+    if announcement_ids and not ind_published:
+        auto_ids = [r["id"] for r in await db.fetch(
+            "SELECT id FROM collaborator_posters"
+            # ⚠️ Скобки обязательны: без них AND связывает сильнее OR, и
+            # условие по владельцу применилось бы только к первой ветке —
+            # в выборку попали бы чужие афиши.
+            " WHERE id = ANY($1::int[]) AND collaborator_id = $2"
+            "   AND (label LIKE '%(horizontal)' OR label LIKE '%(vertical)'"
+            "        OR label LIKE '%(square)')",
+            announcement_ids, c_id,
+        )]
+        announcement_ids = [i for i in announcement_ids if i not in auto_ids]
     if announcement_ids:
         announcement_posters = await db.fetch(
             """SELECT id, url, label, sort_order
@@ -1151,18 +1168,37 @@ async def get_me_materials(
     else:
         announcement_posters = []
 
+    # ⚠️⚠️ ТОЛЬКО ОПУБЛИКОВАННОЕ (миграция 469). Раньше кабинет показывал всё
+    # подряд: клиент собирает афишу в несколько заходов, подбирая раскладку, — и
+    # каждая проба немедленно уезжала спикерам. Теперь показываем лишь те виды
+    # и ориентации, по которым клиент нажал «Опубликовать».
+    #
+    # ⚠️ Галочка живёт на МАКЕТЕ и решается отдельно для каждой ориентации:
+    # вертикальную можно выпустить, а горизонтальную ещё дорисовывать.
+    pub_common = [r["orientation"] for r in await db.fetch(
+        "SELECT orientation FROM event_poster_layouts"
+        " WHERE event_id = $1 AND kind = 'common' AND published_to_cabinet",
+        e_id,
+    )]
+    pub_day = [r["orientation"] for r in await db.fetch(
+        "SELECT orientation FROM event_poster_layouts"
+        " WHERE event_id = $1 AND kind = 'day' AND published_to_cabinet",
+        e_id,
+    )]
+
     # Общие афиши события (упорядочены: horizontal → vertical → square)
     posters = await db.fetch(
         """SELECT id, url, orientation, sort
              FROM event_posters
             WHERE event_id = $1 AND day IS NULL
+              AND orientation = ANY($2::text[])
             ORDER BY CASE orientation
                        WHEN 'horizontal' THEN 1
                        WHEN 'vertical'   THEN 2
                        WHEN 'square'     THEN 3
                        ELSE 4
                      END, sort, id""",
-        e_id,
+        e_id, pub_common,
     )
 
     # Афиши ДНЕЙ события (миграция 215) — спикер скачивает афишу нужного дня
@@ -1195,6 +1231,7 @@ async def get_me_materials(
              LEFT JOIN conf_days cd ON cd.event_id = ep.event_id AND cd.day_number = ep.day
             WHERE ep.event_id = $1 AND ep.day IS NOT NULL
               AND ($2::int[] = '{}'::int[] OR ep.day = ANY($2::int[]))
+              AND ep.orientation = ANY($3::text[])
             ORDER BY ep.day,
                      CASE ep.orientation
                        WHEN 'horizontal' THEN 1
@@ -1202,7 +1239,7 @@ async def get_me_materials(
                        WHEN 'square'     THEN 3
                        ELSE 4
                      END, ep.sort, ep.id""",
-        e_id, my_days,
+        e_id, my_days, pub_day,
     )
 
     # Тексты-анонсы
@@ -1378,7 +1415,7 @@ async def _resolve_landing_link(db, event_id: int, event_slug: str,
     ⚠️ Неопубликованный лендинг тоже не годится — он отдаёт «Страница не
     найдена». Параметр `landing_url` больше не участвует (он про сторонний
     сайт) и оставлен только ради совместимости вызовов.
-    """
+    """ % {"poster_sql_ec": poster_subquery("ec", "c")}
     row = await db.fetchrow(
         """SELECT COALESCE(e.registration_mode, 'form') AS mode,
                   (SELECT p.is_published FROM event_landing_pages p

@@ -1,0 +1,130 @@
+"""Какое фото спикера брать в конкретном событии.
+
+⚠️⚠️ ЕДИНСТВЕННАЯ ТОЧКА ПРАВДЫ. Фото и его кадр читают десять мест: карточка
+спикера, генератор афиш, кабинет спикера, программа конференции, Mini App,
+веб-витрина. Если правило подстановки разойдётся хотя бы в одном из них,
+клиент увидит на афише одно фото, а в программе другое — и будет прав, считая
+это поломкой. Поэтому правило живёт здесь, а места его зовут.
+
+Правило (миграция 472):
+  `event_collaborators.photo_id` задан → берём это фото С ЕГО кадром;
+  не задан                            → профильное `collaborators.photo_url`.
+
+⚠️ Кадр переезжает ВМЕСТЕ с фото. Снимки кадрированы по-разному: на портрете
+лицо в центре, на карикатуре сбоку. Взять фото из библиотеки, а точку лица от
+профильного — значит гарантированно промахнуться мимо лица.
+"""
+
+from typing import Any, Optional
+
+# Поля кадра — те же имена в `collaborators` и в `collaborator_photos`,
+# поэтому подстановка сводится к выбору источника.
+CROP_FIELDS = (
+    "photo_focal",
+    "cutout_photo_focal",
+    "crop_zoom_circle",
+    "crop_zoom_square",
+    "crop_zoom_portrait",
+    "crop_dx_circle",
+    "crop_dy_circle",
+    "crop_dx_square",
+    "crop_dy_square",
+    "crop_dx_portrait",
+    "crop_dy_portrait",
+)
+
+
+def apply_event_photo(row: dict[str, Any]) -> dict[str, Any]:
+    """Подставить фото события поверх профильного.
+
+    На входе строка, где рядом лежат профильные поля (`photo_url`,
+    `cutout_photo_url`, кадр) и поля выбранного фото с префиксом `ep_`
+    (их даёт `PHOTO_JOIN` ниже). На выходе — та же строка, но `photo_url`
+    и кадр указывают на то, что реально нужно показать.
+
+    ⚠️ Меняем ИМЕННО `photo_url`, а не заводим третье поле: иначе каждое из
+    десяти мест должно было бы помнить, какое поле смотреть, и половина
+    забыла бы.
+    """
+    if not row:
+        return row
+    out = dict(row)
+    ep_url = out.pop("ep_url", None)
+    ep_cutout = out.pop("ep_cutout_url", None)
+
+    # Убираем служебные поля в любом случае — наружу они не нужны.
+    ep_crop = {f: out.pop(f"ep_{f}", None) for f in CROP_FIELDS}
+
+    if not ep_url:
+        return out
+
+    out["photo_url"] = ep_url
+    # ⚠️ Вырезка берётся только своя: подставить к фото из библиотеки вырезку
+    # от профильного — значит показать на афише другого человека в другой позе.
+    out["cutout_photo_url"] = ep_cutout
+    for f in CROP_FIELDS:
+        out[f] = ep_crop.get(f)
+    return out
+
+
+def photo_join(alias_ec: str = "ec", alias_p: str = "ephoto") -> str:
+    """Кусок SQL: присоединить выбранное фото события.
+
+    Зовущий добавляет `PHOTO_COLUMNS` в SELECT и этот JOIN во FROM.
+    ⚠️ LEFT JOIN — фото может быть не выбрано, и это норма, а не ошибка.
+    """
+    return (
+        f" LEFT JOIN collaborator_photos {alias_p}"
+        f" ON {alias_p}.id = {alias_ec}.photo_id"
+    )
+
+
+def photo_columns(alias_p: str = "ephoto") -> str:
+    """Колонки выбранного фото с префиксом `ep_` — под `apply_event_photo`."""
+    cols = [f"{alias_p}.url AS ep_url", f"{alias_p}.cutout_url AS ep_cutout_url"]
+    cols += [f"{alias_p}.{f} AS ep_{f}" for f in CROP_FIELDS]
+    return ", ".join(cols)
+
+
+def resolve_photo_url(row: dict[str, Any], cutout: bool = False) -> Optional[str]:
+    """Только адрес картинки — когда кадр не нужен (списки, превью)."""
+    r = apply_event_photo(row)
+    if cutout:
+        return r.get("cutout_photo_url") or r.get("photo_url")
+    return r.get("photo_url") or r.get("cutout_photo_url")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ИНДИВИДУАЛЬНАЯ АФИША СПИКЕРА
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ⚠️⚠️ ТО ЖЕ ПРАВИЛО, ЧТО У ФОТО, И ТОЖЕ В ОДНОМ МЕСТЕ. Подзапрос выбора афиши
+# был скопирован ПЯТЬ раз: трижды в рассылках (знакомство со спикерами, «за
+# 5 минут», ещё одна) плюс кабинет спикера и виджет лендинга. Любая правка
+# правила требовала пройти по всем пяти, и один пропущенный давал бы в рассылке
+# одну афишу, а на сайте другую.
+#
+# Правило (сверху вниз, первое сработавшее):
+#   1. тумблер «не использовать афишу» (мигр. 237) → афиши нет вовсе,
+#      подставится фото;
+#   2. `event_collaborators.poster_id` → афиша, выбранная ДЛЯ ЭТОГО события;
+#   3. иначе → первая афиша из библиотеки человека (его «профильная»).
+#
+# ⚠️ Шаг 3 обязателен: у большинства спикеров афиша одна и к событию не
+# привязана. Убрав его, мы оставили бы без картинок все рассылки, где никто
+# ничего специально не выбирал.
+
+
+def poster_subquery(alias_ec: str = "cse", alias_c: str = "c") -> str:
+    """Подзапрос «афиша спикера для этого события» — один на весь проект.
+
+    Возвращает SQL-выражение, которое ставится прямо в SELECT.
+    """
+    return (
+        " (SELECT url FROM collaborator_posters cp"
+        f"   WHERE NOT {alias_ec}.use_photo_instead_of_poster"
+        f"     AND (cp.id = {alias_ec}.poster_id OR"
+        f"          ({alias_ec}.poster_id IS NULL AND cp.collaborator_id = {alias_c}.id))"
+        f"   ORDER BY (cp.id = {alias_ec}.poster_id) DESC, cp.sort_order, cp.id"
+        "    LIMIT 1)"
+    )

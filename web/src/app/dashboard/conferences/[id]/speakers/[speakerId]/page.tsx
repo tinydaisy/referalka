@@ -229,6 +229,9 @@ export default function ConferenceSpeakerPage() {
 
   const [eventForm, setEventForm] = useState({
     role: 'speaker',
+    // ⚠️ Какое фото из библиотеки взято В ЭТОМ событии (миграция 472).
+    // null — профильное фото человека.
+    photo_id: null as number | null,
     topics: [''],
     // Описания тем — параллельный topics массив (индекс в индекс).
     topic_descriptions: [''],
@@ -267,6 +270,13 @@ export default function ConferenceSpeakerPage() {
   const [uploadingPoster, setUploadingPoster] = useState(false)
   const [posterUploadError, setPosterUploadError] = useState<string | null>(null)
   const posterFileRef = useRef<HTMLInputElement | null>(null)
+  // ⚠️ Библиотека ФОТО (миграция 472): под конференцию клиент готовит свои
+  // варианты — карикатуры, снимки с предметами. Профильное фото при этом
+  // остаётся нетронутым: оно показывается в программе, Mini App и на витрине.
+  const photoFileRef = useRef<HTMLInputElement | null>(null)
+  const [photoLibrary, setPhotoLibrary] = useState<any[]>([])
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null)
   const [posterLightbox, setPosterLightbox] = useState<string | null>(null)
   const [posterCopiedId, setPosterCopiedId] = useState<number | null>(null)
   const [showAccessCode, setShowAccessCode] = useState(false)
@@ -392,6 +402,8 @@ export default function ConferenceSpeakerPage() {
 
         setEventForm({
           role: sp.role || 'speaker',
+          // Фото, выбранное для этого события (миграция 472).
+          photo_id: sp.photo_id ?? null,
           topics: rawTopics.length > 0 ? rawTopics : [''],
           topic_descriptions: rawDescs,
           // Ручной подарок теперь в manualGifts (список), эти поля не используются.
@@ -439,6 +451,10 @@ export default function ConferenceSpeakerPage() {
         api.collaborators.posters.list(r.collaborator.id)
           .then((pr: any) => setPosterLibrary(pr.posters || []))
           .catch(() => setPosterLibrary([]))
+        // Библиотека вариантов фото (миграция 472).
+        api.collaborators.photos.list(r.collaborator.id)
+          .then((pr: any) => setPhotoLibrary(pr.photos || []))
+          .catch(() => setPhotoLibrary([]))
       })
       .catch(() => router.push(`${basePath}/${confId}?tab=speakers`))
       .finally(() => setLoading(false))
@@ -573,6 +589,48 @@ export default function ConferenceSpeakerPage() {
       setUploadingPoster(false)
       if (posterFileRef.current) posterFileRef.current.value = ''
     }
+  }
+
+  /** Загрузка вариантов фото в библиотеку — как у афиш. */
+  async function uploadPhotoToLibrary(files: FileList | null) {
+    if (!files || files.length === 0 || !profile) return
+    setPhotoUploadError(null)
+    setUploadingPhoto(true)
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
+      for (const f of Array.from(files)) {
+        if (f.size > 50 * 1024 * 1024) throw new Error(`«${f.name}» больше 50 МБ`)
+        const fd = new FormData()
+        fd.append('file', f)
+        fd.append('kind', 'speaker_photo')
+        fd.append('collaborator_id', String(profile.id))
+        const r = await fetch(`${API_URL}/api/v1/uploads`, {
+          method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }))
+          throw new Error(err.detail || `HTTP ${r.status}`)
+        }
+        const body = await r.json().catch(() => ({}))
+        const url = body.url || body.file_url
+        if (url) await api.collaborators.photos.add(profile.id, { url, label: f.name })
+      }
+      const pr: any = await api.collaborators.photos.list(profile.id)
+      setPhotoLibrary(pr.photos || [])
+    } catch (e: any) {
+      setPhotoUploadError(e.message || 'Ошибка загрузки')
+    } finally {
+      setUploadingPhoto(false)
+      if (photoFileRef.current) photoFileRef.current.value = ''
+    }
+  }
+
+  /** Правка кадра варианта — сохраняем сразу, как в карточке. */
+  async function patchLibraryPhoto(photoId: number, patch: any) {
+    if (!profile) return
+    setPhotoLibrary(list => list.map(ph => (ph.id === photoId ? { ...ph, ...patch } : ph)))
+    try { await api.collaborators.photos.update(profile.id, photoId, patch) } catch {}
   }
 
   function calcPriority(role: string, is_commercial: boolean): number {
@@ -1423,6 +1481,86 @@ export default function ConferenceSpeakerPage() {
                 />
               </div>
             )}
+
+            {/* ⚠️⚠️ ВАРИАНТЫ ФОТО ДЛЯ АФИШ ЭТОЙ КОНФЕРЕНЦИИ (миграция 472).
+                Под каждое событие готовят своё: карикатуры с улыбками, снимки
+                с предметами. Раньше фото было одно, и загрузка нового ЗАТИРАЛА
+                прежнее — добавить вариант, не потеряв исходный, было нельзя.
+                Профильное фото выше остаётся нетронутым: оно показывается в
+                программе, Mini App и на витрине. */}
+            <div className="mt-6 pt-5 border-t border-gray-100">
+              <div className="flex items-center justify-between gap-3 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">
+                  Другие фото для афиш
+                </label>
+                <button type="button" onClick={() => photoFileRef.current?.click()}
+                        disabled={uploadingPhoto}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 disabled:opacity-50">
+                  {uploadingPhoto ? '⏳ Загрузка…' : '+ Добавить фото'}
+                </button>
+                <input ref={photoFileRef} type="file" accept="image/*" multiple className="hidden"
+                       onChange={e => uploadPhotoToLibrary(e.target.files)} />
+              </div>
+              <p className="text-xs text-gray-400 mb-3">
+                Выбранное фото попадёт на афиши <b>этой конференции</b>. У каждого варианта
+                своё положение лица — переключите, и настройка покажется под ним.
+              </p>
+              {photoUploadError && (
+                <div className="mb-2 text-xs text-red-600">{photoUploadError}</div>
+              )}
+
+              <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+                <input type="radio" name="event_photo" checked={!eventForm.photo_id}
+                       onChange={() => {
+                         setEventForm(f => ({ ...f, photo_id: null }))
+                         api.collaborators.photos.setForEvent(confId, profile.id, null).catch(() => {})
+                       }} />
+                Обычное фото из профиля
+              </label>
+
+              {photoLibrary.map(ph => (
+                <div key={ph.id} className="mb-3 rounded-lg border card-border p-3">
+                  <div className="flex items-start gap-3">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 shrink-0">
+                      <input type="radio" name="event_photo"
+                             checked={eventForm.photo_id === ph.id}
+                             onChange={() => {
+                               setEventForm(f => ({ ...f, photo_id: ph.id }))
+                               api.collaborators.photos.setForEvent(confId, profile.id, ph.id).catch(() => {})
+                             }} />
+                      Взять это
+                    </label>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={ph.url} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
+                    <div className="min-w-0 flex-1 text-xs text-gray-500 truncate">{ph.label || 'Без названия'}</div>
+                    <button type="button"
+                            onClick={async () => {
+                              if (!window.confirm('Удалить этот вариант фото?')) return
+                              await api.collaborators.photos.delete(profile.id, ph.id).catch(() => {})
+                              setPhotoLibrary(list => list.filter(x => x.id !== ph.id))
+                              if (eventForm.photo_id === ph.id) setEventForm(f => ({ ...f, photo_id: null }))
+                            }}
+                            className="shrink-0 text-xs text-red-600 hover:underline">
+                      Удалить
+                    </button>
+                  </div>
+                  {/* ⚠️ Кадр настраивается ТОЛЬКО у выбранного: показывать пять
+                      настроек сразу — каша, а точка у каждого фото своя. */}
+                  {eventForm.photo_id === ph.id && (
+                    <div className="mt-3">
+                      <FocalPointPicker
+                        url={ph.url}
+                        value={ph.photo_focal ?? null}
+                        onChange={v => patchLibraryPhoto(ph.id, { photo_focal: v })}
+                        zooms={ph}
+                        onZoomChange={z => patchLibraryPhoto(ph.id, z)}
+                        hint="Эта настройка берётся на афиши конференции — у каждого фото своя."
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
           )}
 

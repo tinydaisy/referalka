@@ -31,6 +31,7 @@ from app.services.event_access import assert_event_owner
 from app.services.features import client_has_feature
 from app.services.poster_render import PosterRenderError, render_poster_png
 from app.services.preview_token import make_preview_token
+from app.services.event_photo import apply_event_photo
 from app.services.store_file import store_bytes
 
 router = APIRouter(tags=["Генератор афиш"])
@@ -718,18 +719,37 @@ async def _people(db: asyncpg.Connection, event_id: int) -> list[dict]:
                   c.crop_zoom_circle, c.crop_zoom_square, c.crop_zoom_portrait,
                   c.crop_dx_circle, c.crop_dy_circle, c.crop_dx_square,
                   c.crop_dy_square, c.crop_dx_portrait, c.crop_dy_portrait,
-                  ec.role, ec.is_commercial, ec.sort_order
+                  ec.role, ec.is_commercial, ec.sort_order,
+                  ephoto.url AS ep_url, ephoto.cutout_url AS ep_cutout_url,
+                  ephoto.photo_focal AS ep_photo_focal,
+                  ephoto.cutout_photo_focal AS ep_cutout_photo_focal,
+                  ephoto.crop_zoom_circle AS ep_crop_zoom_circle,
+                  ephoto.crop_zoom_square AS ep_crop_zoom_square,
+                  ephoto.crop_zoom_portrait AS ep_crop_zoom_portrait,
+                  ephoto.crop_dx_circle AS ep_crop_dx_circle,
+                  ephoto.crop_dy_circle AS ep_crop_dy_circle,
+                  ephoto.crop_dx_square AS ep_crop_dx_square,
+                  ephoto.crop_dy_square AS ep_crop_dy_square,
+                  ephoto.crop_dx_portrait AS ep_crop_dx_portrait,
+                  ephoto.crop_dy_portrait AS ep_crop_dy_portrait
              FROM event_collaborators ec
              JOIN collaborators c ON c.id = ec.speaker_id
+             -- ⚠️ Фото, выбранное ДЛЯ ЭТОГО события (миграция 472): клиент
+             -- готовит под конференцию свои варианты — карикатуры, снимки с
+             -- предметами. Не выбрано — остаётся профильное.
+             LEFT JOIN collaborator_photos ephoto ON ephoto.id = ec.photo_id
             WHERE ec.event_id = $1
               AND COALESCE(ec.is_visible, TRUE)
-              AND (c.photo_url IS NOT NULL OR c.cutout_photo_url IS NOT NULL)
+              AND (c.photo_url IS NOT NULL OR c.cutout_photo_url IS NOT NULL
+                   OR ephoto.url IS NOT NULL)
             ORDER BY COALESCE(ec.sort_order, 0), c.id""",
         event_id,
     )
     out = []
     for r in rows:
-        d = dict(r)
+        # ⚠️ Фото события поверх профильного — ОДНА функция на весь проект:
+        # кадр переезжает вместе с фото, иначе точка лица промахнётся.
+        d = apply_event_photo(dict(r))
         # media_assets приходит из jsonb — asyncpg отдаёт строкой.
         # ⚠️ NUMERIC уезжает строкой, а фронт на него УМНОЖАЕТ размер фото.
         for _z in ("crop_zoom_circle", "crop_zoom_square", "crop_zoom_portrait",

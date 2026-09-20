@@ -24,6 +24,8 @@ import asyncpg
 import json
 from app.services.share_links import TG_DOMAIN
 from app.services.person_name import DISPLAY_NAME_SQL
+# ⚠️ Единая точка правды про выбор афиши спикера (event_photo.py).
+from app.services.event_photo import poster_subquery
 
 router = APIRouter(
     prefix="/api/v1/public/landing-widget",
@@ -309,12 +311,7 @@ async def widget_collaborators(
                    cse.speaker_topic AS topic,
                    -- Миграция 237: тумблер «не использовать индивидуальную афишу»
                    -- → лендинг получит null и отрисует обычное фото коллаба.
-                   (SELECT url FROM collaborator_posters cp
-                      WHERE NOT cse.use_photo_instead_of_poster
-                        AND (cp.id = cse.poster_id OR
-                             (cse.poster_id IS NULL AND cp.collaborator_id = c.id))
-                      ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
-                      LIMIT 1) AS poster_url,
+                   %(poster_sql_cse)s AS poster_url,
                    cse.knowledge_base_title, cse.knowledge_base_url,
                    btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS name, c.title, c.title AS position, c.achievements,
                    c.photo_url,
@@ -383,7 +380,7 @@ async def widget_program(
                        media_assets } | null
         }, ...]
       }
-    """
+    """ % {"poster_sql_cse": poster_subquery("cse", "c")}
     _set_cors(response)
     event = await _resolve_event(db, slug)
     if not event:
