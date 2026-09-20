@@ -699,7 +699,7 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
                       hide_stream_button,
                       (SELECT eo.client_id FROM event_owners eo
                         WHERE eo.event_id = e.id AND eo.status='accepted'
-                        ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
+                        ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
                  FROM events e WHERE e.id = $1 LIMIT 1""",
             event_id,
         )
