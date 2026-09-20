@@ -2,6 +2,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download, Eye, Instagram } from 'lucide-react'
 import { api } from '@/lib/api'
+import CollapsibleGroup from '@/components/CollapsibleGroup'
 import InstagramFunnelsTab from '@/components/InstagramFunnelsTab'
 import FileUploader from '@/components/FileUploader'
 import CopyAllLinksButton from '@/components/CopyAllLinksButton'
@@ -544,41 +545,39 @@ function MagnetsList() {
           ? <div className="text-gray-400 text-sm">Лид-магнитов пока нет.</div>
           : <EmptyState icon={Gift} text="У вас пока нет лид-магнитов" onCreate={() => setCreating(true)} />
       ) : (
-        <div className="space-y-6">
-          {/* ⚠️ Две группы, а не один список (решение владельца 20.09.2026):
-              партнёрский подарок ПЛЮСОНа и материалы клиента — разные вещи, и
-              вперемешку клиент не понимает, что из этого его, а что дано
-              платформой. Заголовок ПЛЮСОНа — персиковой плашкой с тёмным
-              текстом (персиковым ПО белому писать нельзя, не читается). */}
+        <div className="space-y-4">
+          {/* ⚠️ Группы — общим компонентом CollapsibleGroup: персиковая шапка у
+              ВСЕХ групп одинаково (правило владельца 20.09.2026). Разный цвет
+              у соседних групп читается как разная важность — так «Ваши
+              лид-магниты» серой плашкой выглядели второсортными рядом с
+              партнёрскими. */}
           {plussonItems.length > 0 && (
-            <div>
-              <div className="rounded-t-xl px-4 py-2.5 bg-[#FFCFA4] text-[#25455D] text-sm font-semibold">
-                Партнёрские лид-магниты ПЛЮСОНа
-              </div>
-              <div className="bg-white rounded-b-xl border border-t-0 border-gray-200 divide-y">
+            <CollapsibleGroup title="Партнёрские лид-магниты ПЛЮСОНа" count={plussonItems.length}>
+              <div className="divide-y divide-gray-200">
                 {plussonItems.map(renderRow)}
               </div>
-            </div>
+            </CollapsibleGroup>
           )}
 
-          <div>
-            {/* Заголовок «Ваши» нужен только рядом с плюсоновской группой:
-                в одиночку он подписывал бы очевидное. */}
-            {plussonItems.length > 0 && (
-              <div className="rounded-t-xl px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold">
-                Ваши лид-магниты
-              </div>
-            )}
-            {ownItems.length === 0 ? (
-              <div className={`bg-white border border-gray-200 px-4 py-5 text-sm text-gray-400 ${plussonItems.length ? 'rounded-b-xl border-t-0' : 'rounded-xl'}`}>
-                Своих лид-магнитов пока нет — нажмите «Добавить».
-              </div>
-            ) : (
-              <div className={`bg-white border border-gray-200 divide-y ${plussonItems.length ? 'rounded-b-xl border-t-0' : 'rounded-xl'}`}>
-                {ownItems.map(renderRow)}
-              </div>
-            )}
-          </div>
+          {/* Заголовок «Ваши» нужен только рядом с плюсоновской группой:
+              в одиночку он подписывал бы очевидное. */}
+          {plussonItems.length > 0 ? (
+            <CollapsibleGroup title="Ваши лид-магниты" count={ownItems.length}>
+              {ownItems.length === 0 ? (
+                <div className="px-4 py-5 text-sm text-gray-400">
+                  Своих лид-магнитов пока нет — нажмите «Добавить».
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-200">
+                  {ownItems.map(renderRow)}
+                </div>
+              )}
+            </CollapsibleGroup>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 divide-y">
+              {ownItems.map(renderRow)}
+            </div>
+          )}
         </div>
       )}
 
