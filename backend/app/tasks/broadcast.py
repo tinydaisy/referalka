@@ -971,9 +971,14 @@ async def _send_broadcast(schedule_id: int):
             _expanded: list = []
             for _b in (buttons or []):
                 if (_b.get("url") or "").strip() == "{signup_link}":
-                    for _p, _label in (("telegram", "Через Телеграм"),
-                                       ("max", "Через МАКС"),
-                                       ("vk", "Через ВК")):
+                    # ⚠️ Подпись КНОПКИ — с глаголом: человек видит её отдельно
+                    # от текста, и «Через Телеграм» само по себе не говорит,
+                    # что произойдёт по клику. В ТЕКСТЕ подписи остаются
+                    # короткими (share_links.PLATFORM_LABEL) — там рядом стоит
+                    # строка «Регистрация:».
+                    for _p, _label in (("telegram", "Зарегистрироваться через ТГ"),
+                                       ("max", "Зарегистрироваться через МАХ"),
+                                       ("vk", "Зарегистрироваться через ВК")):
                         _u = _slinks_for_email.get(_p)
                         if _u:
                             _expanded.append({"text": _label, "url": _u})

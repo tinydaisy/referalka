@@ -2666,9 +2666,16 @@ export default function TemplatesPage() {
                 const rawUrl = (previewModal.tpl.button_url || '').trim()
                 const bh = (me as any)?.bot_handles || {}
                 if (isEmail && rawUrl === '{signup_link}') {
+                  // Подписи — те же, что в боевой рассылке и тесте
+                  // (tasks/broadcast.py, modules/broadcasts.py).
+                  const BTN_LABEL: Record<string, string> = {
+                    telegram: 'Зарегистрироваться через ТГ',
+                    max: 'Зарегистрироваться через МАХ',
+                    vk: 'Зарегистрироваться через ВК',
+                  }
                   const per = (['telegram', 'max', 'vk'] as const)
                     .filter(p => bh[p])
-                    .map(p => ({ label: PLATFORM_LABEL_RU[p], url: signupLink(p) }))
+                    .map(p => ({ label: BTN_LABEL[p], url: signupLink(p) }))
                   if (per.length) {
                     return (
                       <div className="mt-3 space-y-2">

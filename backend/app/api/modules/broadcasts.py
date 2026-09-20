@@ -3630,8 +3630,11 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
                                "max": _mm["link_mode_max"]} if _mm else {},
                         vk_app_id=await _gv(db, client_id),
                     )
-                    for _p, _lbl in (("telegram", "Через Телеграм"),
-                                     ("max", "Через МАКС"), ("vk", "Через ВК")):
+                    # Подписи кнопок — те же, что в боевой рассылке
+                    # (tasks/broadcast.py): тест обязан совпадать с боем.
+                    for _p, _lbl in (("telegram", "Зарегистрироваться через ТГ"),
+                                     ("max", "Зарегистрироваться через МАХ"),
+                                     ("vk", "Зарегистрироваться через ВК")):
                         if _lnk.get(_p):
                             _email_buttons.append({"text": _lbl, "url": _lnk[_p]})
                 else:
