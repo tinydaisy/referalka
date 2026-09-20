@@ -101,7 +101,11 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     'pind', 'bg', ['bg','photo','title','role','name','topic','time','pills','logos'])
   // Дни события и выступления — нужны дневным и индивидуальным афишам.
   const [days, setDays] = useState<DayInfo[]>([])
-  const [sessions, setSessions] = useState<Record<string, { topic?: string; when?: string; day?: number }>>({})
+  // ⚠️ Тип совпадает с `PosterCanvas`: `slots` и `topics` — все выступления
+  // человека. Разойдутся типы — сборка упадёт на первом же обращении.
+  const [sessions, setSessions] = useState<Record<string, {
+    topic?: string; when?: string; day?: number; slots?: string[]; topics?: string[]
+  }>>({})
   // Кого показываем в индивидуальной афише. Пусто — первого из списка.
   const [curSpeaker, setCurSpeaker] = useState<number | null>(null)
   // ⚠️ Какой ДЕНЬ сейчас правим на вкладке порядка. У каждого дня свои спикеры

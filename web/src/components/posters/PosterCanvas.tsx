@@ -1353,7 +1353,9 @@ function NameBlock({ lines, roleText, L, px, font, color, style, size, cardWPct,
  */
 function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTitle, shift }: {
   person?: PosterPerson
-  session?: { topic?: string; when?: string; day?: number }
+  /** ⚠️ `slots` и `topics` — ВСЕ выступления человека: он может выступать
+   *  дважды, и тогда нужны обе даты и обе темы. */
+  session?: { topic?: string; when?: string; day?: number; slots?: string[]; topics?: string[] }
   L: PosterLayout
   th: PosterTheme
   gold: string
