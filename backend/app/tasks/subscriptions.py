@@ -26,6 +26,87 @@ def _run_async(coro):
     return loop.run_until_complete(coro)
 
 
+async def _notify_techs_expiring(db) -> None:
+    """Предупреждает внедренца за 3 дня до конца подписки его клиента.
+
+    ⚠️ Свой флаг `tech_notified_3d`, а не общий `notified_3d`: тот ставится
+    после отправки КЛИЕНТУ, и если у клиента нет чата — он никогда не встанет,
+    а внедренцу тогда слалось бы каждый час.
+    """
+    from app.services.tech_notify import format_person, notify_tech
+
+    rows = await db.fetch(
+        """SELECT cs.id AS sub_id, cs.expires_at,
+                  c.id AS client_id, c.email, c.phone, c.brand_name,
+                  c.telegram_username, c.tech_specialist_id,
+                  TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
+                  (c.referred_by_tech_id = c.tech_specialist_id) AS is_own,
+                  t.name AS tariff_name
+             FROM client_subscriptions cs
+             JOIN clients c ON c.id = cs.client_id
+             LEFT JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE cs.status = 'active'
+              AND cs.expires_at > NOW()
+              AND cs.expires_at <= NOW() + INTERVAL '3 days'
+              AND cs.tech_notified_3d = FALSE
+              AND c.tech_specialist_id IS NOT NULL"""
+    )
+    for r in rows:
+        person = format_person(
+            name=r["person"] or r["brand_name"], email=r["email"],
+            phone=r["phone"], tg_username=r["telegram_username"],
+        )
+        when = r["expires_at"].strftime("%d.%m.%Y")
+        text = (f"{person}\n"
+                f"{'Ваш клиент' if r['is_own'] else 'Из базы ПЛЮСОНА'}\n\n"
+                f"Подписка «{r['tariff_name'] or 'без тарифа'}» "
+                f"заканчивается {when}.\n"
+                f"Успейте напомнить — продлить проще, чем возвращать.")
+        res = await notify_tech(db, r["tech_specialist_id"], "expiring", text,
+                                client_id=r["client_id"])
+        # ⚠️ Флаг ставим, только если реально ушло: иначе при выключенном
+        # уведомлении отметка встанет и при включении человек ничего не получит.
+        if res.get("sent"):
+            await db.execute(
+                "UPDATE client_subscriptions SET tech_notified_3d = TRUE WHERE id = $1",
+                r["sub_id"],
+            )
+
+
+async def _notify_techs_expired(db, client_ids: list[int]) -> None:
+    """Сообщает внедренцам, что у их клиентов кончилась подписка.
+
+    ⚠️ Шлём ТОЛЬКО тем клиентам, у кого есть ответственный: закреплённых ни за
+    кем уведомлять некому, и это нормальное состояние (их распределяет владелец).
+    """
+    from app.services.tech_notify import format_person, notify_tech
+
+    rows = await db.fetch(
+        """SELECT c.id, c.tech_specialist_id, c.email, c.phone,
+                  TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
+                  c.brand_name, c.telegram_username,
+                  (c.referred_by_tech_id = c.tech_specialist_id) AS is_own,
+                  t.name AS tariff
+             FROM clients c
+             LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+             LEFT JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE c.id = ANY($1::int[])
+              AND c.tech_specialist_id IS NOT NULL""",
+        client_ids,
+    )
+    for r in rows:
+        person = format_person(
+            name=r["person"] or r["brand_name"], email=r["email"],
+            phone=r["phone"], tg_username=r["telegram_username"],
+        )
+        text = (f"{person}\n"
+                f"{'Ваш клиент' if r['is_own'] else 'Из базы ПЛЮСОНА'}\n\n"
+                f"Подписка «{r['tariff'] or 'без тарифа'}» закончилась.\n"
+                f"Самое время написать — пока он не ушёл насовсем.")
+        await notify_tech(db, r["tech_specialist_id"], "expired", text,
+                          client_id=r["id"])
+
+
 async def _expire_overdue_async() -> int:
     db = await asyncpg.connect(settings.database_url)
     try:
@@ -49,6 +130,14 @@ async def _expire_overdue_async() -> int:
                   AND fire_at > NOW()""",
             client_ids,
         )
+        # ⚠️ Уведомляем внедренца: подписка его клиента кончилась — это повод
+        # позвонить сегодня, а не когда он сам зайдёт в кабинет. Падение
+        # уведомления не должно мешать основной работе задачи.
+        try:
+            await _notify_techs_expired(db, [r["client_id"] for r in rows])
+        except Exception as e:  # noqa: BLE001
+            log.warning("expire_overdue: уведомления внедренцам не ушли: %s", e)
+
         log.info("expire_overdue: %s подписок переведено в expired, рассылки запаузены", len(rows))
         return len(rows)
     finally:
@@ -189,6 +278,16 @@ async def _notify_expiring_async() -> int:
                     r["sub_id"],
                 )
                 sent_count += 1
+
+        # ⚠️ Внедренцу — СВОИМ запросом, а не по rows_3d выше. Тот отбирает
+        # только клиентов с привязанным чатом уведомлений
+        # (`notifications_telegram_chat_id IS NOT NULL`): клиент не подключил
+        # чат — он выпадает из выборки, и внедренец не узнал бы, что подписка
+        # заканчивается. Ему-то сообщить надо в любом случае.
+        try:
+            await _notify_techs_expiring(db)
+        except Exception as e:  # noqa: BLE001
+            log.warning("notify_expiring: внедренцам не ушло: %s", e)
 
         # 1 день
         rows_1d = await db.fetch(

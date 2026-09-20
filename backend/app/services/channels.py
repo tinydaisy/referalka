@@ -178,6 +178,41 @@ async def register_platform_channel_subscription(
     return cc_id
 
 
+async def _notify_new_lead(db, *, client_id: int, contact_id: int,
+                           name: str, username: Optional[str],
+                           platform: str) -> None:
+    """Сообщает владельцу, что в бота впервые зашёл новый человек.
+
+    ⚠️⚠️ ШЛЁМ ТОЛЬКО ВЛАДЕЛЬЦУ, а не внедренцам (решение владельца 20.09.2026).
+    В момент первого входа человек ещё никому не принадлежит: аккаунта в
+    `clients` нет, почты нет, ответственного нет — адресата попросту не из чего
+    вывести. Клиентов распределяет владелец руками, лиды идут туда же.
+
+    ⚠️ Только по СЕРВИСНОМУ кабинету (@pluson_bot): в ботах клиентов свои
+    подписчики, и они не наши лиды.
+    """
+    is_service = await db.fetchval(
+        "SELECT is_system_service FROM clients WHERE id = $1", client_id)
+    if not is_service:
+        return
+
+    # ⚠️ `notify_organizer_all_channels` объявлена НИЖЕ в этом же файле —
+    # импортировать её отсюда нельзя (модуль импортировал бы сам себя).
+    # На момент вызова она уже определена: Python связывает имя при вызове.
+    import html as _html
+
+    who = _html.escape(name or "Без имени")
+    link = (f'\nTG: <a href="https://t.me/{_html.escape(username.lstrip("@"))}">'
+            f'@{_html.escape(username.lstrip("@"))}</a>') if username else ""
+    await notify_organizer_all_channels(
+        client_id=client_id,
+        text_html=(f"👋 <b>#новый_лид</b>\n\n<b>{who}</b>{link}\n"
+                   f"Площадка: {platform}\n\n"
+                   f"Человек впервые зашёл в бота."),
+        db=db,
+    )
+
+
 async def register_telegram_subscription(
     client_id: int,
     channel_id: int,
@@ -254,6 +289,22 @@ async def register_telegram_subscription(
                    VALUES ($1, 'telegram', $2, $3, $4, $5) RETURNING id""",
                 contact_id, tg_id, username or "", first_name or "", last_name or ""
             )
+            # ⚠️ НОВЫЙ ЛИД. Эта ветка `else` означает, что контакта не было
+            # вовсе — человек впервые пришёл в бота. Уведомление шлём отсюда, а
+            # не из обработчиков ботов: здесь единственное место, где факт
+            # «создан впервые» однозначен.
+            try:
+                await _notify_new_lead(
+                    db, client_id=client_id, contact_id=contact_id,
+                    name=display_name, username=username, platform="telegram",
+                )
+            except Exception as e:  # noqa: BLE001 — регистрация важнее
+                # ⚠️ `logging` в этом файле импортируется ЛОКАЛЬНО в каждой
+                # функции — на верхнем уровне его нет. Без своего импорта тут
+                # был бы NameError вместо записи в журнал.
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "new lead notify failed: %s", e)
 
         # 3. platform_user_channels — UPSERT
         await db.execute(

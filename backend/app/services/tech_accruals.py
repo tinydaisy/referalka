@@ -682,3 +682,54 @@ async def assign_client(db: asyncpg.Connection, *, client_id: int,
                VALUES ($1,$2,$3,$4)""",
             client_id, cur, spec_id, reason or None,
         )
+
+    # ⚠️⚠️ УВЕДОМЛЕНИЕ — ПОСЛЕ ТРАНЗАКЦИИ, а не внутри. Внутри оно ходило бы в
+    # Telegram, держа открытой транзакцию на `clients`, и сетевая задержка
+    # блокировала бы строку клиента; а упавший запрос откатил бы саму передачу.
+    #
+    # ⚠️ Это и есть момент «нового клиента» для внедренца: при регистрации его
+    # никто не закрепляет — распределяет владелец руками. Слать уведомление в
+    # `auth.py` было бы некому.
+    if spec_id:
+        try:
+            await _notify_new_client(db, client_id=client_id, spec_id=spec_id)
+        except Exception as e:  # noqa: BLE001 — передача важнее уведомления
+            logger.warning("assign_client: уведомление не ушло: %s", e)
+
+
+async def _notify_new_client(db, *, client_id: int, spec_id: int) -> None:
+    """Сообщает внедренцу, что ему дали нового клиента."""
+    from app.services.tech_notify import format_person, notify_tech
+
+    row = await db.fetchrow(
+        """SELECT c.id, c.email, c.phone, c.brand_name, c.telegram_username,
+                  TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
+                  (c.referred_by_tech_id = $2) AS is_own,
+                  t.name AS tariff, cs.source, cs.expires_at
+             FROM clients c
+             LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+             LEFT JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE c.id = $1""",
+        client_id, spec_id,
+    )
+    if not row:
+        return
+
+    # Триал или платящий — от этого зависит, что с ним делать дальше.
+    if row["source"] and row["source"] != "paid":
+        state = f"На пробном до {row['expires_at'].strftime('%d.%m.%Y')}" \
+            if row["expires_at"] else "На пробном"
+    elif row["source"] == "paid":
+        state = f"Платит, тариф «{row['tariff'] or '—'}»"
+    else:
+        state = "Без активной подписки"
+
+    person = format_person(
+        name=row["person"] or row["brand_name"], email=row["email"],
+        phone=row["phone"], tg_username=row["telegram_username"],
+    )
+    text = (f"{person}\n"
+            f"{'Ваш приведённый' if row['is_own'] else 'Из базы ПЛЮСОНА'}\n\n"
+            f"{state}\n"
+            f"Клиент закреплён за вами — познакомьтесь и помогите настроиться.")
+    await notify_tech(db, spec_id, "trial", text, client_id=client_id)
