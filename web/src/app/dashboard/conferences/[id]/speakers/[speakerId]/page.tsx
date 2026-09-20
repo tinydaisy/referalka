@@ -1279,17 +1279,6 @@ export default function ConferenceSpeakerPage() {
           </label>
         </div>
 
-        <div className="flex gap-3 items-center">
-          <button type="submit" disabled={savingEvent}
-            className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${savingEvent ? 'btn-loading' : ''}`}>
-            {savingEvent ? <><Spinner /> Сохраняю...</> : <><Save size={16} /> Сохранить выступление</>}
-          </button>
-          {eventSaved && (
-            <span className="flex items-center gap-1.5 text-sm text-green-600">
-              <Check size={15} /> Сохранено
-            </span>
-          )}
-        </div>
 
             {/* ⚠️⚠️ ВАРИАНТЫ ФОТО ДЛЯ АФИШ ЭТОЙ КОНФЕРЕНЦИИ (миграция 472).
                 Под каждое событие готовят своё: карикатуры с улыбками, снимки
@@ -1370,6 +1359,18 @@ export default function ConferenceSpeakerPage() {
                 </div>
               ))}
             </div>
+
+        <div className="flex gap-3 items-center">
+          <button type="submit" disabled={savingEvent}
+            className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${savingEvent ? 'btn-loading' : ''}`}>
+            {savingEvent ? <><Spinner /> Сохраняю...</> : <><Save size={16} /> Сохранить выступление</>}
+          </button>
+          {eventSaved && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600">
+              <Check size={15} /> Сохранено
+            </span>
+          )}
+        </div>
 
       </form>
       )}
