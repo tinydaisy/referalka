@@ -87,6 +87,10 @@ _FIELDS = (
     # Выключка текстовых блоков и порядок фото/текста.
     "pill1_align", "pill2_align", "topic_align", "time_align", "name_align",
     "card_max_w",
+    # Своя точка каждого элемента афиши спикера (миграция 470).
+    "ind_title_x", "ind_title_y", "ind_role_x", "ind_role_y",
+    "ind_name_x", "ind_name_y", "ind_topic_x", "ind_topic_y",
+    "ind_time_x", "ind_time_y", "ind_topic_w", "ind_name_w",
     "ind_photo_first",
     # Публикация в кабинет спикера (миграция 469).
     "published_to_cabinet",
@@ -138,6 +142,9 @@ _DEFAULTS = {
     "pill1_align": "center", "pill2_align": "center", "topic_align": "center",
     "time_align": "center", "name_align": "center", "ind_photo_first": False,
     "card_max_w": 30,
+    "ind_title_x": None, "ind_title_y": None, "ind_role_x": None, "ind_role_y": None,
+    "ind_name_x": None, "ind_name_y": None, "ind_topic_x": None, "ind_topic_y": None,
+    "ind_time_x": None, "ind_time_y": None, "ind_topic_w": None, "ind_name_w": None,
     "published_to_cabinet": False,
 
     "ind_show_role": True, "ind_show_topic": True, "ind_show_time": True,
@@ -324,6 +331,18 @@ class LayoutIn(BaseModel):
     name_align: Optional[str] = None
     ind_photo_first: Optional[bool] = None
     card_max_w: Optional[float] = None
+    ind_title_x: Optional[float] = None
+    ind_title_y: Optional[float] = None
+    ind_role_x: Optional[float] = None
+    ind_role_y: Optional[float] = None
+    ind_name_x: Optional[float] = None
+    ind_name_y: Optional[float] = None
+    ind_topic_x: Optional[float] = None
+    ind_topic_y: Optional[float] = None
+    ind_time_x: Optional[float] = None
+    ind_time_y: Optional[float] = None
+    ind_topic_w: Optional[float] = None
+    ind_name_w: Optional[float] = None
     published_to_cabinet: Optional[bool] = None
     # Индивидуальная афиша (миграция 459).
     ind_show_role: Optional[bool] = None

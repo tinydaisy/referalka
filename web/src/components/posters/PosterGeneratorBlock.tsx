@@ -1137,6 +1137,24 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             )}
             {kind === 'individual' && (
               <>
+                {/* ⚠️⚠️ КАЖДЫЙ ЭЛЕМЕНТ СТОИТ САМ ПО СЕБЕ (миграция 470).
+                    Раньше все они лежали в одной колонке, привязанной к фото:
+                    опустить тему к низу афиши было нельзя — держали границы
+                    колонки. Галочка «своё место» отвязывает элемент, и он
+                    встаёт по своим координатам на листе. */}
+                <FreeRow label="Название конференции"
+                         x={layout.ind_title_x} y={layout.ind_title_y}
+                         onX={v => patch({ ind_title_x: v })} onY={v => patch({ ind_title_y: v })} />
+                <FreeRow label="Роль" x={layout.ind_role_x} y={layout.ind_role_y}
+                         onX={v => patch({ ind_role_x: v })} onY={v => patch({ ind_role_y: v })} />
+                <FreeRow label="Имя и фамилия" x={layout.ind_name_x} y={layout.ind_name_y}
+                         w={layout.ind_name_w} onW={v => patch({ ind_name_w: v })}
+                         onX={v => patch({ ind_name_x: v })} onY={v => patch({ ind_name_y: v })} />
+                <FreeRow label="Тема выступления" x={layout.ind_topic_x} y={layout.ind_topic_y}
+                         w={layout.ind_topic_w} onW={v => patch({ ind_topic_w: v })}
+                         onX={v => patch({ ind_topic_x: v })} onY={v => patch({ ind_topic_y: v })} />
+                <FreeRow label="Время" x={layout.ind_time_x} y={layout.ind_time_y}
+                         onX={v => patch({ ind_time_x: v })} onY={v => patch({ ind_time_y: v })} />
                 <PlaceRow label="Фото спикера" x={layout.pos_photo_x} y={layout.pos_photo_y}
                           onX={v => patch({ pos_photo_x: v })} onY={v => patch({ pos_photo_y: v })} />
                 <PlaceRow label="Тема выступления" x={layout.pos_topic_x} y={layout.pos_topic_y}
@@ -1625,6 +1643,50 @@ function PlaceRow({ label, x, y, align, onX, onY, onAlign, alignHint }: {
                   onChange={v => onAlign(v as 'left' | 'center' | 'right')}
                   options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]} />
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Элемент афиши спикера со СВОИМ местом на листе.
+ *
+ * ⚠️ Галочка отвязывает элемент от общей колонки: без неё он стоит в потоке
+ * под фото (как было до миграции 470), с ней — встаёт по своим координатам и
+ * может уехать хоть в самый низ афиши. Пустые координаты = «в колонке»,
+ * поэтому снятие галочки просто возвращает прежний вид.
+ */
+function FreeRow({ label, x, y, w, onX, onY, onW }: {
+  label: string
+  x?: number | null
+  y?: number | null
+  w?: number | null
+  onX: (v: number | null) => void
+  onY: (v: number | null) => void
+  onW?: (v: number) => void
+}) {
+  const free = (typeof x === 'number' && Number.isFinite(x))
+    || (typeof y === 'number' && Number.isFinite(y))
+  return (
+    <div className="mt-4 border-t border-gray-100 pt-3">
+      <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+        <input type="checkbox" checked={free}
+               onChange={e => {
+                 if (e.target.checked) { onX(50); onY(80) }
+                 else { onX(null as any); onY(null as any) }
+               }} />
+        {label} — своё место на афише
+      </label>
+      {free && (
+        <>
+          <Range label="Слева направо, %" value={x ?? 50} min={0} max={100} onChange={onX} />
+          <Range label="Сверху вниз, %" value={y ?? 80} min={0} max={100} onChange={onY} />
+          {onW && (
+            <Range label="Ширина, %" value={w ?? 80} min={5} max={100}
+                   hint="Чтобы длинный текст переносился, а не уезжал за поля"
+                   onChange={onW} />
+          )}
+        </>
       )}
     </div>
   )
