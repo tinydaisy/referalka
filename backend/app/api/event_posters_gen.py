@@ -89,6 +89,9 @@ _FIELDS = (
     "card_max_w",
     # Добавленные клиентом пилюли (миграция 471).
     "extra_pills",
+    # Свои шрифты/размер/цвет темы, времени, имени и роли (миграция 473).
+    "ind_topic_font", "ind_time_font", "ind_time_size", "ind_time_color",
+    "ind_name_font", "ind_role_font",
     # Своя точка каждого элемента афиши спикера (миграция 470).
     "ind_title_x", "ind_title_y", "ind_role_x", "ind_role_y",
     "ind_name_x", "ind_name_y", "ind_topic_x", "ind_topic_y",
@@ -144,6 +147,8 @@ _DEFAULTS = {
     "pill1_align": "center", "pill2_align": "center", "topic_align": "center",
     "time_align": "center", "name_align": "center", "ind_photo_first": False,
     "card_max_w": 30, "extra_pills": [],
+    "ind_topic_font": None, "ind_time_font": None, "ind_time_size": 24,
+    "ind_time_color": None, "ind_name_font": None, "ind_role_font": None,
     "ind_title_x": None, "ind_title_y": None, "ind_role_x": None, "ind_role_y": None,
     "ind_name_x": None, "ind_name_y": None, "ind_topic_x": None, "ind_topic_y": None,
     "ind_time_x": None, "ind_time_y": None, "ind_topic_w": None, "ind_name_w": None,
@@ -334,6 +339,12 @@ class LayoutIn(BaseModel):
     ind_photo_first: Optional[bool] = None
     card_max_w: Optional[float] = None
     extra_pills: Optional[list[dict]] = None
+    ind_topic_font: Optional[str] = None
+    ind_time_font: Optional[str] = None
+    ind_time_size: Optional[float] = None
+    ind_time_color: Optional[str] = None
+    ind_name_font: Optional[str] = None
+    ind_role_font: Optional[str] = None
     ind_title_x: Optional[float] = None
     ind_title_y: Optional[float] = None
     ind_role_x: Optional[float] = None
@@ -809,11 +820,18 @@ async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
     out: dict[str, dict] = {}
     for r in rows:
         dt = r["day_date"]
+        # ⚠️⚠️ ТОЛЬКО ВРЕМЯ, БЕЗ ДАТЫ. Дата уже написана в пилюле афиши, и
+        # рядом с фото она печаталась второй раз — «два раза дата пишется»
+        # (владелец, 20.09.2026). У индивидуальной афиши пилюля с датой есть
+        # всегда, так что здесь она лишняя по определению.
+        #
+        # ⚠️ Дату оставляем, ТОЛЬКО если времени нет вовсе: пустая строка под
+        # именем выглядит как недоделка, а «24.09» хоть что-то говорит.
         when = ""
-        if dt:
-            when = f"{dt.day:02d}.{dt.month:02d}"
         if r["start_time"]:
-            when = f"{when} в {r['start_time']}" if when else r["start_time"]
+            when = str(r["start_time"])
+        elif dt:
+            when = f"{dt.day:02d}.{dt.month:02d}"
         out[str(r["speaker_id"])] = {
             "topic": r["title"] or "",
             "when": when,

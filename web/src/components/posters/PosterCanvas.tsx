@@ -158,6 +158,13 @@ export type PosterLayout = {
   ind_name_size?: number
   ind_role_size?: number
   ind_topic_size?: number
+  /** Свои шрифты, размер и цвет темы/времени/имени/роли (миграция 473). */
+  ind_topic_font?: string | null
+  ind_time_font?: string | null
+  ind_time_size?: number
+  ind_time_color?: string | null
+  ind_name_font?: string | null
+  ind_role_font?: string | null
   ind_role_color?: string | null
   ind_topic_color?: string | null
   /** Ряды спикеров (миграция 445): сколько положили в ряд — столько и будет. */
@@ -1357,6 +1364,16 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     L.name_font || th.lp_font_heading || 'Roboto',
     label(L.name_font || th.lp_font_heading),
   )
+  // ⚠️ У каждого элемента свой шрифт (миграция 473). Пусто — наследует общий,
+  // как было: так уже собранные афиши не меняют вид.
+  const nameFont = L.ind_name_font
+    ? brandFontCss(L.ind_name_font, label(L.ind_name_font)) : headFont
+  const roleFont = L.ind_role_font
+    ? brandFontCss(L.ind_role_font, label(L.ind_role_font)) : headFont
+  const topicFont = L.ind_topic_font
+    ? brandFontCss(L.ind_topic_font, label(L.ind_topic_font)) : undefined
+  const timeFont = L.ind_time_font
+    ? brandFontCss(L.ind_time_font, label(L.ind_time_font)) : undefined
 
   // ⚠️⚠️ ПОРЯДОК ПО ТЗ: пилюля, название, роль, Имя Фамилия, тема, время —
   // «а потом его фото». В первой версии фото стояло сверху, а подписи под ним:
@@ -1443,7 +1460,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       {L.ind_show_role !== false && !!roleText && !isFree(L.ind_role_x, L.ind_role_y) && (
         <div style={{
           marginTop: px(1.2),
-          fontFamily: headFont,
+          fontFamily: roleFont,
           fontSize: tx(L.ind_role_size ?? 24),
           color: L.ind_role_color || gold,
           textTransform: 'uppercase', letterSpacing: '0.08em',
@@ -1454,7 +1471,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       {!isFree(L.ind_name_x, L.ind_name_y) && (
       <div style={{
         marginTop: px(0.8),
-        fontFamily: headFont,
+        fontFamily: nameFont,
         fontSize: tx(L.ind_name_size ?? 54),
         fontWeight: 700,
         color: L.name_color || '#fff',
@@ -1468,6 +1485,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       {L.ind_show_topic !== false && !!topic && !isFree(L.ind_topic_x, L.ind_topic_y) && (
         <div style={{
           marginTop: px(1.4),
+          fontFamily: topicFont,
           fontSize: tx(L.ind_topic_size ?? 30),
           color: L.ind_topic_color || '#fff',
           textAlign: L.topic_align || 'center', lineHeight: 1.25,
@@ -1479,8 +1497,9 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       {L.ind_show_time !== false && !!when && !isFree(L.ind_time_x, L.ind_time_y) && (
         <div style={{
           marginTop: px(1),
-          fontSize: tx((L.ind_topic_size ?? 30) * 0.8),
-          color: gold, textAlign: L.time_align || 'center',
+          fontFamily: timeFont,
+          fontSize: tx(L.ind_time_size ?? 24),
+          color: L.ind_time_color || gold, textAlign: L.time_align || 'center',
           ...shift(L.pos_time_x, L.pos_time_y),
         }}>{when}</div>
       )}
@@ -1503,7 +1522,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     {L.ind_show_role !== false && !!roleText && isFree(L.ind_role_x, L.ind_role_y) && (
       <div style={{
         ...freePos(L.ind_role_x, L.ind_role_y, 90),
-        fontFamily: headFont, fontSize: tx(L.ind_role_size ?? 24),
+        fontFamily: roleFont, fontSize: tx(L.ind_role_size ?? 24),
         color: L.ind_role_color || gold,
         textTransform: 'uppercase', letterSpacing: '0.08em',
         textAlign: L.name_align || 'center',
@@ -1512,7 +1531,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     {isFree(L.ind_name_x, L.ind_name_y) && (
       <div style={{
         ...freePos(L.ind_name_x, L.ind_name_y, L.ind_name_w),
-        fontFamily: headFont, fontSize: tx(L.ind_name_size ?? 54), fontWeight: 700,
+        fontFamily: nameFont, fontSize: tx(L.ind_name_size ?? 54), fontWeight: 700,
         color: L.name_color || '#fff',
         textAlign: L.name_align || 'center', lineHeight: 1.1,
       }}>{nameText}</div>
@@ -1520,6 +1539,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     {L.ind_show_topic !== false && !!topic && isFree(L.ind_topic_x, L.ind_topic_y) && (
       <div style={{
         ...freePos(L.ind_topic_x, L.ind_topic_y, L.ind_topic_w),
+        fontFamily: topicFont,
         fontSize: tx(L.ind_topic_size ?? 30),
         color: L.ind_topic_color || '#fff',
         textAlign: L.topic_align || 'center', lineHeight: 1.25,
@@ -1528,8 +1548,9 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     {L.ind_show_time !== false && !!when && isFree(L.ind_time_x, L.ind_time_y) && (
       <div style={{
         ...freePos(L.ind_time_x, L.ind_time_y, 60),
-        fontSize: tx((L.ind_topic_size ?? 30) * 0.8),
-        color: gold, textAlign: L.time_align || 'center',
+        fontFamily: timeFont,
+        fontSize: tx(L.ind_time_size ?? 24),
+        color: L.ind_time_color || gold, textAlign: L.time_align || 'center',
       }}>{when}</div>
     )}
     </>

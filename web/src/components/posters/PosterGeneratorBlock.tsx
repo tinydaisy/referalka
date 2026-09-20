@@ -677,12 +677,49 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             <Range label="Положение по вертикали, %" value={layout.ind_photo_y ?? 55} min={0} max={100}
                    hint="Весь блок — фото с подписями — двигается целиком"
                    onChange={v => patch({ ind_photo_y: v })} />
-            <Range label="Размер имени, px" value={layout.ind_name_size ?? 54} min={10} max={200}
-                   onChange={v => patch({ ind_name_size: v })} />
-            <Range label="Размер роли, px" value={layout.ind_role_size ?? 24} min={8} max={100}
-                   onChange={v => patch({ ind_role_size: v })} />
-            <Range label="Размер темы, px" value={layout.ind_topic_size ?? 30} min={8} max={120}
-                   onChange={v => patch({ ind_topic_size: v })} />
+            {/* ⚠️ У КАЖДОГО элемента свой шрифт, размер и цвет (миграция 473).
+                Раньше у времени не было НИ ОДНОЙ настройки: размер считался как
+                80 % от кегля темы, цвет жёстко брендовый. У темы цвет лежал в
+                базе, но в интерфейс выведен не был, шрифтов не было вовсе. */}
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-700">Имя и фамилия</div>
+              <Range label="Размер, px" value={layout.ind_name_size ?? 54} min={10} max={200}
+                     onChange={v => patch({ ind_name_size: v })} />
+              <ColorRow label="Цвет" value={layout.name_color}
+                        onChange={v => patch({ name_color: v })} />
+              <FontPicker theme={theme} value={layout.ind_name_font}
+                          onChange={v => patch({ ind_name_font: v })} />
+            </div>
+
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-700">Роль</div>
+              <Range label="Размер, px" value={layout.ind_role_size ?? 24} min={8} max={100}
+                     onChange={v => patch({ ind_role_size: v })} />
+              <ColorRow label="Цвет" value={layout.ind_role_color}
+                        onChange={v => patch({ ind_role_color: v })} />
+              <FontPicker theme={theme} value={layout.ind_role_font}
+                          onChange={v => patch({ ind_role_font: v })} />
+            </div>
+
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-700">Тема выступления</div>
+              <Range label="Размер, px" value={layout.ind_topic_size ?? 30} min={8} max={120}
+                     onChange={v => patch({ ind_topic_size: v })} />
+              <ColorRow label="Цвет" value={layout.ind_topic_color}
+                        onChange={v => patch({ ind_topic_color: v })} />
+              <FontPicker theme={theme} value={layout.ind_topic_font}
+                          onChange={v => patch({ ind_topic_font: v })} />
+            </div>
+
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-700">Время выступления</div>
+              <Range label="Размер, px" value={layout.ind_time_size ?? 24} min={8} max={120}
+                     onChange={v => patch({ ind_time_size: v })} />
+              <ColorRow label="Цвет" value={layout.ind_time_color}
+                        onChange={v => patch({ ind_time_color: v })} />
+              <FontPicker theme={theme} value={layout.ind_time_font}
+                          onChange={v => patch({ ind_time_font: v })} />
+            </div>
             <div className="mt-3 space-y-1.5">
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input type="checkbox" checked={layout.ind_show_role !== false}
