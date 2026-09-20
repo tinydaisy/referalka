@@ -1290,6 +1290,87 @@ export default function ConferenceSpeakerPage() {
             </span>
           )}
         </div>
+
+            {/* ⚠️⚠️ ВАРИАНТЫ ФОТО ДЛЯ АФИШ ЭТОЙ КОНФЕРЕНЦИИ (миграция 472).
+                Под каждое событие готовят своё: карикатуры с улыбками, снимки
+                с предметами. Раньше фото было одно, и загрузка нового ЗАТИРАЛА
+                прежнее — добавить вариант, не потеряв исходный, было нельзя.
+                Профильное фото выше остаётся нетронутым: оно показывается в
+                программе, Mini App и на витрине. */}
+        <div className="bg-white rounded-2xl border card-border p-5">
+              <div className="flex items-center justify-between gap-3 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">
+                  Другие фото для афиш
+                </label>
+                <button type="button" onClick={() => photoFileRef.current?.click()}
+                        disabled={uploadingPhoto}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 disabled:opacity-50">
+                  {uploadingPhoto ? '⏳ Загрузка…' : '+ Добавить фото'}
+                </button>
+                <input ref={photoFileRef} type="file" accept="image/*" multiple className="hidden"
+                       onChange={e => uploadPhotoToLibrary(e.target.files)} />
+              </div>
+              <p className="text-xs text-gray-400 mb-3">
+                Выбранное фото попадёт на афиши <b>этой конференции</b>. У каждого варианта
+                своё положение лица — переключите, и настройка покажется под ним.
+              </p>
+              {photoUploadError && (
+                <div className="mb-2 text-xs text-red-600">{photoUploadError}</div>
+              )}
+
+              <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+                <input type="radio" name="event_photo" checked={!eventForm.photo_id}
+                       onChange={() => {
+                         setEventForm(f => ({ ...f, photo_id: null }))
+                         api.collaborators.photos.setForEvent(confId, profile.id, null).catch(() => {})
+                       }} />
+                Обычное фото из профиля
+              </label>
+
+              {photoLibrary.map(ph => (
+                <div key={ph.id} className="mb-3 rounded-lg border card-border p-3">
+                  <div className="flex items-start gap-3">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 shrink-0">
+                      <input type="radio" name="event_photo"
+                             checked={eventForm.photo_id === ph.id}
+                             onChange={() => {
+                               setEventForm(f => ({ ...f, photo_id: ph.id }))
+                               api.collaborators.photos.setForEvent(confId, profile.id, ph.id).catch(() => {})
+                             }} />
+                      Взять это
+                    </label>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={ph.url} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
+                    <div className="min-w-0 flex-1 text-xs text-gray-500 truncate">{ph.label || 'Без названия'}</div>
+                    <button type="button"
+                            onClick={async () => {
+                              if (!window.confirm('Удалить этот вариант фото?')) return
+                              await api.collaborators.photos.delete(profile.id, ph.id).catch(() => {})
+                              setPhotoLibrary(list => list.filter(x => x.id !== ph.id))
+                              if (eventForm.photo_id === ph.id) setEventForm(f => ({ ...f, photo_id: null }))
+                            }}
+                            className="shrink-0 text-xs text-red-600 hover:underline">
+                      Удалить
+                    </button>
+                  </div>
+                  {/* ⚠️ Кадр настраивается ТОЛЬКО у выбранного: показывать пять
+                      настроек сразу — каша, а точка у каждого фото своя. */}
+                  {eventForm.photo_id === ph.id && (
+                    <div className="mt-3">
+                      <FocalPointPicker
+                        url={ph.url}
+                        value={ph.photo_focal ?? null}
+                        onChange={v => patchLibraryPhoto(ph.id, { photo_focal: v })}
+                        zooms={ph}
+                        onZoomChange={z => patchLibraryPhoto(ph.id, z)}
+                        hint="Эта настройка берётся на афиши конференции — у каждого фото своя."
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
       </form>
       )}
 
@@ -1482,85 +1563,6 @@ export default function ConferenceSpeakerPage() {
               </div>
             )}
 
-            {/* ⚠️⚠️ ВАРИАНТЫ ФОТО ДЛЯ АФИШ ЭТОЙ КОНФЕРЕНЦИИ (миграция 472).
-                Под каждое событие готовят своё: карикатуры с улыбками, снимки
-                с предметами. Раньше фото было одно, и загрузка нового ЗАТИРАЛА
-                прежнее — добавить вариант, не потеряв исходный, было нельзя.
-                Профильное фото выше остаётся нетронутым: оно показывается в
-                программе, Mini App и на витрине. */}
-            <div className="mt-6 pt-5 border-t border-gray-100">
-              <div className="flex items-center justify-between gap-3 mb-1.5">
-                <label className="block text-sm font-medium text-gray-700">
-                  Другие фото для афиш
-                </label>
-                <button type="button" onClick={() => photoFileRef.current?.click()}
-                        disabled={uploadingPhoto}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 disabled:opacity-50">
-                  {uploadingPhoto ? '⏳ Загрузка…' : '+ Добавить фото'}
-                </button>
-                <input ref={photoFileRef} type="file" accept="image/*" multiple className="hidden"
-                       onChange={e => uploadPhotoToLibrary(e.target.files)} />
-              </div>
-              <p className="text-xs text-gray-400 mb-3">
-                Выбранное фото попадёт на афиши <b>этой конференции</b>. У каждого варианта
-                своё положение лица — переключите, и настройка покажется под ним.
-              </p>
-              {photoUploadError && (
-                <div className="mb-2 text-xs text-red-600">{photoUploadError}</div>
-              )}
-
-              <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
-                <input type="radio" name="event_photo" checked={!eventForm.photo_id}
-                       onChange={() => {
-                         setEventForm(f => ({ ...f, photo_id: null }))
-                         api.collaborators.photos.setForEvent(confId, profile.id, null).catch(() => {})
-                       }} />
-                Обычное фото из профиля
-              </label>
-
-              {photoLibrary.map(ph => (
-                <div key={ph.id} className="mb-3 rounded-lg border card-border p-3">
-                  <div className="flex items-start gap-3">
-                    <label className="flex items-center gap-2 text-sm text-gray-700 shrink-0">
-                      <input type="radio" name="event_photo"
-                             checked={eventForm.photo_id === ph.id}
-                             onChange={() => {
-                               setEventForm(f => ({ ...f, photo_id: ph.id }))
-                               api.collaborators.photos.setForEvent(confId, profile.id, ph.id).catch(() => {})
-                             }} />
-                      Взять это
-                    </label>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={ph.url} alt="" className="w-16 h-16 rounded object-cover shrink-0" />
-                    <div className="min-w-0 flex-1 text-xs text-gray-500 truncate">{ph.label || 'Без названия'}</div>
-                    <button type="button"
-                            onClick={async () => {
-                              if (!window.confirm('Удалить этот вариант фото?')) return
-                              await api.collaborators.photos.delete(profile.id, ph.id).catch(() => {})
-                              setPhotoLibrary(list => list.filter(x => x.id !== ph.id))
-                              if (eventForm.photo_id === ph.id) setEventForm(f => ({ ...f, photo_id: null }))
-                            }}
-                            className="shrink-0 text-xs text-red-600 hover:underline">
-                      Удалить
-                    </button>
-                  </div>
-                  {/* ⚠️ Кадр настраивается ТОЛЬКО у выбранного: показывать пять
-                      настроек сразу — каша, а точка у каждого фото своя. */}
-                  {eventForm.photo_id === ph.id && (
-                    <div className="mt-3">
-                      <FocalPointPicker
-                        url={ph.url}
-                        value={ph.photo_focal ?? null}
-                        onChange={v => patchLibraryPhoto(ph.id, { photo_focal: v })}
-                        zooms={ph}
-                        onZoomChange={z => patchLibraryPhoto(ph.id, z)}
-                        hint="Эта настройка берётся на афиши конференции — у каждого фото своя."
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
           </div>
           )}
 
