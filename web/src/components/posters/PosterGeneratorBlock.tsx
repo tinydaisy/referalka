@@ -285,6 +285,26 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             ...list.filter(p => !pos.has(p.id))]
   }, [people, layout?.partner_order])
 
+  const indSpeakerId = curSpeaker ?? draggable[0]?.id ?? null
+
+  // День, который правим сейчас. Пусто — первый.
+  const editDay = kind === 'day' ? (curDayNo ?? days[0]?.day ?? null) : null
+  const editDayInfo = days.find(d => d.day === editDay) || null
+
+  // ⚠️ Кого показываем в расстановке: в дневном разделе — ТОЛЬКО спикеров
+  // этого дня. Иначе клиент таскает по рядам людей, которых на афише дня нет.
+  const dayPeople = useMemo(() => {
+    if (kind !== 'day' || !editDayInfo) return draggable
+    const ids = new Set(editDayInfo.speaker_ids.map(Number))
+    return draggable.filter(p => ids.has(Number(p.id)))
+  }, [draggable, kind, editDayInfo])
+
+  // Ряды выбранного дня — свои, из словаря по дням.
+  const dayRowsMap: Record<string, number[][]> =
+    (layout?.day_speaker_rows && typeof layout.day_speaker_rows === 'object')
+      ? layout.day_speaker_rows as any : {}
+  const curDayRows = editDay != null ? dayRowsMap[String(editDay)] : undefined
+
   // ⚠️ Ряды для редактора считаем ТЕМ ЖЕ способом, что и полотно
   // (applyManualRows), иначе в списке одно, а на афише другое.
   const rowsView = useMemo(() => {
@@ -328,26 +348,6 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // ⚠️ Индивидуальная афиша рисуется по ОДНОМУ человеку. Клиент его
   // переключает, но пока не трогал — берём первого, иначе полотно пустое и
   // непонятно, работает ли раздел вообще.
-  const indSpeakerId = curSpeaker ?? draggable[0]?.id ?? null
-
-  // День, который правим сейчас. Пусто — первый.
-  const editDay = kind === 'day' ? (curDayNo ?? days[0]?.day ?? null) : null
-  const editDayInfo = days.find(d => d.day === editDay) || null
-
-  // ⚠️ Кого показываем в расстановке: в дневном разделе — ТОЛЬКО спикеров
-  // этого дня. Иначе клиент таскает по рядам людей, которых на афише дня нет.
-  const dayPeople = useMemo(() => {
-    if (kind !== 'day' || !editDayInfo) return draggable
-    const ids = new Set(editDayInfo.speaker_ids.map(Number))
-    return draggable.filter(p => ids.has(Number(p.id)))
-  }, [draggable, kind, editDayInfo])
-
-  // Ряды выбранного дня — свои, из словаря по дням.
-  const dayRowsMap: Record<string, number[][]> =
-    (layout?.day_speaker_rows && typeof layout.day_speaker_rows === 'object')
-      ? layout.day_speaker_rows as any : {}
-  const curDayRows = editDay != null ? dayRowsMap[String(editDay)] : undefined
-
   /** Записать ряды: в дневном разделе — в свой день, иначе в общий порядок. */
   function patchRows(rows: number[][]) {
     if (kind === 'day' && editDay != null) {
