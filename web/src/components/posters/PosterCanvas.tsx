@@ -168,6 +168,9 @@ export type PosterLayout = {
   ind_title_size?: number
   ind_title_color?: string | null
   ind_title_font?: string | null
+  ind_title_text?: string | null
+  ind_title_metallic?: boolean
+  ind_time_with_date?: boolean
   ind_title_align?: 'left' | 'center' | 'right'
   ind_role_align?: 'left' | 'center' | 'right'
   ind_role_color?: string | null
@@ -260,7 +263,7 @@ export default function PosterCanvas({
   /** Дни события со своими спикерами — для афиш по дням. */
   days?: PosterDay[]
   /** Тема и время выступления по id спикера — для индивидуальных афиш. */
-  sessions?: Record<string, { topic?: string; when?: string; day?: number }>
+  sessions?: Record<string, { topic?: string; when?: string; day?: number; slots?: string[]; topics?: string[] }>
   /** Какой ДЕНЬ рисуем (вид `day`). Пусто — берётся первый. */
   day?: number | null
   /** Какого СПИКЕРА рисуем (вид `individual`). */
@@ -389,7 +392,17 @@ export default function PosterCanvas({
   // первой загрузке) давал ОДНУ И ТУ ЖЕ пилюлю на всех днях: «День 2» не
   // появлялся никогда. Поэтому на дневной афише метка дня — не запасной
   // вариант, а основной: она и должна отличаться от дня к дню.
-  const pill1 = kind === 'day'
+  // ⚠️⚠️ НА АФИШЕ СПИКЕРА В ПИЛЮЛЕ — ДАТЫ ЕГО СЛОТОВ. Общая дата события там
+  // бессмысленна: человек выступает в конкретный день и час, и анонс идёт
+  // именно про это. Слотов может быть несколько (Марго Форбс выступает
+  // дважды) — показываем все через запятую.
+  const indSlots = kind === 'individual' && curSession?.slots?.length
+    ? curSession.slots.join(', ')
+    : ''
+
+  const pill1 = kind === 'individual' && indSlots
+    ? indSlots
+    : kind === 'day'
     ? (curDay?.label || (L.pill_text ?? '').trim() || suggested?.pill_text || '')
     : (L.pill_text ?? '').trim() || suggested?.pill_text || ''
   // ⚠️ Добавленные пилюли (миграция 471). Проверяем, что это МАССИВ: jsonb из
@@ -778,7 +791,10 @@ export default function PosterCanvas({
           person={persons[0]}
           session={curSession}
           L={L} th={th} gold={gold} px={px} tx={tx} label={label}
-          eventTitle={titleText} shift={shift}
+          // ⚠️ СВОЁ поле названия (миграция 475), а не `title`: то — заголовок
+          // ОБЩЕЙ афиши, и правка одного меняла другое. Пусто — название события.
+          eventTitle={(L.ind_title_text ?? '').trim() || suggested?.title || titleText}
+          shift={shift}
         />
       ) : (
       <div style={{
@@ -1365,8 +1381,20 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
   // клиент. Склеишь тут по-своему — на общей и индивидуальной афише у
   // человека окажутся разные подписи.
   const nameText = personLines(person, L.name_order || 'first_last', 1)[0] || ''
-  const roleText = BADGE_LABELS[person.role] || ''
-  const topic = (session?.topic || '').trim()
+  // ⚠️⚠️ РОЛЬ ЕСТЬ У ВСЕХ, а не только у выделенных. `BADGE_LABELS` знает
+  // организатора, хедлайнера и генерального партнёра — у обычного спикера
+  // роль `speaker`, её там нет, и подпись просто не рисовалась («роль по
+  // прежнему не показывается»).
+  const ROLE_RU: Record<string, string> = {
+    speaker: 'Спикер', expert: 'Эксперт', jury: 'Жюри',
+    partner: 'Партнёр', moderator: 'Модератор',
+  }
+  const roleText = BADGE_LABELS[person.role] || ROLE_RU[person.role] || ''
+  // ⚠️ Все темы человека, а не первая: выступлений может быть несколько, и у
+  // каждого своя тема. Каждая со своей строки — в подбор они слиплись бы.
+  const topics = (session?.topics?.length ? session.topics : [session?.topic || ''])
+    .map(t => (t || '').trim()).filter(Boolean)
+  const topic = topics.join('\n')
   const when = (session?.when || '').trim()
 
   const headFont = brandFontCss(
@@ -1480,10 +1508,17 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     {L.ind_show_event_title !== false && !!eventTitle && (
       <div style={{
         ...freePos(L.ind_title_x, L.ind_title_y, 90, 50, 10),
-        fontFamily: L.ind_title_font ? brandFontCss(L.ind_title_font, label(L.ind_title_font)) : undefined,
+        // ⚠️ Шрифт: своё поле → шрифт заголовков бренда → общий. Раньше
+        // фирменный шрифт не подхватывался вовсе, и название шло системным.
+        fontFamily: brandFontCss(
+          L.ind_title_font || th.lp_font_heading || 'Roboto',
+          label(L.ind_title_font || th.lp_font_heading)),
         fontSize: tx(L.ind_title_size ?? 22),
-        color: L.ind_title_color || 'rgba(255,255,255,0.75)',
+        color: L.ind_title_color || th.lp_color_heading || gold,
         textAlign: L.ind_title_align || 'center',
+        // Металлический отлив — как у заголовка общей афиши.
+        ...(L.ind_title_metallic
+          ? metallicTextStyle(L.ind_title_color || th.lp_color_heading || gold) : {}),
       }}>{eventTitle}</div>
     )}
     {L.ind_show_role !== false && !!roleText && (
@@ -1510,6 +1545,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         fontSize: tx(L.ind_topic_size ?? 30),
         color: L.ind_topic_color || '#fff',
         textAlign: L.topic_align || 'center', lineHeight: 1.25,
+        whiteSpace: 'pre-line',
       }}>{topic}</div>
     )}
     {L.ind_show_time !== false && !!when && (

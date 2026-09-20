@@ -93,6 +93,7 @@ _FIELDS = (
     "ind_topic_font", "ind_time_font", "ind_time_size", "ind_time_color",
     "ind_name_font", "ind_role_font",
     "ind_title_size", "ind_title_color", "ind_title_font", "ind_title_align", "ind_role_align",
+    "ind_title_text", "ind_title_metallic", "ind_time_with_date",
     # Своя точка каждого элемента афиши спикера (миграция 470).
     "ind_title_x", "ind_title_y", "ind_role_x", "ind_role_y",
     "ind_name_x", "ind_name_y", "ind_topic_x", "ind_topic_y",
@@ -152,6 +153,7 @@ _DEFAULTS = {
     "ind_time_color": None, "ind_name_font": None, "ind_role_font": None,
     "ind_title_size": 22, "ind_title_color": None, "ind_title_font": None,
     "ind_title_align": "center", "ind_role_align": "center",
+    "ind_title_text": None, "ind_title_metallic": False, "ind_time_with_date": True,
     "ind_title_x": None, "ind_title_y": None, "ind_role_x": None, "ind_role_y": None,
     "ind_name_x": None, "ind_name_y": None, "ind_topic_x": None, "ind_topic_y": None,
     "ind_time_x": None, "ind_time_y": None, "ind_topic_w": None, "ind_name_w": None,
@@ -353,6 +355,9 @@ class LayoutIn(BaseModel):
     ind_title_font: Optional[str] = None
     ind_title_align: Optional[str] = None
     ind_role_align: Optional[str] = None
+    ind_title_text: Optional[str] = None
+    ind_title_metallic: Optional[bool] = None
+    ind_time_with_date: Optional[bool] = None
     ind_title_x: Optional[float] = None
     ind_title_y: Optional[float] = None
     ind_role_x: Optional[float] = None
@@ -807,44 +812,51 @@ async def _days(db: asyncpg.Connection, event_id: int) -> list[dict]:
 
 
 async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
-    """Выступление каждого спикера: тема и время — для индивидуальных афиш.
+    """Выступления каждого спикера: тема, дата и время — для афиш спикера.
 
-    ⚠️ Берём ПЕРВОЕ выступление человека: на афише одна тема и одно время, а
-    выступать он может дважды. Ключ — id коллаборатора.
+    ⚠️⚠️ ВСЕ СЛОТЫ, А НЕ ПЕРВЫЙ. Раньше стоял `DISTINCT ON` и брался один: у
+    того, кто выступает дважды (как Марго Форбс), вторая дата на афише просто
+    пропадала. Клиент просил показывать все (20.09.2026).
+
+    ⚠️ Ключ словаря — `collaborators.id`: полотно ищет по `p.id`. Поэтому
+    переход через `event_collaborators`, а не `conf_sessions.speaker_id`
+    напрямую (тот ссылается на связку человек+событие, миграции 003/004).
     """
     rows = await db.fetch(
-        """SELECT DISTINCT ON (ec.speaker_id)
-                  ec.speaker_id, s.day, s.start_time, s.title,
-                  d.day_date
+        """SELECT ec.speaker_id, s.day, s.start_time, s.title, d.day_date
              FROM conf_sessions s
-             -- ⚠️ Тот же переход, что и в `_days`: ключом словаря обязан быть
-             -- `collaborators.id`, потому что полотно ищет по `p.id`.
              JOIN event_collaborators ec ON ec.id = s.speaker_id
              LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
             WHERE s.event_id = $1 AND s.speaker_id IS NOT NULL
-            ORDER BY ec.speaker_id, s.day, s.start_time""",
+            ORDER BY ec.speaker_id, d.day_date NULLS LAST, s.day, s.start_time""",
         event_id,
     )
     out: dict[str, dict] = {}
     for r in rows:
+        key = str(r["speaker_id"])
         dt = r["day_date"]
-        # ⚠️⚠️ ТОЛЬКО ВРЕМЯ, БЕЗ ДАТЫ. Дата уже написана в пилюле афиши, и
-        # рядом с фото она печаталась второй раз — «два раза дата пишется»
-        # (владелец, 20.09.2026). У индивидуальной афиши пилюля с датой есть
-        # всегда, так что здесь она лишняя по определению.
-        #
-        # ⚠️ Дату оставляем, ТОЛЬКО если времени нет вовсе: пустая строка под
-        # именем выглядит как недоделка, а «24.09» хоть что-то говорит.
-        when = ""
-        if r["start_time"]:
-            when = str(r["start_time"])
-        elif dt:
-            when = f"{dt.day:02d}.{dt.month:02d}"
-        out[str(r["speaker_id"])] = {
+        date_str = f"{dt.day:02d}.{dt.month:02d}" if dt else ""
+        time_str = str(r["start_time"]) if r["start_time"] else ""
+        # «24.09 в 11:00»; если чего-то нет — только то, что есть.
+        when = " в ".join([x for x in (date_str, time_str) if x])
+
+        cur = out.setdefault(key, {
             "topic": r["title"] or "",
             "when": when,
             "day": r["day"],
-        }
+            # ⚠️ Все слоты списком: пилюля дат на афише собирается из них.
+            "slots": [],
+            # ⚠️ И ВСЕ ТЕМЫ: у каждого выступления она своя. Взяв только первую,
+            # мы бы показали на афише одну тему, а человек выступает с двумя —
+            # анонс получился бы неполным.
+            "topics": [],
+        })
+        if when:
+            cur["slots"].append(when)
+        if r["title"] and r["title"] not in cur["topics"]:
+            cur["topics"].append(r["title"])
+        if not cur["topic"] and r["title"]:
+            cur["topic"] = r["title"]
     return out
 
 

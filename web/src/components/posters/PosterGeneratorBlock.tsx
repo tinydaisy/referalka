@@ -671,6 +671,37 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             ))}
           </div>
 
+          {indTab === 'bg' && (<>
+            {/* ⚠️ Вкладка была в списке, но БЕЗ СОДЕРЖИМОГО — загрузка фона
+                просто пропала с экрана. */}
+            <Card title="Фон">
+              <FileUploader
+                mode="single"
+                kind="poster_bg"
+                eventId={eventId}
+                value={layout.bg_url || null}
+                onChange={(u: any) => patch({ bg_url: u || null })}
+                aspectClass={o === 'horizontal' ? 'aspect-video' : o === 'square' ? 'aspect-square' : 'aspect-[9/16]'}
+                emptyText="Фон не загружен — возьмётся градиент бренда"
+                buttonLabel="Загрузить фон"
+              />
+              <Range label="Затемнение фона, %" value={layout.bg_dim ?? 0} min={0} max={90}
+                     hint="По светлой картинке белые подписи не читаются"
+                     onChange={v => patch({ bg_dim: v })} />
+            </Card>
+            <Card title="Поля от края">
+              <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+                Рабочая область афиши. За эти поля не выходит ничего.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <MmField label="Сверху"  value={layout.margin_top ?? 10}    onChange={v => patch({ margin_top: v })} />
+                <MmField label="Снизу"   value={layout.margin_bottom ?? 10} onChange={v => patch({ margin_bottom: v })} />
+                <MmField label="Слева"   value={layout.margin_left ?? 10}   onChange={v => patch({ margin_left: v })} />
+                <MmField label="Справа"  value={layout.margin_right ?? 10}  onChange={v => patch({ margin_right: v })} />
+              </div>
+            </Card>
+          </>)}
+
           {indTab === 'photo' && (
             <Card title="Фото спикера">
               <div className="mb-1 text-xs text-gray-600">Форма</div>
@@ -701,8 +732,8 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
 
           {indTab === 'title' && (
             <IndElement title="Название конференции" theme={theme}
-                        text={layout.title} textPlaceholder={suggested?.title || 'Название конференции'}
-                        onText={v => patch({ title: v })}
+                        text={layout.ind_title_text} textPlaceholder={suggested?.title || 'Название конференции'}
+                        onText={v => patch({ ind_title_text: v })}
                         shown={layout.ind_show_event_title !== false}
                         onShown={v => patch({ ind_show_event_title: v })}
                         x={layout.ind_title_x} y={layout.ind_title_y}
@@ -711,7 +742,13 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                         onSize={v => patch({ ind_title_size: v })}
                         color={layout.ind_title_color} onColor={v => patch({ ind_title_color: v })}
                         align={layout.ind_title_align} onAlign={v => patch({ ind_title_align: v })}
-                        font={layout.ind_title_font} onFont={v => patch({ ind_title_font: v })} />
+                        font={layout.ind_title_font} onFont={v => patch({ ind_title_font: v })}>
+              <label className="flex items-center gap-2 text-sm text-gray-700 mt-3">
+                <input type="checkbox" checked={layout.ind_title_metallic === true}
+                       onChange={e => patch({ ind_title_metallic: e.target.checked })} />
+                Металлический отлив
+              </label>
+            </IndElement>
           )}
 
           {indTab === 'role' && (
