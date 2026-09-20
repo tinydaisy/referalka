@@ -39,17 +39,23 @@ def _esc(text) -> str:
 
 
 async def _bot_token(db) -> Optional[str]:
-    """Токен @pluson_bot — системного бота сервисного клиента.
+    """Токен @pluson_bot — бота СЕРВИСНОГО КЛИЕНТА.
 
-    ⚠️ Берём из базы, а не из переменной окружения: бот принадлежит сервисному
-    клиенту как обычный канал (правило 2026-07-10), и токен живёт там же, где
-    у всех остальных.
+    ⚠️⚠️ ИЩЕМ ПО ВЛАДЕЛЬЦУ, А НЕ ПО ФЛАГУ `is_system`. @pluson_bot — обычный
+    бот сервисного клиента, и `is_system` у него FALSE (правило владельца
+    2026-07-10). Поиск по `is_system = TRUE` не находил НИЧЕГО, и уведомления
+    молча не уходили: «tech notify: системный бот не настроен» в логе.
+
+    Поэтому идём от клиента с `is_system_service = TRUE` через его каналы.
     """
     return await db.fetchval(
         """SELECT ch.bot_token
              FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+             JOIN clients c ON c.id = cc.client_id
             WHERE ch.platform_slug = 'telegram'
-              AND ch.is_system = TRUE
+              AND c.is_system_service = TRUE
+              AND cc.is_active = TRUE
               AND COALESCE(ch.bot_token, '') <> ''
             ORDER BY ch.id LIMIT 1"""
     )
