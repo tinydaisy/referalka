@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 # должно: именно от неё тест и бой разъезжались (см. platform_delivery).
 from app.services import platform_delivery as delivery
 from app.services.share_links import TG_DOMAIN
+from app.services.chat_nav import (
+    PLACEHOLDER as CHAT_NAV_PLACEHOLDER,
+    apply_nav_items,
+    parse_items as parse_nav_items,
+    resolve_nav_links,
+)
 
 
 def get_db_url() -> str:
@@ -228,7 +234,7 @@ async def _send_broadcast(schedule_id: int):
             "SELECT subject, text, photo_url, video_url, media_type, video_file_id, "
             "button_text, button_url, target_channel_ids, speaker_photo_mode, "
             "send_to_event_chats, send_to_client_chats, send_to_private_chats, "
-            "send_to_speakers_chat "
+            "send_to_speakers_chat, pin_in_chat, nav_items "
             "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
         ) if schedule["template_id"] else None
@@ -248,6 +254,14 @@ async def _send_broadcast(schedule_id: int):
                 schedule = dict(schedule); schedule["send_to_private_chats"] = True
             if not schedule.get("send_to_speakers_chat") and tmpl["send_to_speakers_chat"]:
                 schedule = dict(schedule); schedule["send_to_speakers_chat"] = True
+            if not schedule.get("pin_in_chat") and tmpl["pin_in_chat"]:
+                schedule = dict(schedule); schedule["pin_in_chat"] = True
+
+        # Пункты навигации по чату (шаблон chat_nav). У рассылки — снимок на
+        # момент постановки в очередь; нет снимка (авто-сгенерированная) —
+        # берём актуальные из шаблона, как и текст.
+        if tmpl is not None and not schedule.get("nav_items"):
+            schedule = dict(schedule); schedule["nav_items"] = tmpl["nav_items"]
 
         # Гейт по фиче: отправка в ОБЩИЕ/ЛИЧНЫЕ чаты клиента (база client_broadcast_chats)
         # доступна только с фичей broadcast_chats (Экстра/vip). У Профи и ниже эти флаги
@@ -637,10 +651,35 @@ async def _send_broadcast(schedule_id: int):
                 return _pick_one(links, platform) if as_url else pick_gift_funnel_link(links, platform)
             return _GF_TOKEN.sub(_sub, txt)
 
+        # ── Навигация по чату события: {chat_nav_items} ───────────────────────
+        # Пункты хранятся списком (kind + подпись), а ссылки у них РАЗНЫЕ на
+        # каждой площадке. Резолвим один раз на всю отправку, подставляем под
+        # площадку каждого чата. Пункт без ссылки не вставляется, нумерация
+        # считается после отсева (chat_nav.py).
+        _nav_resolved: list = []
+        if CHAT_NAV_PLACEHOLDER in (text or ""):
+            _nav_items = parse_nav_items(schedule.get("nav_items"))
+            if _nav_items and schedule.get("event_id"):
+                try:
+                    _nav_resolved = await resolve_nav_links(
+                        conn, items=_nav_items,
+                        event_id=schedule["event_id"],
+                        client_id=schedule["client_id"],
+                    )
+                except Exception as ex:
+                    logger.warning(f"Навигация по чату для рассылки {schedule_id}: резолв упал: {ex}")
+
+        def _with_nav(txt: str | None, platform: str) -> str:
+            """{chat_nav_items} → пункты со ссылками этой площадки."""
+            if not txt or CHAT_NAV_PLACEHOLDER not in txt:
+                return txt or ""
+            return apply_nav_items(txt, _nav_resolved, platform)
+
         def _with_platform_subst(txt: str | None, platform: str) -> str:
-            """Обе площадко-зависимые подстановки разом: служба заботы + ссылка
-            воронки подарка. Передаётся в хелперы чатов вместо голого _with_support."""
-            return _with_gift_funnel(_with_support(txt, platform), platform)
+            """Все площадко-зависимые подстановки разом: служба заботы, ссылка
+            воронки подарка и навигация по чату. Передаётся в хелперы чатов
+            вместо голого _with_support."""
+            return _with_nav(_with_gift_funnel(_with_support(txt, platform), platform), platform)
 
         # {game_link} — ссылка на вкладку «Игра» события (личный кабинет получателя).
         # Используется в `2h_before_reg` / `day_before_09_12_reg` — это уже зарегистрированные
@@ -903,7 +942,7 @@ async def _send_broadcast(schedule_id: int):
                             _chat_mids: list[int] = []
                             ok, err = await send_telegram_message(
                                 http_extra, default_bot_token, cid,
-                                _with_gift_funnel(_with_support(text, "telegram"), "telegram"),
+                                _with_platform_subst(text, "telegram"),
                                 photo_url, button_text,
                                 _clean_url(_with_gift_funnel(_with_support(button_url, "telegram", as_url=True), "telegram", as_url=True)),
                                 buttons=buttons,
@@ -913,6 +952,17 @@ async def _send_broadcast(schedule_id: int):
                             ext_mid = ",".join(str(m) for m in _chat_mids) if _chat_mids else None
                             await _log_chat_send(conn, schedule_id, ckind, "telegram", cid, ok,
                                                  error=(err or None), external_message_id=ext_mid)
+                            # Закреп — ПОСЛЕ успешной отправки и только первого
+                            # сообщения: длинный текст уходит вторым, и закреплять
+                            # надо шапку, а не хвост.
+                            # ⚠️ Не вышло закрепить — это НЕ ошибка рассылки:
+                            # сообщение уже у людей, боту просто не дали прав.
+                            if ok and schedule.get("pin_in_chat") and _chat_mids:
+                                from app.services.chat_pin import pin_telegram
+                                pin_ok, pin_err = await pin_telegram(default_bot_token, cid, _chat_mids[0])
+                                if not pin_ok:
+                                    logger.warning(
+                                        f"Закреп в TG-чате {cid} (рассылка {schedule_id}) не удался: {pin_err}")
                         except Exception as ex:
                             await _log_chat_send(conn, schedule_id, ckind, "telegram", cid, False, str(ex))
                             logger.warning(f"TG-чат {cid} для рассылки {schedule_id} упал: {ex}")
@@ -1189,6 +1239,19 @@ async def _send_broadcast_to_event_chats(
                     await _log_chat_send(conn, schedule["id"], chat_kind, "max", max_chat, bool(res))
                     if res:
                         sent += 1
+                        # Закреп в MAX (PUT /chats/{id}/pin). Неудача не отменяет
+                        # доставку — сообщение уже в чате.
+                        if schedule.get("pin_in_chat"):
+                            from app.services.chat_pin import max_message_id, pin_max
+                            _mid = max_message_id(res)
+                            if _mid:
+                                _ok, _err = await pin_max(max_token, chat_id_int, _mid)
+                                if not _ok:
+                                    logger.warning(
+                                        f"Закреп в MAX-чате {max_chat} (рассылка {schedule['id']}) не удался: {_err}")
+                            else:
+                                logger.warning(
+                                    f"Закреп в MAX-чате {max_chat}: в ответе нет mid сообщения")
                     if sent_max is not None:
                         sent_max.add(str(max_chat))
         except Exception as ex:
@@ -1243,6 +1306,23 @@ async def _send_broadcast_to_event_chats(
                         await _log_chat_send(conn, schedule["id"], chat_kind, "vk", vk_chat, bool(res))
                         if res:
                             sent += 1
+                            # Закреп во ВКонтакте: messages.pin работает по
+                            # conversation_message_id (локальный номер в беседе),
+                            # а messages.send вернул сквозной message_id — их
+                            # нельзя путать, поэтому переводим один в другой.
+                            if schedule.get("pin_in_chat"):
+                                from app.services.chat_pin import pin_vk, vk_conversation_message_id
+                                _mid = res if isinstance(res, int) else (res or {}).get("message_id")
+                                _cmid = await vk_conversation_message_id(
+                                    vk_row["bot_token"], peer, _mid) if _mid else None
+                                if _cmid:
+                                    _ok, _err = await pin_vk(vk_row["bot_token"], peer, _cmid)
+                                    if not _ok:
+                                        logger.warning(
+                                            f"Закреп в VK-беседе {vk_chat} (рассылка {schedule['id']}) не удался: {_err}")
+                                else:
+                                    logger.warning(
+                                        f"Закреп в VK-беседе {vk_chat}: не удалось определить номер сообщения в беседе")
                     if sent_vk is not None:
                         sent_vk.add(str(vk_chat))
         except Exception as ex:

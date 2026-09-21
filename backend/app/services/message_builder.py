@@ -2352,6 +2352,14 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                    .replace("{landing_url}", _ev_reg)
                    .replace("{registration_url}", _ev_reg))
 
+    # ── Навигация по чату: общая афиша события ────────────────────────────────
+    # У этого типа нет ни спикера, ни дня программы — он не попадает ни в одну
+    # ветку выше, а значит и фото ему никто не подставит. Берём ту же общую
+    # афишу, что и остальные рассылки о событии (единая точка — та же функция).
+    # ⚠️ Фото шаблона главнее: клиент мог загрузить своё.
+    if tpl_type == "chat_nav" and not photo:
+        photo = await get_default_event_photo(conn, event_id)
+
     # ── Глобальные плейсхолдеры для ВСЕХ типов событийных рассылок ────────────
     # {brand_name} — бренд клиента (clients.brand_name, fallback clients.name).
     # {event_chat_tg/vk/max} — ссылки на чаты события (client_broadcast_chats).

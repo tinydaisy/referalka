@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
+import ChatNavEditor from '@/components/ChatNavEditor'
 
 type TypeDef = {
   type: string
@@ -132,6 +133,13 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     title: 'Продажа VIP-тарифа',
     hint: 'Произвольная рассылка (например, продажа VIP-тарифа после итогов дня). Время отправки задаётся вручную в очереди. По умолчанию уходит по всей базе клиента.',
     variables: ['{first_name}'],
+    showPhoto: true,
+  },
+  {
+    type: 'chat_nav',
+    title: 'Навигация по чату (закреп)',
+    hint: 'Один пост со всеми ссылками — уходит в чат события и закрепляется. Пункты настраиваются ниже: ссылки подставляются под площадку каждого чата (в чат ВКонтакте — вэкашные, в Telegram — телеграмные). Участникам в личку не уходит. Время отправки задаётся вручную в очереди.',
+    variables: [],
     showPhoto: true,
   },
 ]
@@ -691,6 +699,12 @@ export default function TemplatesPage() {
         // Привязка — только у кастомных. У остальных типов custom_bind_kind не
         // шлём вовсе, чтобы бэк не трогал эти поля (см. model_fields_set).
         ...(isCustomTpl ? bindingPayload(form as any) : {}),
+        // Пункты навигации — ТОЛЬКО у chat_nav. У остальных типов поле не шлём
+        // вовсе: бэк различает «не прислали» и «прислали пусто» (model_fields_set),
+        // и лишняя отправка затёрла бы чужие пункты пустотой.
+        ...((form as any).type === 'chat_nav'
+          ? { nav_items: (form as any).nav_items || [], pin_in_chat: !!(form as any).pin_in_chat }
+          : {}),
       }
       if (!isCustomTpl) delete payload.custom_bind_kind
       // target_channel_ids: null = «не трогаем текущее значение в БД»,
@@ -825,6 +839,19 @@ export default function TemplatesPage() {
     }
   }
 
+  /** Пункты навигации из ответа API → массив. JSONB может прийти строкой. */
+  function parseNavItems(raw: any): any[] {
+    if (!raw) return []
+    if (Array.isArray(raw)) return raw
+    if (typeof raw === 'string') {
+      try {
+        const v = JSON.parse(raw)
+        return Array.isArray(v) ? v : []
+      } catch { return [] }
+    }
+    return []
+  }
+
   function openEdit(t: any) {
     setEditModal(t)
     setForm({
@@ -858,6 +885,11 @@ export default function TemplatesPage() {
       // datetime-local хочет "YYYY-MM-DDTHH:MM" в локальном времени.
       custom_fire_at: t.custom_fire_at ? toLocalInputValue(t.custom_fire_at) : '',
       target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
+      // Навигация по чату. ⚠️ JSONB иногда приходит строкой — разбираем, иначе
+      // редактор получил бы строку вместо списка и показал «пунктов нет».
+      nav_items: parseNavItems(t.nav_items),
+      // Закреп по умолчанию включён: навигация без закрепа утонет в чате.
+      pin_in_chat: t.pin_in_chat !== false,
     } as any)
   }
 
@@ -1058,13 +1090,46 @@ export default function TemplatesPage() {
     return g?.url || ''
   }
 
-  function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number, platform: 'telegram' | 'vk' | 'max' | 'email' = 'telegram'): string {
+  function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number, platform: 'telegram' | 'vk' | 'max' | 'email' = 'telegram', navItems?: any[]): string {
     if (!text) return ''
     // Нормализуем литеральные \n на случай старых данных из БД
     let out = text.replace(/\\n/g, '\n')
     // {signup_link} — зависит от площадки получателя, поэтому раскрываем
     // здесь же, а не в общем списке плейсхолдеров.
     out = out.replace(/\{signup_link\}/g, signupLink(platform))
+
+    // {chat_nav_items} — пункты навигации по чату. ⚠️ Настоящие ссылки строит
+    // СЕРВЕР (у каждой площадки свой бот, у магнита — бот его владельца), здесь
+    // их взять неоткуда. Поэтому показываем состав и порядок пунктов, а вместо
+    // адреса — подпись, что подставится при отправке. Иначе в превью висел бы
+    // сырой {chat_nav_items}, и человек не понял бы, что получится.
+    if (out.includes('{chat_nav_items}')) {
+      // ⚠️ Пункты приходят ПАРАМЕТРОМ, а не из form: превью открывается для
+      // ЛЮБОГО шаблона из списка, а form в этот момент хранит другой (или
+      // ничего). Из формы брать можно только когда превью показывает её же.
+      const items: any[] = parseNavItems(navItems ?? (form as any)?.nav_items)
+      const KIND_PREVIEW: Record<string, string> = {
+        vip: 'ссылка на тариф события',
+        cabinet: 'ссылка на кабинет участника (подарки)',
+        support: 'ссылка на тех.поддержку',
+        magnet: 'ссылка на лид-магнит',
+      }
+      let n = 0
+      const lines = items.map((it: any) => {
+        const manual = it?.kind === 'rules' || it?.kind === 'link'
+        const url = (it?.url || '').trim()
+        // Пункт без ссылки не уходит вовсе — и в превью его тоже не показываем.
+        if (manual && !url) return null
+        if (it?.kind === 'magnet' && !it?.magnet_id) return null
+        n += 1
+        const label = (it?.label || '').trim()
+        const shown = manual ? url : `<i>${KIND_PREVIEW[it?.kind] || 'ссылка'}</i>`
+        return label ? `${n}.${label}\n${shown}` : `${n}.${shown}`
+      }).filter(Boolean)
+      out = lines.length
+        ? out.replace(/\{chat_nav_items\}/g, lines.join('\n\n'))
+        : out.replace(/^.*\{chat_nav_items\}.*$\n?/gm, '')
+    }
 
     if (speaker) {
       const giftTitle = (speaker.gift_after_speech_title || '').trim()
@@ -1948,6 +2013,31 @@ export default function TemplatesPage() {
                   />
                 )}
               </div>
+              {/* Навигация по чату: пункты со ссылками под площадку. Текст выше
+                  остаётся шапкой поста, пункты встают на место плейсхолдера. */}
+              {(form as any).type === 'chat_nav' && (
+                <div className="border-t border-gray-100 pt-4">
+                  <ChatNavEditor
+                    value={(form as any).nav_items || []}
+                    onChange={(next) => setForm({ ...(form as any), nav_items: next })}
+                  />
+                  <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={(form as any).pin_in_chat !== false}
+                      onChange={e => setForm({ ...(form as any), pin_in_chat: e.target.checked })}
+                      className="mt-0.5"
+                    />
+                    <span className="text-sm" style={{ color: '#25455D' }}>
+                      Закрепить сообщение в чате
+                      <span className="block text-[11px] text-gray-500 leading-snug">
+                        Работает во всех трёх площадках. Бот должен быть администратором чата —
+                        иначе сообщение просто придёт без закрепа.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">
                   Медиа (опционально) — фото или видео. Если пусто, для дневных шаблонов подставится афиша.
@@ -2158,6 +2248,20 @@ export default function TemplatesPage() {
                     чат спикеров, он задаётся один раз в «Описании» события, раздел
                     «Чаты и каналы события» (Telegram / ВКонтакте / MAX — уйдёт во все
                     заполненные). Выбирать чат или аудиторию здесь не нужно.
+                  </p>
+                </div>
+              ) : /* ⚠️ Аудитория и чаты у навигации ЗАФИКСИРОВАНЫ на сервере
+                      (только чат события, в личку никому). Показывать селекторы
+                      значило бы предлагать выбор, которого нет. */
+                (form as any).type === 'chat_nav' ? (
+                <div className="border rounded-xl p-3 space-y-1.5"
+                     style={{ borderColor: '#FFCFA4', background: '#FFF7F0' }}>
+                  <p className="text-xs font-semibold text-gray-800">Уходит только в чат события</p>
+                  <p className="text-[11px] text-gray-600 leading-relaxed">
+                    Участникам в личку эта рассылка не отправляется. Получатель — чат
+                    события, он выбирается в «Описании» события, раздел «Чаты и каналы
+                    события» (уйдёт во все заполненные площадки, в каждой — со своими
+                    ссылками). Время отправки задаётся вручную в очереди.
                   </p>
                 </div>
               ) : (<>
@@ -2667,7 +2771,8 @@ export default function TemplatesPage() {
                   previewModal.def.hasSpeaker ? previewSpeaker : null,
                   previewModal.def.type,
                   testDay,
-                  previewPlatform
+                  previewPlatform,
+                  previewModal.tpl.nav_items
                 )}} />
               {previewModal.tpl.button_text && (() => {
                 // ⚠️ В ПИСЬМЕ кнопка с {signup_link} разворачивается в ТРИ — по

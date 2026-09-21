@@ -199,6 +199,102 @@ DUPLICABLE_TYPES = {"custom", "expert_day", "speaker_intro"}
 # ШАБЛОНЫ
 # ─────────────────────────────────────────
 
+def _nav_items_param(value):
+    """Пункты навигации → параметр для JSONB-колонки.
+
+    ⚠️ asyncpg не приводит list/dict к JSONB сам — нужна СТРОКА, иначе запрос
+    падает с «invalid input for query argument». None оставляем как есть:
+    это «не задано», а не пустой список.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    import json as _json
+    return _json.dumps(value, ensure_ascii=False)
+
+
+async def _preview_nav_resolved(db, schedule, event_id):
+    """Пункты навигации со ссылками — для превью и тестовой отправки.
+
+    ⚠️ Превью обязано показывать ТЕ ЖЕ ссылки, что уйдут в чат: резолв один и
+    тот же (chat_nav.resolve_nav_links). Считать их на фронте нельзя — ссылка
+    зависит от ботов клиента и владельца магнита, фронт этого не знает.
+    """
+    try:
+        from app.services.chat_nav import parse_items, resolve_nav_links
+        items = parse_items(schedule.get("nav_items") if hasattr(schedule, "get") else None)
+        # Снимка нет (рассылку поставили в очередь до того, как появились
+        # пункты) — берём актуальные из шаблона, как это делает и Celery.
+        if not items and schedule.get("template_id"):
+            items = parse_items(await db.fetchval(
+                "SELECT nav_items FROM broadcast_templates WHERE id = $1",
+                schedule["template_id"]))
+        if not items or not event_id:
+            return []
+        client_id = schedule.get("client_id")
+        if not client_id:
+            return []
+        return await resolve_nav_links(db, items=items, event_id=event_id, client_id=client_id)
+    except Exception:
+        # Превью не должно падать из-за навигации — покажем текст без пунктов.
+        return []
+
+
+def _apply_nav_preview(text, resolved, platform):
+    """Подставить пункты навигации в текст превью для этой площадки."""
+    if not text or "{chat_nav_items}" not in text:
+        return text or ""
+    from app.services.chat_nav import apply_nav_items
+    return apply_nav_items(text, resolved, platform)
+
+
+def _parse_nav_items(raw):
+    """JSONB-пункты из базы → список для фронта (asyncpg отдаёт их строкой)."""
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        import json as _json
+        try:
+            raw = _json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+    return raw if isinstance(raw, list) else []
+
+
+async def _fill_magnet_slugs(db, items):
+    """Дописать пунктам-лид-магнитам их `slug`.
+
+    ⚠️ Фронт выбирает магнит ПИКЕРОМ, а тот отдаёт только `{kind, id}` — он
+    общий на весь кабинет (LeadMagnetPicker) и про slug ничего не знает.
+    Ссылка же строится именно по slug (воронка живёт в боте ХОЗЯИНА магнита).
+    Резолвим здесь, в одной точке: иначе каждый экран искал бы slug сам и
+    рано или поздно прислал бы чужой.
+    """
+    if not items:
+        return items
+    out = []
+    for it in items:
+        it = dict(it or {})
+        if it.get("kind") == "magnet":
+            # ⚠️ slug ищем ЗАНОВО на каждом сохранении, а не только когда его
+            # нет: клиент мог сменить магнит в пункте, и сохранённый slug
+            # указывал бы на прежний — ссылка вела бы не туда, причём молча.
+            it.pop("magnet_slug", None)
+            if it.get("magnet_id"):
+                mkind = (it.get("magnet_kind") or "m").strip()
+                table = "lead_magnet_packages" if mkind == "p" else "lead_magnets"
+                try:
+                    slug = await db.fetchval(
+                        f"SELECT slug FROM {table} WHERE id = $1", int(it["magnet_id"]))
+                except (TypeError, ValueError):
+                    slug = None
+                if slug:
+                    it["magnet_slug"] = slug
+        out.append(it)
+    return out
+
+
 class TemplateCreate(BaseModel):
     name: str
     type: str
@@ -230,6 +326,11 @@ class TemplateCreate(BaseModel):
     send_to_private_chats: Optional[bool] = None
     # Слать в ЧАТ СПИКЕРОВ события (миграция 431) — отдельный от чата участников.
     send_to_speakers_chat: Optional[bool] = None
+    # Закреплять сообщение в чате после отправки (TG/VK/MAX). Нужны права админа у бота.
+    pin_in_chat: Optional[bool] = None
+    # Пункты навигации для типа chat_nav: [{kind,label,url,magnet_kind,magnet_slug}].
+    # Ссылки у пунктов резолвятся при отправке — под площадку чата (chat_nav.py).
+    nav_items: Optional[List[dict]] = None
     # Источник фото для speaker_intro/5min_before/expert_day: 'poster' (афиша) | 'photo' (фото коллаба).
     speaker_photo_mode: Optional[str] = None
 
@@ -263,6 +364,10 @@ class TemplateUpdate(BaseModel):
     send_to_client_chats: Optional[bool] = None
     send_to_private_chats: Optional[bool] = None
     send_to_speakers_chat: Optional[bool] = None
+    # Закреплять сообщение в чате после отправки (TG/VK/MAX).
+    pin_in_chat: Optional[bool] = None
+    # Пункты навигации для типа chat_nav (см. chat_nav.py).
+    nav_items: Optional[List[dict]] = None
     # Роли коллабораторов для speaker_intro (NULL = все). Пустой массив [] = никто.
     intro_roles: Optional[List[str]] = None
     # Источник фото: 'poster' (афиша) | 'photo' (фото коллаба).
@@ -689,7 +794,7 @@ async def list_templates(
                custom_day_ref, custom_time,
                custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-               send_to_speakers_chat, intro_roles,
+               send_to_speakers_chat, pin_in_chat, nav_items, intro_roles,
                speaker_photo_mode,
                created_at
         FROM broadcast_templates
@@ -714,8 +819,8 @@ async def list_templates(
                 INSERT INTO broadcast_templates
                   (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
                    schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-                   send_to_speakers_chat)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                   send_to_speakers_chat, send_to_event_chats, pin_in_chat, nav_items)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                 """,
                 client_id, event_id, tpl["name"], tpl["type"], tpl.get("subject"),
                 tpl["text"], tpl.get("photo_url"), tpl.get("button_text"), tpl.get("button_url"),
@@ -723,6 +828,12 @@ async def list_templates(
                 tpl.get("audience_include", "all_event"), tpl.get("audience_exclude", "none"),
                 bool(tpl.get("allow_custom_datetime", False)),
                 bool(tpl.get("send_to_speakers_chat", False)),
+                # ⚠️ Доставку в чат и закреп обязан копировать САМ авто-сид:
+                # у chat_nav адресат — чат события, и без флага шаблон ушёл бы
+                # в личку всей базе. Раньше эти колонки сид не копировал вовсе.
+                bool(tpl.get("send_to_event_chats", False)),
+                bool(tpl.get("pin_in_chat", False)),
+                _nav_items_param(tpl.get("nav_items")),
             )
         rows = await db.fetch(
             """
@@ -734,6 +845,10 @@ async def list_templates(
                    -- созданного события (эта ветка — сразу после авто-сида)
                    -- группировка не сработала бы.
                    send_to_speakers_chat,
+                   -- ⚠️ По той же причине: у только что созданного события
+                   -- редактор навигации должен открыться с уже заполненными
+                   -- пунктами, а не пустым.
+                   send_to_event_chats, pin_in_chat, nav_items,
                    created_at
             FROM broadcast_templates
             WHERE event_id = $1
@@ -756,6 +871,11 @@ async def list_templates(
     for r in rows:
         d = dict(r)
         d["default_photo_url"] = default_poster if not d["photo_url"] else None
+        # ⚠️ JSONB из asyncpg приходит СТРОКОЙ (декодер не настроен). Без
+        # разбора редактор навигации получил бы строку вместо списка и показал
+        # «пунктов нет» у заполненного шаблона. Та же ошибка уже ловилась на
+        # лендингах (event_landing._ser_page).
+        d["nav_items"] = _parse_nav_items(d.get("nav_items"))
         result.append(d)
     return {"templates": result}
 
@@ -837,19 +957,22 @@ async def create_template(
            schedule_mode, allow_custom_datetime, target_channel_ids,
            video_url, media_type, send_to_event_chats, send_to_client_chats, send_to_private_chats,
            send_to_speakers_chat, speaker_photo_mode,
-           custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at)
+           custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
+           pin_in_chat, nav_items)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                 COALESCE($10, 'all_event'), COALESCE($11, 'none'),
                 $12, $13,
                 COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16,
                 $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE), COALESCE($21, FALSE),
                 COALESCE($27, FALSE), COALESCE($22, 'poster'),
-                $23, $24, $25, $26)
+                $23, $24, $25, $26,
+                COALESCE($28, FALSE), $29)
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, send_to_client_chats,
                   send_to_private_chats, send_to_speakers_chat, speaker_photo_mode,
                   custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
+                  pin_in_chat, nav_items,
                   created_at
         """,
         client_id, event_id, data.name, data.type, data.subject,
@@ -863,7 +986,10 @@ async def create_template(
         data.speaker_photo_mode,
         bind["bind_kind"], bind["slot_session_id"], bind["slot_offset_min"], bind["fire_at"],
         data.send_to_speakers_chat,
+        data.pin_in_chat, _nav_items_param(await _fill_magnet_slugs(db, data.nav_items)),
     )
+    row = dict(row)
+    row["nav_items"] = _parse_nav_items(row.get("nav_items"))
     return dict(row)
 
 
@@ -881,7 +1007,7 @@ async def load_default_templates(db) -> list[dict]:
                    allow_custom_datetime, for_event, for_conference, for_turnir,
                    for_collab,
                    autoseed, multi_instance, turnir_name, turnir_text,
-                   send_to_speakers_chat
+                   send_to_speakers_chat, send_to_event_chats, pin_in_chat, nav_items
               FROM default_broadcast_templates
              WHERE is_active
              ORDER BY sort_order, id
@@ -1071,12 +1197,12 @@ async def create_template_from_preset(
         INSERT INTO broadcast_templates
           (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
            schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-           send_to_speakers_chat)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           send_to_speakers_chat, send_to_event_chats, pin_in_chat, nav_items)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids,
-                  send_to_speakers_chat, created_at
+                  send_to_speakers_chat, send_to_event_chats, pin_in_chat, nav_items, created_at
         """,
         client_id, event_id, tpl["name"], tpl["type"], tpl.get("subject"),
         tpl["text"], tpl.get("photo_url"), tpl.get("button_text"), tpl.get("button_url"),
@@ -1088,8 +1214,17 @@ async def create_template_from_preset(
         # никуда не уходил бы при отправке. Авто-сид флаг переносил, а эта
         # ручка нет: расходились два пути создания одного и того же шаблона.
         bool(tpl.get("send_to_speakers_chat", False)),
+        # ⚠️ Та же история с навигацией по чату: у существующих конференций и
+        # премий это ЕДИНСТВЕННЫЙ путь добавления (авто-сид отработал давно).
+        # Без флагов шаблон ушёл бы в личку всей базе вместо чата, а редактор
+        # открылся бы с пустым списком вместо заполненного.
+        bool(tpl.get("send_to_event_chats", False)),
+        bool(tpl.get("pin_in_chat", False)),
+        _nav_items_param(tpl.get("nav_items")),
     )
-    return dict(row)
+    row = dict(row)
+    row["nav_items"] = _parse_nav_items(row.get("nav_items"))
+    return row
 
 
 @router.put("/templates/{template_id}", summary="Редактировать шаблон")
@@ -1128,6 +1263,16 @@ async def update_template(
         data.audience_include = "all_event"
         data.audience_exclude = "all_event"   # вычитает всех участников → в личку никому
 
+    # ⚠️ chat_nav — навигация ПО ЧАТУ: адресат только чат события, в личку не
+    # уходит никогда. Тот же случай, что speakers_call: цена ошибки — рассылка
+    # на всю базу, поэтому фиксируем на бэке, а не только в UI. Закреп тоже
+    # держим включённым: навигация без закрепа утонет в чате за час.
+    if data.type == "chat_nav":
+        data.send_to_event_chats = True
+        data.send_to_speakers_chat = False
+        data.audience_include = "all_event"
+        data.audience_exclude = "all_event"   # в личку никому
+
     # Привязка (миграция 260) меняется ТОЛЬКО если фронт её прислал. Иначе поля не
     # трогаем — иначе переключение «слот → день» не смогло бы обнулить старый слот
     # (COALESCE оставил бы его навсегда).
@@ -1140,6 +1285,13 @@ async def update_template(
     # программы дня». Поэтому пустую строку от фронта трактуем как явную очистку.
     _time_sent = "intro_start_time" in data.model_fields_set
     _time_clear = _time_sent and not (data.intro_start_time or "").strip()
+
+    # Пункты навигации пишем, ТОЛЬКО если фронт их прислал. Через COALESCE
+    # нельзя: удаление последнего пункта прислало бы пустой список, а COALESCE
+    # молча вернул бы прежние — пункт было бы не удалить. Тот же приём, что
+    # у привязки шаблона (bind_sent) и у intro_start_time.
+    _nav_sent = "nav_items" in data.model_fields_set
+    _nav_value = await _fill_magnet_slugs(db, data.nav_items) if _nav_sent else None
 
     row = await db.fetchrow(
         """
@@ -1164,6 +1316,8 @@ async def update_template(
             send_to_client_chats = COALESCE($25, send_to_client_chats),
             send_to_private_chats = COALESCE($26, send_to_private_chats),
             send_to_speakers_chat = COALESCE($34, send_to_speakers_chat),
+            pin_in_chat = COALESCE($35, pin_in_chat),
+            nav_items = CASE WHEN $36::bool THEN $37::jsonb ELSE nav_items END,
             speaker_photo_mode = COALESCE($27, speaker_photo_mode),
             custom_bind_kind       = CASE WHEN $28 THEN $29 ELSE custom_bind_kind END,
             custom_slot_session_id = CASE WHEN $28 THEN $30 ELSE custom_slot_session_id END,
@@ -1176,6 +1330,7 @@ async def update_template(
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats,
                   send_to_client_chats, send_to_private_chats, send_to_speakers_chat,
+                  pin_in_chat, nav_items,
                   intro_roles, speaker_photo_mode,
                   custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at
         """,
@@ -1200,10 +1355,14 @@ async def update_template(
         bind["fire_at"] if bind else None,
         _time_clear,
         data.send_to_speakers_chat,
+        data.pin_in_chat,
+        _nav_sent, _nav_items_param(_nav_value),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
-    return dict(row)
+    row = dict(row)
+    row["nav_items"] = _parse_nav_items(row.get("nav_items"))
+    return row
 
 
 @router.post("/templates/{template_id}/duplicate", summary="Дублировать шаблон")
@@ -1369,7 +1528,10 @@ async def list_schedules(
                (bs.send_to_event_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_event_chats, FALSE))) AS eff_send_to_event_chats,
                (bs.send_to_client_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_client_chats, FALSE))) AS eff_send_to_client_chats,
                (bs.send_to_private_chats OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_private_chats, FALSE))) AS eff_send_to_private_chats,
-               (bs.send_to_speakers_chat OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_speakers_chat, FALSE))) AS eff_send_to_speakers_chat
+               (bs.send_to_speakers_chat OR (NOT bs.chats_overridden AND COALESCE(bt.send_to_speakers_chat, FALSE))) AS eff_send_to_speakers_chat,
+               -- Закреп: по той же схеме наследования, чтобы в очереди было
+               -- видно, что сообщение не просто уйдёт в чат, но и встанет в закреп.
+               (bs.pin_in_chat OR (NOT bs.chats_overridden AND COALESCE(bt.pin_in_chat, FALSE))) AS eff_pin_in_chat
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         -- speaker_intro/expert_day/custom: session_id = event_collaborators.id (спикер),
@@ -1604,7 +1766,7 @@ async def generate_schedules(
                custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                text, photo_url, button_text, button_url,
                name, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-               send_to_speakers_chat, intro_roles
+               send_to_speakers_chat, intro_roles, pin_in_chat, nav_items
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
@@ -1695,8 +1857,8 @@ async def generate_schedules(
             INSERT INTO broadcast_schedules
               (event_id, session_id, template_id, type, fire_at, day, status, audience_include, audience_exclude,
                snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id,
-               send_to_speakers_chat)
-            VALUES ($1, $2, $3, $4, $5, $12, 'draft', $6, $7, $8, $9, $10, $11, $13, $14)
+               send_to_speakers_chat, send_to_event_chats, pin_in_chat, nav_items)
+            VALUES ($1, $2, $3, $4, $5, $12, 'draft', $6, $7, $8, $9, $10, $11, $13, $14, $15, $16, $17)
             """,
             event_id, session_id, tmpl["id"], t, fire_at,
             tmpl["audience_include"], tmpl["audience_exclude"],
@@ -1706,6 +1868,11 @@ async def generate_schedules(
             # шаблона: в очереди по нему рисуется плашка «в чат спикеров», и она
             # должна быть видна сразу после «Сформировать из программы».
             bool(tmpl.get("send_to_speakers_chat")),
+            # То же для навигации по чату: в очереди видно, что рассылка уйдёт
+            # в чат и будет закреплена, а пункты — снимок на момент постановки.
+            bool(tmpl.get("send_to_event_chats")),
+            bool(tmpl.get("pin_in_chat")),
+            _nav_items_param(tmpl.get("nav_items")),
         )
         created += 1
 
@@ -2085,6 +2252,36 @@ async def generate_schedules(
         else:
             skipped += 1
 
+    # ── chat_nav: навигация по чату, время задаёт клиент (как vip_offer) ───
+    # Пост-навигация не привязана к программе: её вешают в чат один раз, когда
+    # чат наполнился. Поэтому fire_at=NULL — рассылка ждёт в очереди, пока
+    # клиент не поставит время.
+    if "chat_nav" in tmpl_map:
+        tmpl = tmpl_map["chat_nav"]
+        exists = await _dup_exists(
+            "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='chat_nav' AND session_id IS NULL",
+            event_id
+        )
+        if not exists:
+            await db.execute(
+                """
+                INSERT INTO broadcast_schedules
+                  (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                   snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id,
+                   send_to_event_chats, pin_in_chat, nav_items)
+                VALUES ($1, NULL, $2, 'chat_nav', NULL, 'draft', $3, $4, $5, $6, $7, $8, $9,
+                        $10, $11, $12)
+                """,
+                event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"],
+                tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url"),
+                gen_client_id,
+                bool(tmpl.get("send_to_event_chats")), bool(tmpl.get("pin_in_chat")),
+                _nav_items_param(tmpl.get("nav_items")),
+            )
+            created += 1
+        else:
+            skipped += 1
+
     # ── Кастомные шаблоны ──────────────────────────────────────────────────
     # Три режима привязки (custom_bind_kind, миграция 260):
     #   'day' (и NULL — как было до 260) — день программы (custom_day_ref) + custom_time;
@@ -2231,6 +2428,22 @@ async def generate_schedules(
                WHERE event_id = $1 AND template_id = ANY($2::int[])""",
             event_id, private_tpl_ids,
         )
+    # Закреп и пункты навигации — по тому же принципу «снимок от шаблона».
+    # ⚠️ Пункты копируем КАЖДОМУ шаблону отдельно: они у каждого свои, одним
+    # UPDATE по списку id их не проставить.
+    for t in templates:
+        if t.get("pin_in_chat"):
+            await db.execute(
+                """UPDATE broadcast_schedules SET pin_in_chat = TRUE
+                    WHERE event_id = $1 AND template_id = $2""",
+                event_id, t["id"],
+            )
+        if t.get("nav_items"):
+            await db.execute(
+                """UPDATE broadcast_schedules SET nav_items = $3::jsonb
+                    WHERE event_id = $1 AND template_id = $2 AND nav_items IS NULL""",
+                event_id, t["id"], _nav_items_param(t["nav_items"]),
+            )
 
     return {"ok": True, "created": created, "skipped": skipped}
 
@@ -2512,7 +2725,9 @@ async def add_manual_schedule(
     await _check_event(db, event_id, client_id)
 
     tpl = await db.fetchrow(
-        "SELECT id, type, audience_include, audience_exclude, text, photo_url, button_text, button_url FROM broadcast_templates WHERE id=$1 AND event_id=$2",
+        "SELECT id, type, audience_include, audience_exclude, text, photo_url, button_text, button_url, "
+        "send_to_event_chats, send_to_speakers_chat, pin_in_chat, nav_items "
+        "FROM broadcast_templates WHERE id=$1 AND event_id=$2",
         data.template_id, event_id
     )
     if not tpl:
@@ -2544,13 +2759,21 @@ async def add_manual_schedule(
         """
         INSERT INTO broadcast_schedules
           (event_id, template_id, type, session_id, day, fire_at, status, is_test, audience_include, audience_exclude,
-           snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
-        VALUES ($1, $2, $3, $4, $15, $5, $13, $6, $7, $8, $9, $10, $11, $12, $14)
+           snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id,
+           send_to_event_chats, send_to_speakers_chat, pin_in_chat, nav_items)
+        VALUES ($1, $2, $3, $4, $15, $5, $13, $6, $7, $8, $9, $10, $11, $12, $14,
+                $16, $17, $18, $19)
         RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude, day
         """,
         event_id, tpl["id"], tpl["type"], data.session_id, dt_utc, data.is_test, aud_include, aud_exclude,
         tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"], new_status, client_id,
-        data.day
+        data.day,
+        # ⚠️ Доставку в чат, закреп и пункты навигации копируем В ЗАПИСЬ:
+        # снимок текста здесь уже делается, и пункты — часть того же снимка.
+        # Иначе правка шаблона после постановки в очередь меняла бы то, что
+        # человек уже утвердил.
+        bool(tpl["send_to_event_chats"]), bool(tpl["send_to_speakers_chat"]),
+        bool(tpl["pin_in_chat"]), _nav_items_param(tpl["nav_items"]),
     )
     return dict(row)
 
@@ -3246,11 +3469,14 @@ async def preview_schedule(
         _plats_sent = ["telegram", "vk", "max", "email"]
         text_by_platform = {}
         btn_by_platform = {}
+        # Навигация по чату: резолвим пункты ОДИН раз, подставляем под каждую
+        # площадку — так превью показывает ровно те ссылки, что уйдут в чат.
+        _nav_resolved = await _preview_nav_resolved(db, schedule, event_id)
         for _p in _plats_sent:
             _sg = await _signup_link_preview(db, client_id, event_id, _p) if event_id else ""
-            text_by_platform[_p] = (await resolve_gift_funnel_tokens(
+            text_by_platform[_p] = _apply_nav_preview((await resolve_gift_funnel_tokens(
                 db, client_id=client_id, text=snap_text, platform=_p)
-            ).replace("⟦SIGNUP⟧", _sg).replace("{signup_link}", _sg)
+            ).replace("⟦SIGNUP⟧", _sg).replace("{signup_link}", _sg), _nav_resolved, _p)
             btn_by_platform[_p] = (await resolve_gift_funnel_tokens(
                 db, client_id=client_id, text=snap_btn, platform=_p)
             ).replace("⟦SIGNUP⟧", _sg).replace("{signup_link}", _sg)
@@ -3356,11 +3582,14 @@ async def preview_schedule(
         _plats.append("email")
     text_by_platform = {}
     btn_by_platform = {}
+    # \u041d\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044f \u043f\u043e \u0447\u0430\u0442\u0443 \u2014 \u0442\u0435 \u0436\u0435 \u0441\u0441\u044b\u043b\u043a\u0438, \u0447\u0442\u043e \u0443\u0439\u0434\u0443\u0442 \u0432 \u0447\u0430\u0442 (\u0440\u0435\u0437\u043e\u043b\u0432 \u043e\u0434\u0438\u043d \u043d\u0430 \u0432\u0441\u0435
+    # \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438, \u043f\u043e\u0434\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0430 \u2014 \u043f\u043e\u0434 \u043a\u0430\u0436\u0434\u0443\u044e).
+    _nav_resolved = await _preview_nav_resolved(db, schedule, event_id)
     for _p in _plats:
         _signup = await _signup_link_preview(db, client_id, event_id, _p)
-        text_by_platform[_p] = (await resolve_gift_funnel_tokens(
+        text_by_platform[_p] = _apply_nav_preview((await resolve_gift_funnel_tokens(
             db, client_id=client_id, text=base_text, platform=_p)
-        ).replace("\u27e6SIGNUP\u27e7", _signup)
+        ).replace("\u27e6SIGNUP\u27e7", _signup), _nav_resolved, _p)
         btn_by_platform[_p] = (await resolve_gift_funnel_tokens(
             db, client_id=client_id, text=base_btn, platform=_p)
         ).replace("\u27e6SIGNUP\u27e7", _signup)
@@ -3472,11 +3701,15 @@ async def _test_unsubscribe_token(db, client_id: int, addr: str, ch_dict: dict):
 async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
                                  db=None, client_id: int | None = None,
                                  event_id: int | None = None,
-                                 test_email_ids=None):
+                                 test_email_ids=None, nav_resolved=None):
     """Шлёт готовый content (text/photo/video/buttons) во все тестовые ID всех платформ.
 
     db/client_id — чтобы раскрыть токены воронки подарков ⟦GF⟧ ссылкой СВОЕЙ
-    площадки (как в боевой рассылке). Без них токены остаются как есть."""
+    площадки (как в боевой рассылке). Без них токены остаются как есть.
+
+    nav_resolved — пункты навигации по чату, уже с резолвленными ссылками.
+    ⚠️ Тест обязан показывать ТО ЖЕ, что уйдёт: без этого в тестовом сообщении
+    остался бы сырой {chat_nav_items}, и проверить пост было бы нечем."""
     from app.services.share_links import resolve_gift_funnel_tokens
     text = content.get("text") or ""
     photo = content.get("photo")
@@ -3503,6 +3736,8 @@ async def _send_content_to_tests(content: dict, bot_token, test_tg_ids, test_vk_
         # \u0437\u0430\u0433\u043b\u0443\u0448\u0435\u043a \u0432\u0440\u043e\u0434\u0435 \u00ab\u0434\u0440\u0443\u0433\u00bb \u043d\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u043c \u043d\u0438\u0433\u0434\u0435.
         if "{first_name}" in t:
             t = _strip_first_name(t)
+        # Навигация по чату — ссылками этой же площадки.
+        t = _apply_nav_preview(t, nav_resolved or [], platform)
         return t
 
     async def _burl(platform: str):
@@ -3835,7 +4070,8 @@ async def test_existing_schedule_now(
         content["text_email"] = content.get("text") or ""
         content["text"] = f"<b>{subj}</b>\n\n{content.get('text') or ''}"
     results = await _send_content_to_tests(content, bot_token, test_tg_ids, test_vk_ids, test_max_ids, max_token,
-                                           db=db, client_id=client_id, event_id=event_id, test_email_ids=test_email_ids)
+                                           db=db, client_id=client_id, event_id=event_id, test_email_ids=test_email_ids,
+                                           nav_resolved=await _preview_nav_resolved(db, schedule, event_id))
     sent = sum(1 for r in results if r.get("ok"))
     return {"ok": True, "sent": sent, "total": len(results), "results": results}
 
@@ -3905,13 +4141,20 @@ async def test_template(
         for _p in ("telegram", "vk", "max"):
             _sg[_p] = await _signup_link_preview(db, client_id, event_id, _p)
 
+        # \u041f\u0443\u043d\u043a\u0442\u044b \u043d\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u0438 \u043f\u043e \u0447\u0430\u0442\u0443 \u2014 \u0440\u0435\u0437\u043e\u043b\u0432\u0438\u043c \u043e\u0434\u0438\u043d \u0440\u0430\u0437 \u043d\u0430 \u0432\u0441\u0435 \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0435 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438.
+        _nav_for_test = await _preview_nav_resolved(
+            db, {"nav_items": tpl["nav_items"], "client_id": client_id, "template_id": template_id},
+            event_id)
+
         def _sub(val, platform):
             if not val:
                 return val
             v = (val or "").replace("\u27e6SIGNUP\u27e7", _sg.get(platform, ""))
             # {first_name} \u2014 \u0432 \u0431\u043e\u044e \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u0442 Celery per-\u043f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u044c; \u0432 \u0442\u0435\u0441\u0442\u0435
             # \u0443\u0431\u0438\u0440\u0430\u0435\u043c \u043f\u043b\u0435\u0439\u0441\u0445\u043e\u043b\u0434\u0435\u0440 (\u0437\u0430\u0433\u043b\u0443\u0448\u0435\u043a \u043d\u0435 \u043f\u043e\u0434\u0441\u0442\u0430\u0432\u043b\u044f\u0435\u043c, \u0441\u043c. _strip_first_name).
-            return _strip_first_name(v) if "{first_name}" in v else v
+            v = _strip_first_name(v) if "{first_name}" in v else v
+            # \u041d\u0430\u0432\u0438\u0433\u0430\u0446\u0438\u044f \u043f\u043e \u0447\u0430\u0442\u0443 \u2014 \u0441\u0441\u044b\u043b\u043a\u0430\u043c\u0438 \u044d\u0442\u043e\u0439 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438, \u043a\u0430\u043a \u0432 \u0431\u043e\u044e.
+            return _apply_nav_preview(v, _nav_for_test, platform)
 
         out: list[dict] = []
         text = content.get("text") or ""

@@ -1000,8 +1000,21 @@ export default function QueuePage() {
                             ей «все участники» — прямая ложь: она им не уходит. */}
                         {(s.eff_send_to_speakers_chat ?? s.send_to_speakers_chat)
                           ? 'только чат — участникам не уходит'
-                          : audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
+                          : s.type === 'chat_nav'
+                            ? 'только чат события — участникам не уходит'
+                            : audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
                       </span>
+                      {/* Закреп — отдельной плашкой: человеку важно видеть, что
+                          сообщение не просто придёт в чат, но и встанет в шапку. */}
+                      {(s.eff_pin_in_chat ?? s.pin_in_chat) && (
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded font-semibold"
+                          style={{ background: '#FFCFA4', color: '#25455D' }}
+                          title="После отправки бот закрепит сообщение в чате. Нужны права администратора у бота."
+                        >
+                          с закрепом
+                        </span>
+                      )}
                       {/* Отмеченные чаты — итоговые флаги с сервера (учитывают
                           наследование от шаблона и правку в очереди). Видно, куда
                           именно уйдёт рассылка помимо базы. */}
