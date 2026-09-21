@@ -217,6 +217,11 @@ export default function EventPage() {
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold" style={{ color: '#25455D' }}>{event.title}</h1>
         </div>
+        {/* ⚠️ Менеджеру лидов в шапке не показываем ничего управляющего:
+            публикацию, смену типа события и переход в настройки конференции.
+            Он сюда заходит ради отслеживания своих людей, а не ради
+            подготовки события — и сервер эти действия ему запретит. */}
+        {!isLeadsAssistant && (
         <div className="flex gap-2">
           <EventStatusToggle
             eventId={eventId}
@@ -251,9 +256,12 @@ export default function EventPage() {
             </Link>
           )}
         </div>
+        )}
       </div>
 
-      {(event.status || 'draft') === 'draft' && (
+      {/* Плашка про черновик — инструкция «опубликуйте в правом верхнем углу»,
+          а у менеджера лидов этого переключателя нет: совет невыполним. */}
+      {(event.status || 'draft') === 'draft' && !isLeadsAssistant && (
         <div className="mb-6 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 leading-relaxed">
           ⚠️ <b>Это черновик.</b> Партнёрские ссылки и сторонний лендинг не работают —
           участник, открыв ссылку, ничего не получит. Чтобы запустить, переключите
@@ -261,8 +269,10 @@ export default function EventPage() {
         </div>
       )}
 
-      {/* Уровень 1 — разделы (группы) + «Рассылки» как отдельная страница */}
-      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
+      {/* Уровень 1 — разделы (группы) + «Рассылки» как отдельная страница.
+          У менеджера лидов раздел один («Отслеживания») с единственной
+          вкладкой — переключатель из одной кнопки только занимает место. */}
+      <div className={`overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3 ${isLeadsAssistant ? 'hidden' : ''}`}>
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
           {visibleGroups.map(g => (
             <button key={g.key}
@@ -285,7 +295,9 @@ export default function EventPage() {
         </div>
       </div>
 
-      {/* Уровень 2 — вкладки внутри активного раздела */}
+      {/* Уровень 2 — вкладки внутри активного раздела. У менеджера лидов
+          вкладка одна (CRM) — ряд из одной кнопки не нужен. */}
+      {!isLeadsAssistant && (
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
         {activeGroup.tabs.map(tb => (
           <EventTabBtn key={tb.key} active={activeTab === tb.key}
@@ -293,6 +305,7 @@ export default function EventPage() {
             label={tb.locked ? `🔒 ${tb.label}` : tb.label} />
         ))}
       </div>
+      )}
 
       {/* Вкладка закрыта тарифом: показываем замок вместо содержимого — так
           видно, что раздел существует, и понятно, что подключить. */}

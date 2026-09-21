@@ -35,7 +35,7 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 export default function EventsPage() {
-  const { isAssistant } = useMe()
+  const { isAssistant, isLeadsAssistant } = useMe()
   const router = useRouter()
   const [items, setItems] = useState<EventItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,7 +58,13 @@ export default function EventsPage() {
     setLoading(true)
     try {
       const res = await api.events.list()
-      const filtered = (res.events || []).filter(
+      // ⚠️ «Менеджеру лидов» показываем ВСЕ его события одним списком, без
+      // деления на типы. Обычному клиенту конференции, турниры, конкурсы и
+      // коллабы прячут здесь потому, что у каждого свой раздел в меню — а у
+      // менеджера лидов этих разделов НЕТ, и его человек с конференции
+      // оказывался недостижим: событие есть, CRM есть, а зайти некуда.
+      // Бэкенд уже отдал ему только события, где есть ЕГО закреплённые люди.
+      const filtered = isLeadsAssistant ? (res.events || []) : (res.events || []).filter(
         (e: EventItem) => e.module_slug !== 'conference' && e.module_slug !== 'contest' && e.module_slug !== 'turnir'
           && e.module_slug !== 'medialift'  // МедиаЛифт — свой раздел (одно служебное событие)
           && !(e as any).is_collab   // коллабы показываются только в разделе «Коллабы»
@@ -75,7 +81,11 @@ export default function EventsPage() {
       setLoading(false)
     }
   }
-  useEffect(() => { load() }, [])
+  // ⚠️ Перезагружаем и когда узнали роль: профиль (`useMe`) приходит позже
+  // первой отрисовки, и на первом проходе `isLeadsAssistant` ещё false —
+  // список отфильтровался бы как обычному клиенту, и конференция с его
+  // человеком снова пропала бы.
+  useEffect(() => { load() }, [isLeadsAssistant])
 
   // ⚠️ Копирование идёт через окно выбора: спикеры/жюри и партнёры
   // переносятся только по галочке, программа — никогда (она привязана к датам).
@@ -119,16 +129,23 @@ export default function EventsPage() {
             <Calendar size={24} /> Мероприятия
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Вебинары, уроки в записи, нетворкинги, эфиры, мастер-классы. Конференции — в отдельном разделе.
+            {isLeadsAssistant
+              ? 'События, где есть закреплённые за вами люди. Внутри — отслеживание (CRM).'
+              : 'Вебинары, уроки в записи, нетворкинги, эфиры, мастер-классы. Конференции — в отдельном разделе.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle view={view} onChange={setViewPersist} />
-          <Link href="/dashboard/events/new"
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
-                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            <Plus size={18} /> Создать
-          </Link>
+          {/* Менеджер лидов события не создаёт — он ведёт своих людей.
+              Сервер создание и так запретит, но видимая кнопка, которая
+              отвечает «нет доступа», выглядит поломкой кабинета. */}
+          {!isLeadsAssistant && (
+            <Link href="/dashboard/events/new"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+              <Plus size={18} /> Создать
+            </Link>
+          )}
         </div>
       </div>
 
@@ -139,10 +156,16 @@ export default function EventsPage() {
       ) : items.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
           <Calendar className="mx-auto mb-3 text-gray-300" size={40} />
-          <p className="text-gray-500 text-sm mb-4">У вас пока нет мероприятий</p>
-          <Link href="/dashboard/events/new" className="text-sm underline" style={{ color: '#25455D' }}>
-            Создать первое
-          </Link>
+          <p className="text-gray-500 text-sm mb-4">
+            {isLeadsAssistant
+              ? 'Пока нет событий с закреплёнными за вами людьми'
+              : 'У вас пока нет мероприятий'}
+          </p>
+          {!isLeadsAssistant && (
+            <Link href="/dashboard/events/new" className="text-sm underline" style={{ color: '#25455D' }}>
+              Создать первое
+            </Link>
+          )}
         </div>
       ) : view === 'list' ? (
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
@@ -168,11 +191,14 @@ export default function EventsPage() {
                     </div>
                   </div>
                 </Link>
-                <button onClick={() => handleCopy(e.id)} disabled={copyingId === e.id}
-                        className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50"
-                        title="Скопировать">
-                  <Copy size={16} />
-                </button>
+                {/* Копирование — тоже создание события: менеджеру лидов ни к чему. */}
+                {!isLeadsAssistant && (
+                  <button onClick={() => handleCopy(e.id)} disabled={copyingId === e.id}
+                          className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50"
+                          title="Скопировать">
+                    <Copy size={16} />
+                  </button>
+                )}
                 {!isAssistant && (
                   <button onClick={() => handleDelete(e.id, e.title)} disabled={deletingId === e.id}
                           className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
@@ -223,10 +249,12 @@ export default function EventsPage() {
                   </div>
                 </Link>
                 <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                  <button onClick={() => handleCopy(e.id)} disabled={copyingId === e.id}
-                          className="p-1.5 rounded-lg bg-white/90 text-gray-600 hover:bg-white shadow-sm disabled:opacity-50" title="Скопировать">
-                    <Copy size={14} />
-                  </button>
+                  {!isLeadsAssistant && (
+                    <button onClick={() => handleCopy(e.id)} disabled={copyingId === e.id}
+                            className="p-1.5 rounded-lg bg-white/90 text-gray-600 hover:bg-white shadow-sm disabled:opacity-50" title="Скопировать">
+                      <Copy size={14} />
+                    </button>
+                  )}
                   {!isAssistant && (
                     <button onClick={() => handleDelete(e.id, e.title)} disabled={deletingId === e.id}
                             className="p-1.5 rounded-lg bg-black/30 text-white hover:bg-red-500 disabled:opacity-50" title="Удалить">
