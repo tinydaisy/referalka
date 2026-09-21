@@ -765,7 +765,11 @@ export default function PosterCanvas({
 
             `pill_row_align` задаёт, где стоит вся пара; у каждой пилюли
             остаётся свой сдвиг. */}
-        {L.show_pill !== false && (!!pill1 || !!pill2) && (
+        {/* ⚠️⚠️ НА АФИШЕ СПИКЕРА АВТОМАТИЧЕСКИХ ПИЛЮЛЬ НЕТ. Их текст берётся
+            из данных события, поэтому они «зависали»: в настройках их не было,
+            а с афиши не убирались. Нужна пилюля — добавьте её во вкладке
+            «Свои элементы»: там текст ваш и удаляется свободно. */}
+        {kind !== 'individual' && L.show_pill !== false && (!!pill1 || !!pill2) && (
           <div style={{
             display: 'flex', flexWrap: 'wrap', alignItems: 'center',
             gap: px(1.5),
@@ -909,7 +913,7 @@ export default function PosterCanvas({
           иначе их держали бы его границы — ровно та привязка, от которой мы
           уходили в миграции 470. Внутри рабочей области, так что за поля они
           всё равно не выйдут. */}
-      {L.show_pill !== false && freePills.map((p, i) => (
+      {kind !== 'individual' && L.show_pill !== false && freePills.map((p, i) => (
         <div key={`fp${i}`} style={{
           position: 'absolute',
           left: `${Math.max(0, Math.min(100, p.x ?? 50))}%`,
@@ -1455,6 +1459,8 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
   const roleText = BADGE_LABELS[person.role] || ROLE_RU[person.role] || ''
   // ⚠️ Все темы человека, а не первая: выступлений может быть несколько, и у
   // каждого своя тема. Каждая со своей строки — в подбор они слиплись бы.
+  // ⚠️ Заглушки бэкенд уже отфильтровал; здесь просто отбрасываем пустое,
+  // чтобы блок темы не рисовался вовсе, когда темы нет.
   const topics = (session?.topics?.length ? session.topics : [session?.topic || ''])
     .map(t => (t || '').trim()).filter(Boolean)
   const topic = topics.join('\n')
@@ -1478,8 +1484,6 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     ? brandFontCss(L.ind_role_font, label(L.ind_role_font)) : headFont
   const topicFont = L.ind_topic_font
     ? brandFontCss(L.ind_topic_font, label(L.ind_topic_font)) : undefined
-  const timeFont = L.ind_time_font
-    ? brandFontCss(L.ind_time_font, label(L.ind_time_font)) : undefined
 
   // ⚠️⚠️ ПОРЯДОК ПО ТЗ: пилюля, название, роль, Имя Фамилия, тема, время —
   // «а потом его фото». В первой версии фото стояло сверху, а подписи под ним:
@@ -1496,7 +1500,8 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
    * в момент наката.
    */
   const freePos = (x?: number | null, y?: number | null, w?: number | null,
-                   defX = 50, defY = 50): React.CSSProperties => {
+                   defX = 50, defY = 50,
+                   align?: 'left' | 'center' | 'right'): React.CSSProperties => {
     const hasX = typeof x === 'number' && Number.isFinite(x)
     const hasY = typeof y === 'number' && Number.isFinite(y)
     // ⚠️ Координата не задана — берём УМОЛЧАНИЕ этого элемента, а не середину:
@@ -1511,7 +1516,15 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     // Теперь 0 % прижимает элемент верхом к верхнему полю, 100 % — низом к
     // нижнему, а между ними он по-прежнему центрируется по точке. Так ползунок
     // проходит ВСЮ рабочую область и ничего не выходит за поля.
-    const tx_ = px_ <= 0 ? '0' : px_ >= 100 ? '-100%' : '-50%'
+    // ⚠️⚠️ ТОЧКА ОТСЧЁТА — ПО КРАЮ ВЫРАВНИВАНИЯ. Блок всегда центрировался
+    // по своей середине, и при выключке влево длинный текст уезжал ЗА ЛЕВОЕ
+    // ПОЛЕ: у Якубана «СПИКЕР» вставал красиво, а у Марго «ОРГАНИЗАТОР»
+    // вылезал (владелец 21.09.2026). Теперь: выключка слева — точка задаёт
+    // ЛЕВЫЙ край, справа — ПРАВЫЙ, по центру — центр. Сколько бы букв ни
+    // было, заданный край стоит на месте.
+    const tx_ = align === 'left' ? '0'
+      : align === 'right' ? '-100%'
+      : (px_ <= 0 ? '0' : px_ >= 100 ? '-100%' : '-50%')
     // ⚠️⚠️ ПО ВЕРТИКАЛИ ПРИВЯЗЫВАЕМСЯ К ВЕРХУ элемента (миграция 478). Раньше
     // он ставился СЕРЕДИНОЙ на точку и рос вниз в обе стороны: у Марго Форбс
     // блок из двух тем наезжал на роль, хотя позиция задана та же, что у
@@ -1593,7 +1606,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         угол: границы колонки их больше не держат. */}
     {L.ind_show_event_title !== false && !!eventTitle && (
       <div style={{
-        ...freePos(L.ind_title_x, L.ind_title_y, 90, 50, 10),
+        ...freePos(L.ind_title_x, L.ind_title_y, 90, 50, 10, L.ind_title_align),
         // ⚠️ Шрифт: своё поле → шрифт заголовков бренда → общий. Раньше
         // фирменный шрифт не подхватывался вовсе, и название шло системным.
         fontFamily: brandFontCss(
@@ -1609,7 +1622,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     )}
     {L.ind_show_role !== false && !!roleText && (
       <div style={{
-        ...freePos(L.ind_role_x, L.ind_role_y, 90, 50, 18),
+        ...freePos(L.ind_role_x, L.ind_role_y, 90, 50, 18, L.ind_role_align),
         fontFamily: roleFont, fontSize: tx(L.ind_role_size ?? 24),
         color: L.ind_role_color || gold,
         textTransform: L.ind_role_upper !== false ? 'uppercase' : undefined,
@@ -1620,7 +1633,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     )}
     {!!nameText && (
       <div style={{
-        ...freePos(L.ind_name_x, L.ind_name_y, L.ind_name_w, 50, 26),
+        ...freePos(L.ind_name_x, L.ind_name_y, L.ind_name_w, 50, 26, L.name_align),
         fontFamily: nameFont, fontSize: tx(L.ind_name_size ?? 54), fontWeight: 700,
         color: L.name_color || '#fff',
         textAlign: L.name_align || 'center', lineHeight: 1.1,
@@ -1635,7 +1648,7 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         началу сама. */}
     {L.ind_show_topic !== false && topicItems.length > 0 && (
       <div style={{
-        ...freePos(L.ind_topic_x, L.ind_topic_y, L.ind_topic_w, 50, 36),
+        ...freePos(L.ind_topic_x, L.ind_topic_y, L.ind_topic_w, 50, 36, L.topic_align),
         fontFamily: topicFont,
         fontSize: tx(L.ind_topic_size ?? 30),
         color: L.ind_topic_color || '#fff',
@@ -1683,14 +1696,9 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         })}
       </div>
     )}
-    {L.ind_show_time !== false && !!when && (
-      <div style={{
-        ...freePos(L.ind_time_x, L.ind_time_y, 60, 50, 44),
-        fontFamily: timeFont,
-        fontSize: tx(L.ind_time_size ?? 24),
-        color: L.ind_time_color || gold, textAlign: L.time_align || 'center',
-      }}>{when}</div>
-    )}
+    {/* ⚠️ Отдельного блока времени больше НЕТ: время печатается внутри
+        блока тем («24.09 в 11:30: Тема»). Старый блок оставался на афише и
+        не убирался — настроек у него уже не было, вкладку «Время» удалили. */}
     </>
   )
 }
@@ -1729,7 +1737,11 @@ function CustomElement({ el, th, gold, tx, label, anchorTop }: {
       top: `${y}%`,
       // ⚠️ Та же привязка к верху, что у остальных элементов: блок растёт
       // вниз и не наезжает на то, что выше.
-      transform: `translate(${x <= 0 ? '0' : x >= 100 ? '-100%' : '-50%'}, ${
+      // ⚠️ Та же точка отсчёта по краю выравнивания, что у остальных:
+      // слева — левый край на месте, справа — правый, иначе центр.
+      transform: `translate(${
+        el.align === 'left' ? '0' : el.align === 'right' ? '-100%'
+        : (x <= 0 ? '0' : x >= 100 ? '-100%' : '-50%')}, ${
         anchorTop ? (y >= 100 ? '-100%' : '0') : (y <= 0 ? '0' : y >= 100 ? '-100%' : '-50%')})`,
       width: `${Math.max(5, Math.min(100, el.w ?? 80))}%`,
       maxWidth: '100%',
