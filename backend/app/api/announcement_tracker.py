@@ -87,7 +87,16 @@ async def get_tracker(
 
     # Все коллабораторы события, организаторы — внизу.
     speakers = await db.fetch(f"""
-        SELECT co.id AS collaborator_id, co.name, ec.role, co.title, co.photo_url
+        SELECT co.id AS collaborator_id,
+               -- ⚠️ ИМЯ И ФАМИЛИЯ. В базе `name` — это только ИМЯ, фамилия
+               -- отдельным полем; в отчёте печаталось одно имя, и двух
+               -- Анастасий было не различить. Склеиваем так же, как везде:
+               -- пустая фамилия не добавляет висячего пробела.
+               btrim(CASE WHEN COALESCE(btrim(co.last_name), '') = ''
+                          THEN COALESCE(co.name, '')
+                          ELSE COALESCE(co.name, '') || ' ' || COALESCE(co.last_name, '')
+                     END) AS name,
+               ec.role, co.title, co.photo_url
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
          WHERE ec.event_id = $1
