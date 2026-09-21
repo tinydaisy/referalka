@@ -105,6 +105,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // человека. Разойдутся типы — сборка упадёт на первом же обращении.
   const [sessions, setSessions] = useState<Record<string, {
     topic?: string; when?: string; day?: number; slots?: string[]; topics?: string[]
+    all_items?: { id: number; when: string; topic: string; chosen: boolean }[]
   }>>({})
   // Кого показываем в индивидуальной афише. Пусто — первого из списка.
   const [curSpeaker, setCurSpeaker] = useState<number | null>(null)
@@ -782,7 +783,51 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                         font={layout.ind_name_font} onFont={v => patch({ ind_name_font: v })} />
           )}
 
-          {indTab === 'topic' && (
+          {indTab === 'topic' && (<>
+            {/* ⚠️⚠️ ВЫБОР ТЕМ — ЗДЕСЬ, на самой афише (требование владельца).
+                У Марго Форбс четыре выступления, и «Открытие Дня» — строка
+                программы, а не тема для анонса. Отмечаете, какие показать. */}
+            {(() => {
+              const items = sessions[String(indSpeakerId)]?.all_items || []
+              if (items.length < 2) return null
+              const chosen = items.filter(it => it.chosen).map(it => it.id)
+              const toggle = (id: number) => {
+                const next = chosen.includes(id)
+                  ? chosen.filter(x => x !== id)
+                  : [...chosen, id]
+                // ⚠️ Сняли все — значит показываем все: пустая афиша хуже,
+                // чем лишняя тема, и так же трактует бэкенд.
+                setSessions(prev => ({
+                  ...prev,
+                  [String(indSpeakerId)]: {
+                    ...prev[String(indSpeakerId)],
+                    all_items: items.map(it => ({
+                      ...it, chosen: next.length === 0 || next.includes(it.id),
+                    })),
+                  },
+                }))
+                if (indSpeakerId != null) {
+                  api.posterLayout.setPosterTopics(eventId, indSpeakerId, next).catch(() => {})
+                }
+              }
+              return (
+                <Card title="Какие темы показать">
+                  <p className="text-xs text-gray-400 mb-2">
+                    У этого спикера {items.length} выступления. Отметьте те, что нужны на афише.
+                  </p>
+                  {items.map(it => (
+                    <label key={it.id} className="flex items-start gap-2 text-sm text-gray-700 mb-1.5">
+                      <input type="checkbox" checked={it.chosen} className="mt-0.5"
+                             onChange={() => toggle(it.id)} />
+                      <span className="min-w-0">
+                        {it.when && <span className="text-gray-400">{it.when}: </span>}
+                        {it.topic || <span className="text-gray-400">без темы</span>}
+                      </span>
+                    </label>
+                  ))}
+                </Card>
+              )
+            })()}
             <IndElement title="Тема выступления" theme={theme}
                         hint="Тема берётся из программы конференции."
                         shown={layout.ind_show_topic !== false}
@@ -794,8 +839,16 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                         width={layout.ind_topic_w} onWidth={v => patch({ ind_topic_w: v })}
                         color={layout.ind_topic_color} onColor={v => patch({ ind_topic_color: v })}
                         align={layout.topic_align} onAlign={v => patch({ topic_align: v })}
-                        font={layout.ind_topic_font} onFont={v => patch({ ind_topic_font: v })} />
-          )}
+                        font={layout.ind_topic_font} onFont={v => patch({ ind_topic_font: v })}>
+              <ColorRow label="Цвет даты перед темой" value={layout.ind_topic_when_color}
+                        onChange={v => patch({ ind_topic_when_color: v })} />
+              <label className="flex items-center gap-2 text-sm text-gray-700 mt-3">
+                <input type="checkbox" checked={layout.ind_topic_show_when !== false}
+                       onChange={e => patch({ ind_topic_show_when: e.target.checked })} />
+                Показывать дату и время перед темой
+              </label>
+            </IndElement>
+          </>)}
 
           {indTab === 'time' && (
             <IndElement title="Время выступления" theme={theme}

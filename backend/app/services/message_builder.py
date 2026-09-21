@@ -25,7 +25,8 @@ from app.services.client_domains import (
 from app.services.share_links import TG_DOMAIN
 # ⚠️ Единая точка правды про выбор афиши спикера (см. event_photo.py):
 # правило было скопировано в шесть мест и неизбежно разошлось бы.
-from app.services.event_photo import poster_subquery, photo_url_sql
+from app.services.event_photo import (
+    poster_subquery, photo_url_sql, profile_photo_sql, event_photo_sql)
 
 
 # Telegram parse_mode=HTML понимает только узкий набор тегов:
@@ -1086,6 +1087,35 @@ async def _apply_event_globals(conn, event_id: int, text: str, btn_url: str):
     return text, btn_url
 
 
+def _pick_speaker_photo(sp, mode: str):
+    """Картинка спикера по выбранному режиму.
+
+    ⚠️ `sp` — строка запроса с тремя полями: `speaker_poster` (афиша),
+    `speaker_photo_profile` (профиль), `speaker_photo_event` (под событие).
+    Старое `speaker_photo` оставлено для совместимости: оно уже содержит
+    подстановку «событие → профиль».
+    """
+    def _g(key):
+        try:
+            return sp[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    poster = _g("speaker_poster")
+    prof = _g("speaker_photo_profile") or _g("speaker_photo")
+    ev = _g("speaker_photo_event")
+
+    if mode == "photo_profile":
+        return prof or ev or poster
+    if mode == "photo_event":
+        return ev or prof or poster
+    if mode == "photo":
+        # ⚠️ Прежний режим: фото под событие, если есть, иначе профильное.
+        # Сохраняем поведение для уже настроенных шаблонов.
+        return ev or prof or poster
+    return poster or ev or prof
+
+
 async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_photo_mode="poster",
                                         photo_already=None, ref_date=None):
     """Раскрывает спикерские плейсхолдеры для ПРОИЗВОЛЬНОЙ рассылки, где клиент
@@ -1100,6 +1130,8 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                -- афиша не берётся вовсе, ниже останется только фото коллаба.
                %(poster_sql)s as speaker_poster,
                %(speaker_photo_sql)s AS speaker_photo,
+                       %(profile_photo_sql)s AS speaker_photo_profile,
+                       %(event_photo_sql)s AS speaker_photo_event,
                pu_tg.username AS personal_tg_username,
                c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                c.title AS positioning, NULL AS bio, c.achievements,
@@ -1139,7 +1171,9 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
           ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
         WHERE cse.id=$1
         """ % {"poster_sql": poster_subquery("cse", "c"),
-               "speaker_photo_sql": photo_url_sql("cse", "c")},
+               "speaker_photo_sql": photo_url_sql("cse", "c"),
+               "profile_photo_sql": profile_photo_sql("c"),
+               "event_photo_sql": event_photo_sql("cse")},
         ec_id
     )
     if not sp:
@@ -1181,11 +1215,18 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                 text = re.sub(r"^[^\n]*" + re.escape(token) + r"[^\n]*\n?", "", text, flags=re.MULTILINE)
     buttons = [{**b, "url": _apply_repl(b.get("url") or "", repl)} for b in (buttons or [])]
 
-    # Фото: режим 'photo' → сначала фото коллаба, иначе афиша.
+    # ⚠️⚠️ ТРИ ИСТОЧНИКА КАРТИНКИ (решение владельца 21.09.2026):
+    #   poster        — готовая афиша спикера;
+    #   photo_profile — снимок, который загрузил САМ СПИКЕР в свой профиль;
+    #   photo_event   — фото, подготовленное ПОД ЭТО СОБЫТИЕ (карикатура и т.п.).
+    # Раньше вариантов было два, и «просто фото» молча подменялось фото
+    # события — выбрать именно профильный снимок было нельзя.
+    #
+    # ⚠️ Запасной вариант всегда есть: пустое место в рассылке хуже «не того»
+    # фото, поэтому каждый режим падает на соседние.
     photo = photo_already
     if not photo:
-        photo = (sp["speaker_photo"] or sp["speaker_poster"]) if speaker_photo_mode == "photo" \
-            else (sp["speaker_poster"] or sp["speaker_photo"])
+        photo = _pick_speaker_photo(sp, speaker_photo_mode)
     return text, photo, buttons
 
 
@@ -1732,6 +1773,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        %(poster_sql)s as speaker_poster,
                        %(speaker_photo_sql)s AS speaker_photo,
+                       %(profile_photo_sql)s AS speaker_photo_profile,
+                       %(event_photo_sql)s AS speaker_photo_event,
                        pu_tg.username AS personal_tg_username,
                        c.tg_channel_url, c.instagram_url,
                        c.vk_url, c.max_url, c.website_url,
@@ -1784,7 +1827,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                   ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 WHERE cse.id=$1
                 """ % {"poster_sql": poster_subquery("cse", "c"),
-               "speaker_photo_sql": photo_url_sql("cse", "c")},
+               "speaker_photo_sql": photo_url_sql("cse", "c"),
+               "profile_photo_sql": profile_photo_sql("c"),
+               "event_photo_sql": event_photo_sql("cse")},
                 session_id
             )
             if sp:
@@ -1799,10 +1844,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 # fallback. Режим 'photo' = сначала фото коллаба (просто аватар),
                 # 'poster' (default) = сначала индивидуальная афиша спикера.
                 if not photo:
-                    if speaker_photo_mode == "photo":
-                        photo = sp["speaker_photo"] or sp["speaker_poster"]
-                    else:
-                        photo = sp["speaker_poster"] or sp["speaker_photo"]
+                    photo = _pick_speaker_photo(sp, speaker_photo_mode)
                 card_link = speaker_card_link(sp["event_slug"], sp["ec_id"],
                                               sp["tg_link_mode"], sp["bot_handle"],
                                               base_url=_pub_base)
@@ -1864,6 +1906,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        %(poster_sql)s as speaker_poster,
                        %(speaker_photo_sql)s AS speaker_photo,
+                       %(profile_photo_sql)s AS speaker_photo_profile,
+                       %(event_photo_sql)s AS speaker_photo_event,
                        pu_tg.username as speaker_personal_tg,
                        c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                        c.title AS positioning, NULL AS bio, c.achievements,
@@ -1925,7 +1969,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
                 WHERE cs.id=$1
                 """ % {"poster_sql": poster_subquery("cse", "c"),
-               "speaker_photo_sql": photo_url_sql("cse", "c")},
+               "speaker_photo_sql": photo_url_sql("cse", "c"),
+               "profile_photo_sql": profile_photo_sql("c"),
+               "event_photo_sql": event_photo_sql("cse")},
                 session_id
             )
             if session:
@@ -1961,8 +2007,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             # speakers_call — служебное сообщение в чат спикеров, фото не нужно.
             if tpl_type == "speakers_call":
                 pass
-            elif tpl_type == "5min_before" and speaker_photo_mode == "photo":
-                photo = session_data.get("speaker_photo") or session_data.get("speaker_poster")
+            elif tpl_type == "5min_before":
+                # ⚠️ Тот же выбор из трёх источников, что и везде: раньше здесь
+                # была своя пара «афиша ↔ фото», и режимы «из профиля» /
+                # «под событие» сюда бы не доехали.
+                photo = _pick_speaker_photo(session_data, speaker_photo_mode)
             else:
                 photo = session_data.get("speaker_poster") or session_data.get("speaker_photo")
         # Ссылка эфира = вебинарная комната ДНЯ этого слота.

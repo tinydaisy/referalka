@@ -171,6 +171,8 @@ export type PosterLayout = {
   ind_title_text?: string | null
   ind_title_metallic?: boolean
   ind_time_with_date?: boolean
+  ind_topic_when_color?: string | null
+  ind_topic_show_when?: boolean
   ind_title_align?: 'left' | 'center' | 'right'
   ind_role_align?: 'left' | 'center' | 'right'
   ind_role_color?: string | null
@@ -263,7 +265,7 @@ export default function PosterCanvas({
   /** Дни события со своими спикерами — для афиш по дням. */
   days?: PosterDay[]
   /** Тема и время выступления по id спикера — для индивидуальных афиш. */
-  sessions?: Record<string, { topic?: string; when?: string; day?: number; slots?: string[]; topics?: string[] }>
+  sessions?: Record<string, { topic?: string; when?: string; day?: number; slots?: string[]; topics?: string[]; items?: { id: number; when: string; topic: string }[] }>
   /** Какой ДЕНЬ рисуем (вид `day`). Пусто — берётся первый. */
   day?: number | null
   /** Какого СПИКЕРА рисуем (вид `individual`). */
@@ -1362,7 +1364,8 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
   person?: PosterPerson
   /** ⚠️ `slots` и `topics` — ВСЕ выступления человека: он может выступать
    *  дважды, и тогда нужны обе даты и обе темы. */
-  session?: { topic?: string; when?: string; day?: number; slots?: string[]; topics?: string[] }
+  session?: { topic?: string; when?: string; day?: number; slots?: string[]
+              topics?: string[]; items?: { id: number; when: string; topic: string }[] }
   L: PosterLayout
   th: PosterTheme
   gold: string
@@ -1404,6 +1407,12 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
   const topics = (session?.topics?.length ? session.topics : [session?.topic || ''])
     .map(t => (t || '').trim()).filter(Boolean)
   const topic = topics.join('\n')
+  // ⚠️ Пары «когда + что» с бэкенда. Их нет (старый ответ) — собираем из тем,
+  // чтобы афиша не опустела на несовпадении версий.
+  const topicItems = (session?.items?.length
+    ? session.items
+    : topics.map(t => ({ id: 0, when: '', topic: t }))
+  ).filter(it => (it.topic || '').trim())
   const when = (session?.when || '').trim()
 
   const headFont = brandFontCss(
@@ -1547,15 +1556,36 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         textAlign: L.name_align || 'center', lineHeight: 1.1,
       }}>{nameText}</div>
     )}
-    {L.ind_show_topic !== false && !!topic && (
+    {/* ⚠️⚠️ БЛОК ТЕМ: «29.09 в 11:00: Название темы». Дата и название —
+        РАЗНЫМИ цветами, а длинная тема переносится ПОД ТЕКСТ, а не под дату
+        (так нарисовал владелец). Поэтому строка — не один текст, а сетка из
+        двух колонок: дата и тема; вторая строка темы выравнивается по её
+        началу сама. */}
+    {L.ind_show_topic !== false && topicItems.length > 0 && (
       <div style={{
         ...freePos(L.ind_topic_x, L.ind_topic_y, L.ind_topic_w, 50, 36),
         fontFamily: topicFont,
         fontSize: tx(L.ind_topic_size ?? 30),
         color: L.ind_topic_color || '#fff',
         textAlign: L.topic_align || 'center', lineHeight: 1.25,
-        whiteSpace: 'pre-line',
-      }}>{topic}</div>
+      }}>
+        {topicItems.map((it, i) => (
+          <div key={i} style={{
+            display: 'flex', gap: '0.4em',
+            marginTop: i ? '0.5em' : 0,
+            justifyContent: alignToFlex(L.topic_align),
+            textAlign: 'left',
+          }}>
+            {L.ind_topic_show_when !== false && !!it.when && (
+              <span style={{
+                color: L.ind_topic_when_color || gold,
+                whiteSpace: 'nowrap', flexShrink: 0,
+              }}>{it.when}:</span>
+            )}
+            <span>{it.topic}</span>
+          </div>
+        ))}
+      </div>
     )}
     {L.ind_show_time !== false && !!when && (
       <div style={{

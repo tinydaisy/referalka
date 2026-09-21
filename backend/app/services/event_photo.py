@@ -144,3 +144,26 @@ def photo_url_sql(alias_ec: str = "cse", alias_c: str = "c") -> str:
         f" COALESCE((SELECT cph.url FROM collaborator_photos cph"
         f"            WHERE cph.id = {alias_ec}.photo_id), {alias_c}.photo_url)"
     )
+
+
+def profile_photo_sql(alias_c: str = "c") -> str:
+    """ТОЛЬКО профильное фото человека, без подмены на фото события.
+
+    ⚠️ Нужно режиму «фото из профиля спикера»: там клиент осознанно хочет
+    снимок, который загрузил сам спикер, даже если под событие подготовлен
+    другой. `photo_url_sql` для этого не годится — он как раз подменяет.
+    """
+    return f" {alias_c}.photo_url"
+
+
+def event_photo_sql(alias_ec: str = "cse") -> str:
+    """ТОЛЬКО фото, выбранное под событие. Пусто, если не выбрано.
+
+    ⚠️ Без COALESCE на профильное: зовущий сам решает, чем заменить пустоту.
+    Режим «фото под событие» при незаполненном выборе должен честно отдать
+    ничего, а не молча подставить другое фото.
+    """
+    return (
+        f" (SELECT cph.url FROM collaborator_photos cph"
+        f"   WHERE cph.id = {alias_ec}.photo_id)"
+    )

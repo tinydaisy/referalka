@@ -2105,12 +2105,20 @@ export default function TemplatesPage() {
               {(editModal?.type === 'speaker_intro' || editModal?.type === 'expert_day' || editModal?.type === '5min_before') && (
                 <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
                   <p className="text-xs font-medium text-gray-600">🖼 Какое фото спикера брать</p>
-                  <div className="flex gap-2">
+                  {/* ⚠️ ТРИ ИСТОЧНИКА, а не два. «Просто фото» было
+                      двусмысленным: под событие можно загрузить свой снимок
+                      (карикатуру), и выбрать именно профильный было нельзя. */}
+                  <div className="grid grid-cols-1 gap-2">
                     {[
-                      { value: 'poster', label: 'Афиша спикера' },
-                      { value: 'photo', label: 'Просто фото' },
+                      { value: 'poster', label: '🎨 Готовая афиша спикера' },
+                      { value: 'photo_profile', label: '👤 Фото из профиля спикера' },
+                      { value: 'photo_event', label: '🖼 Фото для этого события' },
                     ].map(opt => {
-                      const cur = (form as any).speaker_photo_mode || 'poster'
+                      // ⚠️ Старое значение 'photo' показываем как «для этого
+                      // события»: оно и раньше отдавало фото события, если оно
+                      // было. Так уже настроенные шаблоны не меняют поведение.
+                      const raw = (form as any).speaker_photo_mode || 'poster'
+                      const cur = raw === 'photo' ? 'photo_event' : raw
                       const active = cur === opt.value
                       return (
                         <button
@@ -2126,7 +2134,12 @@ export default function TemplatesPage() {
                     })}
                   </div>
                   <p className="text-[11px] text-gray-500">
-                    «Афиша» — индивидуальная афиша спикера из библиотеки. «Просто фото» — фото профиля коллаба. Если у шаблона задано своё фото — берётся оно.
+                    <b>Готовая афиша</b> — собранная афиша спикера из его библиотеки.<br />
+                    <b>Фото из профиля</b> — снимок, который загрузил сам спикер.<br />
+                    <b>Фото для этого события</b> — то, что вы подготовили под конференцию
+                    (карточка спикера → «Выступление» → «Другие фото для афиш»).<br />
+                    Если выбранного нет — возьмётся ближайшее из остальных. Задали фото
+                    у самого шаблона — берётся оно.
                   </p>
                 </div>
               )}

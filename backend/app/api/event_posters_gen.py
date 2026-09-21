@@ -95,6 +95,7 @@ _FIELDS = (
     "ind_name_font", "ind_role_font",
     "ind_title_size", "ind_title_color", "ind_title_font", "ind_title_align", "ind_role_align",
     "ind_title_text", "ind_title_metallic", "ind_time_with_date",
+    "ind_topic_when_color", "ind_topic_show_when",
     # Своя точка каждого элемента афиши спикера (миграция 470).
     "ind_title_x", "ind_title_y", "ind_role_x", "ind_role_y",
     "ind_name_x", "ind_name_y", "ind_topic_x", "ind_topic_y",
@@ -155,6 +156,7 @@ _DEFAULTS = {
     "ind_title_size": 22, "ind_title_color": None, "ind_title_font": None,
     "ind_title_align": "center", "ind_role_align": "center",
     "ind_title_text": None, "ind_title_metallic": False, "ind_time_with_date": True,
+    "ind_topic_when_color": None, "ind_topic_show_when": True,
     "ind_title_x": None, "ind_title_y": None, "ind_role_x": None, "ind_role_y": None,
     "ind_name_x": None, "ind_name_y": None, "ind_topic_x": None, "ind_topic_y": None,
     "ind_time_x": None, "ind_time_y": None, "ind_topic_w": None, "ind_name_w": None,
@@ -359,6 +361,8 @@ class LayoutIn(BaseModel):
     ind_title_text: Optional[str] = None
     ind_title_metallic: Optional[bool] = None
     ind_time_with_date: Optional[bool] = None
+    ind_topic_when_color: Optional[str] = None
+    ind_topic_show_when: Optional[bool] = None
     ind_title_x: Optional[float] = None
     ind_title_y: Optional[float] = None
     ind_role_x: Optional[float] = None
@@ -831,6 +835,24 @@ async def _days(db: asyncpg.Connection, event_id: int) -> list[dict]:
     return out
 
 
+# ⚠️ Строки-заглушки программы. На афише их быть не должно: «Тема будет
+# уточнена позже» — служебная пометка организатора, а не тема для анонса.
+# Владелец просил такие просто не выводить (21.09.2026).
+_TOPIC_STUBS = {
+    "тема будет уточнена позже",
+    "тема уточняется",
+    "уточняется",
+    "открытие дня",
+    "закрытие дня",
+}
+
+
+def _clean_topic(t: str | None) -> str:
+    """Тема или пусто, если это заглушка."""
+    t = (t or "").strip()
+    return "" if t.lower() in _TOPIC_STUBS else t
+
+
 async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
     """Выступления каждого спикера: тема, дата и время — для афиш спикера.
 
@@ -843,9 +865,27 @@ async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
     напрямую (тот ссылается на связку человек+событие, миграции 003/004).
     """
     rows = await db.fetch(
-        """SELECT ec.speaker_id, s.day, s.start_time, s.title, d.day_date
+        """SELECT ec.speaker_id, s.id AS session_id, s.day, s.start_time,
+                  s.title, d.day_date,
+                  -- ⚠️⚠️ ТЕМА БЕРЁТСЯ ПО ПРИВЯЗКЕ `topic_id`, а не из
+                  -- `conf_sessions.title`. В `title` лежит подпись СЛОТА,
+                  -- записанная в момент его занятия («Тема будет уточнена
+                  -- позже»), и она НЕ ОБНОВЛЯЕТСЯ, когда спикер вписывает
+                  -- тему: проверено на событии 89 — слот 567 привязан к
+                  -- topic_id 998 с настоящей темой, а title всё ещё заглушка.
+                  -- Программа и рассылки читают тему именно по привязке,
+                  -- поэтому у них всё верно, а афиши показывали заглушку.
+                  st.topic AS linked_topic,
+                  ec.speaker_topic,
+                  -- ⚠️ Какие выступления клиент отметил для афиши (мигр. 476).
+                  -- Пустой массив — показываем все.
+                  ec.poster_session_ids,
+                  -- Сколько всего выступлений у человека: от этого зависит,
+                  -- можно ли подставлять общую тему карточки (см. ниже).
+                  COUNT(*) OVER (PARTITION BY ec.speaker_id) AS slots_count
              FROM conf_sessions s
              JOIN event_collaborators ec ON ec.id = s.speaker_id
+             LEFT JOIN conf_speaker_topics st ON st.id = s.topic_id
              LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
             WHERE s.event_id = $1 AND s.speaker_id IS NOT NULL
             ORDER BY ec.speaker_id, d.day_date NULLS LAST, s.day, s.start_time""",
@@ -860,6 +900,11 @@ async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
         # «24.09 в 11:00»; если чего-то нет — только то, что есть.
         when = " в ".join([x for x in (date_str, time_str) if x])
 
+        # ⚠️⚠️ ОТМЕЧЕННЫЕ ВЫСТУПЛЕНИЯ. У Марго Форбс их четыре, и «Открытие
+        # Дня» — строка программы, а не тема для анонса. Первая попавшаяся
+        # оказывалась как раз ею; все четыре — каша. Выбирает клиент.
+        chosen = list(r["poster_session_ids"] or [])
+
         cur = out.setdefault(key, {
             "topic": r["title"] or "",
             "when": when,
@@ -870,13 +915,46 @@ async def _sessions(db: asyncpg.Connection, event_id: int) -> dict:
             # мы бы показали на афише одну тему, а человек выступает с двумя —
             # анонс получился бы неполным.
             "topics": [],
+            "items": [],
+            "all_items": [],
         })
         if when:
             cur["slots"].append(when)
-        if r["title"] and r["title"] not in cur["topics"]:
-            cur["topics"].append(r["title"])
-        if not cur["topic"] and r["title"]:
-            cur["topic"] = r["title"]
+        # ⚠️⚠️ ПОРЯДОК ИСТОЧНИКОВ ВАЖЕН: привязанная тема СЛОТА → подпись
+        # слота → тема карточки. Карточка стоит ПОСЛЕДНЕЙ: она одна на
+        # человека, и поставь её первой — все выступления получат одинаковую
+        # тему. Проверено на Марго Форбс: четыре слота превращались в одну
+        # строку «Техношоу автоматизации…» вместо четырёх разных.
+        #
+        # ⚠️ К карточке падаем, только если у слота нет НИЧЕГО осмысленного:
+        # у Вангуловой слот — заглушка, а настоящая тема как раз в карточке.
+        # ⚠️⚠️ К КАРТОЧКЕ ПАДАЕМ, ТОЛЬКО ЕСЛИ У ЧЕЛОВЕКА ОДИН СЛОТ. Тема
+        # карточки одна на человека: подставив её слоту-заглушке при
+        # нескольких выступлениях, мы получили бы «Техношоу…» на месте
+        # «Открытия Дня» — тему, которой в этот момент не будет.
+        # Проверено на Марго Форбс (4 слота) и Вангуловой (1 слот-заглушка).
+        t = _clean_topic(r["linked_topic"]) or _clean_topic(r["title"])
+        if not t and r["slots_count"] == 1:
+            t = _clean_topic(r["speaker_topic"])
+        if t and t not in cur["topics"]:
+            cur["topics"].append(t)
+        # ⚠️ Пары «когда + что» — для блока тем на афише спикера:
+        # «29.09 в 11:00: Тема», следующая строка темы выравнивается под текст,
+        # а не под дату. Дата и тема красятся РАЗНЫМИ цветами, поэтому нужны
+        # отдельными полями, а не одной склеенной строкой.
+        # На афишу — только отмеченные (пусто = все).
+        if t and ((not chosen) or r["session_id"] in chosen):
+            cur["items"].append({"id": r["session_id"], "when": when, "topic": t})
+        # ⚠️ ВСЕ выступления, включая неотмеченные и с заглушками — чтобы в
+        # редакторе было что показать галочками. `items` отфильтрованы выбором,
+        # `all_items` — полный список.
+        cur["all_items"].append({
+            "id": r["session_id"], "when": when,
+            "topic": t or (r["title"] or "").strip(),
+            "chosen": (not chosen) or (r["session_id"] in chosen),
+        })
+        if not cur["topic"] and t:
+            cur["topic"] = t
     return out
 
 
@@ -1098,6 +1176,53 @@ async def poster_render(
         event_id, saved["url"], orientation,
     )
     return saved
+
+
+@router.put("/events/{event_id}/speakers/{speaker_id}/poster-topics",
+            summary="Какие темы спикера показывать на его афише")
+async def set_poster_topics(
+    event_id: int,
+    speaker_id: int,
+    data: dict,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Отмеченные выступления для индивидуальной афиши (миграция 476).
+
+    ⚠️ Пустой список = показывать ВСЕ темы. Так у тех, кто ничего не отмечал,
+    афиши остаются прежними, а не становятся пустыми.
+    """
+    client_id = int(user["sub"])
+    await _guard(db, event_id, client_id)
+
+    raw = data.get("session_ids") or []
+    ids: list[int] = []
+    for x in raw if isinstance(raw, list) else []:
+        try:
+            ids.append(int(x))
+        except (TypeError, ValueError):
+            continue
+
+    # ⚠️ Проверяем, что слоты ДЕЙСТВИТЕЛЬНО этого человека на этом событии:
+    # иначе чужой id молча попал бы в список и афиша показала бы чужую тему.
+    if ids:
+        ok = await db.fetchval(
+            "SELECT COUNT(*) FROM conf_sessions s"
+            "  JOIN event_collaborators ec ON ec.id = s.speaker_id"
+            " WHERE s.event_id = $1 AND ec.speaker_id = $2 AND s.id = ANY($3::int[])",
+            event_id, speaker_id, ids,
+        )
+        if ok != len(set(ids)):
+            raise HTTPException(400, detail="Выступление не принадлежит этому спикеру")
+
+    updated = await db.fetchval(
+        "UPDATE event_collaborators SET poster_session_ids = $1"
+        " WHERE event_id = $2 AND speaker_id = $3 RETURNING id",
+        ids, event_id, speaker_id,
+    )
+    if not updated:
+        raise HTTPException(404, detail="Спикер не участвует в этом событии")
+    return {"ok": True, "session_ids": ids}
 
 
 @router.post("/events/{event_id}/poster-layout/{orientation}/copy-bg",

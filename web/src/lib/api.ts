@@ -1740,6 +1740,10 @@ export const api = {
               + `&replace=${opts?.replace ? 'true' : 'false'}`
               + `&publish=${opts?.publish ? 'true' : 'false'}`, { method: 'POST' }),
     // Копирование фона и оформления в другие виды этой же ориентации.
+    // Какие темы спикера показывать на его афише (миграция 476).
+    setPosterTopics: (eventId: number, speakerId: number, sessionIds: number[]) =>
+      request(`/api/v1/events/${eventId}/speakers/${speakerId}/poster-topics`,
+              { method: 'PUT', body: JSON.stringify({ session_ids: sessionIds }) }),
     copyBg: (eventId: number, o: 'horizontal' | 'vertical' | 'square', kind: PosterKind) =>
       request(`/api/v1/events/${eventId}/poster-layout/${o}/copy-bg?kind=${kind}`, { method: 'POST' }),
     // ⚠️ Скачивание через тот же `downloadPdf` (он про любой файл, не только
