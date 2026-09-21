@@ -1765,11 +1765,14 @@ export const api = {
     // какая из них уйдёт в рассылку, решал случай: рассылка берёт первую по
     // (sort, id), а все вставлялись с sort = 0.
     // `publish` — показать их в кабинете спикера (галочка «опубликовать»).
+    // ⚠️ `speaker` — собрать и опубликовать афишу ОДНОМУ человеку: перевыпуск
+    // одному не повод пересобирать весь десяток (21.09.2026).
     renderAll: (eventId: number, o: 'horizontal' | 'vertical' | 'square', kind: PosterKind,
-                opts?: { replace?: boolean; publish?: boolean }) =>
+                opts?: { replace?: boolean; publish?: boolean; speaker?: number | null }) =>
       request(`/api/v1/events/${eventId}/poster-layout/${o}/render-all?kind=${kind}`
               + `&replace=${opts?.replace ? 'true' : 'false'}`
-              + `&publish=${opts?.publish ? 'true' : 'false'}`, { method: 'POST' }),
+              + `&publish=${opts?.publish ? 'true' : 'false'}`
+              + (opts?.speaker != null ? `&speaker=${opts.speaker}` : ''), { method: 'POST' }),
     // Копирование фона и оформления в другие виды этой же ориентации.
     // Какие темы спикера показывать на его афише (миграция 476).
     setPosterTopics: (eventId: number, speakerId: number, sessionIds: number[]) =>

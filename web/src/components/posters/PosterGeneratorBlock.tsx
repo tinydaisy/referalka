@@ -83,7 +83,8 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [busy, setBusy] = useState<'' | 'png' | 'render'>('')
+  // 'one' — сборка афиши одному спикеру (кнопка «Только этому спикеру»).
+  const [busy, setBusy] = useState<'' | 'png' | 'render' | 'one'>('')
   const [err, setErr] = useState<string | null>(null)
   const [dragId, setDragId] = useState<number | null>(null)
   // Пунктир границы полей — подсказка редактора, в макете не хранится.
@@ -281,6 +282,33 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
          : `Готово: индивидуальных афиш — ${n}. Каждая легла в карточку своего спикера`)
         + '\nСпикеры уже видят их в кабинете.',
       )
+    } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
+    finally { setBusy('') }
+  }
+
+  /**
+   * ⚠️⚠️ АФИША ОДНОМУ СПИКЕРУ — отдельная кнопка (требование владельца
+   * 21.09.2026). Соседняя кнопка собирает всем сразу, и чтобы перевыпустить
+   * афишу одному человеку (переснял фото, поменялась тема выступления)
+   * приходилось пересобирать весь десяток: минуты ожидания и по лишней
+   * картинке в библиотеке у девяти человек, которых не трогали.
+   *
+   * ⚠️ Без вопроса «заменить или добавить»: заменять тут нечего — у человека
+   * в библиотеке лежат и его собственные загруженные афиши, сносить их нельзя.
+   */
+  async function publishOneSpeaker() {
+    if (!layout || indSpeakerId == null) return
+    const who = draggable.find(p => Number(p.id) === Number(indSpeakerId))
+    const fio = who ? [who.name, who.last_name].filter(Boolean).join(' ') : 'спикеру'
+    setBusy('one')
+    try {
+      const { orientation, ...body } = layout
+      await api.posterLayout.save(eventId, o, body, kind)
+      await api.posterLayout.renderAll(eventId, o, 'individual',
+                                       { publish: true, speaker: indSpeakerId })
+      setErr(null)
+      patch({ published_to_cabinet: true })
+      alert(`Готово: афиша собрана и лежит в кабинете — ${fio}.`)
     } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
     finally { setBusy('') }
   }
@@ -660,6 +688,15 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 : kind === 'day' ? `Опубликовать афиши дней (${days.length})`
                 : `Опубликовать афиши спикеров (${draggable.length})`}
             </button>
+            {/* ⚠️⚠️ АФИША ОДНОМУ СПИКЕРУ. Соседняя кнопка собирает всем сразу:
+                перевыпустить одному человеку значило пересобрать весь десяток
+                и положить девятерым по лишней картинке. */}
+            {kind === 'individual' && indSpeakerId != null && (
+              <button onClick={publishOneSpeaker} disabled={!!busy}
+                      className="btn-primary px-5 py-2.5 text-sm">
+                {busy === 'one' ? 'Собираем…' : 'Только этому спикеру'}
+              </button>
+            )}
             <button onClick={publishAllOrientations} disabled={!!busy}
                     className="btn-primary px-5 py-2.5 text-sm">
               {busy === 'render' ? 'Собираем…' : 'Опубликовать все три формата'}

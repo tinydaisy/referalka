@@ -1459,6 +1459,8 @@ async def poster_render_all(
     replace: bool = False,
     # Показывать ли афиши этого вида в кабинете спикера (миграция 469).
     publish: bool = False,
+    # ⚠️ Только этому спикеру (kind=individual). Пусто — всем сразу, как было.
+    speaker: int | None = None,
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
@@ -1473,6 +1475,10 @@ async def poster_render_all(
       day        — в афиши СВОЕГО дня (`event_posters.day = N`);
       individual — в библиотеку афиш спикера (`collaborator_posters`) и
                    отмечается как афиша этого события.
+
+    ⚠️ `speaker` сужает индивидуальные до ОДНОГО человека: перевыпустить афишу
+    одному (переснял фото, поменялась тема) — не повод пересобирать весь
+    десяток и класть девятерым по лишней картинке.
     """
     _check_orientation(orientation)
     if kind not in KINDS:
@@ -1540,6 +1546,15 @@ async def poster_render_all(
     else:  # individual
         ev_title = await db.fetchval("SELECT title FROM events WHERE id = $1", event_id) or "Событие"
         people = [p for p in await _people(db, event_id) if not p.get("is_company")]
+        # ⚠️⚠️ ОДИН СПИКЕР, А НЕ ВСЕ. Кнопка была только «собрать всем», и
+        # чтобы перевыпустить афишу одному человеку (переснял фото, поменялась
+        # тема) приходилось пересобирать весь десяток заново — минуты ожидания
+        # и десять новых картинок в библиотеках тех, кого не трогали
+        # (требование владельца 21.09.2026).
+        if speaker is not None:
+            people = [p for p in people if int(p["id"]) == int(speaker)]
+            if not people:
+                raise HTTPException(404, detail="Спикер не найден среди участников события")
         for p in people:
             png = await _shot(speaker_id=p["id"])
             saved = await store_bytes(
