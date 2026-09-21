@@ -34,6 +34,27 @@ export default function CollaboratorPostersField({ collaboratorId }: Props) {
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  /**
+   * ⚠️ Скачивание через blob: атрибут `download` не работает для файлов с
+   * другого домена (афиши лежат на S3) — браузер открывал их во вкладке
+   * вместо сохранения. Не вышло — открываем, как раньше.
+   */
+  async function downloadFile(u: string) {
+    try {
+      const r = await fetch(u)
+      if (!r.ok) throw new Error(String(r.status))
+      const blob = await r.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = (u.split('/').pop() || 'afisha').split('?')[0] || 'afisha'
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(href), 10000)
+    } catch {
+      window.open(u, '_blank', 'noreferrer')
+    }
+  }
+
   function copyUrl(id: number, url: string) {
     navigator.clipboard.writeText(url)
     setCopiedId(id)
@@ -204,16 +225,14 @@ export default function CollaboratorPostersField({ collaboratorId }: Props) {
                 >
                   <Maximize2 size={11} /> Раскрыть
                 </button>
-                <a
-                  href={p.url}
-                  download
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => downloadFile(p.url)}
                   className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
-                  title="Скачать"
+                  title="Скачать файл на компьютер"
                 >
                   <Download size={11} /> Скачать
-                </a>
+                </button>
                 <button
                   type="button"
                   onClick={() => copyUrl(p.id, p.url)}
@@ -289,15 +308,13 @@ export default function CollaboratorPostersField({ collaboratorId }: Props) {
           <div className="relative max-w-5xl max-h-[90vh]" onClick={e => e.stopPropagation()}>
             <img src={lightbox} alt="" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
             <div className="absolute top-2 right-2 flex gap-2">
-              <a
-                href={lightbox}
-                download
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => downloadFile(lightbox)}
                 className="flex items-center gap-1 bg-white/90 text-gray-800 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-white transition-colors"
               >
                 <Download size={14} /> Скачать
-              </a>
+              </button>
               <button
                 onClick={() => setLightbox(null)}
                 className="bg-black/50 text-white rounded-full p-1.5 hover:bg-black/80 transition-colors"

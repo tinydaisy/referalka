@@ -96,6 +96,13 @@ _FIELDS = (
     "ind_title_size", "ind_title_color", "ind_title_font", "ind_title_align", "ind_role_align",
     "ind_title_text", "ind_title_metallic", "ind_time_with_date",
     "ind_topic_when_color", "ind_topic_show_when",
+    # Произвольные элементы и общие настройки оформления (миграция 478).
+    "custom_elements", "anchor_top",
+    "ind_role_upper", "ind_name_upper", "ind_topic_upper", "ind_title_upper",
+    "ind_role_bg", "ind_name_bg", "ind_topic_bg", "ind_title_bg",
+    "ind_photo_border_w", "ind_photo_border_color",
+    "ind_photo_glow", "ind_photo_glow_color",
+    "ind_topic_when_place", "ind_topic_divider",
     # Своя точка каждого элемента афиши спикера (миграция 470).
     "ind_title_x", "ind_title_y", "ind_role_x", "ind_role_y",
     "ind_name_x", "ind_name_y", "ind_topic_x", "ind_topic_y",
@@ -157,6 +164,14 @@ _DEFAULTS = {
     "ind_title_align": "center", "ind_role_align": "center",
     "ind_title_text": None, "ind_title_metallic": False, "ind_time_with_date": True,
     "ind_topic_when_color": None, "ind_topic_show_when": True,
+    "custom_elements": [], "anchor_top": True,
+    "ind_role_upper": True, "ind_name_upper": False,
+    "ind_topic_upper": False, "ind_title_upper": False,
+    "ind_role_bg": None, "ind_name_bg": None,
+    "ind_topic_bg": None, "ind_title_bg": None,
+    "ind_photo_border_w": 0, "ind_photo_border_color": None,
+    "ind_photo_glow": 0, "ind_photo_glow_color": None,
+    "ind_topic_when_place": "left", "ind_topic_divider": False,
     "ind_title_x": None, "ind_title_y": None, "ind_role_x": None, "ind_role_y": None,
     "ind_name_x": None, "ind_name_y": None, "ind_topic_x": None, "ind_topic_y": None,
     "ind_time_x": None, "ind_time_y": None, "ind_topic_w": None, "ind_name_w": None,
@@ -363,6 +378,22 @@ class LayoutIn(BaseModel):
     ind_time_with_date: Optional[bool] = None
     ind_topic_when_color: Optional[str] = None
     ind_topic_show_when: Optional[bool] = None
+    custom_elements: Optional[list[dict]] = None
+    anchor_top: Optional[bool] = None
+    ind_role_upper: Optional[bool] = None
+    ind_name_upper: Optional[bool] = None
+    ind_topic_upper: Optional[bool] = None
+    ind_title_upper: Optional[bool] = None
+    ind_role_bg: Optional[str] = None
+    ind_name_bg: Optional[str] = None
+    ind_topic_bg: Optional[str] = None
+    ind_title_bg: Optional[str] = None
+    ind_photo_border_w: Optional[float] = None
+    ind_photo_border_color: Optional[str] = None
+    ind_photo_glow: Optional[float] = None
+    ind_photo_glow_color: Optional[str] = None
+    ind_topic_when_place: Optional[str] = None
+    ind_topic_divider: Optional[bool] = None
     ind_title_x: Optional[float] = None
     ind_title_y: Optional[float] = None
     ind_role_x: Optional[float] = None
@@ -501,6 +532,62 @@ def _norm(data: dict) -> dict:
         # Потолок на число: полсотни пилюль — это не макет, а сломанный фронт.
         out["extra_pills"] = pills[:20]
 
+    # ⚠️ Произвольные элементы (миграция 478). Приходят с фронта — кладём в
+    # базу только то, что понимаем. Неизвестный `kind` выбрасываем: он всё
+    # равно не отрисуется, а в макете останется мусором навсегда.
+    if "custom_elements" in out:
+        raw = out["custom_elements"] or []
+        kinds = {"text", "role", "name", "topic", "photo", "logos",
+                 "subtitle", "title", "pill"}
+        els = []
+        for it in raw if isinstance(raw, list) else []:
+            if not isinstance(it, dict):
+                continue
+            kind_ = str(it.get("kind") or "text")
+            if kind_ not in kinds:
+                continue
+            text = str(it.get("text") or "")[:500]
+            # ⚠️ Пустой текстовый элемент выбрасываем: это рамка ни вокруг
+            # чего. У предустановленных текст берётся из данных — их
+            # оставляем даже пустыми.
+            if kind_ in ("text", "pill") and not text.strip():
+                continue
+
+            def _n(key, default, lo, hi):
+                try:
+                    v = float(it.get(key, default))
+                except (TypeError, ValueError):
+                    return default
+                return max(lo, min(hi, v))
+
+            def _s(key):
+                v = it.get(key)
+                return str(v)[:40] if v else None
+
+            els.append({
+                "id": str(it.get("id") or "")[:40] or f"el{len(els)}",
+                "kind": kind_,
+                "text": text,
+                "x": _n("x", 50, 0, 100),
+                "y": _n("y", 50, 0, 100),
+                "w": _n("w", 80, 5, 100),
+                "size": _n("size", 28, 6, 300),
+                "color": _s("color"),
+                "bg": _s("bg"),
+                "bg_opacity": _n("bg_opacity", 100, 0, 100),
+                "border_color": _s("border_color"),
+                "border_w": _n("border_w", 0, 0, 40),
+                "radius": _n("radius", 0, 0, 100),
+                "glow": _n("glow", 0, 0, 100),
+                "glow_color": _s("glow_color"),
+                "font": _s("font"),
+                "align": (it.get("align") if it.get("align") in ("left", "center", "right") else "center"),
+                "upper": bool(it.get("upper")),
+                "metallic": bool(it.get("metallic")),
+            })
+        # Потолок: полсотни элементов — это не макет, а сломанный фронт.
+        out["custom_elements"] = els[:50]
+
     # ⚠️ Ряды по дням (миграция 466). Чистим КАЖДЫЙ ДЕНЬ отдельно: человек не
     # может стоять дважды в одном дне, но в разные дни попадает законно —
     # общий `seen` на весь словарь выбросил бы его со второго дня.
@@ -547,7 +634,7 @@ _TOP_BY_ORIENTATION = {"horizontal": 40, "vertical": 46, "square": 42}
 # ⚠️ Из них СЛОВАРИ (а не списки) — пустышка у них своя.
 _JSON_OBJECT_FIELDS = ("day_speaker_rows",)
 _JSON_FIELDS = ("speaker_order", "speaker_rows", "day_speaker_rows", "partner_order",
-                "extra_pills",
+                "extra_pills", "custom_elements",
                 "logos_hidden", "logos_order")
 
 
@@ -611,7 +698,9 @@ async def _row(db: asyncpg.Connection, event_id: int, orientation: str,
     }
     # ⚠️ У афиши ДНЯ подзаголовка нет: под названием идёт дата и время дня
     # (решение владельца). У индивидуальной он тоже не нужен — там тема.
-    if kind in ("day", "individual"):
+    # ⚠️ Только у афиши СПИКЕРА: там место подзаголовка занимает тема.
+    # У афиши ДНЯ решает галочка клиента — он её ставит и ждёт результата.
+    if kind == "individual":
         base["show_subtitle"] = False
     return base
 
@@ -1075,6 +1164,7 @@ async def save_layout(
     merged["logos_hidden"] = json.dumps(merged.get("logos_hidden") or [])
     merged["logos_order"] = json.dumps(merged.get("logos_order") or [])
     merged["extra_pills"] = json.dumps(merged.get("extra_pills") or [])
+    merged["custom_elements"] = json.dumps(merged.get("custom_elements") or [])
 
     cols = ", ".join(_FIELDS)
     ph = ", ".join(f"${i + 4}" for i in range(len(_FIELDS)))

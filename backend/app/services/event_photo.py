@@ -120,11 +120,26 @@ def poster_subquery(alias_ec: str = "cse", alias_c: str = "c") -> str:
 
     Возвращает SQL-выражение, которое ставится прямо в SELECT.
     """
+    # ⚠️⚠️ БИБЛИОТЕКА АФИШ ОБЩАЯ НА ВСЕ СОБЫТИЯ. У Марго Форбс их две, обе
+    # от майских конференций, а для iViSiON-9 своя не собрана вовсе — и при
+    # незаданном `poster_id` бралась ПЕРВАЯ по сортировке, то есть майская
+    # («в шаблоне „итоги дня" встаёт афиша другого события», 21.09.2026).
+    #
+    # Берём афишу ТОЛЬКО если она относится к этому событию:
+    #   • выбрана явно (`poster_id`) — доверяем выбору клиента;
+    #   • либо помечена подписью «<название события> (<формат>)» — такие
+    #     ставит `render-all` при сборке.
+    # Ничего не нашлось — возвращаем NULL, и зовущий подставит ФОТО. Чужая
+    # афиша хуже отсутствия: человек анонсирует одну конференцию картинкой
+    # другой.
     return (
         " (SELECT url FROM collaborator_posters cp"
         f"   WHERE NOT {alias_ec}.use_photo_instead_of_poster"
-        f"     AND (cp.id = {alias_ec}.poster_id OR"
-        f"          ({alias_ec}.poster_id IS NULL AND cp.collaborator_id = {alias_c}.id))"
+        f"     AND (cp.id = {alias_ec}.poster_id"
+        f"          OR ({alias_ec}.poster_id IS NULL"
+        f"              AND cp.collaborator_id = {alias_c}.id"
+        f"              AND cp.label LIKE (SELECT title FROM events"
+        f"                                  WHERE id = {alias_ec}.event_id) || ' (%'))"
         f"   ORDER BY (cp.id = {alias_ec}.poster_id) DESC, cp.sort_order, cp.id"
         "    LIMIT 1)"
     )

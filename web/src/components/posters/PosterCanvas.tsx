@@ -33,6 +33,34 @@ import {
 
 export type PosterOrientation = 'horizontal' | 'vertical' | 'square'
 
+/**
+ * Элемент афиши: произвольный текст или предустановленный блок.
+ *
+ * ⚠️⚠️ У ВСЕХ ЭЛЕМЕНТОВ ОДИН НАБОР СВОЙСТВ. Раньше каждый был зашит в код со
+ * своими настройками: у пилюль нельзя было стереть текст, у роли не было ни
+ * фона, ни рамки, добавить третий блок было нельзя вовсе. Теперь роль, имя и
+ * тема — частные случаи одного типа, а `text` — произвольный.
+ */
+export type PosterElement = {
+  id: string
+  kind: 'text' | 'pill' | 'role' | 'name' | 'topic' | 'photo' | 'logos' | 'subtitle' | 'title'
+  text?: string
+  x?: number; y?: number; w?: number
+  size?: number
+  color?: string | null
+  bg?: string | null
+  bg_opacity?: number
+  border_color?: string | null
+  border_w?: number
+  radius?: number
+  glow?: number
+  glow_color?: string | null
+  font?: string | null
+  align?: 'left' | 'center' | 'right'
+  upper?: boolean
+  metallic?: boolean
+}
+
 /** День события со списком его спикеров (бэкенд отдаёт без дублей). */
 export type PosterDay = {
   day: number
@@ -173,6 +201,18 @@ export type PosterLayout = {
   ind_time_with_date?: boolean
   ind_topic_when_color?: string | null
   ind_topic_show_when?: boolean
+  /** Произвольные элементы афиши (миграция 478). */
+  custom_elements?: PosterElement[]
+  /** Позиция по вертикали = верхняя граница элемента, а не центр. */
+  anchor_top?: boolean
+  ind_role_upper?: boolean; ind_name_upper?: boolean
+  ind_topic_upper?: boolean; ind_title_upper?: boolean
+  ind_role_bg?: string | null; ind_name_bg?: string | null
+  ind_topic_bg?: string | null; ind_title_bg?: string | null
+  ind_photo_border_w?: number; ind_photo_border_color?: string | null
+  ind_photo_glow?: number; ind_photo_glow_color?: string | null
+  ind_topic_when_place?: 'left' | 'top' | 'right'
+  ind_topic_divider?: boolean
   ind_title_align?: 'left' | 'center' | 'right'
   ind_role_align?: 'left' | 'center' | 'right'
   ind_role_color?: string | null
@@ -383,7 +423,11 @@ export default function PosterCanvas({
   // метка дня, и два пояснения подряд превращают шапку в кашу.
   // ⚠️ У АФИШИ СПИКЕРА подзаголовка тоже нет: его место занимает тема
   // выступления, и подзаголовок события оказался бы третьим текстом подряд.
-  const subtitleText = (kind === 'day' || kind === 'individual')
+  // ⚠️ У афиши СПИКЕРА подзаголовка нет: его место занимает тема выступления.
+  // ⚠️ У афиши ДНЯ он раньше гасился жёстко — но клиент ставит галочку
+  // «показывать подзаголовок» и ждёт, что она сработает (21.09.2026).
+  // Решает галочка, а не вид афиши.
+  const subtitleText = kind === 'individual'
     ? ''
     : (L.subtitle ?? '').trim() || suggested?.subtitle || ''
   // ⚠️⚠️ ПИЛЮЛЯ ДНЕВНОЙ АФИШИ — метка дня («День 1 — 24.09 в 11:00»), её
@@ -879,6 +923,13 @@ export default function PosterCanvas({
         }}>
           <Pill text={p.text} L={L} px={px} tx={tx} gold={gold} font={pillFont} />
         </div>
+      ))}
+
+      {/* ⚠️ Произвольные элементы (миграция 478) — поверх остального, но
+          ВНУТРИ рабочей области: за поля они не выйдут. */}
+      {(Array.isArray(L.custom_elements) ? L.custom_elements : []).map(el => (
+        <CustomElement key={el.id} el={el} th={th} gold={gold} tx={tx}
+                       label={label} anchorTop={L.anchor_top !== false} />
       ))}
 
       </div>{/* конец рабочей области */}
@@ -1461,7 +1512,14 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     // нижнему, а между ними он по-прежнему центрируется по точке. Так ползунок
     // проходит ВСЮ рабочую область и ничего не выходит за поля.
     const tx_ = px_ <= 0 ? '0' : px_ >= 100 ? '-100%' : '-50%'
-    const ty_ = py_ <= 0 ? '0' : py_ >= 100 ? '-100%' : '-50%'
+    // ⚠️⚠️ ПО ВЕРТИКАЛИ ПРИВЯЗЫВАЕМСЯ К ВЕРХУ элемента (миграция 478). Раньше
+    // он ставился СЕРЕДИНОЙ на точку и рос вниз в обе стороны: у Марго Форбс
+    // блок из двух тем наезжал на роль, хотя позиция задана та же, что у
+    // Якубана с одной темой. Теперь «сверху вниз, 36 %» значит «верхняя
+    // граница на 36 %», и сколько бы строк ни было, они уходят вниз.
+    const ty_ = L.anchor_top !== false
+      ? (py_ >= 100 ? '-100%' : '0')
+      : (py_ <= 0 ? '0' : py_ >= 100 ? '-100%' : '-50%')
     return {
       position: 'absolute',
       left: `${px_}%`,
@@ -1483,6 +1541,16 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
       width: photoW, height: photoH, position: 'relative',
       overflow: 'hidden', flexShrink: 0, ...maskCss(L),
       ...shift(L.pos_photo_x, L.pos_photo_y),
+      // ⚠️ Рамка и свечение у фото (миграция 478). `boxSizing` обязателен:
+      // без него рамка добавляется К размеру, и фото вылезает за отведённое
+      // место ровно на её толщину.
+      ...((L.ind_photo_border_w ?? 0) > 0
+        ? { border: `${L.ind_photo_border_w}px solid ${L.ind_photo_border_color || gold}`,
+            boxSizing: 'border-box' as const }
+        : {}),
+      ...((L.ind_photo_glow ?? 0) > 0
+        ? { boxShadow: `0 0 ${L.ind_photo_glow}px ${L.ind_photo_glow_color || gold}` }
+        : {}),
     }}>
       {cutout ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -1544,8 +1612,10 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         ...freePos(L.ind_role_x, L.ind_role_y, 90, 50, 18),
         fontFamily: roleFont, fontSize: tx(L.ind_role_size ?? 24),
         color: L.ind_role_color || gold,
-        textTransform: 'uppercase', letterSpacing: '0.08em',
+        textTransform: L.ind_role_upper !== false ? 'uppercase' : undefined,
+        letterSpacing: L.ind_role_upper !== false ? '0.08em' : undefined,
         textAlign: L.ind_role_align || 'center',
+        ...(L.ind_role_bg ? { background: L.ind_role_bg, padding: '0.2em 0.6em' } : {}),
       }}>{roleText}</div>
     )}
     {!!nameText && (
@@ -1554,6 +1624,8 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         fontFamily: nameFont, fontSize: tx(L.ind_name_size ?? 54), fontWeight: 700,
         color: L.name_color || '#fff',
         textAlign: L.name_align || 'center', lineHeight: 1.1,
+        textTransform: L.ind_name_upper ? 'uppercase' : undefined,
+        ...(L.ind_name_bg ? { background: L.ind_name_bg, padding: '0.15em 0.5em' } : {}),
       }}>{nameText}</div>
     )}
     {/* ⚠️⚠️ БЛОК ТЕМ: «29.09 в 11:00: Название темы». Дата и название —
@@ -1569,22 +1641,46 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
         color: L.ind_topic_color || '#fff',
         textAlign: L.topic_align || 'center', lineHeight: 1.25,
       }}>
-        {topicItems.map((it, i) => (
-          <div key={i} style={{
-            display: 'flex', gap: '0.4em',
-            marginTop: i ? '0.5em' : 0,
-            justifyContent: alignToFlex(L.topic_align),
-            textAlign: 'left',
-          }}>
-            {L.ind_topic_show_when !== false && !!it.when && (
-              <span style={{
-                color: L.ind_topic_when_color || gold,
-                whiteSpace: 'nowrap', flexShrink: 0,
-              }}>{it.when}:</span>
-            )}
-            <span>{it.topic}</span>
-          </div>
-        ))}
+        {topicItems.map((it, i) => {
+          // ⚠️ Где стоит дата: слева в строку (тема переносится под текст),
+          // над темой или справа. Раньше было только «слева».
+          const place = L.ind_topic_when_place || 'left'
+          const showWhen = L.ind_topic_show_when !== false && !!it.when
+          const whenEl = showWhen ? (
+            <span style={{
+              color: L.ind_topic_when_color || gold,
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}>{it.when}{place === 'left' ? ':' : ''}</span>
+          ) : null
+          return (
+            <div key={i} style={{
+              marginTop: i ? '0.6em' : 0,
+              // Разделитель между темами — когда их несколько.
+              borderTop: (i && L.ind_topic_divider)
+                ? `1px solid ${L.ind_topic_when_color || gold}` : undefined,
+              paddingTop: (i && L.ind_topic_divider) ? '0.6em' : undefined,
+            }}>
+              <div style={{
+                display: 'flex',
+                flexDirection: place === 'top' ? 'column' : 'row',
+                gap: place === 'top' ? '0.15em' : '0.4em',
+                justifyContent: alignToFlex(L.topic_align),
+                alignItems: place === 'top'
+                  ? (L.topic_align === 'left' ? 'flex-start'
+                     : L.topic_align === 'right' ? 'flex-end' : 'center')
+                  : 'baseline',
+                textTransform: L.ind_topic_upper ? 'uppercase' : undefined,
+              }}>
+                {place !== 'right' && whenEl}
+                <span style={L.ind_topic_bg
+                  ? { background: L.ind_topic_bg, padding: '0.1em 0.4em' } : undefined}>
+                  {it.topic}
+                </span>
+                {place === 'right' && whenEl}
+              </div>
+            </div>
+          )
+        })}
       </div>
     )}
     {L.ind_show_time !== false && !!when && (
@@ -1597,4 +1693,77 @@ function IndividualBlock({ person, session, L, th, gold, px, tx, label, eventTit
     )}
     </>
   )
+}
+
+
+/**
+ * Произвольный элемент афиши: текст с любым оформлением.
+ *
+ * ⚠️⚠️ ЭТО И ЕСТЬ «ПИЛЮЛЯ». Отдельного вида пилюли больше не нужно: текст с
+ * рамкой и скруглением — она и есть. Клиент сам решает, сколько их и что в
+ * них написано; привязки к данным события нет, поэтому стёртый текст
+ * остаётся стёртым (раньше вместо него подставлялась «кривая дата»).
+ */
+function CustomElement({ el, th, gold, tx, label, anchorTop }: {
+  el: PosterElement
+  th: PosterTheme
+  gold: string
+  tx: (p: number) => number
+  label: (k?: string | null) => string | undefined
+  anchorTop: boolean
+}) {
+  const text = (el.text || '').trim()
+  if (!text) return null
+
+  const x = Math.max(0, Math.min(100, el.x ?? 50))
+  const y = Math.max(0, Math.min(100, el.y ?? 50))
+  const color = el.color || '#fff'
+  // Фон с прозрачностью: 100 % — сплошной, 0 — совсем прозрачный.
+  const op = Math.max(0, Math.min(100, el.bg_opacity ?? 100)) / 100
+  const bg = el.bg ? withOpacity(el.bg, op) : undefined
+
+  return (
+    <div style={{
+      position: 'absolute',
+      left: `${x}%`,
+      top: `${y}%`,
+      // ⚠️ Та же привязка к верху, что у остальных элементов: блок растёт
+      // вниз и не наезжает на то, что выше.
+      transform: `translate(${x <= 0 ? '0' : x >= 100 ? '-100%' : '-50%'}, ${
+        anchorTop ? (y >= 100 ? '-100%' : '0') : (y <= 0 ? '0' : y >= 100 ? '-100%' : '-50%')})`,
+      width: `${Math.max(5, Math.min(100, el.w ?? 80))}%`,
+      maxWidth: '100%',
+      display: 'flex',
+      justifyContent: alignToFlex(el.align),
+    }}>
+      <div style={{
+        fontFamily: el.font ? brandFontCss(el.font, label(el.font)) : undefined,
+        fontSize: tx(el.size ?? 28),
+        color,
+        textAlign: el.align || 'center',
+        textTransform: el.upper ? 'uppercase' : undefined,
+        lineHeight: 1.25,
+        // Рамка и скругление — из них и получается пилюля.
+        border: (el.border_w ?? 0) > 0
+          ? `${el.border_w}px solid ${el.border_color || gold}` : undefined,
+        borderRadius: (el.radius ?? 0) > 0 ? `${el.radius}px` : undefined,
+        padding: ((el.border_w ?? 0) > 0 || bg) ? '0.3em 0.8em' : undefined,
+        background: bg,
+        boxShadow: (el.glow ?? 0) > 0
+          ? `0 0 ${el.glow}px ${el.glow_color || gold}` : undefined,
+        ...(el.metallic ? metallicTextStyle(color) : {}),
+      }}>{text}</div>
+    </div>
+  )
+}
+
+/** Цвет с прозрачностью. ⚠️ Понимает #rgb, #rrggbb и готовые rgba(). */
+function withOpacity(color: string, op: number): string {
+  if (op >= 1) return color
+  const m = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+  if (!m) return color
+  let h = m[1]
+  if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  const n = parseInt(h, 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${op})`
 }

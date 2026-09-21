@@ -69,6 +69,35 @@ export default function FileUploader(props: Props) {
 
   const urls: string[] = props.mode === 'multiple' ? props.value : (props.value ? [props.value] : [])
 
+  /**
+   * ⚠️⚠️ СКАЧИВАНИЕ ЧЕРЕЗ BLOB, А НЕ `<a download>`. Атрибут `download`
+   * работает только для файлов С ТОГО ЖЕ домена: картинки лежат на S3, и
+   * браузер его молча игнорировал — файл открывался во вкладке вместо
+   * сохранения («при нажатии скачать не скачиваются», владелец 21.09.2026).
+   *
+   * Качаем содержимое сами и отдаём как локальный файл. Не вышло (сеть,
+   * CORS) — открываем по-старому: лучше открыть, чем ничего.
+   */
+  async function downloadFile(u: string) {
+    try {
+      const r = await fetch(u)
+      if (!r.ok) throw new Error(String(r.status))
+      const blob = await r.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = (u.split('/').pop() || 'file').split('?')[0] || 'file'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      // ⚠️ Отзываем ссылку не сразу: Safari обрывает скачивание, если
+      // сделать это в том же тике.
+      setTimeout(() => URL.revokeObjectURL(href), 10000)
+    } catch {
+      window.open(u, '_blank', 'noreferrer')
+    }
+  }
+
   function copyUrl(url: string) {
     navigator.clipboard.writeText(url)
     setCopiedUrl(url)
@@ -247,16 +276,14 @@ export default function FileUploader(props: Props) {
                     <Maximize2 size={13} /> Раскрыть
                   </button>
                 )}
-                <a
-                  href={url}
-                  download
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => downloadFile(url)}
                   className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
-                  title="Скачать файл"
+                  title="Скачать файл на компьютер"
                 >
                   <Download size={13} /> Скачать
-                </a>
+                </button>
                 <button
                   type="button"
                   onClick={() => copyUrl(url)}
@@ -290,15 +317,13 @@ export default function FileUploader(props: Props) {
           <div className="relative max-w-5xl max-h-[90vh]" onClick={e => e.stopPropagation()}>
             <img src={lightbox} alt="" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
             <div className="absolute top-2 right-2 flex gap-2">
-              <a
-                href={lightbox}
-                download
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => downloadFile(lightbox)}
                 className="flex items-center gap-1 bg-white/90 text-gray-800 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-white transition-colors"
               >
                 <Download size={14} /> Скачать
-              </a>
+              </button>
               <button
                 onClick={() => setLightbox(null)}
                 className="bg-black/50 text-white rounded-full p-1.5 hover:bg-black/80 transition-colors"
