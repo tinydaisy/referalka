@@ -275,3 +275,20 @@ body {
 .scroll-brand::-webkit-scrollbar-thumb:hover {
   background: #ffdcbb;
 }
+
+/* ⚠️ Шахматка под ВЫРЕЗКОЙ на прозрачном фоне (миграция 362).
+   Живёт здесь, а не в `<style jsx>` страницы: блок вырезки показывается
+   в ДВУХ местах — карточка коллаборатора и профиль спикера, открытый из
+   конференции. Копия стиля в каждом файле разъехалась бы при первой же
+   правке, а смысл клетки в том, что она везде одна и та же: на белом фоне
+   вырезка и JPEG с белой заливкой выглядят одинаково, и подмена
+   обнаружилась бы только в готовой афише. */
+.cutout-checker {
+  background-image:
+    linear-gradient(45deg, #eceff2 25%, transparent 25%),
+    linear-gradient(-45deg, #eceff2 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #eceff2 75%),
+    linear-gradient(-45deg, transparent 75%, #eceff2 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}

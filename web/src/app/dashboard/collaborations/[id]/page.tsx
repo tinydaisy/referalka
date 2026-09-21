@@ -286,17 +286,9 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             />
           </div>
         )}
-        <style jsx>{`
-          .cutout-checker {
-            background-image:
-              linear-gradient(45deg, #eceff2 25%, transparent 25%),
-              linear-gradient(-45deg, #eceff2 25%, transparent 25%),
-              linear-gradient(45deg, transparent 75%, #eceff2 75%),
-              linear-gradient(-45deg, transparent 75%, #eceff2 75%);
-            background-size: 16px 16px;
-            background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-          }
-        `}</style>
+        {/* ⚠️ Стиль шахматки переехал в globals.css: тот же блок вырезки есть
+            и в профиле спикера, открытом из конференции. Две копии разъехались
+            бы при первой правке. */}
       </div>
 
       {/* Привязка к контакту в общей базе — коллаб = расширение контакта (миграция 086) */}

@@ -1367,6 +1367,48 @@ export default function ConferenceSpeakerPage() {
                         onZoomChange={z => patchLibraryPhoto(ph.id, z)}
                         hint="Эта настройка берётся на афиши конференции — у каждого фото своя."
                       />
+
+                      {/* ⚠️⚠️ ВЫРЕЗКА К ЭТОМУ ЖЕ ВАРИАНТУ (`collaborator_photos.cutout_url`,
+                          миграция 472). Колонка была с самого начала, а места
+                          загрузить её в интерфейсе не было вовсе — и афиши с
+                          вырезками по вариантам фото собрать было нельзя.
+                          ⚠️ Вырезка СВОЯ у каждого снимка: карикатура и портрет
+                          вырезаются по-разному, профильная вырезка к ним не
+                          подходит. Не загрузили — афиша возьмёт вырезку из
+                          профиля (блок на вкладке «Профиль»). */}
+                      <div className="mt-4 pt-4 border-t card-border">
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          Вырезка без фона для этого варианта
+                        </label>
+                        <p className="text-xs text-gray-500 mb-2">
+                          <b>PNG</b> с прозрачностью — человек, вырезанный именно с этого
+                          снимка. Не загрузите — афиша возьмёт вырезку из профиля.
+                        </p>
+                        <div className="cutout-checker rounded-xl">
+                          <FileUploader
+                            mode="single"
+                            kind="speaker_cutout"
+                            collaboratorId={profile.id}
+                            value={ph.cutout_url || null}
+                            onChange={u => patchLibraryPhoto(ph.id, { cutout_url: u || '' })}
+                            accept="image/png,image/webp"
+                            aspectClass="aspect-square"
+                            emptyText="Перетащите сюда PNG без фона"
+                            buttonLabel="Загрузить"
+                          />
+                        </div>
+                        {ph.cutout_url && (
+                          <div className="mt-3">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Где лицо на вырезке</label>
+                            <FocalPointPicker
+                              url={ph.cutout_url}
+                              value={ph.cutout_photo_focal ?? null}
+                              onChange={v => patchLibraryPhoto(ph.id, { cutout_photo_focal: v })}
+                              hint="Нужна, когда вырезка встаёт в рамку — в афишах с масками."
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1576,6 +1618,65 @@ export default function ConferenceSpeakerPage() {
                 />
               </div>
             )}
+
+            {/* ⚠️⚠️ ВЫРЕЗКА НА ПРОЗРАЧНОМ ФОНЕ (миграция 362) — ТОТ ЖЕ БЛОК,
+                что в карточке коллаборатора. Поля обязаны совпадать во всех
+                местах, где правят спикера: организатор открывает спикера ИЗ
+                конференции, вырезки здесь не было вовсе — и приходилось
+                искать человека во втором разделе, чтобы загрузить заготовку
+                для афиш.
+                ⚠️ Шахматка под картинкой — чтобы прозрачность было ВИДНО: на
+                белом фоне вырезка и обычный JPEG с белой заливкой выглядят
+                одинаково, и подмена обнаружилась бы только в готовой афише. */}
+            <div className="mt-6 pt-5 border-t card-border">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото на прозрачном фоне</label>
+              <p className="text-xs text-gray-500 mb-3">
+                Вырезка человека без фона — из неё собираются афиши. Нужен <b>PNG</b> с
+                прозрачностью: JPEG её не хранит, и вместо фигуры в афишу попадёт белый
+                прямоугольник. Клетка под картинкой — это фон страницы, он виден сквозь
+                прозрачные места.
+              </p>
+              <div className="cutout-checker rounded-xl">
+                <FileUploader
+                  mode="single"
+                  kind="speaker_cutout"
+                  collaboratorId={profile.id}
+                  value={(profile as any).cutout_photo_url || null}
+                  onChange={u => {
+                    setProfile((p: any) => ({ ...p, cutout_photo_url: u || '' }))
+                    // ⚠️ Сохраняем СРАЗУ, не дожидаясь кнопки «Сохранить
+                    // профиль»: человек загрузил вырезку, увидел её на месте и
+                    // ушёл на другую вкладку — без этого файл остался бы в
+                    // хранилище, а поле в базе пустым.
+                    api.collaborators.update(profile.id, { cutout_photo_url: u || '' })
+                       .catch((e: any) => setError(e?.message || 'Не удалось сохранить фото'))
+                  }}
+                  accept="image/png,image/webp"
+                  aspectClass="aspect-square"
+                  emptyText="Перетащите сюда PNG без фона"
+                  buttonLabel="Загрузить"
+                />
+              </div>
+              {/* Точка лица на ВЫРЕЗКЕ (миграция 434) — своя, отдельно от
+                  основного фото: вырезка кадрирована иначе, человек на ней
+                  обычно в полный рост. */}
+              {(profile as any).cutout_photo_url && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Где лицо на вырезке</label>
+                  <FocalPointPicker
+                    url={(profile as any).cutout_photo_url}
+                    value={(profile as any).cutout_photo_focal ?? null}
+                    onChange={v => {
+                      setProfile((p: any) => ({ ...p, cutout_photo_focal: v }))
+                      // Сохраняем сразу — по той же причине, что и саму вырезку.
+                      api.collaborators.update(profile.id, { cutout_photo_focal: v || '' })
+                         .catch((e: any) => setError(e?.message || 'Не удалось сохранить точку'))
+                    }}
+                    hint="Нужна, когда вырезка встаёт в рамку — в карточках и афишах с масками."
+                  />
+                </div>
+              )}
+            </div>
 
           </div>
           )}
