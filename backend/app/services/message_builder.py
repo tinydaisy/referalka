@@ -25,7 +25,7 @@ from app.services.client_domains import (
 from app.services.share_links import TG_DOMAIN
 # ⚠️ Единая точка правды про выбор афиши спикера (см. event_photo.py):
 # правило было скопировано в шесть мест и неизбежно разошлось бы.
-from app.services.event_photo import poster_subquery
+from app.services.event_photo import poster_subquery, photo_url_sql
 
 
 # Telegram parse_mode=HTML понимает только узкий набор тегов:
@@ -1099,7 +1099,7 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                -- Миграция 237: тумблер «не использовать индивидуальную афишу» →
                -- афиша не берётся вовсе, ниже останется только фото коллаба.
                %(poster_sql)s as speaker_poster,
-               c.photo_url AS speaker_photo,
+               %(speaker_photo_sql)s AS speaker_photo,
                pu_tg.username AS personal_tg_username,
                c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                c.title AS positioning, NULL AS bio, c.achievements,
@@ -1138,7 +1138,8 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
         LEFT JOIN platform_users pu_tg
           ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
         WHERE cse.id=$1
-        """ % {"poster_sql": poster_subquery("cse", "c")},
+        """ % {"poster_sql": poster_subquery("cse", "c"),
+               "speaker_photo_sql": photo_url_sql("cse", "c")},
         ec_id
     )
     if not sp:
@@ -1730,7 +1731,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 SELECT btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                        -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        %(poster_sql)s as speaker_poster,
-                       c.photo_url AS speaker_photo,
+                       %(speaker_photo_sql)s AS speaker_photo,
                        pu_tg.username AS personal_tg_username,
                        c.tg_channel_url, c.instagram_url,
                        c.vk_url, c.max_url, c.website_url,
@@ -1782,7 +1783,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 LEFT JOIN platform_users pu_tg
                   ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 WHERE cse.id=$1
-                """ % {"poster_sql": poster_subquery("cse", "c")},
+                """ % {"poster_sql": poster_subquery("cse", "c"),
+               "speaker_photo_sql": photo_url_sql("cse", "c")},
                 session_id
             )
             if sp:
@@ -1861,7 +1863,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                        -- Миграция 237: тумблер «не использовать индивидуальную афишу».
                        %(poster_sql)s as speaker_poster,
-                       c.photo_url AS speaker_photo,
+                       %(speaker_photo_sql)s AS speaker_photo,
                        pu_tg.username as speaker_personal_tg,
                        c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                        c.title AS positioning, NULL AS bio, c.achievements,
@@ -1922,7 +1924,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
                 LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
                 WHERE cs.id=$1
-                """ % {"poster_sql": poster_subquery("cse", "c")},
+                """ % {"poster_sql": poster_subquery("cse", "c"),
+               "speaker_photo_sql": photo_url_sql("cse", "c")},
                 session_id
             )
             if session:

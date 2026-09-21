@@ -832,6 +832,9 @@ class SpeakerEventUpdate(BaseModel):
     # Видны спикеру в его кабинете в разделе «Афиши для анонсов» —
     # скачивает и постит в своих каналах. Множественный выбор. Миграция 122.
     announcement_poster_ids: Optional[List[int]] = None
+    # Какое фото из библиотеки коллаба взято в ЭТОМ событии (миграция 472).
+    # NULL = профильное фото человека.
+    photo_id: Optional[int] = None
     # TRUE = в этом событии индивидуальные афиши спикера не используются вовсе:
     # везде (рассылки, лендинг, кабинет спикера, экспорт) берётся обычное фото
     # коллаборатора. Библиотека афиш при этом сохраняется. Миграция 237.
@@ -1750,6 +1753,22 @@ async def update_speaker_event(
     raw.pop("speaker_topic", None)
     # Валидация poster_id и announcement_poster_ids: все должны принадлежать
     # библиотеке этого коллаба (миграции 121-122).
+    # ⚠️ photo_id проверяем ОТДЕЛЬНО: он ссылается на другую библиотеку
+    # (collaborator_photos, миграция 472), и подмешивать его к проверке афиш
+    # нельзя — валидация искала бы фото среди афиш и всегда отклоняла.
+    if raw.get("photo_id") is not None:
+        sp_id_ph = await db.fetchval(
+            "SELECT speaker_id FROM event_collaborators WHERE id=$1 AND event_id=$2",
+            speaker_event_id, event_id,
+        )
+        belongs_ph = await db.fetchval(
+            "SELECT 1 FROM collaborator_photos WHERE id = $1 AND collaborator_id = $2",
+            int(raw["photo_id"]), sp_id_ph,
+        )
+        if not belongs_ph:
+            raise HTTPException(status_code=400,
+                                detail="photo_id не из библиотеки фото этого коллаба")
+
     if raw.get("poster_id") is not None or raw.get("announcement_poster_ids") is not None:
         sp_id = await db.fetchval(
             "SELECT speaker_id FROM event_collaborators WHERE id=$1 AND event_id=$2",

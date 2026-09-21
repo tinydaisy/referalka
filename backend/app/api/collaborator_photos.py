@@ -26,6 +26,7 @@ import asyncpg
 from app.auth import get_current_client
 from app.database import get_db
 from app.services import r2_storage
+from app.services.event_access import assert_event_owner
 
 
 router = APIRouter(prefix="/api/v1/collaborators", tags=["Фото коллаборатора"])
@@ -228,10 +229,12 @@ async def set_event_photo(
     """
     client_id = int(client["sub"])
     await _check_owns(collaborator_id, client_id, db)
-    owns_event = await db.fetchval(
-        "SELECT 1 FROM events WHERE id = $1 AND client_id = $2", event_id, client_id)
-    if not owns_event:
-        raise HTTPException(status_code=404, detail="Событие не найдено")
+    # ⚠️⚠️ ВЛАДЕНИЕ СОБЫТИЕМ — ТОЛЬКО ЧЕРЕЗ `assert_event_owner`. Я написал
+    # `events.client_id` — такой колонки НЕТ ВОВСЕ, и ручка падала с
+    # UndefinedColumnError: выбор фото молча не сохранялся. Владение событием
+    # считается сложнее (есть коллаборации, где событие ведёт не владелец
+    # базы), и ровно поэтому для него существует общая функция.
+    await assert_event_owner(db, event_id, client_id)
 
     if photo_id is not None:
         belongs = await db.fetchval(

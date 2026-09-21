@@ -128,3 +128,19 @@ def poster_subquery(alias_ec: str = "cse", alias_c: str = "c") -> str:
         f"   ORDER BY (cp.id = {alias_ec}.poster_id) DESC, cp.sort_order, cp.id"
         "    LIMIT 1)"
     )
+
+
+def photo_url_sql(alias_ec: str = "cse", alias_c: str = "c") -> str:
+    """Фото спикера ДЛЯ ЭТОГО события — выражение прямо в SELECT.
+
+    ⚠️⚠️ ТО ЖЕ ПРАВИЛО, ЧТО У `apply_event_photo`, но для запросов, где
+    присоединять таблицу неудобно (рассылки). Выбранный вариант → профильное.
+
+    ⚠️ Рассылки обязаны показывать ТО ЖЕ фото, что афиши. Клиент выбрал под
+    конференцию карикатуру — в письме «знакомство со спикерами» должна быть
+    она, иначе человек в анонсе и человек на афише выглядят по-разному.
+    """
+    return (
+        f" COALESCE((SELECT cph.url FROM collaborator_photos cph"
+        f"            WHERE cph.id = {alias_ec}.photo_id), {alias_c}.photo_url)"
+    )

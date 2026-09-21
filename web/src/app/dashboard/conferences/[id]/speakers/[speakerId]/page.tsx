@@ -617,7 +617,16 @@ export default function ConferenceSpeakerPage() {
         if (url) await api.collaborators.photos.add(profile.id, { url, label: f.name })
       }
       const pr: any = await api.collaborators.photos.list(profile.id)
-      setPhotoLibrary(pr.photos || [])
+      const list = pr.photos || []
+      setPhotoLibrary(list)
+      // ⚠️ Только что загруженное фото СРАЗУ становится выбранным: клиент
+      // грузит вариант именно чтобы его использовать, и лишний клик по
+      // переключателю только сбивает с толку.
+      const last = list[list.length - 1]
+      if (last) {
+        setEventForm(f => ({ ...f, photo_id: last.id }))
+        api.collaborators.photos.setForEvent(confId, profile.id, last.id).catch(() => {})
+      }
     } catch (e: any) {
       setPhotoUploadError(e.message || 'Ошибка загрузки')
     } finally {
@@ -718,6 +727,10 @@ export default function ConferenceSpeakerPage() {
         role: eventForm.role,
         topics,
         stage_ids: stageIds,
+        // ⚠️ Фото для этого события уходит И ПО КНОПКЕ. Оно сохраняется сразу
+        // по клику на переключатель, но клиент жмёт «Сохранить выступление» и
+        // ждёт, что сохранится всё, что он видит на экране.
+        photo_id: eventForm.photo_id ?? null,
         // Ручные подарки пишем только с вкладки «Вручную» (на вкладке ПЛЮСОН —
         // просмотр, туда не лезем).
         ...(giftTab === 'manual' ? {
