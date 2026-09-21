@@ -63,6 +63,7 @@ async def notify_recipients(db, client_id: int) -> list[dict]:
         client_id)
     role_label = {
         "orders": "Менеджер заказов",
+        "leads": "Менеджер лидов",
         "full": "Помощник (полный доступ)",
         "limited": "Помощник",
     }
