@@ -1212,20 +1212,61 @@ def _render_url(event_id: int, orientation: str, client_id: int,
 async def poster_png(
     event_id: int,
     orientation: str,
+    # ⚠️⚠️ ВИД АФИШИ ОБЯЗАТЕЛЕН ЗДЕСЬ ТОЖЕ. Раньше эндпоинт не принимал ни
+    # `kind`, ни `day`, ни `speaker` и всегда снимал ОБЩУЮ афишу: на вкладках
+    # «По дням» и «Индивидуальные» кнопка «Скачать PNG» молча отдавала общую
+    # картинку (жалоба владельца 21.09.2026). Снимок делает та же страница
+    # отрисовки, что и «Опубликовать», — значит и параметры ей нужны те же.
+    kind: str = "common",
+    day: int | None = None,
+    speaker: int | None = None,
     user: dict = Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
     _check_orientation(orientation)
+    if kind not in KINDS:
+        raise HTTPException(404, detail="Неизвестный вид афиши")
     client_id = int(user["sub"])
     await _guard(db, event_id, client_id)
 
+    # ⚠️ Чего не выбрали — подставляем ПЕРВОЕ, ровно как это делает редактор:
+    # у дневной вкладки это первый день, у индивидуальной — первый спикер.
+    # Иначе страница отрисовки не нашла бы, кого рисовать, и вернула бы общую
+    # афишу — то есть ровно тот баг, который здесь чинится.
+    day_label = ""
+    if kind == "day":
+        days = await _days(db, event_id)
+        if not days:
+            raise HTTPException(400, detail="У события нет дней — афишу дня собрать не из чего")
+        cur = next((d for d in days if int(d["day"]) == int(day)), None) if day is not None else None
+        cur = cur or days[0]
+        day = int(cur["day"])
+        day_label = " " + cur["label"].split(" — ")[0].strip().lower().replace(" ", "-")
+    elif kind == "individual":
+        people = [p for p in await _people(db, event_id) if not p.get("is_company")]
+        if not people:
+            raise HTTPException(400, detail="У события нет спикеров с фото — афишу собрать не из чего")
+        cur = next((p for p in people if int(p["id"]) == int(speaker)), None) if speaker is not None else None
+        cur = cur or people[0]
+        speaker = int(cur["id"])
+        fio = " ".join(x for x in [cur.get("name"), cur.get("last_name")] if x).strip()
+        if fio:
+            day_label = " " + fio.replace(" ", "-")
+
     try:
-        png = await render_poster_png(_render_url(event_id, orientation, client_id), orientation)
+        png = await render_poster_png(
+            _render_url(event_id, orientation, client_id, kind,
+                        day if kind == "day" else None,
+                        speaker if kind == "individual" else None),
+            orientation,
+        )
     except PosterRenderError as e:
         raise HTTPException(503, detail=str(e))
 
     # Кириллица в имени файла — по RFC 5987, иначе браузер её испортит.
-    name = "афиша"
+    # ⚠️ Имя говорит, ЧТО скачали: пять афиш подряд с именем «афиша.png»
+    # превращаются в «афиша(1)…(4)» — какая из них чья, уже не понять.
+    name = f"афиша{day_label}"
     return Response(content=png, media_type="image/png", headers={
         "Content-Disposition":
             f"attachment; filename=\"poster.png\"; filename*=UTF-8''{quote(name)}.png",

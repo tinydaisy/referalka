@@ -1779,8 +1779,16 @@ export const api = {
       request(`/api/v1/events/${eventId}/poster-layout/${o}/copy-bg?kind=${kind}`, { method: 'POST' }),
     // ⚠️ Скачивание через тот же `downloadPdf` (он про любой файл, не только
     // PDF): там уже разобран заголовок с кириллическим именем.
-    png: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>
-      downloadPdf(`/api/v1/events/${eventId}/poster-layout/${o}/png`, 'afisha.png'),
+    // ⚠️⚠️ ВИД АФИШИ ПЕРЕДАЁМ ОБЯЗАТЕЛЬНО. Без `kind`/`day`/`speaker` сервер
+    // снимал общую афишу, и на вкладках «По дням» и «Индивидуальные» кнопка
+    // «Скачать PNG» молча качала не то (21.09.2026).
+    png: (eventId: number, o: 'horizontal' | 'vertical' | 'square',
+          kind: PosterKind = 'common', opts?: { day?: number | null; speaker?: number | null }) =>
+      downloadPdf(
+        `/api/v1/events/${eventId}/poster-layout/${o}/png?kind=${kind}`
+        + (kind === 'day' && opts?.day != null ? `&day=${opts.day}` : '')
+        + (kind === 'individual' && opts?.speaker != null ? `&speaker=${opts.speaker}` : ''),
+        'afisha.png'),
     // Собрать афишу и сразу положить её в афиши события — чтобы не качать
     // картинку и не загружать обратно руками.
     render: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>

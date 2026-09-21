@@ -205,14 +205,26 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     finally { setSaving(false) }
   }
 
-  /** ⚠️ Перед снимком СОХРАНЯЕМ: картинку сервер рисует по базе, а не по экрану. */
-  async function download() {
+  /**
+   * ⚠️ Перед снимком СОХРАНЯЕМ: картинку сервер рисует по базе, а не по экрану.
+   *
+   * ⚠️⚠️ СКАЧИВАЕМ ТУ АФИШУ, КОТОРАЯ НА ЭКРАНЕ. Раньше сюда не передавали ни
+   * вид, ни день, ни спикера — и на вкладках «По дням» и «Индивидуальные»
+   * кнопка молча качала ОБЩУЮ афишу (жалоба владельца 21.09.2026). День и
+   * спикера берём те же, что показывает полотно: ничего не выбрано — первый.
+   */
+  async function download(dayNo?: number | null) {
     if (!layout) return
     setBusy('png')
     try {
       const { orientation, ...body } = layout
       await api.posterLayout.save(eventId, o, body, kind)
-      await api.posterLayout.png(eventId, o)
+      await api.posterLayout.png(eventId, o, kind, {
+        // ⚠️ День — ТОТ ЖЕ, что в главном превью (первый), либо явно
+        // переданный кнопкой под конкретным днём.
+        day: kind === 'day' ? (dayNo ?? days[0]?.day ?? null) : null,
+        speaker: kind === 'individual' ? indSpeakerId : null,
+      })
     } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
     finally { setBusy('') }
   }
@@ -631,8 +643,13 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             <button onClick={save} disabled={saving} className="btn-gold px-6 py-2.5 text-sm">
               {saving ? 'Сохраняем…' : 'Сохранить'}
             </button>
-            <button onClick={download} disabled={!!busy} className="btn-primary px-5 py-2.5 text-sm">
-              {busy === 'png' ? 'Собираем…' : 'Скачать PNG'}
+            {/* ⚠️ Оборачиваем в стрелку: `onClick={download}` передал бы в
+                аргумент событие мыши вместо номера дня. */}
+            <button onClick={() => download()} disabled={!!busy} className="btn-primary px-5 py-2.5 text-sm">
+              {busy === 'png' ? 'Собираем…'
+                : kind === 'day' ? `Скачать PNG (${days[0]?.label || 'первый день'})`
+                : kind === 'individual' ? 'Скачать PNG (выбранного спикера)'
+                : 'Скачать PNG'}
             </button>
             {/* ⚠️ Публикация — главное действие экрана, поэтому золотая кнопка.
                 Она же собирает афиши и открывает их спикерам: отдельная
@@ -672,6 +689,12 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                     <PosterCanvas layout={layout} theme={theme} people={people} scale={scale}
                                   suggested={suggested} days={days} sessions={sessions} day={d.day} />
                   </div>
+                  {/* ⚠️ Своя кнопка у каждого дня: верхняя скачивает первый
+                      день, и без этой остальные дни скачать было нечем. */}
+                  <button type="button" onClick={() => download(d.day)} disabled={!!busy}
+                          className="mt-1 text-xs text-[#25455D] hover:underline disabled:opacity-50">
+                    Скачать PNG этого дня
+                  </button>
                 </div>
               ))}
             </div>
