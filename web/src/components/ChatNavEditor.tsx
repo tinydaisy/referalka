@@ -13,7 +13,6 @@
  * после отсева — поэтому номера здесь показаны как предварительные: человек
  * должен видеть, что «Правила» без ссылки просто выпадут, а не сломают счёт.
  */
-import { useMemo } from 'react'
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import LeadMagnetPicker from '@/components/LeadMagnetPicker'
 
@@ -66,7 +65,7 @@ interface Props {
 }
 
 export default function ChatNavEditor({ value, onChange }: Props) {
-  const items = useMemo(() => value || [], [value])
+  const items = value || []
 
   const patch = (i: number, next: Partial<NavItem>) =>
     onChange(items.map((it, k) => (k === i ? { ...it, ...next } : it)))

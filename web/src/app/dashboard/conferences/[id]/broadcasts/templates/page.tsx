@@ -2040,7 +2040,7 @@ export default function TemplatesPage() {
               )}
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">
-                  Медиа (опционально) — фото или видео. Если пусто, для дневных шаблонов подставится афиша.
+                  Медиа (опционально) — фото или видео. Если пусто, подставится афиша события.
                 </label>
                 <BroadcastMediaPicker
                   value={{
