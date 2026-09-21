@@ -27,6 +27,7 @@
 """
 import logging
 import os
+import re
 import tempfile
 from typing import Any, Optional
 
@@ -99,6 +100,10 @@ async def prepare_vk_photo(photo_url: Optional[str], *, token: str,
 
 # ─── Кнопки ──────────────────────────────────────────────────────────────────
 
+# Нераскрытый плейсхолдер в адресе кнопки: «{signup_link}», «{vip_url}» и т.п.
+_UNRESOLVED_PLACEHOLDER = re.compile(r"\{[a-zA-Z_]+\}")
+
+
 def button_pairs(buttons: Optional[list], button_text: Optional[str],
                  button_url: Optional[str]) -> list[tuple[str, str]]:
     """Собрать ВСЕ кнопки: из списка `buttons` либо одиночную пару.
@@ -106,6 +111,20 @@ def button_pairs(buttons: Optional[list], button_text: Optional[str],
     ⚠️ Именно все. Тест раньше брал только `button_text`/`button_url` и молча
     терял остальные: в шаблоне их две («Через Телеграм», «Через MAX»), а
     человеку приходила одна.
+
+    ⚠️⚠️ КНОПКА С НЕРАСКРЫТЫМ ПЛЕЙСХОЛДЕРОМ В АДРЕСЕ ВЫБРАСЫВАЕТСЯ
+    (21.09.2026, прод). Telegram и ВКонтакте отвергают такую кнопку вместе со
+    ВСЕМ сообщением:
+        TG — «inline keyboard button URL is invalid»
+        VK — «error 911: Keyboard format is invalid: button [0][0] has invalid link»
+    Рассылка 2775: в ВК в личку ушло 0 сообщений, в TG отклонено у каждого
+    получателя — в адрес кнопки уехал сырой «{signup_link}». Потерять кнопку
+    у одной рассылки не страшно, потерять всё сообщение у всей базы — страшно.
+
+    ⚠️ Проверка живёт ЗДЕСЬ, а не в боевой отправке, потому что через эту
+    функцию идут ОБА пути — и тест, и бой, и событийные рассылки, и общие.
+    В боевой ветке она ловила бы то, что тест продолжал бы показывать
+    нормальным: ровно так и вышло — «вчера тестировали, было норм».
     """
     out: list[tuple[str, str]] = []
     if buttons:
@@ -116,7 +135,16 @@ def button_pairs(buttons: Optional[list], button_text: Optional[str],
                 out.append((lbl, url))
     elif button_text and button_url:
         out.append((button_text, button_url))
-    return out
+    safe: list[tuple[str, str]] = []
+    for lbl, url in out:
+        if _UNRESOLVED_PLACEHOLDER.search(url or ""):
+            logger.warning(
+                f"Кнопка «{lbl}» выброшена: в адресе остался нераскрытый "
+                f"плейсхолдер ({url}). Сообщение отправляем без неё — иначе "
+                f"Telegram и ВК отклонили бы его целиком.")
+            continue
+        safe.append((lbl, url))
+    return safe
 
 
 def vk_keyboard(pairs: list[tuple[str, str]]) -> Optional[dict]:

@@ -499,9 +499,19 @@ async def _send_broadcast(schedule_id: int):
         # {support_command} — URL-плейсхолдер КНОПКИ «Тех.поддержка»: deeplink,
         # клик по которому вызывает команду support в боте (сообщение со всеми
         # каналами связи). Резолвится в deeplink ПО ПЛОЩАДКЕ получателя.
-        needs_support_cmd = ("{support_command}" in (text or "")) or ("{support_command}" in (button_url or ""))
+        # ⚠️⚠️ ПРОВЕРЯЕМ И МАССИВ `buttons` — не только текст и одиночную кнопку
+        # (21.09.2026, прод). У произвольной рассылки кнопки лежат массивом, и
+        # плейсхолдер в их адресах здесь НЕ ВИДЕЛИ: needs_signup оставалось
+        # False, ссылки по площадкам не строились вовсе, и в адрес кнопки уезжал
+        # сырой «{signup_link}». Telegram и ВКонтакте отвергают такую кнопку
+        # вместе со ВСЕМ сообщением — рассылка 2775 не дошла НИКОМУ в этих двух
+        # площадках (в ВК 0 отправленных, в TG отклонено у каждого).
+        _btn_urls = " ".join(
+            (b.get("url") or "") for b in (buttons or []) if isinstance(b, dict))
+        _all_urls = f"{button_url or ''} {_btn_urls}"
+        needs_support_cmd = ("{support_command}" in (text or "")) or ("{support_command}" in _all_urls)
         # {signup_link} — регистрация в боте ПЛОЩАДКИ ПОЛУЧАТЕЛЯ (deeplink evsignup_).
-        needs_signup = ("{signup_link}" in (text or "")) or ("{signup_link}" in (button_url or ""))
+        needs_signup = ("{signup_link}" in (text or "")) or ("{signup_link}" in _all_urls)
         signup_by_platform: dict[str, str] = {}
         signup_btn_by_platform: dict[str, str] = {}
         # Ссылки регистрации по площадкам «как есть» — нужны письму, чтобы
@@ -681,12 +691,50 @@ async def _send_broadcast(schedule_id: int):
             вместо голого _with_support."""
             return _with_nav(_with_gift_funnel(_with_support(txt, platform), platform), platform)
 
+        def _buttons_for(platform: str, per_recipient: dict | None = None) -> list | None:
+            """Кнопки с адресами, раскрытыми ПОД ЭТУ ПЛОЩАДКУ.
+
+            ⚠️⚠️ БЕЗ ЭТОГО РАССЫЛКА НЕ ДОХОДИТ ВООБЩЕ (21.09.2026, прод).
+            У произвольной рассылки кнопки лежат МАССИВОМ `buttons`, и раньше он
+            уходил в отправку как есть: подстановка была написана только для
+            одиночной `button_url`. В адрес кнопки уезжал сырой «{signup_link}»,
+            и площадки отвергали такую кнопку вместе со ВСЕМ сообщением
+            (TG — «button URL is invalid», VK — «error 911»). Рассылка 2775:
+            в ВК ушло 0 сообщений, в TG отклонено у каждого получателя.
+
+            ⚠️ Тест этого не ловил, потому что там площадка известна заранее и
+            ссылка подставляется ещё при сборке. Здесь — та же подстановка, что
+            у текста и одиночной кнопки, чтобы бой и тест давали ОДИН результат.
+
+            Кнопка, чей адрес так и не раскрылся, выбрасывается в общей точке
+            сборки (`platform_delivery.button_pairs`) — там её видят оба пути.
+            """
+            if not buttons:
+                return None
+            out = []
+            for b in buttons:
+                if not isinstance(b, dict):
+                    continue
+                url = _clean_url(_with_gift_funnel(
+                    _with_support(b.get("url") or "", platform, as_url=True),
+                    platform, as_url=True))
+                if not url:
+                    continue
+                # Персональные подстановки (зависят от получателя) — их
+                # передаёт вызывающий, потому что здесь получателя не видно.
+                for tok, val in (per_recipient or {}).items():
+                    url = url.replace(tok, val)
+                out.append({**b, "url": url})
+            return out or None
+
         # {game_link} — ссылка на вкладку «Игра» события (личный кабинет получателя).
         # Используется в `2h_before_reg` / `day_before_09_12_reg` — это уже зарегистрированные
         # участники, их реферер уже зафиксирован при регистрации, перезатирать не надо.
         # Формат: t.me/{бот_клиента_или_pluson}?startapp=ref_pg{slug}_tabgame  (БЕЗ pid).
         # Mini App опознаёт получателя по tg_id из initData.
-        needs_game_link = "{game_link}" in (text or "") or "{game_link}" in (button_url or "")
+        # ⚠️ И здесь массив `buttons` тоже обязателен (см. needs_signup выше):
+        # та же болезнь — плейсхолдер в адресе кнопки из массива не замечался.
+        needs_game_link = "{game_link}" in (text or "") or "{game_link}" in _all_urls
         game_link_url = ""
         if needs_game_link:
             ev_row = await conn.fetchrow("SELECT slug FROM events WHERE id=$1", event_id)
@@ -815,12 +863,23 @@ async def _send_broadcast(schedule_id: int):
                     msg_text = msg_text.replace("?c=__CT__", f"?c={ctv}" if ctv else "")
                     if msg_btn_url:
                         msg_btn_url = msg_btn_url.replace("?c=__CT__", f"?c={ctv}" if ctv else "")
+                # Персональные подстановки — те же, что применены к тексту и
+                # одиночной кнопке выше. ⚠️ Кнопкам из массива они нужны ровно
+                # так же: без них в адресе остался бы сырой плейсхолдер, а
+                # площадка отвергла бы сообщение целиком.
+                _per: dict[str, str] = {}
+                if needs_game_link:
+                    _ct_g = contact_by_tg.get(tg_id)
+                    _per["{game_link}"] = f"{game_link_url}_ct{_ct_g}" if _ct_g else game_link_url
+                if needs_stream_ct:
+                    _ct_s = contact_by_tg.get(tg_id)
+                    _per["?c=__CT__"] = f"?c={_ct_s}" if _ct_s else ""
                 # Собираем message_id отправленных сообщений — чтобы потом можно было
                 # удалить их (отзыв рассылки). У одного получателя может быть 2 (фото/видео + текст).
                 msg_ids: list[int] = []
                 ok, err = await send_telegram_message(
                     http_client, token, tg_id, msg_text, photo_url, button_text, msg_btn_url,
-                    buttons=buttons,
+                    buttons=_buttons_for("telegram", _per),
                     video_url=video_url if media_type == "video" else None,
                     video_file_id=_vid_fid_holder["fid"] if media_type == "video" else None,
                     on_video_file_id=_capture_video_file_id if media_type == "video" else None,
@@ -945,7 +1004,7 @@ async def _send_broadcast(schedule_id: int):
                                 _with_platform_subst(text, "telegram"),
                                 photo_url, button_text,
                                 _clean_url(_with_gift_funnel(_with_support(button_url, "telegram", as_url=True), "telegram", as_url=True)),
-                                buttons=buttons,
+                                buttons=_buttons_for("telegram"),
                                 video_url=video_url if media_type == "video" else None,
                                 on_message_id=lambda mid: _chat_mids.append(mid),
                             )
@@ -976,7 +1035,7 @@ async def _send_broadcast(schedule_id: int):
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "vk"), "vk"),
                 photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "vk", as_url=True), "vk", as_url=True)),
-                buttons=buttons, target_channel_set=target_channel_set,
+                buttons=_buttons_for("vk"), target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
             sent += vk_sent
@@ -993,7 +1052,7 @@ async def _send_broadcast(schedule_id: int):
                 conn, schedule, event_id,
                 _with_gift_funnel(_with_support(text, "max"), "max"),
                 photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "max", as_url=True), "max", as_url=True)),
-                buttons=buttons, target_channel_set=target_channel_set,
+                buttons=_buttons_for("max"), target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
             sent += max_sent

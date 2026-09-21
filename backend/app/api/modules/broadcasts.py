@@ -4163,14 +4163,38 @@ async def test_template(
         m_type = content.get("media_type")
         btn_text = content.get("button_text")
         btn_url = content.get("button_url")
+        raw_buttons = content.get("buttons") or None
+
+        async def _btns(platform: str):
+            """Кнопки под площадку — ТЕ ЖЕ, что в боевой отправке.
+
+            ⚠️ Раньше тест брал только одиночную кнопку (`button_pairs(None, …)`)
+            и МАССИВ `buttons` игнорировал: у рассылки с несколькими кнопками
+            тест показывал не то, что уйдёт. Плюс адреса в массиве не проходили
+            подстановку — именно так сырой «{signup_link}» доезжал до площадок
+            и валил всю рассылку, а тест при этом выглядел нормальным.
+            """
+            if not raw_buttons:
+                return None
+            out = []
+            for b in raw_buttons:
+                if not isinstance(b, dict):
+                    continue
+                u = _sub(await resolve_gift_funnel_tokens(
+                    db, client_id=client_id, text=b.get("url") or "", platform=platform), platform)
+                if u:
+                    out.append({**b, "url": u})
+            return out or None
 
         # === Telegram ===
         if test_tg_ids and bot_token:
             tg_text = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="telegram"), "telegram")
             tg_burl = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="telegram"), "telegram") if btn_url else btn_url
+            tg_btns = await _btns("telegram")
             for chat_id in [str(t) for t in test_tg_ids]:
                 ok, err = await send_telegram_message(
                     http, bot_token, chat_id, tg_text, photo, btn_text, tg_burl,
+                    buttons=tg_btns,
                     video_url=video if m_type == "video" else None,
                 )
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
@@ -4185,7 +4209,7 @@ async def test_template(
             vk_btn_url = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="vk"), "vk") if btn_url else btn_url
             # ⚠️ Клавиатура, вложение и текст — ОБЩИЙ platform_delivery, тот же
             # у боевой рассылки. Своей сборки тут быть не должно.
-            vk_pairs = delivery.button_pairs(None, btn_text, vk_btn_url)
+            vk_pairs = delivery.button_pairs(await _btns("vk"), btn_text, vk_btn_url)
             vk_keyboard = delivery.vk_keyboard(vk_pairs)
             _vk_body = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="vk"), "vk")
             vk_text = delivery.vk_text(_vk_body, video_url=video, media_type=m_type,
@@ -4207,7 +4231,8 @@ async def test_template(
             max_btn_url = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=btn_url, platform="max"), "max") if btn_url else btn_url
             # ⚠️ ОБЩИЙ platform_delivery: HTML снимается, фото уходит вложением,
             # а не голой R2-ссылкой в начале текста (так было раньше).
-            max_buttons = delivery.max_keyboard(delivery.button_pairs(None, btn_text, max_btn_url))
+            max_buttons = delivery.max_keyboard(
+                delivery.button_pairs(await _btns("max"), btn_text, max_btn_url))
             _max_body = _sub(await resolve_gift_funnel_tokens(db, client_id=client_id, text=text, platform="max"), "max")
             max_text = delivery.max_text(_max_body, video_url=video, media_type=m_type)
             max_attachment = await delivery.prepare_max_photo(photo, token=max_token, media_type=m_type)

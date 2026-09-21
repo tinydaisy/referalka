@@ -151,6 +151,25 @@ def validate_telegram_html(text: str) -> list:
     return errors
 
 
+# ⚠️⚠️ Плейсхолдеры, которые РЕАЛЬНО раскрываются в АДРЕСЕ КНОПКИ при отправке.
+# Список сверен с кодом подстановки (tasks/broadcast.py + message_builder.py).
+# Всё, чего здесь нет, доедет до площадки сырым — и Telegram/ВК отвергнут
+# сообщение ЦЕЛИКОМ, а не только кнопку. Добавляя новый плейсхолдер для кнопок,
+# впиши его сюда, иначе кабинет не даст его сохранить.
+BUTTON_URL_PLACEHOLDERS = {
+    "signup_link",      # регистрация в боте площадки получателя
+    "landing_url", "registration_url",
+    "stream_url",       # вебинарная комната / сторонний эфир
+    "vip_url",          # тариф события
+    "game_link",        # кабинет участника (вкладка подарков)
+    "raffle_url",
+    "support_command",  # deeplink вызова поддержки
+    "speaker_card_link",
+    "speaker_join_url",
+    "event_chat_tg", "event_chat_vk", "event_chat_max",
+}
+
+
 def validate_button_pair(text: str, url: str) -> list:
     """Проверка одной inline-кнопки. Зеркалит web/src/lib/validateTelegramHtml.ts"""
     import re as _re
@@ -166,6 +185,20 @@ def validate_button_pair(text: str, url: str) -> list:
     # Плейсхолдер-ссылка ({stream_url}/{landing_url}/{vip_url}/{event_chat_tg}…) раскроется
     # на сервере в реальный URL — считаем валидной.
     is_placeholder_url = bool(_re.match(r"^\{[a-z_]+\}", u)) and not _re.search(r"\s", u)
+    # ⚠️⚠️ ПЛЕЙСХОЛДЕР ДОЛЖЕН БЫТЬ ИЗ ТЕХ, ЧТО РЕАЛЬНО РАСКРЫВАЮТСЯ В КНОПКЕ
+    # (21.09.2026, прод). Прежняя проверка пропускала ЛЮБОЙ `{...}` — и опечатка
+    # или плейсхолдер «только для текста» доезжали до площадки сырыми. Telegram
+    # и ВКонтакте отвергают кнопку с таким адресом вместе со ВСЕМ сообщением
+    # («button URL is invalid» / «error 911»), то есть рассылка не доходит
+    # НИКОМУ. Лучше не дать сохранить, чем потерять отправку по всей базе.
+    if u and is_placeholder_url:
+        _ph = _re.match(r"^\{([a-z_]+)\}", u).group(1)
+        if _ph not in BUTTON_URL_PLACEHOLDERS:
+            errs.append(
+                f"плейсхолдер {{{_ph}}} в ссылке кнопки не раскроется — "
+                f"сообщение не дойдёт совсем. Допустимые: "
+                + ", ".join("{" + p + "}" for p in sorted(BUTTON_URL_PLACEHOLDERS))
+            )
     if u and not is_placeholder_url and not _re.match(r"^(https?://|tg://|mailto:|tel:)", u):
         if _re.search(r"<[^>]+>", u) or _re.search(r"\s", u):
             errs.append("в поле ссылки указан текст вместо URL — должно быть https://...")
