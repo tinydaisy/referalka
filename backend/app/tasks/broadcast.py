@@ -842,7 +842,7 @@ async def _send_broadcast(schedule_id: int):
 
         async def send_one(tg_id: str, channel_id: int | None, token: str, http_client: httpx.AsyncClient):
             async with sem:
-                msg_text = _with_gift_funnel(_with_support(text, "telegram"), "telegram")
+                msg_text = _with_platform_subst(text, "telegram")
                 msg_btn_url = _clean_url(_with_gift_funnel(_with_support(button_url, "telegram", as_url=True), "telegram", as_url=True))
                 if needs_first_name:
                     msg_text = _apply_first_name(msg_text, name_by_tg.get(tg_id))
@@ -1031,7 +1031,7 @@ async def _send_broadcast(schedule_id: int):
         try:
             vk_sent = await _send_broadcast_vk_part(
                 conn, schedule, event_id,
-                _with_gift_funnel(_with_support(text, "vk"), "vk"),
+                _with_platform_subst(text, "vk"),
                 photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "vk", as_url=True), "vk", as_url=True)),
                 buttons=_buttons_for("vk"), target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
@@ -1048,7 +1048,7 @@ async def _send_broadcast(schedule_id: int):
         try:
             max_sent = await _send_broadcast_max_part(
                 conn, schedule, event_id,
-                _with_gift_funnel(_with_support(text, "max"), "max"),
+                _with_platform_subst(text, "max"),
                 photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "max", as_url=True), "max", as_url=True)),
                 buttons=_buttons_for("max"), target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
@@ -1097,7 +1097,7 @@ async def _send_broadcast(schedule_id: int):
         try:
             email_sent = await _send_broadcast_email_part(
                 conn, schedule, event_id,
-                _with_gift_funnel(_with_support(text_for_email, "email"), "email"),
+                _with_platform_subst(text_for_email, "email"),
                 photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "email", as_url=True), "email", as_url=True)),
                 buttons=_email_buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
