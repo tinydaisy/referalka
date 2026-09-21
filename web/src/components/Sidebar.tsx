@@ -90,6 +90,9 @@ export default function Sidebar() {
   const isAssistant = isAnyAssistant && !isFullAssistant
   // Менеджер заказов — только «Контакты» и «Анкеты».
   const isOrdersAssistant = isAnyAssistant && me?.assistant_access_level === 'orders'
+  // Менеджер лидов — «Контакты» и отслеживание в событиях, но только по
+  // закреплённым за ним людям (миграция 484).
+  const isLeadsAssistant = isAnyAssistant && me?.assistant_access_level === 'leads'
   // МедиаЛифт — служебный раздел сервисного аккаунта («ПЛЮСОН Сервис»).
   // Одно-единственное событие, не список: пункт ведёт сразу внутрь него.
   const isSystemService = !!me?.is_system_service
@@ -155,7 +158,21 @@ export default function Sidebar() {
     },
   ]
 
-  const sections = isOrdersAssistant ? ordersSections : [
+  // ⚠️ Менеджеру лидов — тоже СВОЙ список, по той же причине. Он ведёт своих
+  // закреплённых людей: смотрит их в базе, находит в отслеживании событий и
+  // пишет им. Каких именно людей он увидит, решает не меню, а фильтр на
+  // сервере (`contact_assignments`).
+  const leadsSections = [
+    {
+      label: 'Мои люди',
+      items: [
+        { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
+        { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
+      ],
+    },
+  ]
+
+  const sections = isOrdersAssistant ? ordersSections : isLeadsAssistant ? leadsSections : [
     {
       items: [
         { href: '/dashboard/broadcasts', label: t.nav.broadcasts, icon: Send },
@@ -460,7 +477,10 @@ export default function Sidebar() {
                   {me?.name || me?.email || 'Мой кабинет'}
                   {isAnyAssistant && (
                     <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-[#FFCFA4]">
-                      {isFullAssistant ? '· ассистент (полный доступ)' : '· ассистент'}
+                      {isFullAssistant ? '· ассистент (полный доступ)'
+                        : isOrdersAssistant ? '· менеджер заказов'
+                        : isLeadsAssistant ? '· менеджер лидов'
+                        : '· ассистент'}
                     </span>
                   )}
                 </div>

@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { displayName } from '@/lib/personName'
 
 export type MeRole = 'owner' | 'assistant'
-export type AssistantAccessLevel = 'full' | 'limited' | 'orders'
+export type AssistantAccessLevel = 'full' | 'limited' | 'orders' | 'leads'
 
 export interface Me {
   id?: number
@@ -75,6 +75,9 @@ export function useMe() {
   const isFullAssistant = isAnyAssistant && me?.assistant_access_level === 'full'
   // Менеджер заказов: открыты только «Контакты» и «Анкеты».
   const isOrdersAssistant = isAnyAssistant && me?.assistant_access_level === 'orders'
+  // Менеджер лидов: «Контакты» и отслеживание в событиях, но только по
+  // закреплённым за ним людям (миграция 484).
+  const isLeadsAssistant = isAnyAssistant && me?.assistant_access_level === 'leads'
   // «Ограниченный» ассистент — тот, кому режем UI. Полный ведёт себя как владелец.
   const isAssistant = isAnyAssistant && !isFullAssistant
   const isOwner = !isAssistant
@@ -98,6 +101,7 @@ export function useMe() {
 
   return {
     me, isAssistant, isOwner, isAnyAssistant, isFullAssistant, isOrdersAssistant,
+    isLeadsAssistant,
     subFrozen,
     publicBase, platformBase,
     publicHost: hostOf(publicBase),

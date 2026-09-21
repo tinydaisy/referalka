@@ -40,7 +40,7 @@ export default function EventPage() {
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useUrlTab<TabKey>('tab', 'overview')
-  const { me } = useMe()
+  const { me, isLeadsAssistant } = useMe()
   // ⚠️ Программа у обычного мероприятия — фича Экстры (миграция 401). Механизм
   // тот же, что у конференции: своей реализации заводить нельзя.
   const hasEventProgram = (me?.features || []).includes('event_program')
@@ -67,6 +67,14 @@ export default function EventPage() {
       .catch(() => router.push('/dashboard/events'))
       .finally(() => setLoading(false))
   }, [id])
+
+  // ⚠️ Вкладка по умолчанию — 'overview', а менеджеру лидов (миграция 484)
+  // доступна только CRM: без перевода он открывал бы событие на пустом месте.
+  // ⚠️ Хук стоит ЗДЕСЬ, до `if (loading)` и `if (!event)`: после ранних
+  // выходов порядок хуков на разных отрисовках разъехался бы и React упал.
+  useEffect(() => {
+    if (isLeadsAssistant && activeTab !== 'crm') setActiveTab('crm')
+  }, [isLeadsAssistant, activeTab])
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -173,7 +181,23 @@ export default function EventPage() {
     }] : []),
   ]
 
-  const activeGroup = GROUPS.find(g => g.tabs.some(tb => tb.key === activeTab)) || GROUPS[0]
+  // ⚠️ «Менеджеру лидов» (миграция 484) внутри события оставляем ТОЛЬКО
+  // отслеживание: он ведёт своих закреплённых людей, а не готовит событие.
+  // Сервер ему всё остальное и так закроет — но пункты меню, каждый из
+  // которых отвечает «нет доступа», выглядят поломкой кабинета.
+  const visibleGroups = isLeadsAssistant
+    ? GROUPS.filter(g => g.key === 'tracking').map(g => ({
+        ...g, tabs: g.tabs.filter(tb => tb.key === 'crm'),
+      }))
+    : GROUPS
+
+  // ⚠️ `|| GROUPS[0]` на конце — страховка: у менеджера лидов список групп
+  // отфильтрован, и если однажды группы 'tracking' не окажется, `activeGroup`
+  // стал бы undefined и страница упала бы белым экраном на первом же `.tabs`.
+  const activeGroup =
+    visibleGroups.find(g => g.tabs.some(tb => tb.key === activeTab))
+    || visibleGroups[0] || GROUPS[0]
+
 
   return (
     <div>
@@ -240,7 +264,7 @@ export default function EventPage() {
       {/* Уровень 1 — разделы (группы) + «Рассылки» как отдельная страница */}
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
-          {GROUPS.map(g => (
+          {visibleGroups.map(g => (
             <button key={g.key}
               onClick={() => { if (!g.tabs.some(tb => tb.key === activeTab)) setActiveTab(g.tabs[0].key) }}
               className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
@@ -250,10 +274,14 @@ export default function EventPage() {
               {g.label}
             </button>
           ))}
-          <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
-            className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
-            Рассылки
-          </Link>
+          {/* Рассылки менеджеру лидов не показываем: он ведёт своих людей
+              лично, а рассылка уходит всей аудитории события. */}
+          {!isLeadsAssistant && (
+            <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
+              className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
+              Рассылки
+            </Link>
+          )}
         </div>
       </div>
 

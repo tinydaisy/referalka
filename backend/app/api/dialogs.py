@@ -22,7 +22,24 @@ from pydantic import BaseModel
 from app.auth import get_current_client
 from app.database import get_db
 from app.services.dialog_archive import archive_direct_message
-from app.services.assistant_access import assistant_is_restricted
+from app.services.assistant_access import (
+    assistant_can_reply_in_dialogs,
+    leads_only_grant_id,
+)
+
+
+def _leads_sql(gid: int | None, next_param: int, alias: str = "contact_id") -> str:
+    """Кусок WHERE «только закреплённые за менеджером лидов» (миграция 484).
+
+    ⚠️ Переписка — это тоже показ людей: без фильтра менеджер лидов читал бы
+    в общем списке диалогов чужих людей и их сообщения.
+    """
+    if not gid:
+        return ""
+    return (
+        f" AND EXISTS (SELECT 1 FROM contact_assignments ca"
+        f"              WHERE ca.contact_id = {alias} AND ca.grant_id = ${next_param})"
+    )
 # ⚠️ Тем же условием список контактов прячет полностью отписавшихся. Берём его
 # оттуда, а не переписываем рядом: разойдутся — цифра в меню снова перестанет
 # сходиться со списком, ровно с этого расхождения и началось.
@@ -211,6 +228,9 @@ async def dialogs_unread_count(
     нельзя открыть, — это снова расхождение цифры со списком.
     """
     client_id = int(client["sub"])
+    # ⚠️ Менеджеру лидов считаем только ЕГО людей: иначе в меню висела бы
+    # цифра непрочитанных от тех, кого он не может открыть.
+    leads_gid = await leads_only_grant_id(client)
     row = await db.fetchrow(
         f"""SELECT
               COUNT(*) FILTER (WHERE NOT {UNSUB_EXISTS_SQL}) AS visible,
@@ -220,8 +240,9 @@ async def dialogs_unread_count(
                            AND c.client_id = dm.client_id
                            AND c.is_active = TRUE
            WHERE dm.client_id = $1
-             AND dm.direction = 'in' AND NOT dm.is_read""",
-        client_id,
+             AND dm.direction = 'in' AND NOT dm.is_read
+             {_leads_sql(leads_gid, 2, 'dm.contact_id')}""",
+        client_id, *( [leads_gid] if leads_gid else [] ),
     )
     visible = int((row and row["visible"]) or 0)
     hidden = int((row and row["hidden"]) or 0)
@@ -240,8 +261,9 @@ async def list_dialogs(
     """Список диалогов: по одному на контакт, с последним сообщением и счётчиком
     непрочитанных. Сортировка — по времени последнего сообщения (свежие сверху)."""
     client_id = int(client["sub"])
+    leads_gid = await leads_only_grant_id(client)
     rows = await db.fetch(
-        """
+        f"""
         WITH last AS (
             SELECT DISTINCT ON (contact_id, platform)
                    contact_id, platform, text, media_kind, direction, sent_at
@@ -272,10 +294,11 @@ async def list_dialogs(
           FROM agg a
           JOIN contacts c ON c.id = a.contact_id
          WHERE ($2::text IS NULL OR c.name ILIKE '%'||$2||'%')
+           {_leads_sql(leads_gid, 4, 'a.contact_id')}
          ORDER BY a.last_at DESC
          LIMIT $3
         """,
-        client_id, search, limit,
+        client_id, search, limit, *( [leads_gid] if leads_gid else [] ),
     )
     return {"dialogs": [dict(r) for r in rows]}
 
@@ -294,6 +317,9 @@ async def contact_messages(
     """Полная лента личной переписки с контактом (опц. фильтр по платформе).
     Также помечает входящие прочитанными."""
     client_id = int(client["sub"])
+    # Чужую переписку менеджер лидов не читает даже по прямому номеру контакта.
+    from app.api.contacts import assert_leads_access
+    await assert_leads_access(db, contact_id, client)
     rows = await db.fetch(
         """SELECT id, platform, channel_id, platform_user_id, direction, author_kind,
                   text, media_url, media_kind, platform_message_id,
@@ -354,8 +380,11 @@ async def reply_to_contact(
     db=Depends(get_db),
 ):
     """Отправить сообщение человеку через бот клиента и записать его в ленту."""
-    if await assistant_is_restricted(client):
-        raise HTTPException(403, "Ассистент не может отвечать в диалогах.")
+    if not await assistant_can_reply_in_dialogs(client):
+        raise HTTPException(403, "У вас нет доступа к отправке сообщений.")
+    # Писать — только своим закреплённым.
+    from app.api.contacts import assert_leads_access
+    await assert_leads_access(db, contact_id, client)
     client_id = int(client["sub"])
     platform = body.platform.strip().lower()
     if platform not in ("telegram", "vk", "max", "instagram"):
@@ -450,8 +479,10 @@ async def edit_message(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    if await assistant_is_restricted(client):
-        raise HTTPException(403, "Ассистент не может править диалоги.")
+    # Кому можно писать — тому можно и исправить свою опечатку. Чужое всё равно
+    # не тронет: ниже стоит проверка author_kind='operator'.
+    if not await assistant_can_reply_in_dialogs(client):
+        raise HTTPException(403, "У вас нет доступа к правке сообщений.")
     client_id = int(client["sub"])
     msg = await db.fetchrow(
         """SELECT platform, platform_user_id, platform_message_id, author_kind
@@ -494,8 +525,8 @@ async def delete_message(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    if await assistant_is_restricted(client):
-        raise HTTPException(403, "Ассистент не может удалять в диалогах.")
+    if not await assistant_can_reply_in_dialogs(client):
+        raise HTTPException(403, "У вас нет доступа к удалению сообщений.")
     client_id = int(client["sub"])
     msg = await db.fetchrow(
         """SELECT platform, platform_user_id, platform_message_id, author_kind

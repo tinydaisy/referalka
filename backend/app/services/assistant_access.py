@@ -45,6 +45,23 @@ async def get_grant_access_level(grant_id: Optional[int]) -> str:
     return lvl if lvl in _LEVELS else "limited"
 
 
+async def grant_access_level_row(db: asyncpg.Connection, grant_id: Optional[int]) -> str:
+    """То же, что `get_grant_access_level`, но на уже открытом соединении.
+
+    ⚠️ Отдавать наружу нужно именно этот РЕАЛЬНЫЙ уровень. `/auth/me` раньше
+    считал его как `"full" if is_full_grant_row(...) else "limited"` — и любая
+    новая роль превращалась для фронта в 'limited': меню рисовалось как у
+    ограниченного помощника, а API резал его по-своему. Человек видел пункты,
+    каждый из которых отвечал 403.
+    """
+    if not grant_id:
+        return "limited"
+    lvl = await db.fetchval(
+        "SELECT access_level FROM assistant_grants WHERE id = $1", int(grant_id)
+    )
+    return lvl if lvl in _LEVELS else "limited"
+
+
 async def is_full_grant_row(db: asyncpg.Connection, grant_id: Optional[int]) -> bool:
     """То же самое, но на уже открытом соединении (для эндпоинтов)."""
     if not grant_id:
@@ -53,6 +70,43 @@ async def is_full_grant_row(db: asyncpg.Connection, grant_id: Optional[int]) -> 
         "SELECT access_level FROM assistant_grants WHERE id = $1", int(grant_id)
     )
     return lvl == "full"
+
+
+# Кому из помощников разрешено ПИСАТЬ человеку в диалогах.
+# ⚠️ Раньше здесь стоял общий `assistant_is_restricted` — «не полный, значит
+# нельзя». Из-за него менеджер заказов видел переписку (путь /api/v1/dialogs
+# ему открыт) и поле ввода, набирал ответ и получал 403: работать с людьми —
+# ровно его задача, а ответить он не мог.
+_CAN_REPLY_LEVELS = ("full", "orders")
+
+
+async def assistant_can_reply_in_dialogs(user: dict) -> bool:
+    """True — этому помощнику можно отправлять сообщения людям."""
+    if user.get("role") != "assistant":
+        return True
+    lvl = await get_grant_access_level(user.get("grant_id"))
+    return lvl in _CAN_REPLY_LEVELS
+
+
+async def leads_only_grant_id(user: dict) -> Optional[int]:
+    """Номер пропуска, если это «менеджер лидов» — иначе None.
+
+    Единственная точка, где решается «этому человеку показывать только
+    закреплённых за ним». Возвращает именно `grant_id`, потому что закрепление
+    в `contact_assignments` ссылается на ПРОПУСК: помощник ведёт несколько
+    кабинетов, и в каждом у него свой список людей.
+
+    ⚠️ Пользоваться этим в КАЖДОЙ выборке людей: список контактов, экспорт
+    CSV, CRM события, CRM лид-магнита, счётчики. Пропустить одну — и человек
+    увидит чужих ровно там, где забыли.
+    """
+    if user.get("role") != "assistant":
+        return None
+    lvl = await get_grant_access_level(user.get("grant_id"))
+    if lvl != "leads":
+        return None
+    gid = user.get("grant_id")
+    return int(gid) if gid else None
 
 
 async def assistant_is_restricted(user: dict) -> bool:

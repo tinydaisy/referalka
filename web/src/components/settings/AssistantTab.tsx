@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { RotateCcw, Trash2, Mail, UserPlus, Info, Building2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
-type AccessLevel = 'full' | 'limited' | 'orders'
+type AccessLevel = 'full' | 'limited' | 'orders' | 'leads'
 
 interface AssistantRow {
   grant_id: number
@@ -23,6 +23,10 @@ const LEVEL_HINT: Record<AccessLevel, string> = {
   // ⚠️ Разрешительный список: открыты ровно два раздела, всё остальное
   // закрыто. Так новый раздел кабинета не откроется менеджеру случайно.
   orders: 'Только «Контакты» и «Анкеты»: разбирает заявки — ставит отметку «обработано», пишет заметки. Не увидит события, рассылки, деньги и настройки.',
+  // ⚠️ Отличие от «Менеджера заказов» — в ВИДИМОСТИ людей, а не в наборе
+  // разделов: тот разбирает весь поток заявок, этот ведёт свой закреплённый
+  // список. Кого именно он видит, вы назначаете в «Контактах».
+  leads: 'Видит только закреплённых за ним людей — в «Контактах» и в отслеживании событий, и может им писать. Чужих людей, рассылки, деньги и настройки не увидит. Кого закрепить — выбираете в разделе «Контакты».',
 }
 
 export default function AssistantTab() {
@@ -264,12 +268,13 @@ function LevelPicker({
   disabled?: boolean
 }) {
   const options: { id: AccessLevel; title: string }[] = [
+    { id: 'leads',   title: 'Менеджер лидов' },
     { id: 'orders',  title: 'Менеджер заказов' },
     { id: 'limited', title: 'Ограниченный доступ' },
     { id: 'full',    title: 'Полный доступ' },
   ]
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {options.map(o => {
         const active = value === o.id
         return (

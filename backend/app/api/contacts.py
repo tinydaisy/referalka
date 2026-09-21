@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.auth import get_current_client
 from app.database import get_db
-from app.services.assistant_access import assistant_is_restricted
+from app.services.assistant_access import assistant_is_restricted, leads_only_grant_id
 from app.services.contact_merge import merge_contacts
 
 
@@ -74,14 +74,32 @@ def _build_contacts_filter(
     created_to: str | None = None,
     blacklisted: str | None = None,
     field_filter: str | None = None,
+    leads_grant_id: int | None = None,
 ) -> tuple[str, list]:
     """Собирает WHERE-клозу и список параметров (без фильтра по subscription state).
 
     Возвращает (where_sql, params). where_sql начинается с 'WHERE'. Алиас
     основной таблицы — `c` (contacts c).
+
+    `leads_grant_id` — пропуск «менеджера лидов» (миграция 484): выборка
+    сужается до людей, закреплённых ЗА НИМ. Считается один раз у вызывающего
+    через `leads_only_grant_id()`, а применяется здесь, потому что этот хелпер
+    обслуживает и список, и CSV-экспорт, и счётчики: фильтр в одном месте
+    закрывает их все сразу.
     """
     where = "WHERE c.client_id = $1 AND c.is_active = TRUE"
     params: list = [client_id]
+
+    # ⚠️ Ставим СРАЗУ после владения кабинетом, до всех необязательных
+    # фильтров: это не «уточнение поиска», которое можно снять галочкой, а
+    # граница видимости. Никакой другой фильтр не должен её расширять.
+    if leads_grant_id:
+        params.append(int(leads_grant_id))
+        where += f"""
+          AND EXISTS (
+            SELECT 1 FROM contact_assignments ca
+             WHERE ca.contact_id = c.id AND ca.grant_id = ${len(params)}
+          )"""
 
     if search:
         params.append(f"%{search}%")
@@ -389,6 +407,7 @@ async def get_contacts(
         date_to=date_to,
         blacklisted=blacklisted,
         field_filter=field_filter,
+        leads_grant_id=await leads_only_grant_id(client),
     )
     UNSUB_EXISTS = UNSUB_EXISTS_SQL
     where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
@@ -572,6 +591,7 @@ async def export_contacts_csv(
         date_to=date_to,
         blacklisted=blacklisted,
         field_filter=field_filter,
+        leads_grant_id=await leads_only_grant_id(client),
     )
     where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
 
@@ -721,21 +741,34 @@ async def get_filter_options(
          ORDER BY ch.platform_slug, cc.is_active DESC, ch.id
     """, client_id)
 
-    utm_rows = await db.fetch("""
+    # ⚠️ Источники и метки собираются ПО ЛЮДЯМ, поэтому у «менеджера лидов»
+    # сужаем и их: иначе выпадашка выдала бы метки чужих людей — то есть с
+    # каких каналов и по каким сегментам работают другие менеджеры.
+    leads_gid = await leads_only_grant_id(client)
+    leads_cond = (
+        " AND EXISTS (SELECT 1 FROM contact_assignments ca"
+        "              WHERE ca.contact_id = contacts.id AND ca.grant_id = $2)"
+        if leads_gid else ""
+    )
+    leads_args = [leads_gid] if leads_gid else []
+
+    utm_rows = await db.fetch(f"""
         SELECT DISTINCT utm_source
           FROM contacts
          WHERE client_id = $1 AND is_active = TRUE
            AND utm_source IS NOT NULL AND utm_source <> ''
+           {leads_cond}
          ORDER BY utm_source
-    """, client_id)
+    """, client_id, *leads_args)
 
-    tag_rows = await db.fetch("""
+    tag_rows = await db.fetch(f"""
         SELECT DISTINCT jsonb_array_elements_text(tags) AS tag
           FROM contacts
          WHERE client_id = $1 AND is_active = TRUE
            AND tags IS NOT NULL AND jsonb_typeof(tags) = 'array'
+           {leads_cond}
          ORDER BY tag
-    """, client_id)
+    """, client_id, *leads_args)
 
     events = await db.fetch("""
         SELECT id, title, slug
@@ -777,6 +810,9 @@ async def get_contact(
 ):
     """Карточка контакта: данные человека + идентичности с подписками на каналы."""
     client_id = int(client["sub"])
+    # ⚠️ Карточка открывается и прямой ссылкой `?contact=123` — фильтра в
+    # списке мало, иначе «менеджер лидов» читал бы чужих людей по номеру.
+    await assert_leads_access(db, contact_id, client)
 
     row = await db.fetchrow("""
         SELECT
@@ -1035,6 +1071,11 @@ async def get_duplicates(
 ):
     """Возможные дубли — другие активные контакты клиента с совпадающим email/phone/именем."""
     client_id = int(client["sub"])
+    # ⚠️ Дубли показывают ЧУЖИХ людей базы — по имени и телефону. Менеджеру
+    # лидов отдаём пустой список, а не 404: экран карточки должен открыться,
+    # просто без блока «похоже, это тот же человек».
+    if await leads_only_grant_id(client):
+        return {"items": []}
     # email берём из email-идентичности (platform_users), не из contacts.email
     target = await db.fetchrow(
         """SELECT c.id, c.client_id, c.name, c.phone_normalized,
@@ -1108,13 +1149,42 @@ class BlacklistRequest(BaseModel):
     reason: Optional[str] = None
 
 
-async def _assert_own_contact(db, contact_id: int, client_id: int) -> None:
-    """Контакт должен принадлежать этому клиенту, иначе 404."""
+async def _assert_own_contact(db, contact_id: int, client_id: int, client: dict | None = None) -> None:
+    """Контакт должен принадлежать этому клиенту, иначе 404.
+
+    `client` — payload JWT. Передавать ВСЕГДА: для «менеджера лидов» проверка
+    дополнительно требует, чтобы человек был закреплён за ним.
+
+    ⚠️ Отдаём 404, а не 403. «Доступ запрещён» на чужом id подтверждает, что
+    такой человек в базе есть — менеджер мог бы перебором пересчитать всю
+    клиентскую базу. Для него чужого человека просто не существует.
+    """
     own = await db.fetchval(
         "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
         contact_id, client_id
     )
     if not own:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+    if client is not None:
+        await assert_leads_access(db, contact_id, client)
+
+
+async def assert_leads_access(db, contact_id: int, client: dict) -> None:
+    """Для «менеджера лидов» — 404, если человек за ним не закреплён.
+
+    ⚠️ Ставить в КАЖДОМ эндпоинте, который работает с одним человеком по его
+    id: карточка, правка, доп. поля, чёрный список, выгрузка его данных,
+    переписка. Фильтра в списке мало — человек открывается и прямой ссылкой
+    `?contact=123`, и в списке его при этом не было.
+    """
+    gid = await leads_only_grant_id(client)
+    if not gid:
+        return
+    mine = await db.fetchval(
+        "SELECT 1 FROM contact_assignments WHERE contact_id = $1 AND grant_id = $2",
+        contact_id, gid,
+    )
+    if not mine:
         raise HTTPException(status_code=404, detail="Контакт не найден")
 
 
@@ -1199,6 +1269,7 @@ async def update_contact(
     )
     if not own:
         raise HTTPException(status_code=404, detail="Контакт не найден")
+    await assert_leads_access(db, contact_id, client)
 
     sets = []
     args: list = []
@@ -1379,6 +1450,7 @@ async def set_contact_field_value(
         contact_id, client_id, data.field_id)
     if not own:
         raise HTTPException(404, "Контакт или поле не найдены")
+    await assert_leads_access(db, contact_id, client)
 
     val = (data.value or "").strip()
     if not val:
@@ -1614,6 +1686,7 @@ async def export_contact_data(
     )
     if not c:
         raise HTTPException(status_code=404, detail="Контакт не найден")
+    await assert_leads_access(db, contact_id, client)
 
     identities = await db.fetch(
         """SELECT pu.platform_slug, pu.platform_user_id, pu.username, pu.first_name, pu.last_name, pu.created_at

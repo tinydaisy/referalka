@@ -817,11 +817,15 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
         out["email"] = payload.get("email") or out.get("email")
         out["assistant_id"] = payload.get("assistant_id")
         # 'full' — права как у владельца (кроме управления помощниками, админки,
-        # пароля и email владельца), 'limited' — урезанный набор. Уровень берём из
-        # пропуска: в разных кабинетах у помощника могут быть разные права.
-        from app.services.assistant_access import is_full_grant_row
-        out["assistant_access_level"] = (
-            "full" if await is_full_grant_row(db, payload.get("grant_id")) else "limited"
+        # пароля и email владельца), остальные уровни — урезанные наборы.
+        # Уровень берём из пропуска: в разных кабинетах у помощника могут быть
+        # разные права.
+        # ⚠️ Отдаём РЕАЛЬНЫЙ уровень, а не «full или limited». Прежний расчёт
+        # схлопывал любую новую роль в 'limited', и фронт рисовал ей меню
+        # ограниченного помощника — пункты были видны, но отвечали 403.
+        from app.services.assistant_access import grant_access_level_row
+        out["assistant_access_level"] = await grant_access_level_row(
+            db, payload.get("grant_id")
         )
     # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
     # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.

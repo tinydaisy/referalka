@@ -307,7 +307,8 @@ export const api = {
       request(`/api/v1/events/${id}/check-chats`, { method: 'POST' }),
     // CRM события: люди по этапам — не зарегистрированы / зарегистрированы /
     // в чате / были в эфире. В коллабе отдаёт только СВОИХ приведённых.
-    crm: (id: number) => request(`/api/v1/events/${id}/crm`),
+    crm: (id: number, params?: { tariff_id?: number }) =>
+      request(`/api/v1/events/${id}/crm${params?.tariff_id ? `?tariff_id=${params.tariff_id}` : ''}`),
     addParticipantFromContact: (id: number, contactId: number, isRegistered = false) =>
       request(`/api/v1/events/${id}/participants/from-contact`, {
         method: 'POST',
@@ -595,6 +596,18 @@ export const api = {
       delete: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}`, { method: 'DELETE' }),
     },
+  },
+  // Закрепление людей за «менеджером лидов» (миграция 484). Только владелец.
+  contactAssignments: {
+    managers: () => request('/api/v1/contact-assignments/managers'),
+    // grant_id = null снимает закрепление (человек становится ничьим).
+    assign: (contact_ids: number[], grant_id: number | null, note?: string) =>
+      request('/api/v1/contact-assignments', {
+        method: 'POST', body: JSON.stringify({ contact_ids, grant_id, note }),
+      }),
+    // Карта «номер человека → менеджер» одним запросом на весь список.
+    forContacts: (ids: number[]) =>
+      request(`/api/v1/contact-assignments?contact_ids=${ids.join(',')}`),
   },
   contacts: {
     // Значение дополнительного поля у одного человека (миграция 280).

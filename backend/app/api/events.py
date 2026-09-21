@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
 from app.auth import get_current_client
@@ -8,7 +8,7 @@ from app.services.event_access import is_collab_event
 import asyncpg
 import re
 import secrets
-from app.services.assistant_access import assistant_is_restricted
+from app.services.assistant_access import assistant_is_restricted, leads_only_grant_id
 
 router = APIRouter(prefix="/events", tags=["События"])
 
@@ -330,16 +330,40 @@ async def list_events(
     """
     # co-ownership: событие видно владельцу через event_owners (источник истины)
     owned = "e.id IN (SELECT event_id FROM event_owners WHERE client_id=$1 AND status='accepted')"
+
+    # ⚠️ «Менеджер лидов» (миграция 484) видит только события, где есть ЕГО
+    # закреплённые люди, и счётчик участников считает тоже только их. Иначе
+    # он открывал бы события с пустой CRM и видел бы в списке чужие цифры —
+    # по ним читается размер чужой работы.
+    leads_gid = await leads_only_grant_id(client)
+    args: list = [client_id]
+    where = owned
+    select_sql = base_select
     if module_slug:
-        events = await db.fetch(
-            base_select + f" WHERE {owned} AND e.module_slug = $2 GROUP BY e.id ORDER BY e.created_at DESC",
-            client_id, module_slug
+        args.append(module_slug)
+        where += f" AND e.module_slug = ${len(args)}"
+    if leads_gid:
+        args.append(leads_gid)
+        gid_param = f"${len(args)}"
+        mine = (
+            f"EXISTS (SELECT 1 FROM contact_assignments ca"
+            f"         WHERE ca.contact_id = ep.contact_id AND ca.grant_id = {gid_param})"
         )
-    else:
-        events = await db.fetch(
-            base_select + f" WHERE {owned} GROUP BY e.id ORDER BY e.created_at DESC",
-            client_id
+        # Счётчик в карточке события — только свои.
+        select_sql = select_sql.replace(
+            "COUNT(DISTINCT ep.id) as participants_count",
+            f"COUNT(DISTINCT ep.id) FILTER (WHERE {mine}) as participants_count",
         )
+        where += (
+            f" AND EXISTS (SELECT 1 FROM event_participants ep2"
+            f"              JOIN contact_assignments ca2 ON ca2.contact_id = ep2.contact_id"
+            f"             WHERE ep2.event_id = e.id AND ca2.grant_id = {gid_param})"
+        )
+
+    events = await db.fetch(
+        select_sql + f" WHERE {where} GROUP BY e.id ORDER BY e.created_at DESC",
+        *args,
+    )
     return {"events": [dict(e) for e in events]}
 
 
@@ -1444,7 +1468,9 @@ async def check_chats(
 
 @router.get("/{event_id}/crm", summary="CRM события: люди по этапам")
 async def event_crm(
-    event_id: int, client=Depends(get_current_client), db=Depends(get_db),
+    event_id: int,
+    tariff_id: int | None = Query(default=None, description="Только купившие этот тариф события"),
+    client=Depends(get_current_client), db=Depends(get_db),
 ):
     """Четыре колонки: не зарегистрированы / зарегистрированы / в чате / были в эфире.
 
@@ -1455,8 +1481,18 @@ async def event_crm(
     Суть коллаборации в том, что каждый ведёт свою базу через своего бота:
     контакты партнёра ему не принадлежат, и показывать их нельзя. Отбор идёт
     по владельцу контакта (`contacts.client_id`), а не по событию.
+
+    ⚠️ «Менеджер лидов» (миграция 484) видит здесь только закреплённых за ним
+    людей — фильтр по `contact_assignments`.
+
+    ⚠️ Колонки — это ЭТАПЫ (не зарегистрирован → … → был в эфире), а купленный
+    тариф идёт ПОДПИСЬЮ у человека и необязательным фильтром `tariff_id`.
+    Отдельные колонки под тарифы смешали бы две разные вещи в одной шкале:
+    «докуда дошёл» и «что купил» — и человек с VIP, ещё не бывший в эфире,
+    непонятно куда попадал бы.
     """
     client_id = int(client["sub"])
+    leads_gid = await leads_only_grant_id(client)
     ev = await db.fetchrow(
         """SELECT e.id, e.is_collab FROM events e
             WHERE e.id = $1 AND EXISTS (SELECT 1 FROM event_owners eo
@@ -1466,9 +1502,38 @@ async def event_crm(
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
+    # Необязательные условия набираем по порядку: $1 event_id, $2 client_id.
+    extra = ""
+    args: list = [event_id, client_id]
+    if leads_gid:
+        args.append(leads_gid)
+        extra += f"""
+              AND EXISTS (SELECT 1 FROM contact_assignments ca
+                           WHERE ca.contact_id = c.id AND ca.grant_id = ${len(args)})"""
+    if tariff_id:
+        args.append(int(tariff_id))
+        extra += f"""
+              AND EXISTS (SELECT 1 FROM event_participant_tariffs pt
+                           WHERE pt.participant_id = ep.id
+                             AND pt.tariff_id = ${len(args)}
+                             AND pt.status = 'paid')"""
+
     rows = await db.fetch(
-        """SELECT ep.id, c.id AS contact_id, c.name,
+        f"""SELECT ep.id, c.id AS contact_id, c.name,
                   ep.is_registered, ep.is_in_chat,
+                  -- Что человек купил в этом событии. Подпись под именем: без
+                  -- неё в CRM не отличить платного участника от зашедшего
+                  -- посмотреть, а звонить им надо по-разному.
+                  -- ⚠️ Только status='paid': выставленный, но не оплаченный
+                  -- счёт — это ещё не покупка, и показывать его как тариф
+                  -- значит считать деньги, которых нет.
+                  (SELECT STRING_AGG(t.title, ', ' ORDER BY t.sort_order)
+                     FROM event_participant_tariffs pt
+                     JOIN event_tariffs t ON t.id = pt.tariff_id
+                    WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_tariffs,
+                  (SELECT COALESCE(SUM(pt.amount), 0)
+                     FROM event_participant_tariffs pt
+                    WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_amount,
                   -- «Был в эфире»: нажал кнопку эфира ЛИБО оставил контакты
                   -- при входе в нашу вебинарную комнату. Два разных пути к
                   -- одному и тому же — человек дошёл до трансляции.
@@ -1492,8 +1557,9 @@ async def event_crm(
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
             WHERE ep.event_id = $1 AND c.client_id = $2
+              {extra}
             ORDER BY ep.registered_at DESC NULLS LAST, ep.id DESC""",
-        event_id, client_id)
+        *args)
 
     people = [dict(r) for r in rows]
     total = len(people)
@@ -1507,9 +1573,28 @@ async def event_crm(
         "in_chat": [p for p in people if p["is_in_chat"]],
         "was_live": [p for p in people if p["was_live"]],
     }
+    # Тарифы события — для выпадашки фильтра. Отдаём только те, что кто-то
+    # уже купил: пустой пункт в фильтре бесполезен, а список тарифов может
+    # быть длинным (VIP, стандарт, раннее бронирование, партнёрский…).
+    tariffs = await db.fetch(
+        """SELECT t.id, t.title,
+                  COUNT(DISTINCT pt.participant_id) AS paid_count
+             FROM event_tariffs t
+             JOIN event_participant_tariffs pt
+                  ON pt.tariff_id = t.id AND pt.status = 'paid'
+             JOIN event_participants ep ON ep.id = pt.participant_id
+             JOIN contacts c ON c.id = ep.contact_id AND c.client_id = $2
+            WHERE t.event_id = $1
+            GROUP BY t.id, t.title, t.sort_order
+            HAVING COUNT(DISTINCT pt.participant_id) > 0
+            ORDER BY t.sort_order, t.id""",
+        event_id, client_id)
+
     return {
         "total": total,
         "is_collab": ev["is_collab"],
+        "tariffs": [dict(t) for t in tariffs],
+        "tariff_id": tariff_id,
         "columns": [
             {"key": k, "count": len(v), "percent": pct(len(v)), "people": v}
             for k, v in groups.items()

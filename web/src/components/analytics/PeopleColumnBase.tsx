@@ -32,6 +32,10 @@ export interface ColumnPerson {
   max_nick?: string | null
   email?: string | null
   phone?: string | null
+  /** Названия оплаченных тарифов события через запятую (CRM события). */
+  paid_tariffs?: string | null
+  /** Сколько человек заплатил всего, ₽. */
+  paid_amount?: number | null
 }
 
 export default function PeopleColumnBase({
@@ -193,6 +197,15 @@ function PersonRow({ person, hrefFor, num }: {
         </span>
         {nicks.length > 0 && (
           <span className="block truncate text-[11px] text-gray-500">{nicks.join(' · ')}</span>
+        )}
+        {/* Купленный тариф — отдельной строкой и персиковым: платного
+            участника надо отличать от зашедшего посмотреть с одного взгляда,
+            звонят им по-разному. Сумма рядом, если она записана. */}
+        {person.paid_tariffs && (
+          <span className="block truncate text-[11px] font-medium" style={{ color: '#B57A3C' }}>
+            {person.paid_tariffs}
+            {person.paid_amount ? ` · ${person.paid_amount.toLocaleString('ru-RU')} ₽` : ''}
+          </span>
         )}
       </span>
     </Link>

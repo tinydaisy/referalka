@@ -9,6 +9,7 @@ import DialogChat from '@/components/DialogChat'
 // ⚠️ Форма доп. поля — ОБЩАЯ с разделом «Анкеты»: поле заводится из двух мест,
 // а форма одна (иначе разъедется список типов и вариантов).
 import ContactFieldForm from '@/components/ContactFieldForm'
+import AssignManagerField from '@/components/contacts/AssignManagerField'
 import { MoreHorizontal, Plus as PlusIcon, Upload } from 'lucide-react'
 import { focalCss } from '@/lib/photoFocal'
 
@@ -779,6 +780,11 @@ export default function ContactsPage() {
               </button>
               )}
             </div>
+
+            {/* За кем закреплён (миграция 484). Блок сам прячется, если у
+                клиента нет менеджеров лидов. Помощнику не показываем:
+                раздавать людей может только владелец кабинета. */}
+            {!isAssistant && <AssignManagerField contactId={selected.id} />}
 
             {/* Если контакт — также коллаборатор, показываем ссылку */}
             {selected.collaborator && (
