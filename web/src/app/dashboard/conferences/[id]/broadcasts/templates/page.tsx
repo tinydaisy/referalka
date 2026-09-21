@@ -625,6 +625,8 @@ export default function TemplatesPage() {
   const [testSending, setTestSending] = useState(false)
   const [testResult, setTestResult] = useState<any>(null)
   const [testDay, setTestDay] = useState(1)
+  // Навигация по чату: {площадка → готовый текст пунктов} от сервера.
+  const [navPreview, setNavPreview] = useState<Record<string, string> | null>(null)
   const [confDays, setConfDays] = useState<number[]>([1])
   const [confDaysData, setConfDaysData] = useState<any[]>([])
   const [confData, setConfData] = useState<any>(null)
@@ -916,6 +918,16 @@ export default function TemplatesPage() {
     const freshSpeakers = [...(speakersR.speakers || [])].sort(
       (a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'ru'))
     setSpeakers(freshSpeakers)
+    // Навигация по чату: настоящие ссылки по площадкам берём У СЕРВЕРА — фронт
+    // их не построит (боты клиента, режим Mini App/веб, бот владельца магнита).
+    // ⚠️ Без этого превью показывало подписи вместо адресов, и проверить, что
+    // реально уйдёт в чат, было нечем.
+    setNavPreview(null)
+    if (tpl.type === 'chat_nav') {
+      api.conference.templates.navPreview(eventId, tpl.id)
+        .then(r => setNavPreview(r.by_platform || null))
+        .catch(() => setNavPreview(null))
+    }
     setPreviewModal({ tpl, def })
     setPreviewSpeakerId(freshSpeakers[0]?.id ?? null)
   }
@@ -1098,12 +1110,21 @@ export default function TemplatesPage() {
     // здесь же, а не в общем списке плейсхолдеров.
     out = out.replace(/\{signup_link\}/g, signupLink(platform))
 
-    // {chat_nav_items} — пункты навигации по чату. ⚠️ Настоящие ссылки строит
-    // СЕРВЕР (у каждой площадки свой бот, у магнита — бот его владельца), здесь
-    // их взять неоткуда. Поэтому показываем состав и порядок пунктов, а вместо
-    // адреса — подпись, что подставится при отправке. Иначе в превью висел бы
-    // сырой {chat_nav_items}, и человек не понял бы, что получится.
-    if (out.includes('{chat_nav_items}')) {
+    // {chat_nav_items} — пункты навигации по чату. ⚠️ Ссылки строит СЕРВЕР
+    // (у каждой площадки свой бот, у магнита — бот его владельца), поэтому
+    // готовый текст пунктов запрашивается отдельно (navPreview) и показывается
+    // как есть. Пока ответ не пришёл — рисуем состав пунктов с подписями,
+    // чтобы в превью не висел сырой {chat_nav_items}.
+    if (out.includes('{chat_nav_items}') && navPreview) {
+      // ⚠️ Настоящие ссылки пришли с сервера — тем же резолвом, что у отправки.
+      // Показываем их, а не подписи: только так видно, что реально уйдёт в чат.
+      // Для email берём телеграмный вариант (в чат письма не уходят, вкладка
+      // нужна лишь чтобы превью не падало).
+      const body = navPreview[platform === 'email' ? 'telegram' : platform] || ''
+      out = body
+        ? out.replace(/\{chat_nav_items\}/g, body)
+        : out.replace(/^.*\{chat_nav_items\}.*$\n?/gm, '')
+    } else if (out.includes('{chat_nav_items}')) {
       // ⚠️ Пункты приходят ПАРАМЕТРОМ, а не из form: превью открывается для
       // ЛЮБОГО шаблона из списка, а form в этот момент хранит другой (или
       // ничего). Из формы брать можно только когда превью показывает её же.
@@ -2636,8 +2657,12 @@ export default function TemplatesPage() {
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
             </div>
 
-            {/* Выбор дня — только для дневных шаблонов */}
-            {confDays.length > 1 && !['pre_conf', 'speaker_intro', 'expert_day', '5min_before', 'gift'].includes(previewModal.def.type) && (
+            {/* Выбор дня — только для дневных шаблонов.
+                ⚠️ chat_nav дня не имеет вовсе: навигация по чату не привязана к
+                программе, её вешают в закреп один раз. Селектор дня у неё
+                вводил в заблуждение — предлагал выбор, который ни на что не
+                влияет. */}
+            {confDays.length > 1 && !['pre_conf', 'speaker_intro', 'expert_day', '5min_before', 'gift', 'chat_nav'].includes(previewModal.def.type) && (
               <div className="mb-3">
                 <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
                 <div className="flex flex-wrap gap-2">
@@ -2723,12 +2748,15 @@ export default function TemplatesPage() {
               {previewModal.def.showPhoto && previewModal.tpl.media_type !== 'video' && (() => {
                 // Конференционные/событийные шаблоны: афиша события (не спикера).
                 // Спикерская афиша подставляется только для шаблонов со спикером.
-                const isEventLevelTpl = previewModal.def.type.startsWith('day_')
-                  || previewModal.def.type === 'pre_conf'
-                  || previewModal.def.type === '2h_before_unreg'
-                  || previewModal.def.type === '2h_before_reg'
-                  || previewModal.def.type === '30min_before'
-                  || previewModal.def.type === 'event_live'
+                //
+                // ⚠️ Признак — ОТСУТСТВИЕ `hasSpeaker`, а не перечисление типов.
+                // Прежний список (`day_*`, `pre_conf`, `2h_before_*`…) молча
+                // ошибался на каждом новом типе: `chat_nav` в него не попал, и
+                // превью навигации по чату искало афишу СПИКЕРА и подписывало
+                // картинку «Афиша или фото спикера» — хотя спикера у этого
+                // шаблона нет вовсе. Перечисление ошибается в опасную сторону,
+                // признак — нет.
+                const isEventLevelTpl = !previewModal.def.hasSpeaker
                 // Афиша: тот же приоритет, что и в бэке (get_day_event_photo) —
                 // афиша ДНЯ превью → общая афиша события. Внутри группы:
                 // square > horizontal > vertical.

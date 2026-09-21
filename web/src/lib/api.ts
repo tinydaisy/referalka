@@ -3,6 +3,19 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 /** Вид макета афиши (миграция 459): общая, по дням, индивидуальная. */
 export type PosterKind = 'common' | 'day' | 'individual'
 
+/**
+ * Уровень доступа помощника кабинета (`assistant_grants.access_level`).
+ *
+ * ⚠️ ЕДИНСТВЕННОЕ место, где перечислены уровни на фронте. Раньше список был
+ * продублирован в четырёх файлах, и новая роль `leads` уронила сборку: её
+ * добавили в двух, забыли в двух. Новый уровень — правка ТОЛЬКО здесь.
+ *
+ * full — как владелец; limited — прежний широкий набор;
+ * orders — «Контакты» и «Анкеты», ВСЕ контакты кабинета (менеджер заказов);
+ * leads — «Контакты» и CRM событий, ТОЛЬКО закреплённые люди (менеджер лидов).
+ */
+export type AssistantAccessLevel = 'full' | 'limited' | 'orders' | 'leads'
+
 function getToken() {
   if (typeof window === 'undefined') return null
   return localStorage.getItem('plusson_token')
@@ -537,6 +550,11 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/templates/${id}/duplicate`, { method: 'POST' }),
       test: (eventId: number, id: number, day: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/templates/${id}/test?day=${day}`, { method: 'POST' }),
+      // Навигация по чату: готовые пункты со ссылками по площадкам.
+      // ⚠️ Ссылки строит сервер (боты клиента, режим Mini App/веб, бот
+      // владельца магнита) — фронт их вычислить не может.
+      navPreview: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/templates/${id}/nav-preview`),
     },
     schedules: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/schedules`),
@@ -2195,10 +2213,15 @@ export const api = {
   // Пароль владельцу не отдаётся: новому уходит письмом, «Напомнить» шлёт письмо помощнику.
   assistant: {
     list:          () => request('/api/v1/clients/me/assistants'),
-    // 'orders' — менеджер заказов: только «Контакты» и «Анкеты».
-    create:        (email: string, access_level: 'full' | 'limited' | 'orders' = 'limited') =>
+    // ⚠️ Уровень берём ОБЩИМ типом `AssistantAccessLevel` (объявлен ниже в
+    // этом же файле, `useMe` переэкспортирует его), а не
+    // переписываем список здесь: раньше он был перечислен в четырёх местах,
+    // и новая роль `leads` уронила сборку — её добавили в двух, забыли в двух.
+    // 'orders' — менеджер заказов (все контакты, «Контакты» + «Анкеты»),
+    // 'leads' — менеджер лидов (только закреплённые за ним люди).
+    create:        (email: string, access_level: AssistantAccessLevel = 'limited') =>
       request('/api/v1/clients/me/assistants', { method: 'POST', body: JSON.stringify({ email, access_level }) }),
-    setAccessLevel: (grantId: number, access_level: 'full' | 'limited' | 'orders') =>
+    setAccessLevel: (grantId: number, access_level: AssistantAccessLevel) =>
       request(`/api/v1/clients/me/assistants/${grantId}`, { method: 'PATCH', body: JSON.stringify({ access_level }) }),
     resetPassword: (grantId: number) =>
       request(`/api/v1/clients/me/assistants/${grantId}/reset-password`, { method: 'POST' }),

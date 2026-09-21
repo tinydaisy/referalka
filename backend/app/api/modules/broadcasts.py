@@ -4076,6 +4076,43 @@ async def test_existing_schedule_now(
     return {"ok": True, "sent": sent, "total": len(results), "results": results}
 
 
+@router.get("/templates/{template_id}/nav-preview", summary="Навигация по чату: ссылки по площадкам")
+async def preview_chat_nav(
+    event_id: int,
+    template_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Готовые пункты навигации со ссылками — по каждой площадке.
+
+    ⚠️ Зачем отдельный эндпоинт. Превью шаблона рисует ФРОНТ, а ссылки здесь
+    строит только сервер: они зависят от ботов клиента, режима Mini App/веб и
+    бота ВЛАДЕЛЬЦА лид-магнита. Фронт этого знать не может и раньше показывал
+    вместо адреса подпись «ссылка на кабинет участника» — клиент не видел, что
+    реально уйдёт в чат, и не мог проверить пост до отправки.
+
+    Отдаём ровно то, что подставит отправка: тот же `resolve_nav_links`.
+    """
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    row = await db.fetchrow(
+        "SELECT nav_items FROM broadcast_templates WHERE id=$1 AND event_id=$2",
+        template_id, event_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Шаблон не найден")
+
+    from app.services.chat_nav import parse_items, render_nav_items, resolve_nav_links
+    items = parse_items(row["nav_items"])
+    if not items:
+        return {"by_platform": {p: "" for p in ("telegram", "vk", "max")}}
+    resolved = await resolve_nav_links(db, items=items, event_id=event_id, client_id=client_id)
+    return {
+        "by_platform": {
+            p: render_nav_items(resolved, p) for p in ("telegram", "vk", "max")
+        }
+    }
+
+
 @router.post("/templates/{template_id}/test", summary="Тестовая рассылка шаблона")
 async def test_template(
     event_id: int,
