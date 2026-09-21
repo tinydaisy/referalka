@@ -59,6 +59,36 @@ def parse_items(raw: Any) -> list[dict]:
     return [i for i in raw if isinstance(i, dict)]
 
 
+async def resolve_for_schedule(db, schedule, event_id: int) -> list[dict]:
+    """Пункты навигации для КОНКРЕТНОЙ рассылки — ЕДИНАЯ точка.
+
+    ⚠️⚠️ Зовут ОБА пути: боевая отправка (Celery), превью и тест. Раньше у
+    каждого был свой кусок логики, и они разошлись на первом же отличии:
+    `broadcast_schedules.client_id` бывает NULL, боевая ветка берёт владельца
+    события запросом, а тест читал поле как есть — и молча слал сообщение
+    с одним заголовком, без единой ссылки (21.09.2026, прод).
+
+    Новое отличие между тестом и боем правится ЗДЕСЬ, а не копированием.
+    """
+    items = parse_items(
+        schedule.get("nav_items") if hasattr(schedule, "get") else None)
+    # Снимка нет (рассылку поставили в очередь до того, как появились пункты)
+    # — берём актуальные из шаблона, как и текст.
+    if not items and schedule.get("template_id"):
+        items = parse_items(await db.fetchval(
+            "SELECT nav_items FROM broadcast_templates WHERE id = $1",
+            schedule["template_id"]))
+    if not items or not event_id:
+        return []
+    client_id = schedule.get("client_id") or await db.fetchval(
+        """SELECT eo.client_id FROM event_owners eo
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+            ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1""", event_id)
+    if not client_id:
+        return []
+    return await resolve_nav_links(db, items=items, event_id=event_id, client_id=client_id)
+
+
 async def resolve_nav_links(
     db,
     *,

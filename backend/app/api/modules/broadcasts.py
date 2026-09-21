@@ -215,29 +215,17 @@ def _nav_items_param(value):
 
 
 async def _preview_nav_resolved(db, schedule, event_id):
-    """Пункты навигации со ссылками — для превью и тестовой отправки.
+    """Пункты навигации со ссылками — тонкая обёртка над ЕДИНОЙ точкой.
 
-    ⚠️ Превью обязано показывать ТЕ ЖЕ ссылки, что уйдут в чат: резолв один и
-    тот же (chat_nav.resolve_nav_links). Считать их на фронте нельзя — ссылка
-    зависит от ботов клиента и владельца магнита, фронт этого не знает.
+    ⚠️⚠️ Вся логика живёт в `chat_nav.resolve_for_schedule`, которую зовёт и
+    БОЕВАЯ отправка. Своего резолва здесь быть не должно: именно копия и
+    разошлась с боем (client_id бывает NULL — тест слал заголовок без ссылок).
+    Здесь остаётся только «не падать»: превью важнее пунктов в нём.
     """
     try:
-        from app.services.chat_nav import parse_items, resolve_nav_links
-        items = parse_items(schedule.get("nav_items") if hasattr(schedule, "get") else None)
-        # Снимка нет (рассылку поставили в очередь до того, как появились
-        # пункты) — берём актуальные из шаблона, как это делает и Celery.
-        if not items and schedule.get("template_id"):
-            items = parse_items(await db.fetchval(
-                "SELECT nav_items FROM broadcast_templates WHERE id = $1",
-                schedule["template_id"]))
-        if not items or not event_id:
-            return []
-        client_id = schedule.get("client_id")
-        if not client_id:
-            return []
-        return await resolve_nav_links(db, items=items, event_id=event_id, client_id=client_id)
+        from app.services.chat_nav import resolve_for_schedule
+        return await resolve_for_schedule(db, schedule, event_id)
     except Exception:
-        # Превью не должно падать из-за навигации — покажем текст без пунктов.
         return []
 
 

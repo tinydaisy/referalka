@@ -28,8 +28,7 @@ from app.services.share_links import TG_DOMAIN
 from app.services.chat_nav import (
     PLACEHOLDER as CHAT_NAV_PLACEHOLDER,
     apply_nav_items,
-    parse_items as parse_nav_items,
-    resolve_nav_links,
+    resolve_for_schedule,
 )
 
 
@@ -666,18 +665,17 @@ async def _send_broadcast(schedule_id: int):
         # каждой площадке. Резолвим один раз на всю отправку, подставляем под
         # площадку каждого чата. Пункт без ссылки не вставляется, нумерация
         # считается после отсева (chat_nav.py).
+        #
+        # ⚠️⚠️ ТА ЖЕ ФУНКЦИЯ, ЧТО У ПРЕВЬЮ И ТЕСТА (`resolve_for_schedule`).
+        # Своего резолва здесь быть не должно: именно копия логики разошлась с
+        # тестом и прислала людям заголовок без единой ссылки.
         _nav_resolved: list = []
         if CHAT_NAV_PLACEHOLDER in (text or ""):
-            _nav_items = parse_nav_items(schedule.get("nav_items"))
-            if _nav_items and schedule.get("event_id"):
-                try:
-                    _nav_resolved = await resolve_nav_links(
-                        conn, items=_nav_items,
-                        event_id=schedule["event_id"],
-                        client_id=schedule["client_id"],
-                    )
-                except Exception as ex:
-                    logger.warning(f"Навигация по чату для рассылки {schedule_id}: резолв упал: {ex}")
+            try:
+                _nav_resolved = await resolve_for_schedule(
+                    conn, schedule, schedule.get("event_id"))
+            except Exception as ex:
+                logger.warning(f"Навигация по чату для рассылки {schedule_id}: резолв упал: {ex}")
 
         def _with_nav(txt: str | None, platform: str) -> str:
             """{chat_nav_items} → пункты со ссылками этой площадки."""
