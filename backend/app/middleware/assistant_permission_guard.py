@@ -113,16 +113,24 @@ LEADS_ALLOWED_PREFIXES = (
     "/api/v1/dialogs",               # переписка с человеком из карточки
     "/api/v1/dialog-messages",
     "/api/v1/platforms",             # справочник площадок для значков
-    "/api/v1/events",                # список событий и CRM внутри — только GET, см. ниже
     "/api/v1/news",                  # плашка новостей есть на каждой странице
 )
 
-# ⚠️ Внутри событий менеджеру лидов разрешён ТОЛЬКО просмотр. Право писать
-# сюда открыло бы ему правку события, рассылки и розыгрыш: /api/v1/events —
-# это корень огромного раздела, и перечислять внутри него исключения значит
-# однажды забыть одно. Читает — да, меняет — нет.
-LEADS_READONLY_PREFIXES = (
-    "/api/v1/events",
+# ⚠️⚠️ Внутри событий менеджеру лидов открыты ДВА ТОЧНЫХ пути, а не префикс
+# «/api/v1/events». Под этот корень смонтировано ОКОЛО ДВАДЦАТИ независимых
+# роутеров: участники, тарифы и покупатели, розыгрыш, реф-отчёты, вебинарная
+# комната с чатом, логи рассылок, турнир, конференция, афиши, трекер анонсов.
+# Каждый отдаёт людей с телефонами и почтами и НИЧЕГО не знает про
+# `contact_assignments`. Открыв префикс, мы дали бы менеджеру выгрузить всю
+# базу кабинета одним GET `/events/{id}/participants` — в обход фильтра в
+# «Контактах» (поймано аудитом 2026-09-21, до выкатки).
+#
+# Поэтому список, а не префикс. Появится новый раздел внутри события — он
+# НЕ откроется менеджеру сам собой, и это правильное поведение по умолчанию.
+LEADS_ALLOWED_EVENT_PATHS = (
+    re.compile(r"^/api/v1/events/?$"),          # список событий (сужен фильтром)
+    re.compile(r"^/api/v1/events/\d+$"),        # шапка события: название, даты
+    re.compile(r"^/api/v1/events/\d+/crm$"),    # CRM — ради неё роль и заходит
 )
 
 OWNER_ONLY_ALWAYS_PREFIXES = (
@@ -226,17 +234,31 @@ async def assistant_permission_guard_middleware(request: Request, call_next):
     # Видимость людей режется не здесь, а фильтром по `contact_assignments`
     # в выборках: путь открыт, но отдаёт только закреплённых за ним.
     if level == "leads":
+        # События — по точному списку путей и ТОЛЬКО на чтение.
+        if path.startswith("/api/v1/events"):
+            if method in WRITE_METHODS or not any(
+                rx.match(path) for rx in LEADS_ALLOWED_EVENT_PATHS
+            ):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "В событии вам доступно только отслеживание (CRM)."},
+                )
+            return await call_next(request)
+        # ⚠️ Импорт CSV и объединение контактов закрыты: это работа с базой
+        # ЦЕЛИКОМ, а не со своими людьми. Импорт автомерджем переписывает уже
+        # существующие чужие контакты, объединение необратимо склеивает двух
+        # произвольных людей — оба ломают чужие данные, не показывая их.
+        if path in ("/api/v1/contacts/import",) or re.match(
+            r"^/api/v1/contacts/\d+/merge$", path
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Импорт и объединение контактов доступны только владельцу кабинета."},
+            )
         if not any(path.startswith(p) for p in LEADS_ALLOWED_PREFIXES):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "У вас доступ только к своим контактам и CRM событий."},
-            )
-        if method in WRITE_METHODS and any(
-            path.startswith(p) for p in LEADS_READONLY_PREFIXES
-        ):
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Событие можно только смотреть."},
             )
         return await call_next(request)
 

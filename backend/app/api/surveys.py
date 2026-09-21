@@ -125,14 +125,24 @@ class FieldIn(BaseModel):
 @router.get("/contact-fields")
 async def list_contact_fields(client=Depends(get_current_client), db=Depends(get_db)):
     """Поля контакта клиента + сколько людей их заполнили (для среза базы)."""
+    # ⚠️ «Менеджеру лидов» считаем заполненность только по ЕГО закреплённым:
+    # общая цифра выдала бы размер всей базы кабинета — чужую работу.
+    from app.services.assistant_access import leads_only_grant_id
+    leads_gid = await leads_only_grant_id(client)
+    leads_cond = (
+        " AND EXISTS (SELECT 1 FROM contact_assignments ca"
+        "              WHERE ca.contact_id = v.contact_id AND ca.grant_id = $2)"
+        if leads_gid else ""
+    )
     rows = await db.fetch(
-        """SELECT f.*,
+        f"""SELECT f.*,
                   (SELECT COUNT(*) FROM contact_field_values v
-                    WHERE v.field_id = f.id AND COALESCE(v.value, '') <> '') AS filled_count
+                    WHERE v.field_id = f.id AND COALESCE(v.value, '') <> ''
+                    {leads_cond}) AS filled_count
              FROM contact_fields f
             WHERE f.client_id = $1
             ORDER BY f.sort_order, f.id""",
-        int(client["sub"]),
+        int(client["sub"]), *([leads_gid] if leads_gid else []),
     )
     return [{**dict(r), "options": _jsonb(r["options"])} for r in rows]
 

@@ -77,7 +77,9 @@ async def is_full_grant_row(db: asyncpg.Connection, grant_id: Optional[int]) -> 
 # нельзя». Из-за него менеджер заказов видел переписку (путь /api/v1/dialogs
 # ему открыт) и поле ввода, набирал ответ и получал 403: работать с людьми —
 # ровно его задача, а ответить он не мог.
-_CAN_REPLY_LEVELS = ("full", "orders")
+# ⚠️ 'leads' здесь ОБЯЗАТЕЛЕН: писать своим закреплённым людям — смысл роли.
+# Кому именно он пишет, ограничивает `assert_leads_access` в самом эндпоинте.
+_CAN_REPLY_LEVELS = ("full", "orders", "leads")
 
 
 async def assistant_can_reply_in_dialogs(user: dict) -> bool:

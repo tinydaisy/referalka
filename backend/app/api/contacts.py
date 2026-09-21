@@ -770,12 +770,21 @@ async def get_filter_options(
          ORDER BY tag
     """, client_id, *leads_args)
 
-    events = await db.fetch("""
+    # ⚠️ Менеджеру лидов оставляем только события, где есть ЕГО люди: иначе
+    # выпадашка перечислила бы все события кабинета — чужую работу целиком.
+    events_cond = (
+        " AND EXISTS (SELECT 1 FROM event_participants ep"
+        "              JOIN contact_assignments ca ON ca.contact_id = ep.contact_id"
+        "             WHERE ep.event_id = events.id AND ca.grant_id = $2)"
+        if leads_gid else ""
+    )
+    events = await db.fetch(f"""
         SELECT id, title, slug
           FROM events
          WHERE id IN (SELECT event_id FROM event_owners WHERE client_id = $1 AND status = 'accepted')
+           {events_cond}
          ORDER BY COALESCE(start_at, created_at) DESC NULLS LAST, id DESC
-    """, client_id)
+    """, client_id, *leads_args)
 
     lead_magnets = await db.fetch("""
         SELECT id, name

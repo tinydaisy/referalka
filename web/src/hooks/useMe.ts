@@ -1,10 +1,13 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api, type AssistantAccessLevel } from '@/lib/api'
 import { displayName } from '@/lib/personName'
 
 export type MeRole = 'owner' | 'assistant'
-export type AssistantAccessLevel = 'full' | 'limited' | 'orders' | 'leads'
+// ⚠️ Уровни объявлены ОДИН раз — в api.ts. Здесь только переэкспорт, чтобы не
+// ломать существующие импорты из этого файла (список в четырёх копиях уже
+// однажды уронил сборку: роль добавили не везде).
+export type { AssistantAccessLevel } from '@/lib/api'
 
 export interface Me {
   id?: number
