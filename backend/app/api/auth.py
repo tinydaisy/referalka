@@ -1022,6 +1022,52 @@ async def change_password(
     return {"ok": True}
 
 
+@router.post("/assistant/change-password", summary="Помощник меняет СВОЙ пароль")
+async def assistant_change_password(
+    data: ChangePasswordRequest,
+    db: asyncpg.Connection = Depends(get_db),
+    credentials=Depends(__import__("app.auth", fromlist=["security"]).security),
+):
+    """Помощник меняет свой пароль сам.
+
+    ⚠️ Отдельный адрес, а не общий `/change-password`. Тот берёт номер
+    кабинета из токена (`sub`) и правит таблицу `clients` — а у помощника в
+    `sub` лежит кабинет ВЛАДЕЛЬЦА. Открыв ему общий адрес, мы дали бы
+    помощнику менять пароль владельцу. Поэтому общий закрыт всем помощникам
+    (OWNER_ONLY_ALWAYS_WRITE_PATHS), а здесь правится запись самого человека
+    по `assistant_id`.
+
+    До этого помощник не мог сменить пароль НИКАК — только просить владельца
+    выслать новый. Забыл или утёк — сам закрыть не мог.
+    """
+    from app.auth import decode_token
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    payload = decode_token(credentials.credentials)
+    if payload.get("role") != "assistant":
+        raise HTTPException(status_code=403, detail="Этот раздел — для помощников кабинета.")
+    assistant_id = payload.get("assistant_id")
+    if not assistant_id:
+        raise HTTPException(status_code=400, detail="Не удалось определить учётную запись")
+
+    if not data.new_password or len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Новый пароль должен быть не короче 8 символов")
+
+    row = await db.fetchrow(
+        "SELECT password_hash FROM assistants WHERE id = $1", int(assistant_id)
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Учётная запись не найдена")
+    if not row["password_hash"] or not verify_password(data.current_password, row["password_hash"]):
+        raise HTTPException(status_code=400, detail="Текущий пароль неверный")
+
+    await db.execute(
+        "UPDATE assistants SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+        hash_password(data.new_password), int(assistant_id),
+    )
+    return {"ok": True}
+
+
 # ─── Восстановление пароля по email ─────────────────────────────────────
 
 

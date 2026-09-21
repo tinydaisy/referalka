@@ -49,6 +49,14 @@ from jose import JWTError, jwt
 from app.config import settings
 
 
+# ⚠️ Свой пароль помощник меняет САМ — этот путь открыт ЛЮБОМУ помощнику,
+# на любом уровне доступа. Общий `/auth/change-password` ему закрыт и должен
+# оставаться закрытым: тот правит запись КЛИЕНТА по номеру кабинета из
+# токена, а у помощника там кабинет владельца — он сменил бы пароль ему.
+# До появления этого пути помощник не мог сменить пароль никак: забыл или
+# утёк — только просить владельца выслать новый.
+ASSISTANT_OWN_PASSWORD_PATH = "/api/v1/auth/assistant/change-password"
+
 # Полностью закрытые префиксы — ни GET, ни write.
 FORBIDDEN_PREFIXES = (
     "/api/v1/clients/me/assistant",           # ассистент не управляет сам собой
@@ -84,6 +92,7 @@ FORBIDDEN_WRITE_PATHS = (
 # не соберутся фильтры в таблице ответов.
 ORDERS_ALLOWED_PREFIXES = (
     "/api/v1/auth/me",
+    ASSISTANT_OWN_PASSWORD_PATH,     # свой пароль помощник меняет сам
     "/api/v1/contacts",              # список, карточка, правка, экспорт
     "/api/v1/contact-fields",        # названия доп. полей в карточке
     "/api/v1/surveys",               # анкеты, ответы, отметки об обработке
@@ -108,6 +117,7 @@ ORDERS_ALLOWED_PREFIXES = (
 # /api/v1/contacts открыт, но отдать он должен только закреплённых.
 LEADS_ALLOWED_PREFIXES = (
     "/api/v1/auth/me",
+    ASSISTANT_OWN_PASSWORD_PATH,     # свой пароль помощник меняет сам
     "/api/v1/contacts",              # список, карточка, правка, экспорт — только свои
     "/api/v1/contact-fields",        # названия доп. полей в карточке
     "/api/v1/dialogs",               # переписка с человеком из карточки

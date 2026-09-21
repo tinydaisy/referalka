@@ -239,6 +239,11 @@ export const api = {
     updateMe: (data: any) => request('/api/v1/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
     changePassword: (current_password: string, new_password: string) =>
       request('/api/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
+    // ⚠️ Помощник меняет СВОЙ пароль отдельным адресом: общий правит запись
+    // клиента по номеру кабинета из токена, а у помощника там кабинет
+    // ВЛАДЕЛЬЦА — он сменил бы пароль ему.
+    changeAssistantPassword: (current_password: string, new_password: string) =>
+      request('/api/v1/auth/assistant/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
     regenerateIntegrationToken: () =>
       request('/api/v1/auth/me/regenerate-integration-token', { method: 'POST' }),
     verifyEmailConfirm: (token: string) =>
