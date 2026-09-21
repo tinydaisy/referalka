@@ -1116,8 +1116,14 @@ export default function TemplatesPage() {
       }
       let n = 0
       const lines = items.map((it: any) => {
-        const manual = it?.kind === 'rules' || it?.kind === 'link'
-        const url = (it?.url || '').trim()
+        // ⚠️ Правила чата — ссылка СВОЕЙ площадки (закреп в конкретном чате).
+        // Нет её для этой площадки → пункта там не будет, как и в реальной
+        // отправке; чужую не подставляем.
+        const rules = it?.kind === 'rules'
+        const url = rules
+          ? ((it?.urls || {})[platform === 'email' ? 'telegram' : platform] || '').trim()
+          : (it?.url || '').trim()
+        const manual = rules || it?.kind === 'link'
         // Пункт без ссылки не уходит вовсе — и в превью его тоже не показываем.
         if (manual && !url) return null
         if (it?.kind === 'magnet' && !it?.magnet_id) return null

@@ -93,10 +93,24 @@ async def resolve_nav_links(
         links: dict[str, str] = {}
 
         if kind in ("rules", "link"):
-            # Ссылка одна на все площадки: чат у события общий, правила тоже.
-            url = (item.get("url") or "").strip()
-            if url:
-                links = {p: url for p in _PLATFORMS}
+            # ⚠️⚠️ ССЫЛКА ЗАДАЁТСЯ ПО ПЛОЩАДКАМ (решение владельца 21.09.2026).
+            # Правила нетворкинга — это ЗАКРЕПЛЁННЫЙ ПОСТ В САМОМ ЧАТЕ, а чат у
+            # каждой площадки свой: в телеграмном чате свой закреп, во вкашном
+            # свой. Одна ссылка на всех увела бы человека из ВК в Telegram —
+            # туда, где он не состоит.
+            #
+            # `urls: {telegram, vk, max}` — основной формат. `url` (одна на всех)
+            # оставлен для совместимости и для «своей ссылки», которая часто
+            # действительно одна (лендинг, документ).
+            by_pl = item.get("urls") or {}
+            if isinstance(by_pl, dict):
+                links = {p: (by_pl.get(p) or "").strip()
+                         for p in _PLATFORMS if (by_pl.get(p) or "").strip()}
+            common = (item.get("url") or "").strip()
+            if common:
+                # Общая ссылка добирает площадки, где своей не задано.
+                for p in _PLATFORMS:
+                    links.setdefault(p, common)
 
         elif kind == "vip":
             if vip_url is None:
@@ -124,7 +138,11 @@ async def resolve_nav_links(
                          (await build_gift_funnel_links_by_owner(db, mkind, slug)).items() if v}
 
         if label or links:
-            out.append({"label": label, "links": links})
+            # ⚠️ `own_only` — ссылка имеет смысл ТОЛЬКО на своей площадке.
+            # Правила нетворкинга лежат в закрепе КОНКРЕТНОГО чата: выдать
+            # человеку в ВК ссылку «Через Телеграм: …» значит отправить его в
+            # чат, где его нет. Лучше не показать пункт вовсе.
+            out.append({"label": label, "links": links, "own_only": kind == "rules"})
 
     return out
 
@@ -211,7 +229,15 @@ def render_nav_items(resolved: list[dict], platform: str) -> str:
         # площадки. Ровно то же правило, что у подарков и ссылки регистрации
         # (pick_gift_funnel_link) — человек не должен молча получить ссылку в
         # мессенджер, которым не пользуется.
-        url = pick_gift_funnel_link(links, platform)
+        #
+        # ⚠️ Исключение — `own_only` (правила чата): чужую площадку НЕ
+        # подставляем. Закреп с правилами лежит в конкретном чате, и ссылка на
+        # телеграмный чат бесполезна тому, кто читает вкашный: пункт просто не
+        # показываем, как и при пустой ссылке.
+        if item.get("own_only"):
+            url = (links.get(platform) or "").strip()
+        else:
+            url = pick_gift_funnel_link(links, platform)
         if not url:
             continue
         num += 1

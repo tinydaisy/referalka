@@ -15,14 +15,24 @@
  */
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import LeadMagnetPicker from '@/components/LeadMagnetPicker'
+import PlatformLogo from '@/components/PlatformLogo'
+
+const PLATFORM_NAME: Record<string, string> = {
+  telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX',
+}
 
 export type NavKind = 'vip' | 'cabinet' | 'support' | 'rules' | 'link' | 'magnet'
 
 export interface NavItem {
   kind: NavKind
   label?: string
-  /** Для kind='rules' и 'link' — ссылка, вписанная руками. */
+  /** Для kind='link' — одна ссылка на все площадки. */
   url?: string
+  /**
+   * Для kind='rules' — своя ссылка на КАЖДУЮ площадку: правила лежат в закрепе
+   * конкретного чата, а чат у Telegram, ВК и MAX разный.
+   */
+  urls?: { telegram?: string; vk?: string; max?: string }
   /** Для kind='magnet': 'm' — лид-магнит, 'p' — пакет. */
   magnet_kind?: 'm' | 'p'
   magnet_id?: number
@@ -44,7 +54,7 @@ const KIND_META: Record<NavKind, { label: string; hint: string }> = {
   },
   rules: {
     label: 'Правила чата',
-    hint: 'Ссылку вписываете сами — например, на закреплённый пост с правилами.',
+    hint: 'Ссылка на закреплённый пост с правилами — своя в каждом чате. Где не заполнено, пункт не появится.',
   },
   link: {
     label: 'Своя ссылка',
@@ -81,14 +91,22 @@ export default function ChatNavEditor({ value, onChange }: Props) {
   }
 
   const add = (kind: NavKind) =>
-    onChange([...items, { kind, label: '', ...(kind === 'rules' || kind === 'link' ? { url: '' } : {}) }])
+    onChange([...items, {
+      kind,
+      label: '',
+      ...(kind === 'link' ? { url: '' } : {}),
+      ...(kind === 'rules' ? { urls: {} } : {}),
+    }])
 
   /**
    * Попадёт ли пункт в сообщение. Для «ручных» видов это видно сразу — есть
    * ссылка или нет; остальные резолвятся на сервере, и обещать за них нельзя.
    */
   const willShow = (it: NavItem): boolean => {
-    if (it.kind === 'rules' || it.kind === 'link') return !!(it.url || '').trim()
+    // Правила: достаточно ссылки хотя бы на одной площадке — там пункт и
+    // появится, а на остальных его не будет (и это правильно).
+    if (it.kind === 'rules') return Object.values(it.urls || {}).some(u => (u || '').trim())
+    if (it.kind === 'link') return !!(it.url || '').trim()
     if (it.kind === 'magnet') return !!it.magnet_id
     return true
   }
@@ -158,7 +176,35 @@ export default function ChatNavEditor({ value, onChange }: Props) {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
             />
 
-            {(it.kind === 'rules' || it.kind === 'link') && (
+            {/* ⚠️ Правила чата — ССЫЛКА НА КАЖДУЮ ПЛОЩАДКУ ОТДЕЛЬНО: это закреп
+                внутри конкретного чата, а чат у Telegram, ВК и MAX свой. Одна
+                ссылка на всех увела бы человека в чужой чат, где его нет. */}
+            {it.kind === 'rules' && (
+              <div className="space-y-1.5">
+                {(['telegram', 'vk', 'max'] as const).map(pl => (
+                  <div key={pl} className="flex items-center gap-2">
+                    {/* Логотип площадки — общим компонентом: кружок с буквой
+                        читается как заглушка, а MAX по первой букве не узнать. */}
+                    <span className="shrink-0" title={PLATFORM_NAME[pl]}>
+                      <PlatformLogo slug={pl} size={22} />
+                    </span>
+                    <input
+                      type="url"
+                      value={(it.urls || {})[pl] || ''}
+                      onChange={e => patch(i, { urls: { ...(it.urls || {}), [pl]: e.target.value } })}
+                      placeholder="Ссылка на закреп с правилами в этом чате"
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
+                    />
+                  </div>
+                ))}
+                <p className="text-[11px] text-gray-500 leading-snug">
+                  Заполните те площадки, где есть чат. В остальных пункт просто не появится —
+                  чужую ссылку не подставляем, чтобы не отправить человека в чат, где его нет.
+                </p>
+              </div>
+            )}
+
+            {it.kind === 'link' && (
               <input
                 type="url"
                 value={it.url || ''}
