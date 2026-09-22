@@ -29,7 +29,13 @@ DROP INDEX IF EXISTS clients_referred_by_tech_idx;
 ALTER TABLE clients DROP COLUMN IF EXISTS referred_by_tech_id;
 
 -- Второй реф-код внедренца — под нож по той же причине: один человек, один код.
-DROP INDEX IF EXISTS tech_specialists_referral_code_key;
+--
+-- ⚠️ Уникальность у `referral_code` сделана ОГРАНИЧЕНИЕМ (constraint), а не
+-- просто индексом: `DROP INDEX` на него отвечает «cannot drop index … because
+-- constraint … requires it». Снимаем ограничение — индекс уйдёт вместе с ним.
+-- Поймано при накате на прод 22.09.2026.
+ALTER TABLE tech_specialists
+    DROP CONSTRAINT IF EXISTS tech_specialists_referral_code_key;
 ALTER TABLE tech_specialists DROP COLUMN IF EXISTS referral_code;
 
 COMMENT ON COLUMN clients.referred_by_client_id IS
