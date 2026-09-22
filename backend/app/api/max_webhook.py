@@ -2515,16 +2515,19 @@ async def _start_max_lead_magnet_funnel(
         return True
 
     kind = "m" if payload.startswith("m_") else "p"
-    rest = payload[2:]
-    parts = rest.split("_") if rest else []
-    slug = parts[0] if parts else ""
+    # ⚠️ Общим разборщиком: реф-код в `pid` может содержать `_` (`tg_392695076`).
+    from app.services.start_param import split_payload, marker_value
+    slug, chunks = split_payload(payload, payload[:2])
     pid: str | None = None
     utm_source: str | None = None
-    for chunk in parts[1:]:
-        if chunk.startswith("pid"):
-            pid = chunk[3:] or None
-        elif chunk.startswith("src"):
-            utm_source = chunk[3:] or None
+    for chunk in chunks:
+        v = marker_value(chunk, "pid")
+        if v is not None:
+            pid = v
+            continue
+        v = marker_value(chunk, "src")
+        if v is not None:
+            utm_source = v
     if not slug:
         return False
 

@@ -33,6 +33,27 @@ function detectClientIdFromPath(): number | null {
 // Флаги `_q{flag}` (повторяемые) — произвольные маркеры для активации блоков на
 // стороннем лендинге клиента (например `_qshpw` → к URL лендинга приклеится `&shpw=1`).
 const FLAG_RE = /^[a-z0-9-]{1,16}$/
+
+// ⚠️⚠️ ЗНАЧЕНИЕ МАРКЕРА МОЖЕТ СОДЕРЖАТЬ `_` (23.09.2026). Реф-коды апрельского
+// импорта выглядят как `tg_392695076` / `sp_2a1a351a` — таких в базе 95 штук.
+// Наивный `raw.split('_')` резал `_pidtg_392695076` на куски и отдавал
+// partnerId = `tg`: реферала не находили, и человек записывался как «пришёл
+// сам». Поэтому куски, которые сами не начинаются с известного маркера,
+// приклеиваем обратно к предыдущему. Зеркало backend/app/services/start_param.py
+const BARE_FLAGS = ['live', 'reg', 'nolend', 'land']
+const VALUE_PREFIXES = ['pid', 'src', 'cid', 'tab', 'spk', 'pg', 'ct', 'q']
+function splitMarkers(raw: string): string[] {
+  const out: string[] = []
+  raw.split('_').forEach(piece => {
+    if (!out.length) { out.push(piece); return }
+    const isMarker = BARE_FLAGS.includes(piece) ||
+      VALUE_PREFIXES.some(p => piece.startsWith(p) && piece.length > p.length)
+    if (isMarker) out.push(piece)
+    else out[out.length - 1] = `${out[out.length - 1]}_${piece}`
+  })
+  return out
+}
+
 function parseStartParam(raw: string): {
   eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number; contactId?: number;
   live?: boolean; regFromLanding?: boolean; noLanding?: boolean; initialTab?: string; flags?: string[];
@@ -40,7 +61,7 @@ function parseStartParam(raw: string): {
 } {
   const r: any = {}
   const flags: string[] = []
-  raw.split('_').forEach(p => {
+  splitMarkers(raw).forEach(p => {
     if (p.startsWith('pg'))  r.eventSlug  = p.slice(2)
     else if (p.startsWith('pid')) r.partnerId  = p.slice(3)
     else if (p.startsWith('src')) r.utmSource  = p.slice(3)
@@ -152,10 +173,11 @@ async function handleVkFunnelIfNeeded(
   // «подробности в чате», бэк шлёт в ЛС порт TG-воронки события.
   if (sp.startsWith('evl_')) {
     const rest = sp.slice(4)
-    const parts = rest.split('_')
-    const slug = parts[0] || ''
+    // ⚠️ splitMarkers, а не split('_'): реф-код в `pid` может содержать `_`.
+    const sepAt = rest.indexOf('_')
+    const slug = (sepAt === -1 ? rest : rest.slice(0, sepAt)) || ''
     let pid = '', src = '', ct = 0
-    for (const chunk of parts.slice(1)) {
+    for (const chunk of (sepAt === -1 ? [] : splitMarkers(rest.slice(sepAt + 1)))) {
       if (chunk.startsWith('pid')) pid = chunk.slice(3)
       else if (chunk.startsWith('src')) src = chunk.slice(3)
       else if (chunk.startsWith('ct')) { const n = Number(chunk.slice(2)); if (Number.isFinite(n) && n > 0) ct = n }

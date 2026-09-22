@@ -28,19 +28,22 @@ def _parse_pid_slug(raw: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """
     if not raw:
         return None, None
+    # ⚠️ Общим разборщиком: значение маркера может содержать `_` (реф-коды
+    # апрельского импорта — `tg_392695076`). Иначе в журнале виден огрызок
+    # `tg` — и разбор потерянного реферала уводит по ложному следу.
+    from app.services.start_param import split_markers, marker_value
     slug = None
     pid = None
-    s = raw
     for prefix in ("ref_pg", "evl_", "m_", "p_"):
-        if s.startswith(prefix):
-            s2 = s[len(prefix):]
-            parts = s2.split("_")
-            if parts:
-                slug = parts[0] or None
+        if raw.startswith(prefix):
+            rest = raw[len(prefix):]
+            head, _sep, _tail = rest.partition("_")
+            slug = head or None
             break
-    for p in raw.split("_"):
-        if p.startswith("pid") and len(p) > 3:
-            pid = p[3:]
+    for p in split_markers(raw):
+        v = marker_value(p, "pid")
+        if v is not None:
+            pid = v
             break
     return slug, pid
 

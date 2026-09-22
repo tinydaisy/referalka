@@ -39,18 +39,24 @@ def parse_product_payload(payload: str) -> Optional[dict]:
     if not rest:
         return None
 
-    parts = rest.split("_")
-    slug = parts[0] if parts else ""
+    # ⚠️ Общим разборщиком: реф-код в `pid` может содержать `_` (`tg_392695076`),
+    # наивный split обрубал его до `tg` — партнёру не засчитывалась продажа.
+    from app.services.start_param import split_markers, marker_value
+    head, _sep, tail = rest.partition("_")
+    slug = head
     if not slug:
         return None
 
     pid: Optional[str] = None
     utm_source: Optional[str] = None
-    for chunk in parts[1:]:
-        if chunk.startswith("pid"):
-            pid = chunk[3:] or None
-        elif chunk.startswith("src"):
-            utm_source = chunk[3:] or None
+    for chunk in split_markers(tail):
+        v = marker_value(chunk, "pid")
+        if v is not None:
+            pid = v
+            continue
+        v = marker_value(chunk, "src")
+        if v is not None:
+            utm_source = v
     return {"slug": slug, "pid": pid, "utm_source": utm_source}
 
 

@@ -379,17 +379,20 @@ async def handle_start(message: Message, command: CommandObject):
     # путь через pluson.ru/m/{slug}?to=tg.
     if args.startswith("m_") or args.startswith("p_"):
         kind = "m" if args.startswith("m_") else "p"
-        # Разбираем `{slug}_pid{X}_src{Y}` — slug = до первого `_pid`/`_src` или весь хвост
-        rest = args[2:]
-        parts = rest.split("_") if rest else []
-        slug = parts[0] if parts else ""
+        # Разбираем `{slug}_pid{X}_src{Y}` — slug = до первого `_pid`/`_src` или весь хвост.
+        # ⚠️ Общим разборщиком: реф-код в `pid` может содержать `_` (`tg_392695076`).
+        from app.services.start_param import split_payload, marker_value
+        slug, chunks = split_payload(args, args[:2])
         pid: str | None = None
         utm_source: str | None = None
-        for chunk in parts[1:]:
-            if chunk.startswith("pid"):
-                pid = chunk[3:] or None
-            elif chunk.startswith("src"):
-                utm_source = chunk[3:] or None
+        for chunk in chunks:
+            v = marker_value(chunk, "pid")
+            if v is not None:
+                pid = v
+                continue
+            v = marker_value(chunk, "src")
+            if v is not None:
+                utm_source = v
         if slug:
             try:
                 started = await _start_lead_magnet_funnel(message, kind, slug, pid, utm_source)
@@ -1235,9 +1238,12 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         return False
 
     # Разбираем payload: после `ref_pg` идёт slug, дальше — флаги/параметры через `_`.
-    rest = args[len("ref_pg"):]
-    parts = rest.split("_") if rest else []
-    slug = parts[0] if parts else ""
+    # ⚠️ Режем ОБЩИМ разборщиком: значение маркера само может содержать `_`
+    # (реф-коды апрельского импорта — `tg_392695076`, `sp_2a1a351a`). Наивный
+    # `split("_")` обрубал такой pid до `tg`, реферала не находили, и человек
+    # записывался как «пришёл сам».
+    from app.services.start_param import split_payload
+    slug, chunks = split_payload(args, "ref_pg")
     if not slug:
         return False
     want_landing = False   # флаг `_land` — кнопка на сторонний лендинг
@@ -1251,7 +1257,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     # чата события ссылка приходит с `_tabgame`, бот показывал меню, а кнопка
     # «Кабинет и подарки» вела на вкладку по умолчанию. Пробрасываем дальше.
     want_tab: str | None = None
-    for chunk in parts[1:]:
+    for chunk in chunks:
         if chunk == "land":
             want_landing = True
         elif chunk == "nolend":

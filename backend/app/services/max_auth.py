@@ -122,7 +122,11 @@ def parse_startapp_ref_payload(start_param: str) -> dict:
     rest = start_param[3:]  # снимаем префикс "ref"
     if rest.startswith("_"):
         rest = rest[1:]
-    parts = rest.split("_") if rest else []
+    # ⚠️ Общим разборщиком: значение маркера может содержать `_` — реф-коды
+    # апрельского импорта (`tg_392695076`, `sp_2a1a351a`). Наивный split обрубал
+    # такой pid до `tg`, и реферала не находили — человек «пришёл сам».
+    from app.services.start_param import split_markers
+    parts = split_markers(rest)
     flags_raw: list[str] = []
     for part in parts:
         if part.startswith("pg"):

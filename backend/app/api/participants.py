@@ -92,6 +92,24 @@ async def register_participant(
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено или не опубликовано")
 
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — регистрация из Mini App / веб-версии.
+    # ⚠️ Ссылка `?startapp=…` открывает Mini App НАПРЯМУЮ, минуя `/start` у бота
+    # — значит обработчик бота (а с ним и запись в журнал) не срабатывает вовсе.
+    # Без этой строки такие заходы были невидимы: разбираться, что за ссылку
+    # человек открыл, оказывалось не по чему (23.09.2026, событие 89).
+    try:
+        from app.services.entry_link_log import log_entry_link
+        await log_entry_link(
+            db,
+            platform=f"{data.platform}-reg",
+            platform_user_id=(str(data.tg_id) if data.tg_id else None),
+            raw_param=f"register:{data.event_slug}",
+            parsed_slug=data.event_slug,
+            parsed_pid=(data.ref_code or None),
+        )
+    except Exception:
+        pass
+
     # ⚠️ КОЛЛАБА: база — по рефоводу из ссылки, иначе по клиенту Mini App
     # (`client_id`, приходит из адреса `/c/{N}/tg/`), и только потом «первый
     # владелец». Без этого человек регистрировался в базе одного организатора,
