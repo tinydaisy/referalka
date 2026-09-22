@@ -377,6 +377,27 @@ async def create_order(
     if referrer_contact_id and referrer_contact_id == contact_id:
         resolved_ref, referrer_contact_id = None, None
 
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — оформление заказа тарифа.
+    # ⚠️ Журнала на этом пути не было вовсе: кто и по чьей ссылке пришёл
+    # покупать — не видно. Площадка берётся из `_plat` (tg_id/vk_id/max_id в
+    # форме), значит запись одинаковая для всех трёх площадок — и из ботов, и
+    # из Mini App, и с веб-лендинга.
+    # ⚠️ Пишем СЫРОЙ `data.ref_code` (что реально пришло в `?pid=`) и рядом
+    # `resolved_ref` — что из него вышло. Разойдутся — сразу видно, что код
+    # не нашёлся, а не гадать потом.
+    try:
+        from app.services.entry_link_log import log_entry_link
+        await log_entry_link(
+            db,
+            platform=f"{_plat[0] if _plat else 'web'}-order",
+            platform_user_id=(_plat[1] if _plat else None),
+            raw_param=f"order:{t['event_slug']}:{data.ref_code or ''}",
+            parsed_slug=t["event_slug"],
+            parsed_pid=(resolved_ref or (data.ref_code or "").strip() or None),
+        )
+    except Exception:
+        pass
+
     # Партнёрка: закрепление за партнёром (миграция 346).
     #
     # ⚠️⚠️ Событийное `referrer_ref_code` мы НЕ ТРОГАЕМ — там «кто привёл на

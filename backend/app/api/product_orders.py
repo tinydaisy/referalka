@@ -339,6 +339,22 @@ async def create_order(
         except Exception as e:
             logger.warning("Реф-код %s не разобран: %s", data.ref_code, e)
 
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — оформление заказа продукта.
+    # ⚠️ Площадки в форме заказа продукта НЕТ (только telegram_username, а это
+    # ник, а не id) — поэтому метка `web-order` честная: путь один, через
+    # веб-лендинг. Ссылки из ботов и Mini App ведут на этот же лендинг с `?pid=`.
+    try:
+        from app.services.entry_link_log import log_entry_link
+        await log_entry_link(
+            db,
+            platform="web-order",
+            platform_user_id=(str(contact_id) if contact_id else None),
+            raw_param=f"product_order:{data.ref_code or ''}",
+            parsed_pid=((data.ref_code or "").strip() or None),
+        )
+    except Exception:
+        pass
+
     # ⚠️ Согласия ЗАПИСЫВАЕМ (10.09.2026). Раньше форма их принимала и
     # выбрасывала — галочка человека нигде не сохранялась. Одна галочка
     # «рассылки и звонки» ставит ОБА согласия (см. services/consents.py).

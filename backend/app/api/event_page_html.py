@@ -3588,6 +3588,28 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
     # попадал к «первому владельцу» вместо того, кто его позвал.
     pid = (pid or "").strip()[:64]
 
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — ЗАХОД на лендинг оплаты/регистрации.
+    # ⚠️ Пишется на ОТКРЫТИЕ страницы, до всякого заполнения формы: иначе в
+    # журнал попадали бы только купившие, а «зашёл и ушёл» — самое важное для
+    # воронки — терялось. Площадка берётся из адреса (`tg_id`/`vk_id`/`max_id`),
+    # поэтому запись одинакова для всех трёх — и из ботов, и из Mini App;
+    # `web-page` — когда человек пришёл просто по веб-ссылке.
+    try:
+        from app.services.entry_link_log import log_entry_link
+        _p = next(((_s, str(_v).strip()) for _v, _s in
+                   ((tg_id, "telegram"), (vk_id, "vk"), (max_id, "max"))
+                   if str(_v or "").strip().isdigit()), None)
+        await log_entry_link(
+            db,
+            platform=f"{_p[0]}-page" if _p else "web-page",
+            platform_user_id=(_p[1] if _p else None),
+            raw_param=f"register_page:{slug}:{pid}",
+            parsed_slug=slug,
+            parsed_pid=(pid or None),
+        )
+    except Exception:
+        pass
+
     # Площадка из ссылки → contact_id, когда `?c=` не доехал. Ищем ТОЛЬКО
     # существующую идентичность: заводить человека при открытии страницы
     # нельзя — он ещё ничего не заполнил и может уйти.
