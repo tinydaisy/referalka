@@ -84,7 +84,7 @@ async def handle_max_event(body: MaxEventRequest):
             from app.services.entry_link_log import log_entry_link
             await log_entry_link(
                 conn,
-                platform="max",
+                platform="max-app",  # открытие Mini App, не сообщение боту
                 platform_user_id=max_user_id,
                 raw_param=f"max_event:{body.event_slug or ''}",
                 parsed_slug=(body.event_slug or None),

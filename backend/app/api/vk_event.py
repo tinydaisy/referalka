@@ -1027,7 +1027,10 @@ async def handle_vk_event(body: VkEventRequest):
         async with pool.acquire() as _logc:
             await log_entry_link(
                 _logc,
-                platform="vk",
+                # `-app` — открытие Mini App, а не сообщение боту. Метка едина
+                # для всех трёх площадок, иначе в журнале не отличить заход в
+                # приложение от захода в бота.
+                platform="vk-app",
                 platform_user_id=vk_user_id,
                 raw_param=(body.event_slug or "") + (f"_pid{body.partner_id}" if body.partner_id else ""),
                 launch_params=body.launch_params,
@@ -1923,7 +1926,7 @@ async def vk_event_landing(body: VkEventLandingRequest):
         try:
             await log_entry_link(
                 conn,
-                platform="vk",
+                platform="vk-app",  # открытие Mini App (см. метку выше)
                 platform_user_id=vk_user_id,
                 raw_param=(body.slug or "") + (f"_pid{body.partner_id}" if body.partner_id else ""),
                 launch_params=body.launch_params,

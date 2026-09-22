@@ -155,16 +155,26 @@
 разбираться было не по чему (в журнале 55 заходов на `ivision9` при 289
 участниках, и 44 из них — ВК).
 
-**Где пишется теперь** — все пять путей:
+**Где пишется теперь** — три площадки × три шага, одинаково:
 
-| Путь | Точка записи | `platform` |
-|---|---|---|
-| TG-бот `/start` | [start.py](backend/bot/handlers/start.py) | `telegram` |
-| ВК | [vk_main.py](backend/bot/vk_main.py), [vk_event.py](backend/app/api/vk_event.py) | `vk` |
-| MAX-бот `/start` | `_process_start` в [max_webhook.py](backend/app/api/max_webhook.py) | `max` |
-| MAX Mini App | [max_event.py](backend/app/api/max_event.py) | `max` |
-| Mini App / веб — **открытие** | `POST /event` ([event.py](backend/app/api/event.py)) | `{площадка}-app` |
-| Mini App / веб — **регистрация** | `POST /participants/register` ([participants.py](backend/app/api/participants.py)) | `{площадка}-reg` |
+| Шаг | Telegram | ВК | MAX |
+|---|---|---|---|
+| **Бот** (`/start`) | `telegram`<br>[start.py](backend/bot/handlers/start.py) | `vk`<br>[vk_main.py](backend/bot/vk_main.py) | `max`<br>`_process_start` в [max_webhook.py](backend/app/api/max_webhook.py) |
+| **Открытие** Mini App / веб | `telegram-app`<br>`POST /event` ([event.py](backend/app/api/event.py)) | `vk-app`<br>`POST /vk/event` ([vk_event.py](backend/app/api/vk_event.py)) | `max-app`<br>`POST /max/event` ([max_event.py](backend/app/api/max_event.py)) |
+| **Регистрация** | `telegram-reg` | `vk-reg` | `max-reg` |
+| | все три — `POST /participants/register` ([participants.py](backend/app/api/participants.py)) | | |
+
+⚠️ **Открытие и регистрация — РАЗНЫЕ записи, и это намеренно.** Открытие — человек
+кликнул ссылку и приложение загрузилось (он ещё ничего не заполнил и может уйти);
+регистрация — заполнил форму и стал участником. По двум строкам видно, где
+теряются люди: 100 открытий при 3 регистрациях — беда с формой, а не со ссылкой.
+И главное: реферер может потеряться **между** шагами (в открытие `pid` пришёл, до
+регистрации не доехал) — по одной записи это было бы не различить.
+
+⚠️ У каждой площадки **свой** эндпоинт открытия: у ВК своя возня с разрешением на
+ЛС и `launch_params`, у MAX своя подпись, поэтому `/vk/event` и `/max/event`
+отдельные, а TG ходит в общий `/event`. Mini App есть у всех трёх — сборки
+`index_tg.html` / `index_vk.html` / `index_max.html` ([vite.config.*.ts](mini-app/)).
 
 ⚠️ В `POST /event` запись идёт **до** отсечки по платформе и до проверки
 `event_slug`: заход должен попасть в журнал, даже если дальше мы ничего не
