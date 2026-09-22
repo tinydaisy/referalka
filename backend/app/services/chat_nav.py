@@ -184,14 +184,27 @@ async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, s
     «Привилегии» (`game`), и её название клиент настраивает сам. Ведём на саму
     вкладку, а не внутрь окна подарков (решение владельца 21.09.2026).
 
-    ⚠️ Mini App или веб — по настройке КЛИЕНТА на каждую площадку
-    (`resolve_event_link_mode`): у кого выбрана веб-версия, тому Mini App-ссылка
-    открыла бы не то, что он настроил. MAX всегда идёт в бота — там Mini App не
-    даёт подписки на бота, и человек остался бы без рассылок.
+    ⚠️⚠️ **ИЗ ЧАТА ВЕДЁМ В БОТА НА ВСЕХ ТРЁХ ПЛОЩАДКАХ** (решение владельца
+    22.09.2026), то есть `link_mode='bot'` принудительно, а не по настройке
+    клиента. Бот показывает МЕНЮ СОБЫТИЯ, а уже кнопка в меню открывает вкладку
+    подарков — Mini App или веб-версией, как настроено. Раньше Telegram брал
+    режим клиента, получал `miniapp` и отдавал `?startapp=…_tabgame`; Mini App
+    же ДО всякой проверки регистрации спрашивает `/landing-redirect`, а тот при
+    `registration_mode='landing'` возвращает лендинг, не глядя, зарегистрирован
+    человек или нет. В итоге участник события 89 (ivision9) жал «Подарки» в
+    чате и попадал на форму регистрации, хотя давно зарегистрирован. В MAX
+    этого не было ровно потому, что там всегда бот: он первым делом смотрит
+    `is_registered` и шлёт меню.
+
+    ⚠️ Бот ещё и надёжнее опознаёт человека: в чате `contact_id` подставить
+    нельзя (чат — не личка), а боту человек пишет лично, и тот резолвит его по
+    своему `user_id`. Mini App в этом месте опирался на `tg_id` из initData, и
+    у кого TG-идентичности не было (регистрировался через MAX или веб),
+    проверка регистрации не находила ничего и тоже уводила на лендинг.
 
     ⚠️ Человек в чате не опознан (чат — не личка), поэтому ни `pid`, ни
     `contact_id` не подставляем: персональной метки у чата быть не может.
-    Не зарегистрирован — бот/Mini App сам предложит регистрацию.
+    Не зарегистрирован — бот сам предложит регистрацию.
     """
     from app.services.share_links import (
         get_client_bot_handles,
@@ -212,13 +225,22 @@ async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, s
     disabled = await get_event_disabled_platforms(db, event_slug=slug)
     links: dict[str, str] = {}
 
+    # ⚠️ `link_mode='bot'` жёстко, без `resolve_event_link_mode` (см. докстринг):
+    # ссылка из ЧАТА обязана привести в бота, к меню события. Настройка клиента
+    # «Mini App или веб» никуда не делась — она решает, чем бот откроет вкладку
+    # подарков по кнопке в меню, и применяется уже там (`send_event_menu`).
+    # `tab="game"` оставляем: бот-флоу пробрасывает его дальше, в кабинет.
     if "telegram" not in disabled and handles.get("telegram"):
-        mode = await resolve_event_link_mode(db, client_id=client_id, platform="telegram")
         url = telegram_link(slug, bot_handle=handles["telegram"], tab="game",
-                            link_mode=mode, client_id=client_id)
+                            link_mode="bot", client_id=client_id)
         if url:
             links["telegram"] = url
 
+    # ⚠️ ВК — ИСКЛЮЧЕНИЕ, остаётся на настройке клиента. У `vk_link` режим `bot`
+    # это не «бот вместо Mini App», как в TG/MAX, а совсем другая ссылка:
+    # маркер `evl_` (заглушка, бот шлёт воронку в ЛС) и `tab` отбрасывается
+    # вовсе — то есть до вкладки подарков человек бы не дошёл. ВК на лендинг
+    # никого и не уводил: чинить там нечего.
     if "vk" not in disabled and handles.get("vk"):
         mode = await resolve_event_link_mode(db, client_id=client_id, platform="vk")
         app_id = await get_client_vk_app_id(db, client_id)
@@ -227,10 +249,7 @@ async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, s
             links["vk"] = url
 
     if "max" not in disabled and handles.get("max"):
-        # resolve_event_link_mode форсит MAX в 'bot' — зовём ради единой точки,
-        # чтобы правило не разъехалось, если оно когда-нибудь изменится.
-        mode = await resolve_event_link_mode(db, client_id=client_id, platform="max")
-        url = max_link(slug, bot_handle=handles["max"], tab="game", link_mode=mode)
+        url = max_link(slug, bot_handle=handles["max"], tab="game", link_mode="bot")
         if url:
             links["max"] = url
 

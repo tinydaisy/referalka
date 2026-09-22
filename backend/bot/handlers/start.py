@@ -1233,11 +1233,18 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     utm_source: str | None = None
     known_contact_id: int | None = None  # `_ct<N>` — сквозной contact_id против дублей
     landing_flags: list[str] = []  # `_q<key>` — произвольные маркеры тарифа для лендинга
+    # `_tab<name>` — вкладка кабинета, на которую человек шёл (например `tabgame`,
+    # подарки). ⚠️ Раньше этой ветки не было, и вкладка терялась на полпути: из
+    # чата события ссылка приходит с `_tabgame`, бот показывал меню, а кнопка
+    # «Кабинет и подарки» вела на вкладку по умолчанию. Пробрасываем дальше.
+    want_tab: str | None = None
     for chunk in parts[1:]:
         if chunk == "land":
             want_landing = True
         elif chunk == "nolend":
             no_landing = True
+        elif chunk.startswith("tab"):
+            want_tab = chunk[3:] or None
         elif chunk.startswith("pid"):
             pid = chunk[3:] or None
         elif chunk.startswith("src"):
@@ -1269,6 +1276,9 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         sa_parts.append(f"pid{pid}")
     if utm_source:
         sa_parts.append(f"src{utm_source}")
+    if want_tab:
+        # Вкладка, на которую человек шёл из чата (`tabgame` — подарки).
+        sa_parts.append(f"tab{want_tab}")
     if no_landing:
         sa_parts.append("nolend")
     for fk in landing_flags:
