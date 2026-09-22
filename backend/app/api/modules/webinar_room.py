@@ -485,12 +485,28 @@ async def create_zoom_meeting(
     if not room:
         raise HTTPException(status_code=404,
                             detail="Сначала сохраните вебинарную комнату этого дня.")
-    if room["stream_type"] != "encoder" or not room["stream_key"]:
+    if room["stream_type"] != "encoder":
         raise HTTPException(
             status_code=400,
             detail="Конференция создаётся для своей комнаты (тип «Видеокодер»). "
                    "Выберите этот тип и сохраните день.",
         )
+
+    # ⚠️⚠️ НЕТ КЛЮЧА ПОТОКА — НЕ ПОВОД ОТКАЗЫВАТЬ, просто заводим его.
+    # Раньше эта ветка была склеена с проверкой типа комнаты, и человек с
+    # правильно выбранным «Видеокодером» получал ответ «выберите этот тип и
+    # сохраните день» — совет, который он уже выполнил (прод, событие 89,
+    # 22.09.2026). Ключ отсутствует у комнат, созданных до появления
+    # генерации (например копированием дня), и чинится он одной строкой —
+    # ровно тем же, что делает кнопка «Перегенерировать ключ».
+    if not room["stream_key"]:
+        new_key = ws.make_stream_key()
+        await db.execute(
+            "UPDATE webinar_rooms SET stream_key=$1, hls_url=$2, updated_at=NOW() WHERE id=$3",
+            new_key, ws.hls_url(new_key), room["id"])
+        room = dict(room)
+        room["stream_key"] = new_key
+        logger.info("Zoom: у комнаты %s не было ключа потока — сгенерирован", room["id"])
 
     # ── когда эфир: дата дня + время открытия. Программа проекта в МСК, Zoom
     # получает UTC — перевод здесь, в единственном месте, где известна МСК.
