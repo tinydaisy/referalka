@@ -229,11 +229,17 @@ async def _build_gifts_links(db, event_id: int, client_id: int) -> dict[str, str
         if h:
             links["max"] = f"https://max.ru/{h}?start={payload}"
 
-    # ВК: только адрес сообщества — payload в диалог бота ВК не передать.
+    # ВК: диалог сообщества с меткой `ref=podarki{id}` — её разбирает
+    # `_extract_gifts_ref` в vk_main.py (22.09.2026). Раньше вела просто в
+    # сообщество, и человек не понимал, что делать дальше.
+    # ⚠️ ВК отдаёт `ref` ТОЛЬКО когда переписка ещё не начата: у писавших ранее
+    # придёт `ref=None`. Поэтому там же работает текстовая команда `podarki89` —
+    # два независимых пути к одному результату.
     if "vk" not in disabled and handles.get("vk"):
         h = (handles["vk"] or "").lstrip("@")
         if h:
-            links["vk"] = f"https://vk.com/im?sel=-{h}" if h.isdigit() else f"https://vk.com/{h}"
+            links["vk"] = (f"https://vk.me/club{h}?ref={payload}" if h.isdigit()
+                           else f"https://vk.me/{h}?ref={payload}")
 
     return links
 
