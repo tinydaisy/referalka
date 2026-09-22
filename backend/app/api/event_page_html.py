@@ -3323,6 +3323,21 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
   var CHOSEN_CID = null;   // выбор на экране «Это вы?»
   var FORCE_NEW = false;   // «меня здесь нет, я впервые»
 
+  // ⚠️⚠️ ПЛОЩАДКА ИЗ АДРЕСНОЙ СТРОКИ. Человек приходит сюда из бота, и его
+  // tg_id/vk_id/max_id известны — но форма их не забирала, поэтому заводила
+  // ВТОРОЙ контакт, без мессенджера (событие 89: 20 человек). Берём их из
+  // ссылки и шлём на сервер: там это признак сильнее, чем ?c=.
+  function pickId(names) {{
+    for (var i = 0; i < names.length; i++) {{
+      var v = (qs.get(names[i]) || '').trim();
+      if (/^\\d+$/.test(v) && parseInt(v, 10) > 0) return v;
+    }}
+    return null;
+  }}
+  var TG_ID  = pickId(['tg_id', 'telegram_id']);
+  var VK_ID  = pickId(['vk_id', 'vk_user_id']);
+  var MAX_ID = pickId(['max_id', 'max_user_id']);
+
   function isEmail(s) {{ return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s); }}
   function isPhone(s) {{ return s.replace(/\\D/g,'').length >= 10; }}
   function showErr(id, msg) {{
@@ -3448,6 +3463,7 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
         contact_id: CONTACT_ID || null,
         email: email || null, name: name, phone: phone,
         telegram_username: tg || null,
+        tg_id: TG_ID, vk_id: VK_ID, max_id: MAX_ID,
         pid: PID || null,
         chosen_contact_id: CHOSEN_CID, force_new: FORCE_NEW,
         consent_pd: true, consent_marketing: true, step: 'register',
@@ -3536,7 +3552,16 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
 @router.get("/event/{slug}/register", response_class=HTMLResponse,
             include_in_schema=False)
 async def event_register_page(slug: str, c: str = "", pid: str = "",
+                              tg_id: str = "", vk_id: str = "", max_id: str = "",
                               db: asyncpg.Connection = Depends(get_db)):
+    """⚠️ `tg_id`/`vk_id`/`max_id` (22.09.2026) — площадка того, кто пришёл.
+
+    Страница принимала только `?c=`, а он теряется по дороге из бота через
+    лендинг, и форма заводила человеку ВТОРОЙ контакт, без мессенджера.
+    Площадочный id приходит от самого мессенджера: по нему находим контакт
+    ещё до показа формы — тогда работает и автозаполнение, и «уже зареган →
+    сразу в кабинет».
+    """
     event = await _resolve_event(db, slug)
     if not event or event["status"] != "published":
         return HTMLResponse(content=_register_not_found_page(), status_code=404)
@@ -3562,6 +3587,26 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
     # человек с веб-ссылки спикера не засчитывался никому, а в коллабе ещё и
     # попадал к «первому владельцу» вместо того, кто его позвал.
     pid = (pid or "").strip()[:64]
+
+    # Площадка из ссылки → contact_id, когда `?c=` не доехал. Ищем ТОЛЬКО
+    # существующую идентичность: заводить человека при открытии страницы
+    # нельзя — он ещё ничего не заполнил и может уйти.
+    if not contact_id:
+        for _v, _s in ((tg_id, "telegram"), (vk_id, "vk"), (max_id, "max")):
+            _v = (_v or "").strip()
+            if not (_v.isdigit() and int(_v) > 0):
+                continue
+            contact_id = await db.fetchval(
+                """SELECT c.id FROM contacts c
+                     JOIN platform_users pu ON pu.contact_id = c.id
+                      AND pu.platform_slug = $2
+                      AND pu.platform_user_id = $3
+                    WHERE c.merged_into IS NULL AND c.client_id = $1
+                    LIMIT 1""",
+                ev["client_id"], _s, _v,
+            )
+            if contact_id:
+                break
 
     # ⚠️⚠️ У КОЛЛАБЫ ВЛАДЕЛЬЦЕВ НЕСКОЛЬКО — берём того, в чьей базе человек.
     # `_resolve_event` отдаёт «первого владельца из списка», и человек,
@@ -3875,6 +3920,23 @@ async def event_register_submit(slug: str, request: Request,
     phone = (body.get("phone") or "").strip() or None
     tg_username = (body.get("telegram_username") or "").strip() or None
 
+    # ⚠️⚠️ ПЛОЩАДКА ЧЕЛОВЕКА (22.09.2026). Раньше форма не принимала её вовсе:
+    # человек приходил из бота с известным tg_id/vk_id/max_id, на лендинг его
+    # уводил `landing-redirect` БЕЗ `?c=`, и форма видела незнакомца — заводила
+    # ВТОРОЙ контакт, только с email и телефоном. У события 89 так вышло 20
+    # человек: в одной карточке Telegram без почты, в другой почта без
+    # Telegram. Писать им в бот было некому, считались они как двое.
+    # Площадочный id приходит от самого мессенджера и врать не может, поэтому
+    # он — признак СИЛЬНЕЕ `?c=` из адресной строки.
+    plat_slug, plat_uid = None, None
+    for _k, _s in (("tg_id", "telegram"), ("vk_id", "vk"), ("max_id", "max")):
+        _v = str(body.get(_k) or "").strip()
+        # Только положительное целое: у Telegram/VK/MAX id именно такой, а
+        # мусор из адресной строки создал бы идентичность-призрак.
+        if _v.isdigit() and int(_v) > 0:
+            plat_slug, plat_uid = _s, _v
+            break
+
     async def _find_by_email(en):
         """contact_id по email-идентичности у этого клиента (или None)."""
         if not en:
@@ -4018,8 +4080,31 @@ async def event_register_submit(slug: str, request: Request,
             chosen_cid, client_id,
         )
 
+    # ⚠️⚠️ ПЛОЩАДКА — ПРИЗНАК СИЛЬНЕЕ `?c=`. Её прислал сам мессенджер, а `?c=`
+    # едет через адресную строку и по дороге теряется (см. разбор выше).
+    # Резолвим ОБЩЕЙ функцией: она и найдёт человека по существующей
+    # идентичности, и привяжет площадку к контакту из ссылки (`known_contact_id`),
+    # и склеит по email/телефону — то есть закрывает и «нашёлся», и «новый».
+    if not target_cid and plat_slug:
+        try:
+            from app.services.contact_merge import upsert_contact_with_identity
+            target_cid, _pu_id, _is_new = await upsert_contact_with_identity(
+                db, client_id=client_id,
+                platform_slug=plat_slug, platform_user_id=plat_uid,
+                email=email_raw or None, phone=phone,
+                first_name=name,
+                known_contact_id=link_cid,
+            )
+        except HTTPException:
+            # 409: этот email уже за ДРУГИМ аккаунтом той же площадки. Человека
+            # не выдумываем — пусть сработает обычный путь ниже (поиск по
+            # email/телефону и, если данные расходятся, экран «Это вы?»).
+            target_cid = None
+        except Exception:
+            target_cid = None
+
     if not target_cid and link_cid:
-        # Контакт из ссылки (?c=) — самый надёжный признак, экран выбора не нужен.
+        # Контакт из ссылки (?c=) — следующий по надёжности признак.
         target_cid = link_cid
         found_cid = await _find_by_email(email_norm) if email_norm else None
         # Email введён и принадлежит ДРУГОМУ контакту → слить (найденный старше).

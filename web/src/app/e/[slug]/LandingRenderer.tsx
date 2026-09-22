@@ -32,6 +32,14 @@ interface Props {
   pid?: string | null
   contactId?: string | null
   utmSource?: string | null
+  /**
+   * ⚠️ Площадка пришедшего (22.09.2026). Человек попадает сюда из бота, и его
+   * tg_id/vk_id/max_id известны. Не передав их дальше, форма регистрации
+   * видела незнакомца и заводила ВТОРОЙ контакт — без мессенджера.
+   */
+  tgId?: string | null
+  vkId?: string | null
+  maxId?: string | null
   /** Страницу печатает наш рендерер PDF: интерактив (карусель) заменяем статикой. */
   forPdf?: boolean
   /** Абсолютный адрес этой страницы — нужен ссылкам в PDF (относительные там мертвы). */
@@ -74,13 +82,19 @@ function hexToRgba(hex: string, alpha: number): string {
 
 export default function LandingRenderer({
   data, slug, pid = null, contactId = null, utmSource = null, ownerType = 'event',
+  tgId = null, vkId = null, maxId = null,
   forPdf = false, pageUrl = '',
 }: Props) {
   // Хвост с метками: подставляем в каждую ссылку, чтобы реф-код не терялся
   // при переходе на форму заказа или регистрацию.
+  // ⚠️ Площадка едет тем же хвостом: без неё форма регистрации не узнаёт
+  // человека, пришедшего из бота, и заводит ему второй контакт.
   const track = [
     pid && `pid=${encodeURIComponent(pid)}`,
     contactId && `c=${encodeURIComponent(contactId)}`,
+    tgId && `tg_id=${encodeURIComponent(tgId)}`,
+    vkId && `vk_id=${encodeURIComponent(vkId)}`,
+    maxId && `max_id=${encodeURIComponent(maxId)}`,
     utmSource && `utm_source=${encodeURIComponent(utmSource)}`,
   ].filter(Boolean).join('&')
   const withTrackRaw = (url: string) =>

@@ -656,8 +656,16 @@ async def public_event_landing_redirect(
     if mode == "form":
         return {}
 
-    # Наш лендинг: ведём на /e/{slug} НА ДОМЕНЕ КЛИЕНТА. Никаких контактных
-    # параметров туда не тащим — форма заказа опознаёт человека сама.
+    # Наш лендинг: ведём на /e/{slug} НА ДОМЕНЕ КЛИЕНТА.
+    #
+    # ⚠️⚠️ ПЛОЩАДКУ ТАЩИМ С СОБОЙ (22.09.2026). Здесь стояло «никаких
+    # контактных параметров туда не тащим — форма заказа опознаёт человека
+    # сама». Для ПЛАТНОГО заказа это так, а для бесплатной регистрации — нет:
+    # форма ищет человека по `?c=`, которого ей никто не передавал, и заводила
+    # ВТОРОЙ контакт — с email и телефоном, но без мессенджера. На событии 89
+    # так вышло 20 человек: в одной карточке Telegram без почты, в другой
+    # почта без Telegram; писать в бот стало некому, а в отчётах они считались
+    # как двое. Теряли одинаково и Telegram, и VK, и MAX.
     if mode == "landing":
         published = await db.fetchval(
             "SELECT is_published FROM event_landing_pages "
@@ -665,8 +673,15 @@ async def public_event_landing_redirect(
         if not published:
             return {}   # ещё не собран — остаёмся на простой странице
         url = await client_public_link(db, row["client_id"], f"e/{slug}")
+        _q = []
         if pid:
-            url += f"?pid={pid}"
+            _q.append(f"pid={pid}")
+        if tg_id is not None:
+            _q.append(f"tg_id={tg_id}")
+        elif vk_id is not None:
+            _q.append(f"vk_id={vk_id}")
+        if _q:
+            url += "?" + "&".join(_q)
         return {"redirect_url": url}
 
     landing_url = (row["landing_url"] or "").strip()

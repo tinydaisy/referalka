@@ -76,6 +76,8 @@ export default async function EventLandingPage(
     params: { slug: string }
     searchParams: {
       pid?: string; c?: string; utm_source?: string; preview?: string
+      /** Площадка пришедшего — едет дальше в форму регистрации (см. LandingRenderer). */
+      tg_id?: string; vk_id?: string; max_id?: string
       /** `1` — страницу открыл наш рендерер PDF (см. backend/app/services/landing_pdf.py). */
       pdf?: string
     }
@@ -115,6 +117,9 @@ export default async function EventLandingPage(
       <LandingRenderer data={data} slug={params.slug}
                        pid={searchParams.pid || null}
                        contactId={searchParams.c || null}
+                       tgId={searchParams.tg_id || null}
+                       vkId={searchParams.vk_id || null}
+                       maxId={searchParams.max_id || null}
                        utmSource={searchParams.utm_source || null}
                        forPdf={forPdf}
                        pageUrl={pageUrl} />
