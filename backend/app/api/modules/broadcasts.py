@@ -2651,6 +2651,30 @@ async def set_schedule_fire_at(
     except Exception:
         raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO 8601, например 2026-04-21T14:30:00")
 
+    # ⚠️ Навигация по чату (chat_nav) — настраивается ТОЛЬКО время (правило
+    # владельца 22.09.2026). Эта рассылка по смыслу уходит ровно в чаты события
+    # (TG/VK/MAX берутся из самого события), в личку — никому. Аудиторию, каналы,
+    # email и «общие чаты / личные каналы» ей задавать нечего, поэтому на фронте
+    # их не показываем, а здесь глушим принудительно: эндпоинт публичный, а
+    # молча записанный мусор сломал бы отправку без единого следа в логах.
+    # Особенно важен `chats_overridden`: TRUE отключает наследование
+    # send_to_event_chats/pin_in_chat от шаблона (tasks/broadcast.py), и после
+    # обычного «Задать время» навигация перестала бы уходить в чат и
+    # закрепляться. Такая же фиксация уже стоит в update_template.
+    sch_type = await db.fetchval(
+        "SELECT type FROM broadcast_schedules WHERE id=$1 AND event_id=$2",
+        schedule_id, event_id,
+    )
+    if sch_type == "chat_nav":
+        data.is_test = False
+        data.audience_include = None
+        data.audience_exclude = None
+        data.target_channel_ids = None
+        data.send_to_event_chats = None
+        data.send_to_client_chats = None
+        data.send_to_private_chats = None
+        data.chats_overridden = None
+
     # Динамический SET: базово fire_at/is_test/status, плюс опциональные поля,
     # которые пришли (None = не трогаем текущее значение в БД).
     set_parts = ["fire_at = $1", "is_test = $2", "status = 'draft'"]

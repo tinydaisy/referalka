@@ -85,6 +85,7 @@ const TYPE_LABELS: Record<string, string> = {
   day_end:                'Итоги дня',
   custom:                 'Произвольное',
   vip_offer:              'VIP-оффер',
+  chat_nav:               'Навигация по чату события',
 }
 
 function formatTimeLeft(sec: number): string {
@@ -573,7 +574,19 @@ export default function QueuePage() {
     }
     setFireAtError('')
     try {
-      await api.conference.schedules.setFireAt(eventId, fireAtModal.id, {
+      // ⚠️ Навигация по чату (chat_nav): у неё в модалке есть ТОЛЬКО время, и
+      // шлём мы тоже только его. Остальные поля не отправляем вовсе (в
+      // SetFireAtRequest они Optional → None = «не трогать текущее значение»),
+      // чтобы не перезаписать то, что шаблон задал жёстко. Главное — НЕ слать
+      // `chats_overridden: true`: этот флаг отключает наследование
+      // send_to_event_chats/pin_in_chat от шаблона (broadcast.py:247), и
+      // навигация после «Задать время» перестала бы уходить в чат и
+      // закрепляться. На бэке то же самое продублировано принудительно.
+      const isChatNav = fireAtModal.type === 'chat_nav'
+      await api.conference.schedules.setFireAt(eventId, fireAtModal.id, isChatNav ? {
+        fire_at: fireAtValue,
+        is_test: false,
+      } : {
         fire_at: fireAtValue,
         is_test: isTestValue,
         audience_include: editAudienceInclude,
@@ -1310,11 +1323,11 @@ export default function QueuePage() {
           НЕ трогаем: бэк рабочий, вызвать его при надобности можно снова. */}
 
       {/* ── Модалка: установить время отправки ── */}
-      {fireAtModal && (
+      {fireAtModal && (() => { const isChatNav = fireAtModal.type === 'chat_nav'; return (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-gray-800">Настройки задачи</h3>
+              <h3 className="font-semibold text-gray-800">{isChatNav ? 'Когда отправить' : 'Настройки задачи'}</h3>
               <button onClick={() => setFireAtModal(null)}><X size={18} /></button>
             </div>
             <div className="space-y-3">
@@ -1328,6 +1341,28 @@ export default function QueuePage() {
                 />
                 {fireAtError && <p className="text-xs text-red-500 mt-1">{fireAtError}</p>}
               </div>
+              {/* ⚠️ Навигация по чату (chat_nav) — всё, кроме времени, здесь лишнее
+                  (правило владельца 22.09.2026). Эта рассылка уходит РОВНО в чаты
+                  события: TG/VK/MAX-чат берётся из настроек самого события
+                  (`tg_chat_ref` / `vk_chat_ref` / `max_chat_ref`), а в личку не идёт
+                  никому — шаблон жёстко держит audience all_event/all_event.
+                  Площадку выбирать тоже нечего: `_send_broadcast_to_event_chats`
+                  шлёт туда, где чат у события ЗАДАН, и `target_channel_ids` в этой
+                  ветке не читается вовсе. Показывать аудиторию, каналы, email и
+                  галочки «общие чаты / личные каналы» значило бы предложить
+                  настройки, которые ни на что не влияют, — а снятая галочка «чаты
+                  события» (вместе с `chats_overridden=TRUE` из saveFireAt) ещё и
+                  отключала наследование от шаблона, и рассылка не уходила никуда. */}
+              {isChatNav ? (
+                <div className="flex items-start gap-1.5 bg-[#FFCFA4]/20 border border-[#FFCFA4] rounded-xl px-3 py-2.5">
+                  <span className="text-sm mt-0.5">💬</span>
+                  <p className="text-xs text-[#25455D]">
+                    <b>Уходит в чаты события</b> — Telegram, ВК и MAX, где чат указан
+                    в настройках события. В личку участникам не приходит.
+                    Настраивать тут больше нечего — только время.
+                  </p>
+                </div>
+              ) : (<>
               <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
                 <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>
                 <div>
@@ -1395,7 +1430,16 @@ export default function QueuePage() {
                   </span>
                 </label>)}
               </div>
+              </>)}
 
+              {/* ⚠️ Галочка «Тестовая рассылка» для chat_nav не показывается:
+                  при is_test=TRUE движок НЕ шлёт в групповые чаты вовсе
+                  (broadcast.py, `not schedule["is_test"]` у чатов события) — то
+                  есть отмеченная задача навигации тихо не ушла бы никуда.
+                  Кнопка разовой тестовой отправки ниже остаётся: она шлёт на
+                  личные тестовые ID и настройку задачи не меняет — посмотреть
+                  вёрстку пунктов перед отправкой в чат. */}
+              {!isChatNav && (
               <div className="space-y-1.5">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={isTestValue} onChange={e => setIsTestValue(e.target.checked)}
@@ -1409,7 +1453,7 @@ export default function QueuePage() {
                     Если тестовый не зарегистрирован как участник — он не получит сообщение.
                   </p>
                 </div>
-              </div>
+              </div>)}
             </div>
             <button onClick={testFireAtNow} disabled={testingFireAt}
               className="w-full mt-4 py-2 rounded-xl text-sm font-medium border border-indigo-300 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60">
@@ -1429,7 +1473,7 @@ export default function QueuePage() {
             </div>
           </div>
         </div>
-      )}
+      ) })()}
 
       {/* ── Модалка: выбор шаблонов для формирования из программы ── */}
       {/* ── Сдвиг тайминга спикерских рассылок ── */}
