@@ -154,7 +154,8 @@ function TechLoginLink() {
           {url || '/tech/login'}
         </a>
         <div className="mt-0.5 text-xs text-gray-400">
-          Отправьте эту ссылку человеку вместе с почтой и паролем из вкладки «Люди».
+          Отправьте эту ссылку человеку — входит он почтой и паролем своего
+          кабинета клиента, отдельный пароль выдавать не нужно.
         </div>
       </div>
       <button onClick={() => {
@@ -171,25 +172,33 @@ function TechLoginLink() {
 
 // ── Люди и ставки ────────────────────────────────────────────────────────
 function SpecsTab({ specs, rates, onChange }: any) {
-  const [form, setForm] = useState({ email: '', name: '', telegram_username: '' })
+  // ⚠️⚠️ ВНЕДРЕНЦА ВЫБИРАЮТ ИЗ КЛИЕНТОВ (миграция 486), а не вводят почтой:
+  // внедренец — роль клиента, и почта с паролем у человека уже есть.
+  const [q, setQ] = useState('')
+  const [found, setFound] = useState<any[]>([])
+  const [picked, setPicked] = useState<any>(null)
+  const [searching, setSearching] = useState(false)
   const [created, setCreated] = useState<any>(null)
 
-  async function add() {
-    if (!form.email.trim()) return
-    try {
-      const r: any = await api.adminTech.createSpec(form)
-      // ⚠️ Пароль показываем ОДИН раз: он больше нигде не хранится в открытом
-      // виде. Забыли — сбросить, а не «посмотреть».
-      setCreated(r)
-      setForm({ email: '', name: '', telegram_username: '' })
-      onChange()
-    } catch (e: any) { alert(e?.message || 'Не удалось') }
+  // ⚠️ Переиспользуем ГОТОВЫЙ поиск клиентов от персональных заказов, а не
+  // заводим второй: разные поиски по одной сущности разъезжаются в правилах.
+  async function search() {
+    const term = q.trim()
+    if (term.length < 2) { setFound([]); return }
+    setSearching(true)
+    try { setFound((await api.adminCustomOrders.searchClients(term))?.clients || []) }
+    catch { setFound([]) }
+    finally { setSearching(false) }
   }
 
-  async function reset(id: number) {
-    if (!confirm('Выдать новый пароль? Старый перестанет работать.')) return
-    try { setCreated(await api.adminTech.resetPassword(id)) }
-    catch (e: any) { alert(e?.message || 'Не удалось') }
+  async function add() {
+    if (!picked) return
+    try {
+      const r: any = await api.adminTech.createSpec({ client_id: picked.id })
+      setCreated(r)
+      setPicked(null); setQ(''); setFound([])
+      onChange()
+    } catch (e: any) { alert(e?.message || 'Не удалось') }
   }
 
   /**
@@ -202,11 +211,18 @@ function SpecsTab({ specs, rates, onChange }: any) {
   async function fire(s: any) {
     const back = !s.is_active
     if (!confirm(back
-      ? `Вернуть ${s.name || s.email} к работе? Он снова сможет войти в кабинет.`
-      : `Уволить ${s.name || s.email}?\n\nКабинет закроется — войти он больше не сможет. `
+      ? `Вернуть ${s.name || s.email} к работе? Он снова сможет войти в кабинет внедренца.`
+      : `Уволить ${s.name || s.email}?\n\n`
+        + `Кабинет ВНЕДРЕНЦА закроется, а его кабинет КЛИЕНТА останется — туда он `
+        + `заходит как обычно.\n\n`
+        + `Если подписку на кабинет ему подарили, она закроется сегодня же. `
+        + `Оплаченную своими деньгами не тронем.\n\n`
         + `История начислений и клиенты останутся. Решение обратимо.`)) return
     try {
-      await api.adminTech.updateSpec(s.id, { is_active: back })
+      const r: any = await api.adminTech.updateSpec(s.id, { is_active: back })
+      if (r?.closed_subscription) {
+        alert('Уволен. Подаренная подписка на его кабинет закрыта сегодняшним днём.')
+      }
       onChange()
     } catch (e: any) { alert(e?.message || 'Не удалось') }
   }
@@ -221,8 +237,10 @@ function SpecsTab({ specs, rates, onChange }: any) {
    */
   async function remove(s: any) {
     const who = s.name || s.email
-    if (!confirm(`Удалить ${who} насовсем?\n\nЕсли нужно просто закрыть доступ — `
-                 + `лучше «уволить»: история сохранится.`)) return
+    if (!confirm(`Снять с ${who} роль внедренца насовсем?\n\n`
+                 + `Кабинет клиента, его база и подписка останутся — уйдёт только `
+                 + `внедренчество.\n\nЕсли нужно просто закрыть доступ — лучше `
+                 + `«уволить»: история начислений сохранится.`)) return
     try {
       const r = await api.adminTech.deleteSpec(s.id)
       alert(r.freed_clients
@@ -253,31 +271,76 @@ function SpecsTab({ specs, rates, onChange }: any) {
   return (
     <div className="space-y-5">
       {created && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <div className="text-sm font-semibold text-amber-900">
-            Пароль для {created.email}
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="text-sm font-semibold text-emerald-900">
+            {created.name || created.email} теперь внедренец
           </div>
-          <div className="mt-1 font-mono text-lg text-amber-900">{created.password}</div>
-          <div className="mt-1 text-xs text-amber-800/80">
-            Передайте его человеку — второй раз он не покажется. Вход: /tech/login
+          <div className="mt-1 text-xs text-emerald-800/80">
+            Пароль выдавать не нужно — он входит на /tech/login почтой и паролем
+            своего кабинета клиента ({created.email}).
           </div>
           <button onClick={() => setCreated(null)}
-                  className="mt-2 text-xs text-amber-900 underline">Скрыть</button>
+                  className="mt-2 text-xs text-emerald-900 underline">Скрыть</button>
         </div>
       )}
 
       <div className="rounded-xl bg-white p-4 shadow-sm">
-        <div className="mb-3 text-sm font-semibold text-gray-800">Добавить внедренца</div>
-        <div className="flex flex-wrap gap-2">
-          <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}
-                 placeholder="Почта" className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-          <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-                 placeholder="Имя" className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-          <input value={form.telegram_username}
-                 onChange={e => setForm({ ...form, telegram_username: e.target.value })}
-                 placeholder="Telegram" className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-          <button onClick={add} className="btn-gold px-5 py-2 text-sm">Добавить</button>
+        <div className="mb-1 text-sm font-semibold text-gray-800">Добавить внедренца</div>
+        <div className="mb-3 text-xs text-gray-500">
+          Выберите клиента — его кабинет станет рабочим инструментом внедренца.
+          Отдельный пароль не нужен: он входит своим клиентским.
         </div>
+
+        {picked ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex-1 rounded-lg border-2 border-[#25455D]/20 px-3 py-2 text-sm">
+              <span className="font-medium text-gray-900">{picked.name}</span>
+              <span className="ml-2 text-xs text-gray-400">{picked.email}</span>
+            </div>
+            <button onClick={() => setPicked(null)}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600">
+              Другой
+            </button>
+            <button onClick={add} className="btn-gold px-5 py-2 text-sm">
+              Сделать внедренцем
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') search() }}
+                placeholder="Имя, почта или бренд клиента"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+              <button onClick={search} disabled={q.trim().length < 2}
+                      className="btn-primary px-5 py-2 text-sm disabled:opacity-40">
+                {searching ? 'Ищем…' : 'Найти'}
+              </button>
+            </div>
+
+            {found.length > 0 && (
+              <div className="mt-2 divide-y divide-gray-100 rounded-lg border border-gray-200">
+                {found.map((c: any) => (
+                  <button key={c.id} onClick={() => { setPicked(c); setFound([]) }}
+                          className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
+                    <span className="font-medium text-gray-900">{c.name}</span>
+                    <span className="ml-2 text-xs text-gray-400">{c.email}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!searching && q.trim().length >= 2 && found.length === 0 && (
+              <div className="mt-2 text-xs text-gray-500">
+                Никого не нашли. Внедренцем можно сделать только того, у кого уже
+                есть кабинет клиента.
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
@@ -334,8 +397,9 @@ function SpecsTab({ specs, rates, onChange }: any) {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap items-center gap-3">
-                    <button onClick={() => reset(s.id)}
-                            className="text-xs text-[#25455D] underline">новый пароль</button>
+                    {/* ⚠️ Кнопки «новый пароль» здесь БОЛЬШЕ НЕТ (миграция 486):
+                        своего пароля у внедренца не существует, он входит
+                        клиентским и восстанавливает его сам на /password-reset. */}
                     {/* Уволить — тот же `is_active`, что и галочка «Работает»,
                         но названный словом: галочку не читают как увольнение. */}
                     <button onClick={() => fire(s)}

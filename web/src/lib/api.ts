@@ -235,6 +235,12 @@ export const api = {
       request('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(data) }),
     adminLogin: (data: any) =>
       request('/api/v1/auth/admin/login', { method: 'POST', body: JSON.stringify(data) }),
+    // ⚠️ Вход внедренца — СВОЙ адрес, хотя пароль у человека клиентский
+    // (миграция 486). Куда пускать, решает форма: общий `/login` внедренцем не
+    // пускает вовсе, иначе человеку с двумя ролями всегда доставалась бы та,
+    // что стоит выше в переборе ролей.
+    techLogin: (data: any) =>
+      request('/api/v1/auth/tech/login', { method: 'POST', body: JSON.stringify(data) }),
     me: () => request('/api/v1/auth/me'),
     updateMe: (data: any) => request('/api/v1/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
     changePassword: (current_password: string, new_password: string) =>
@@ -1681,8 +1687,8 @@ export const api = {
       request('/api/v1/admin/tech/specialists', { method: 'POST', body: JSON.stringify(data) }),
     updateSpec: (id: number, data: any) =>
       request(`/api/v1/admin/tech/specialists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    resetPassword: (id: number) =>
-      request(`/api/v1/admin/tech/specialists/${id}/reset-password`, { method: 'POST' }),
+    // ⚠️ Сброса пароля внедренца здесь НЕТ (миграция 486): своего пароля у него
+    // не существует — входит клиентским, восстанавливает сам на /password-reset.
     // ⚠️ Без `force` сервер откажет (409), если у человека есть начисления:
     // удаление сотрёт историю выплат, у неё ON DELETE CASCADE.
     deleteSpec: (id: number, force = false) =>
