@@ -141,14 +141,34 @@
 ⚠️ **Query-параметр `?pid=` этим не болел** — там код приходит отдельным полем и
 не режется. Болели только слитные payload: боты (`/start`) и Mini App (`startapp`).
 
-### ⚠️ Журнал переходов не видел заходов через `startapp` (23.09.2026)
+### ⚠️⚠️ Журнал переходов видел не все площадки (23.09.2026)
 
-[entry_link_log](backend/app/services/entry_link_log.py) писался только в
-обработчике `/start` у бота. Но ссылка `?startapp=…` открывает Mini App
-**напрямую**, сообщения боту нет — и такие заходы в журнал не попадали вовсе:
-разбираться, по какой ссылке пришёл человек, было не по чему. Теперь запись
-идёт и из `POST /participants/register` ([participants.py](backend/app/api/participants.py))
-с платформой `{telegram|vk|max}-reg`.
+[entry_link_log](backend/app/services/entry_link_log.py) писался **только в
+`/start` у TG-бота и в ВК**. В базе за всё время жили ровно две платформы:
+`telegram` и `vk`. Не фиксировались:
+
+- **MAX — вообще**, ни одной строки в коде, 0 записей;
+- **Mini App и веб-версия** — ссылка `?startapp=…` открывает приложение
+  **напрямую**, сообщения боту нет, обработчик `/start` не срабатывает.
+
+Из-за этого переход по ссылке Элины на событие 89 не нашёлся в журнале вовсе —
+разбираться было не по чему (в журнале 55 заходов на `ivision9` при 289
+участниках, и 44 из них — ВК).
+
+**Где пишется теперь** — все пять путей:
+
+| Путь | Точка записи | `platform` |
+|---|---|---|
+| TG-бот `/start` | [start.py](backend/bot/handlers/start.py) | `telegram` |
+| ВК | [vk_main.py](backend/bot/vk_main.py), [vk_event.py](backend/app/api/vk_event.py) | `vk` |
+| MAX-бот `/start` | `_process_start` в [max_webhook.py](backend/app/api/max_webhook.py) | `max` |
+| MAX Mini App | [max_event.py](backend/app/api/max_event.py) | `max` |
+| Mini App / веб — **открытие** | `POST /event` ([event.py](backend/app/api/event.py)) | `{площадка}-app` |
+| Mini App / веб — **регистрация** | `POST /participants/register` ([participants.py](backend/app/api/participants.py)) | `{площадка}-reg` |
+
+⚠️ В `POST /event` запись идёт **до** отсечки по платформе и до проверки
+`event_slug`: заход должен попасть в журнал, даже если дальше мы ничего не
+отправляем. Иначе не-TG-площадки снова стали бы невидимыми.
 
 **Хелперы** ([backend/app/services/external_landing.py](backend/app/services/external_landing.py)):
 - `enrich_external_url(url, *, ...)` — собирает URL с полным набором параметров. Универсальный.

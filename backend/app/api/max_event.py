@@ -75,6 +75,24 @@ async def handle_max_event(body: MaxEventRequest):
         return {"ok": True, "warning": "db not available", "max_user_id": max_user_id}
 
     async with pool.acquire() as conn:
+        # ЛОГ ССЫЛКИ ПЕРЕХОДА — вход в MAX Mini App.
+        # ⚠️ У MAX записи не было ВООБЩЕ (найдено 23.09.2026): в журнале жили
+        # только `telegram` и `vk`, а по площадкам мы обязаны быть одинаковы.
+        # Фронт разбирает `start_param` сам, поэтому сырой строки тут нет —
+        # пишем то, что доехало, иначе заход MAX остаётся невидимым совсем.
+        try:
+            from app.services.entry_link_log import log_entry_link
+            await log_entry_link(
+                conn,
+                platform="max",
+                platform_user_id=max_user_id,
+                raw_param=f"max_event:{body.event_slug or ''}",
+                parsed_slug=(body.event_slug or None),
+                parsed_pid=(body.partner_id or None),
+            )
+        except Exception:
+            pass
+
         # Резолв client_id: 1) явный из тела 2) из event_slug 3) системный «ПЛЮСОН Сервис»
         client_id = body.client_id
         if not client_id and body.event_slug:

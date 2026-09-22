@@ -48,12 +48,33 @@ async def handle_tg_event(body: TgEventRequest):
     if body.event != "event_start":
         return {"ok": True}
 
-    if body.platform != "telegram":
-        return {"ok": True, "platform": body.platform, "skipped": "no dispatcher"}
-
     pool = await get_pool()
     if not pool:
         return {"ok": True, "warning": "db not available"}
+
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — открытие события в Mini App / веб-версии.
+    # ⚠️ Пишем ДО отсечки по платформе и до проверки event_slug: заход должен
+    # попасть в журнал, даже если дальше мы ничего не отправляем. Через эту
+    # точку идёт ОТКРЫТИЕ (а не регистрация) — ссылка `?startapp=` минует
+    # `/start` у бота, и такие заходы были невидимы совсем (23.09.2026:
+    # переход по ссылке Элины на событие 89 не нашёлся в журнале вовсе).
+    try:
+        from app.services.entry_link_log import log_entry_link
+        async with pool.acquire() as _logc:
+            await log_entry_link(
+                _logc,
+                platform=f"{body.platform}-app",
+                platform_user_id=body.user_id,
+                raw_param=f"event_start:{body.event_slug or ''}",
+                parsed_slug=(body.event_slug or None),
+                parsed_pid=(body.partner_id or None),
+            )
+    except Exception:
+        pass
+
+    if body.platform != "telegram":
+        return {"ok": True, "platform": body.platform, "skipped": "no dispatcher"}
+
     if not body.event_slug:
         return {"ok": True, "skipped": "no event_slug"}
 

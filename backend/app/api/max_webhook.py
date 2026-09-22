@@ -1370,6 +1370,24 @@ async def _process_start(
     client_id_override: int | None,
 ) -> None:
     """Общий код для /start и bot_started. Регистрирует контакт и шлёт welcome."""
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — сырой payload ПЕРВЫМ делом, до любой обработки
+    # (зеркало TG-шного `/start`). ⚠️ У MAX записи не было вообще: в журнале
+    # жили только `telegram` и `vk` — заходы MAX не фиксировались нигде.
+    if payload:
+        try:
+            from app.services.entry_link_log import log_entry_link
+            _pool = await get_pool()
+            if _pool:
+                async with _pool.acquire() as _logc:
+                    await log_entry_link(
+                        _logc,
+                        platform="max",
+                        platform_user_id=user_id,
+                        raw_param=payload,
+                    )
+        except Exception:
+            pass
+
     name = sender.get("name", "") or ""
     first_name = name.split()[0] if name else "друг"
     last_name = " ".join(name.split()[1:]) if len(name.split()) > 1 else ""
