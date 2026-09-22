@@ -84,6 +84,10 @@ interface ContactDetail extends Contact {
     registered_at: string | null
     ref_code: string
     referrals_count: number
+    /** Кто привёл его НА ЭТО событие (может быть известен, даже когда общий
+     *  «Пришёл от» пуст — они заполняются по-разному). */
+    referred_by_id?: number | null
+    referred_by_name?: string | null
   }[]
   referrer: { id: number; name: string | null } | null
   merged_ref_codes: string[]
@@ -1187,6 +1191,15 @@ export default function ContactsPage() {
                           {formatDate(ev.registered_at)}
                           {ev.referrals_count > 0 && <span className="ml-2 text-[#25455D]">· привёл {ev.referrals_count}</span>}
                         </p>
+                        {/* ⚠️ Кто привёл ЕГО на это событие. Отдельно от общего
+                            «Пришёл от» выше: тот заполнен не у всех, а по
+                            событию реферовод известен чаще — и раньше в
+                            карточке было пусто там, где в CRM имя есть. */}
+                        {ev.referred_by_name && (
+                          <p className="text-xs mt-0.5" style={{ color: '#25455D' }}>
+                            пришёл от: {ev.referred_by_name}
+                          </p>
+                        )}
                       </div>
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${ev.is_registered ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                         {ev.is_registered ? 'Зарегистрирован' : 'Посетитель'}

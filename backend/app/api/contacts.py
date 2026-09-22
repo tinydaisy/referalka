@@ -1005,12 +1005,21 @@ async def get_contact(
     )
 
     # События в которых участвует
+    # ⚠️ `referred_by_name` — КТО ПРИВЁЛ человека НА ЭТО СОБЫТИЕ. Это не то же,
+    # что общий `contacts.first_referrer_contact_id` («кто привёл в базу»):
+    # общий заполнен лишь у части людей, а по событию реферовод известен ещё у
+    # 402 участников сверх него. Из-за этого в карточке было пусто там, где
+    # в CRM события имя показывалось — выглядело как «почему-то не вижу».
     events = await db.fetch("""
         SELECT e.id, e.title, e.slug, ep.is_registered, ep.is_in_chat, ep.registered_at, c.ref_code,
-               (SELECT COUNT(*) FROM event_participants ep2 WHERE ep2.referrer_ref_code = c.ref_code AND ep2.event_id = e.id) AS referrals_count
+               (SELECT COUNT(*) FROM event_participants ep2 WHERE ep2.referrer_ref_code = c.ref_code AND ep2.event_id = e.id) AS referrals_count,
+               rc.id   AS referred_by_id,
+               rc.name AS referred_by_name
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
         JOIN contacts c ON c.id = ep.contact_id
+        LEFT JOIN event_participants rep ON rep.id = ep.referrer_participant_id
+        LEFT JOIN contacts rc ON rc.id = rep.contact_id
         WHERE ep.contact_id = $1
         ORDER BY ep.registered_at DESC NULLS LAST, e.id DESC
     """, contact_id)
