@@ -2257,6 +2257,22 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
         await _vk_send_gifts(int(_gm.group(1)), int(from_id), db, ctx)
         return
 
+    # Лид-магнит ТЕКСТОМ: `m_<slug>` / `p_<slug>` (22.09.2026).
+    # ⚠️ Запасной путь к `ref=m_<slug>` и к Mini App-ссылке `vk.com/app#m_slug`.
+    # Метку `ref` ВК даёт только «новым» собеседникам, а hash Mini App теряет
+    # при холодном запуске через экран «Запустить» — тогда открывался ПРОСТО
+    # Mini App события, без воронки (владелец: «ссылка на лид-магнит открывает
+    # мини-апп события»). Ссылка из навигации кладёт `m_<slug>` прямо в поле
+    # ввода, человек жмёт «отправить» — и сюда приходит обычный текст.
+    _lmm = re.match(r"(?i)^\s*([mp])_([A-Za-z0-9_-]{3,64})\s*$", trigger_text)
+    if _lmm:
+        try:
+            if await _start_vk_lead_magnet_by_slug(
+                    _lmm.group(1).lower(), _lmm.group(2), int(from_id), db, ctx):
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("VK lead-magnet by text %s упал: %s", trigger_text, e)
+
     # Тех.поддержка ТЕКСТОМ: `support89` / `/support89` / `поддержка89`.
     # ⚠️⚠️ Запасной путь к `ref=evsupport_{id}` (22.09.2026). ВК присылает
     # метку `ref` ТОЛЬКО когда переписка с сообществом ещё не начата: у того,

@@ -30,6 +30,7 @@ import json
 import logging
 import re
 from typing import Any, Optional
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,23 @@ async def resolve_nav_links(
             if slug:
                 links = {k: v for k, v in
                          (await build_gift_funnel_links_by_owner(db, mkind, slug)).items() if v}
+                # ⚠️⚠️ ВК ИЗ ЧАТА — через `?text=m_<slug>`, а не Mini App
+                # (22.09.2026). Общая функция отдаёт для ВК `vk.com/app#m_slug`,
+                # но ВК теряет hash при холодном запуске через экран «Запустить»
+                # — человек попадал в ПРОСТО Mini App события, без воронки.
+                # Текстовый путь этого лишён: команда кладётся в поле ввода и
+                # приходит боту обычным сообщением (обработчик в vk_main.py).
+                # ⚠️ Магнит ПЛЮСОНа не трогаем: у него своя прямая ссылка в бот
+                # ПЛЮСОНА (`is_plusson`), и её подменять нельзя.
+                _vk_url = (links.get("vk") or "")
+                if "vk.com/app" in _vk_url and "#" in _vk_url:
+                    if handles is None:
+                        handles = await get_client_bot_handles(db, client_id)
+                    _h = (handles.get("vk") or "").lstrip("@")
+                    if _h:
+                        _base = (f"https://vk.me/club{_h}" if _h.isdigit()
+                                 else f"https://vk.me/{_h}")
+                        links["vk"] = f"{_base}?text={quote(f'{mkind}_{slug}', safe='')}"
 
         if label or links:
             # ⚠️ `own_only` — ссылка имеет смысл ТОЛЬКО на своей площадке.
@@ -229,17 +247,24 @@ async def _build_gifts_links(db, event_id: int, client_id: int) -> dict[str, str
         if h:
             links["max"] = f"https://max.ru/{h}?start={payload}"
 
-    # ВК: диалог сообщества с меткой `ref=podarki{id}` — её разбирает
-    # `_extract_gifts_ref` в vk_main.py (22.09.2026). Раньше вела просто в
-    # сообщество, и человек не понимал, что делать дальше.
-    # ⚠️ ВК отдаёт `ref` ТОЛЬКО когда переписка ещё не начата: у писавших ранее
-    # придёт `ref=None`. Поэтому там же работает текстовая команда `podarki89` —
-    # два независимых пути к одному результату.
+    # ⚠️⚠️ ВК: диалог сообщества с ПРЕДЗАПОЛНЕННЫМ ТЕКСТОМ (`?text=`), а не с
+    # меткой `?ref=` (22.09.2026, после проверки на проде).
+    #
+    # `ref` ВК отдаёт ТОЛЬКО когда переписка с сообществом ещё НЕ начата. У
+    # того, кто боту уже писал, приходит `ref=None` — в логах прода это видно
+    # на каждом заходе. Человек попадал в пустой диалог, и «ничего не
+    # приходило»: ни подарков, ни меню, ни поддержки. Это была одна причина у
+    # всех трёх неработающих пунктов навигации.
+    #
+    # `?text=` кладёт готовую команду в поле ввода — остаётся нажать
+    # «отправить», и её ловит текстовый обработчик (`podarki89` / `menu89` /
+    # `support89`). От истории переписки это не зависит вовсе. Тот же приём
+    # уже используется на экране-заглушке ВК (`PREFILL` в mini-app/App.tsx).
     if "vk" not in disabled and handles.get("vk"):
         h = (handles["vk"] or "").lstrip("@")
         if h:
-            links["vk"] = (f"https://vk.me/club{h}?ref={payload}" if h.isdigit()
-                           else f"https://vk.me/{h}?ref={payload}")
+            base = f"https://vk.me/club{h}" if h.isdigit() else f"https://vk.me/{h}"
+            links["vk"] = f"{base}?text={quote(payload, safe='')}"
 
     return links
 
@@ -316,8 +341,11 @@ async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, s
     if "vk" not in disabled and handles.get("vk"):
         h = (handles["vk"] or "").lstrip("@")
         if h:
-            links["vk"] = (f"https://vk.me/{h}?ref=menu{event_id}" if not h.isdigit()
-                           else f"https://vk.me/club{h}?ref=menu{event_id}")
+            # ⚠️ `?text=`, а не `?ref=`: метку ВК отдаёт только тем, кто ещё не
+            # писал сообществу (см. пояснение в `_build_gifts_links`). Готовая
+            # команда в поле ввода работает всегда.
+            base = f"https://vk.me/club{h}" if h.isdigit() else f"https://vk.me/{h}"
+            links["vk"] = f"{base}?text={quote(f'menu{event_id}', safe='')}"
 
     if "max" not in disabled and handles.get("max"):
         url = max_link(slug, bot_handle=handles["max"], link_mode="bot")

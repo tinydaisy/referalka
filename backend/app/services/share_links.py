@@ -389,9 +389,18 @@ def build_support_command_links(handles: dict[str, str | None], event_id: int) -
     tg = (handles.get("telegram") or "").lstrip('@')
     vk = (handles.get("vk") or "").lstrip('@')
     mx = (handles.get("max") or "").lstrip('@')
+    # ⚠️⚠️ ВК — через `?text=`, а не `?ref=` (22.09.2026, проверено на проде).
+    # Метку `ref` ВКонтакте передаёт ТОЛЬКО когда переписка с сообществом ещё
+    # не начата. У того, кто боту уже писал, приходит `ref=None` — человек
+    # попадал в пустой диалог, и «ссылка на тех.поддержку не работала».
+    # `?text=` кладёт готовую команду в поле ввода: остаётся нажать
+    # «отправить», её ловит текстовый обработчик `support{id}` в vk_main.py.
+    # TG и MAX оставляем на deeplink — там `?start=` доставляется всегда.
+    from urllib.parse import quote as _q
     return {
         "telegram": f"https://{TG_DOMAIN}/{tg}?start=evsupport_{event_id}" if tg else "",
-        "vk": f"https://vk.me/{vk}?ref=evsupport_{event_id}" if vk else "",
+        "vk": (f"https://vk.me/{vk}?text={_q(f'support{event_id}', safe='')}"
+               if vk else ""),
         "max": f"https://max.ru/{mx}?start=evsupport_{event_id}" if mx else "",
     }
 

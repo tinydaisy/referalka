@@ -195,12 +195,11 @@ async def build_gift_ladder_block(
             head = "За 0 " + _plural_people(0, mode) + " (сразу после регистрации):"
         else:
             head = f"За {cnt} {_plural_people(cnt, mode)} дарим:"
-        # ✅ — ступень уже ваша. Ставим в конце строки-заголовка, чтобы не
-        # ломать чтение самих названий подарков.
-        if earned:
-            head = f"{_b(head)} ✅"
-        else:
-            head = _b(head)
+        # ✅ — ступень уже ваша. Ставим ПЕРЕД строкой (решение владельца
+        # 22.09.2026): в начале строки галочки выстраиваются в столбик и
+        # взятые ступени видно одним взглядом. В конце они прятались за
+        # длинным заголовком и терялись при переносе строки.
+        head = f"✅ {_b(head)}" if earned else _b(head)
         lines = [head]
         lines += [f"🎁 {_esc(t)}" for t in step["titles"]]
         blocks.append("\n".join(lines))
@@ -421,10 +420,23 @@ async def build_gifts_message(
             f"«{escape(tab_label) if html else tab_label}», чтобы забрать вашу "
             f"реферальную ссылку и готовые материалы для анонсов."
         )
-        main_url = await _build_app_url(
-            db, platform=platform, client_id=client_id, slug=slug,
-            ref_code=ref_code, contact_id=contact_id, tab="game",
-        )
+        # ⚠️⚠️ MAX — ВЕБ-ВЕРСИЯ кабинета, а не ссылка в бота (22.09.2026).
+        # `_build_app_url` форсит MAX в режим `bot` (Mini App у MAX не даёт
+        # подписки на бота), то есть отдаёт `?start=ref_pg…_tabgame` — ссылку
+        # ОБРАТНО В ЭТОГО ЖЕ БОТА. А бот на `tab=game` отвечает подарками —
+        # и кнопка «Подарки и все для анонсов» присылала то же самое сообщение
+        # по кругу (прод: «циклит и присылает снова это же сообщение»).
+        # В TG и ВК ссылка ведёт в Mini App, там петли нет.
+        if platform == "max":
+            from app.services.client_domains import client_public_link
+            _cq = f"?cid={client_id}" if client_id else ""
+            main_url = await client_public_link(
+                db, client_id, f"event/{slug}{_cq}#game")
+        else:
+            main_url = await _build_app_url(
+                db, platform=platform, client_id=client_id, slug=slug,
+                ref_code=ref_code, contact_id=contact_id, tab="game",
+            )
         if platform == "telegram":
             share_url = await build_share_friend_url(
                 db, client_id=client_id, slug=slug, ref_code=ref_code,
