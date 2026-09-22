@@ -2579,11 +2579,15 @@ async def handle_event_gifts_command(message: Message, forced_event_id: int | No
             await message.answer(
                 "Неизвестное событие — возможно, вы ошиблись с идентификатором события.")
             return
-        contact_id = await db.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE platform_slug = 'telegram' AND platform_user_id = $1
-                ORDER BY id LIMIT 1""",
-            str(user.id))
+        # ⚠️⚠️ Контакт ищем В БАЗЕ ЭТОГО КЛИЕНТА (`resolve_contact_id`), а не
+        # «первый попавшийся по tg_id». У одного человека контакт СВОЙ в каждой
+        # базе: у tg_id 5725111966 их шесть, и участник события 89 — только
+        # один из них. Запрос без фильтра по клиенту брал чужой контакт, и
+        # зарегистрированный человек выглядел незарегистрированным: ему
+        # показывало «сначала зарегистрируйтесь» и кнопку регистрации.
+        from app.services.dialog_archive import resolve_contact_id
+        contact_id = await resolve_contact_id(
+            db, client_id, "telegram", str(user.id)) if client_id else None
         msg = await build_gifts_message(
             db, event_id=event_id, client_id=client_id,
             contact_id=contact_id, platform="telegram",
@@ -2595,7 +2599,7 @@ async def handle_event_gifts_command(message: Message, forced_event_id: int | No
     rows: list[list[InlineKeyboardButton]] = []
     if msg["main_url"]:
         rows.append([InlineKeyboardButton(
-            text="Получить ссылку и материалы", url=msg["main_url"])])
+            text=msg["button_label"], url=msg["main_url"])])
     if msg["share_url"]:
         rows.append([InlineKeyboardButton(
             text="Отправить другу", url=msg["share_url"])])
@@ -2975,12 +2979,15 @@ async def _link_tech_notify(message: Message, param: str) -> bool:
         pool = await get_pool()
         async with pool.acquire() as db:
             row = await db.fetchrow(
+                # ⚠️ RETURNING id, а не name/email: этих колонок в таблице
+                # больше нет (миграция 486 — внедренец роль над клиентом), а
+                # нужен здесь только факт «строка обновилась».
                 """UPDATE tech_specialists
                       SET notify_tg_user_id = $2,
                           notify_tg_linked_at = NOW(),
                           updated_at = NOW()
                     WHERE id = $1 AND is_active = TRUE
-                RETURNING name, email""",
+                RETURNING id""",
                 spec_id, str(message.from_user.id),
             )
     except Exception as e:  # noqa: BLE001

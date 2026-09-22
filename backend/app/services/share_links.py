@@ -14,7 +14,10 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 _PLATFORM_MODE_COL = {
@@ -691,6 +694,30 @@ async def build_gift_funnel_links_by_owner(db, kind: str, slug: str) -> dict[str
     owner = await gift_funnel_owner_id(db, kind, slug)
     if not owner:
         return {}
+    # ⚠️⚠️ ПОДАРОК ПЛЮСОНА — СВОИ ССЫЛКИ (22.09.2026). У магнита с
+    # `is_plusson=TRUE` в `url` лежит не адрес, а плейсхолдер `{plsn_bot}`: в
+    # прямом режиме подарок ведёт В БОТ ПЛЮСОНА с реф-кодом клиента, а не в
+    # бот клиента. `build_funnel_landing_links` об этом не знает и строила
+    # deeplink к боту клиента — человек попадал в чужую воронку вместо подарка
+    # (прод, магнит 6g9he в навигации события 89). Ссылки собирает
+    # `plusson_lead_magnet.share_links` — единственное место, где учтён режим
+    # выдачи (`direct` / `funnel`).
+    try:
+        is_plusson = await db.fetchval(
+            "SELECT is_plusson FROM lead_magnets WHERE slug = $1 LIMIT 1", slug
+        ) if kind == "m" else False
+    except Exception:
+        is_plusson = False
+    if is_plusson:
+        try:
+            from app.config import settings as _s
+            from app.services import plusson_lead_magnet as _plm
+            links = await _plm.share_links(
+                db, owner, slug, _s.frontend_url.rstrip("/"))
+            if links:
+                return {k: v for k, v in links.items() if v}
+        except Exception as e:  # noqa: BLE001
+            logger.warning("plusson gift links failed (slug=%s): %s", slug, e)
     try:
         return await build_funnel_landing_links(db, client_id=owner, slug=slug, kind=kind)
     except Exception:

@@ -382,9 +382,12 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
                 if "{gift_ladder}" in _txt:
                     _invited = await count_invited(
                         db, event_id=run_row["event_id"], ref_code=ref_code)
+                    from app.services.referral_gifts import count_by_stage
+                    _stats = await count_by_stage(
+                        db, event_id=run_row["event_id"], ref_code=ref_code)
                     gift_ladder_block = await build_gift_ladder_block(
                         db, event_id=run_row["event_id"], invited=_invited,
-                        html=not is_vk,
+                        html=not is_vk, stats=_stats,
                     )
                 if "{gifts_tab}" in _txt:
                     gifts_tab_label = await get_tab_label_game(db, client_id)

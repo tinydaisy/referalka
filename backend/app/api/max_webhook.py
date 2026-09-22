@@ -493,11 +493,11 @@ async def _send_max_gifts(
                 "Неизвестное событие — возможно, вы ошиблись с номером события.",
                 token=bot_token)
             return
-        _contact_id = await _c.fetchval(
-            """SELECT contact_id FROM platform_users
-                WHERE platform_slug = 'max' AND platform_user_id = $1
-                ORDER BY id LIMIT 1""",
-            str(user_id))
+        # ⚠️ Контакт — в базе ЭТОГО клиента (см. пояснение в TG-хендлере):
+        # «первый по platform_user_id» взял бы чужой контакт другой базы.
+        from app.services.dialog_archive import resolve_contact_id
+        _contact_id = await resolve_contact_id(
+            _c, int(cid), "max", str(user_id)) if cid else None
         _msg = await build_gifts_message(
             _c, event_id=event_id, client_id=int(cid),
             contact_id=_contact_id, platform="max",
@@ -508,13 +508,18 @@ async def _send_max_gifts(
     _btns = None
     if _msg["main_url"]:
         _btns = tg_inline_to_max_keyboard(
-            [[{"text": "Получить ссылку и материалы", "url": _msg["main_url"]}]])
+            [[{"text": _msg["button_label"], "url": _msg["main_url"]}]])
     # Длинный текст бьём на части: лестница подарков перерастает лимит
     # сообщения, и целиком оно бы не ушло. Кнопка — на последней части.
+    # ⚠️ `parse_mode="html"` ОБЯЗАТЕЛЕН: без него MAX шлёт теги как есть, и
+    # человек видит «<b>У вас сейчас:</b>» текстом (прод, 22.09.2026). MAX
+    # разбирает inline-HTML только при format=html — см. тот же приём в
+    # `_send_max_support` ниже и в tasks/broadcast.py.
+    # Лимит текста у MAX — 4000 символов, поэтому режем с запасом (3900).
     _chunks = split_text_chunks(_msg["text"])
     for _i, _chunk in enumerate(_chunks):
         await max_send_message(
-            chat_id, _chunk, token=bot_token,
+            chat_id, _chunk, token=bot_token, parse_mode="html",
             buttons=(_btns if _i == len(_chunks) - 1 else None),
         )
 
@@ -1870,6 +1875,22 @@ async def _process_start(
                 "SELECT work_tg_username FROM clients WHERE id = $1", client_id
             ) or ""
             if is_registered:
+                # ⚠️ `tab=game` в ссылке — человек шёл ЗА ПОДАРКАМИ, а не в меню
+                # (22.09.2026). MAX парсил `tab` в `parsed`, но нигде его не
+                # использовал: кнопка «Получить ссылку и материалы» и ссылка
+                # «Подарки» из чата открывали общее меню события, и человек
+                # искал подарки сам. Telegram ведёт на вкладку Mini App, а MAX
+                # отдаёт то же самое сообщением бота — Mini App у MAX не даёт
+                # подписки на бота, туда мы намеренно не уводим.
+                if (parsed.get("tab") or "") == "game":
+                    try:
+                        await _send_max_gifts(
+                            chat_id=chat_id, user_id=user_id, event_id=event_id,
+                            bot_token=bot_token, client_id_override=client_id,
+                        )
+                        return
+                    except Exception as e:
+                        logger.warning(f"MAX gifts by tab failed for user={user_id}: {e}")
                 # Зарегистрирован → меню кабинета.
                 try:
                     await _send_max_event_menu(

@@ -1654,6 +1654,12 @@ async def event_participants(
                      JOIN event_tariffs t ON t.id = pt.tariff_id
                     WHERE pt.participant_id = ep.id AND pt.status = 'paid') AS paid_tariffs,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
+                  -- Дата прихода и последнего действия (миграция 491):
+                  -- в списке показываем «когда пришёл», чтобы у
+                  -- незарегистрированных дата тоже была.
+                  COALESCE(ep.joined_at, ep.registered_at, ep.link_clicked_at) AS joined_at,
+                  COALESCE(ep.last_action_at, ep.registered_at, ep.joined_at,
+                           ep.link_clicked_at) AS last_action_at,
                   ep.link_clicked_at, ep.chat_check_at,
                   -- СВОЙ тестовый аккаунт (список того, кто смотрит)? Только такие
                   -- разрешено удалять в коллабе — фронт по этому полю решает,
@@ -1746,7 +1752,14 @@ async def event_participants(
            WHERE ep.event_id = $1{where_extra}
            GROUP BY ep.id, c.id, ep.referrer_ref_code,
                     ep.is_registered, ep.is_in_chat
-           ORDER BY ep.registered_at DESC""",
+           -- ⚠️ Сортировка по ПОСЛЕДНЕМУ ДЕЙСТВИЮ, а не по registered_at
+           -- (миграция 491). У незарегистрированных registered_at пустой, а
+           -- NULL при DESC идёт ПЕРВЫМ — полсотни людей без регистрации
+           -- оказывались наверху, свежие регистрации под ними, и список
+           -- читался как «люди перестали регистрироваться». Фоллбэк на старые
+           -- поля — для строк, которых не застала миграция.
+           ORDER BY COALESCE(ep.last_action_at, ep.registered_at, ep.joined_at,
+                             ep.link_clicked_at) DESC NULLS LAST, ep.id DESC""",
         event_id, client_id
     )
 

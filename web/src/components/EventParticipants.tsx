@@ -28,6 +28,10 @@ interface Participant {
   is_subscribed?: boolean
   is_unsubscribed?: boolean
   registered_at: string | null
+  /** Когда человек попал в участники (миграция 491). У
+   *  незарегистрированных registered_at пустой, а эта дата есть. */
+  joined_at?: string | null
+  last_action_at?: string | null
   link_clicked_at: string | null
   chat_check_at: string | null
   contact_name: string | null
@@ -459,13 +463,16 @@ function ContactCard({
                 аватар, дата и галочка без единой фамилии. Здесь те же данные
                 строкой под именем; на `sm` и шире их показывают колонки. */}
             <div className="sm:hidden flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-gray-500">
-              {p.registered_at && (
+              {/* Дата регистрации, а у незарегистрированных — дата прихода
+                  (миграция 491): иначе в мобильной сводке у них пусто. */}
+              {(p.registered_at || p.joined_at) && (
                 <span>
-                  {new Date(p.registered_at).toLocaleDateString('ru', { timeZone: 'Europe/Moscow' })}
+                  {new Date((p.registered_at || p.joined_at)!).toLocaleDateString('ru', { timeZone: 'Europe/Moscow' })}
                   {' '}
-                  {new Date(p.registered_at).toLocaleTimeString('ru', {
+                  {new Date((p.registered_at || p.joined_at)!).toLocaleTimeString('ru', {
                     timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit',
                   })} МСК
+                  {!p.registered_at && <span className="text-gray-400"> · пришёл</span>}
                 </span>
               )}
               {Number(p.paid_amount) > 0 && (
@@ -532,19 +539,27 @@ function ContactCard({
           )}
         </div>
 
-        {/* Колонка «Дата регистрации» — дата и ВРЕМЯ захода.
+        {/* Колонка «Приход / регистрация» — дата и ВРЕМЯ.
             ⚠️ Время считаем в МСК (timeZone), а не в поясе браузера: у клиента
-            и у зрителей он разный, а событие живёт по московскому. */}
+            и у зрителей он разный, а событие живёт по московскому.
+            ⚠️ Показываем registered_at, а если человек ещё не зарегистрирован —
+            дату ПРИХОДА (миграция 491). Раньше у таких стоял прочерк, и было
+            не видно, когда они появились: список выглядел так, будто люди
+            перестали регистрироваться. Незарегистрированным дату помечаем
+            серым и подписью «пришёл», чтобы не путать с регистрацией. */}
         <div className="hidden sm:block w-24 text-center shrink-0">
-          {p.registered_at ? (
+          {(p.registered_at || p.joined_at) ? (
             <span className="text-xs text-gray-500 leading-tight block">
-              {new Date(p.registered_at).toLocaleDateString('ru', { timeZone: 'Europe/Moscow' })}
+              {new Date((p.registered_at || p.joined_at)!).toLocaleDateString('ru', { timeZone: 'Europe/Moscow' })}
               <br />
               <span className="text-[11px] text-gray-400">
-                {new Date(p.registered_at).toLocaleTimeString('ru', {
+                {new Date((p.registered_at || p.joined_at)!).toLocaleTimeString('ru', {
                   timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit',
                 })} МСК
               </span>
+              {!p.registered_at && (
+                <span className="block text-[10px] text-gray-300">пришёл</span>
+              )}
             </span>
           ) : (
             <span className="text-xs text-gray-300">—</span>

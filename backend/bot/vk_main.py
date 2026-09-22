@@ -359,6 +359,25 @@ def _extract_event_support_id(message_or_event: dict) -> int | None:
     return _extract_ref_with_prefix(message_or_event, "evsupport_")
 
 
+def _extract_event_menu_ref(message_or_event: dict) -> int | None:
+    """Ищет `ref=menu<event_id>` — пункт «Кабинет, Программа, Спикеры» из
+    навигации по чату события (22.09.2026).
+
+    ⚠️ Метка нужна отдельным извлекателем: `_extract_event_trigger_id` читает
+    ТОЛЬКО текст сообщения («ИВЕНТ24», человек набрал руками), а по ссылке
+    `vk.me/{group}?ref=menu24` текста нет вовсе — ВК кладёт метку в `ref`.
+    Без этого человек попадал бы в диалог с сообществом и не понимал, что
+    делать дальше."""
+    return _extract_ref_with_prefix(message_or_event, "menu")
+
+
+def _extract_gifts_ref(message_or_event: dict) -> int | None:
+    """Ищет `ref=podarki<event_id>` — пункт «Подарки за регистрацию и
+    активность» из навигации по чату. Та же причина, что у `menu` выше:
+    по ссылке текста нет, метка приходит в `ref`."""
+    return _extract_ref_with_prefix(message_or_event, "podarki")
+
+
 def _extract_evreg_payload(message_or_event: dict) -> str | None:
     """Возвращает сырой ref `evreg_<eid>_ct<cid>` (кнопка «Регистрация на событие»
     из вебинара) — тут нужен полный payload, а не только число, поэтому свой парс."""
@@ -690,6 +709,58 @@ def _extract_event_trigger_id(text: str) -> int | None:
         return int(m.group(1))
     except (ValueError, TypeError):
         return None
+
+
+async def _vk_send_gifts(event_id: int, from_id: int, db, ctx: "GroupCtx") -> None:
+    """Подарки за рекомендации в ВК: команда `podarki{id}` в тексте и метка
+    `ref=podarki{id}` из навигации по чату.
+
+    ⚠️ Кнопки «Отправить другу» в ВК НЕТ (решение владельца 22.09.2026):
+    механизма «выбери чат и отправь» у ВК-бота не существует. Текст plain:
+    ВК не понимает HTML, теги пришли бы как есть.
+    """
+    try:
+        from app.services.referral_gifts import (
+            build_gifts_message, resolve_event_for_client, split_text_chunks,
+        )
+        from app.services.dialog_archive import resolve_contact_id
+        # ⚠️ Импорт через алиас: ниже по модулю то же имя импортируется локально
+        # внутри функций, и прямое обращение падало бы UnboundLocalError.
+        from app.services.vk_api import tg_inline_to_vk_keyboard as _to_vk_kb
+
+        # Событие обязано принадлежать клиенту ЭТОГО сообщества — иначе по
+        # перебору номеров из чужого бота вытянули бы чужую лестницу подарков.
+        ev = await resolve_event_for_client(
+            db, event_id=event_id, client_id=ctx.client_id)
+        if not ev:
+            await vk_send_message(
+                from_id,
+                f"Не нашёл событие №{event_id} 🤔\n\n"
+                "Возможно, в номере опечатка — проверьте и напишите ещё раз.",
+                token=ctx.token,
+            )
+            return
+        # Контакт — в базе ЭТОГО клиента: «первый по platform_user_id» взял бы
+        # чужой контакт другой базы, и человек выглядел бы незарегистрированным.
+        contact_id = await resolve_contact_id(db, ctx.client_id, "vk", str(from_id))
+        msg = await build_gifts_message(
+            db, event_id=event_id, client_id=ctx.client_id,
+            contact_id=contact_id, platform="vk",
+        )
+        if not msg:
+            await vk_send_message(from_id, "Событие не найдено.", token=ctx.token)
+            return
+        kb = None
+        if msg["main_url"]:
+            kb = _to_vk_kb([[{"text": msg["button_label"], "url": msg["main_url"]}]])
+        chunks = split_text_chunks(msg["text"])
+        for i, chunk in enumerate(chunks):
+            await vk_send_message(
+                from_id, chunk, token=ctx.token,
+                keyboard=(kb if i == len(chunks) - 1 else None),
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VK podarki%s упал: %s", event_id, e)
 
 
 async def _vk_open_event_funnel(event_id: int, user_id: int, db, ctx: "GroupCtx") -> bool:
@@ -1126,6 +1197,18 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK evsupport (message_allow) failed: %s", e)
+
+    # Навигация по чату события: ref=podarki<id> / ref=menu<id> (22.09.2026).
+    # ⚠️ Метки приходят в `ref`, а не текстом: по ссылке из чата человек
+    # ничего не пишет. Разбираем ДО воронок — иначе «досыл по недавней
+    # активности» съел бы заход и человек не получил бы ни подарков, ни меню.
+    _gifts_ref = _extract_gifts_ref(event)
+    if _gifts_ref:
+        await _vk_send_gifts(_gifts_ref, int(user_id), db, ctx)
+        return
+    _menu_ref = _extract_event_menu_ref(event)
+    if _menu_ref and await _vk_open_event_funnel(_menu_ref, int(user_id), db, ctx):
+        return
 
     # Кнопка «Регистрация на событие» из вебинара: ref=evreg_<eid>_ct<cid>.
     _evreg = _extract_evreg_payload(event)
@@ -1851,7 +1934,12 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             f"Выберите формат участия в событии {vip['title']}\n\n"
             "👇👇👇\n"
         )
-        kb = tg_inline_to_vk_keyboard([[{"text": vip["vip_label"], "url": vip["vip_target"]}]])
+        # ⚠️ Тот же капкан UnboundLocalError, что чинили у /podarki (22.09.2026):
+        # ниже в этой функции есть локальный `from … import tg_inline_to_vk_keyboard`,
+        # поэтому имя локальное на ВСЮ функцию, а сюда `vip_link` попадает
+        # раньше той строки. Зовём через алиас — модульный импорт не помогает.
+        from app.services.vk_api import tg_inline_to_vk_keyboard as _to_vk_kb
+        kb = _to_vk_kb([[{"text": vip["vip_label"], "url": vip["vip_target"]}]])
         await vk_send_message(int(from_id), msg_text, keyboard=kb, token=ctx.token)
         return
 
@@ -1894,10 +1982,20 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     # Проверяем до payload-кнопок, чтобы выдача шла даже если пользователь
     # написал произвольный текст вместо нажатия Start.
     funnel_run_id = _extract_funnel_run_id(event_obj)
+    # ⚠️⚠️ ЯВНАЯ КОМАНДА СИЛЬНЕЕ «СТРАХОВКИ ПО НЕДАВНЕЙ АКТИВНОСТИ» (22.09.2026).
+    # Страховка ниже подхватывает ЛЮБОЙ забег лид-магнита за последние 24 часа и
+    # трактует любой текст как «человек пришёл по воронке» — с `return`. Из-за
+    # этого `/podarki89`, набранный после получения подарка, до своего
+    # обработчика вообще не доходил: его съедала вчерашняя воронка (прод,
+    # событие 89). Команду с номером человек набирает осознанно — она и
+    # решает, а не догадка по истории.
+    _explicit_cmd = bool(re.match(
+        r"(?i)^\s*/?(?:podarki|ивент|event|menu)\s*\d{1,9}\b",
+        (message.get("text") or "").strip()))
     # Страховка: если ref не пришёл, но у юзера есть СВЕЖИЙ landed-забег
     # без started_at (он пришёл через Mini App, но Текст 1 ещё не успел уйти —
     # например, не дал права на сообщения) — продолжаем последний.
-    if not funnel_run_id:
+    if not funnel_run_id and not _explicit_cmd:
         recent_run = await db.fetchval(
             """SELECT id FROM funnel_runs
                 WHERE client_id = $1
@@ -1919,6 +2017,27 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
                       AND platform_user_id = $2
                       AND stage IN ('landed', 'started')
                       AND landed_at > NOW() - INTERVAL '24 hours'
+                    ORDER BY landed_at DESC
+                    LIMIT 1""",
+                ctx.client_id, str(from_id),
+            )
+        # ⚠️⚠️ ПОВТОРНЫЙ ЗАХОД ЗА ТЕМ ЖЕ МАГНИТОМ (22.09.2026). Человек второй
+        # раз открывает заглушку и жмёт «НАПИСАТЬ В СООБЩЕСТВО» — приходит слово
+        # «ПОЛУЧИТЬ», но ВК метку `ref` при повторе НЕ присылает (в логах прода
+        # `ref=None`), а страховка выше ищет только `landed`/`started`. После
+        # первой выдачи забег уже `subscribed` — не находился ни один, и человек
+        # не получал ничего, хотя воронка «отработала».
+        # По явному слову «ПОЛУЧИТЬ» поднимаем и ВЫДАННЫЕ забеги: повторная
+        # выдача штатная (`run_started_vk` сам переключается на существующий).
+        if not recent_run and re.match(
+                r"(?i)^\s*получить\b", (message.get("text") or "").strip()):
+            recent_run = await db.fetchval(
+                """SELECT id FROM funnel_runs
+                    WHERE client_id = $1
+                      AND type = 'lead_magnet'
+                      AND platform_slug = 'vk'
+                      AND platform_user_id = $2
+                      AND landed_at > NOW() - INTERVAL '30 days'
                     ORDER BY landed_at DESC
                     LIMIT 1""",
                 ctx.client_id, str(from_id),
@@ -2100,6 +2219,15 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
         except Exception as e:
             logger.warning("VK evsupport (message_new) failed: %s", e)
 
+    # Навигация по чату события: ref=podarki<id> / ref=menu<id> (см. выше).
+    _gifts_ref_new = _extract_gifts_ref(event_obj)
+    if _gifts_ref_new:
+        await _vk_send_gifts(_gifts_ref_new, int(from_id), db, ctx)
+        return
+    _menu_ref_new = _extract_event_menu_ref(event_obj)
+    if _menu_ref_new and await _vk_open_event_funnel(_menu_ref_new, int(from_id), db, ctx):
+        return
+
     _evreg_new = _extract_evreg_payload(event_obj)
     if _evreg_new:
         try:
@@ -2126,50 +2254,26 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     # в Telegram. Текст plain: ВК не понимает HTML, теги пришли бы как есть.
     _gm = re.match(r"(?i)^\s*/?podarki\s*(\d{1,9})\b", trigger_text)
     if _gm:
-        try:
-            from app.services.referral_gifts import (
-                build_gifts_message, resolve_event_for_client, split_text_chunks,
-            )
-            _gev_id = int(_gm.group(1))
-            # Событие обязано принадлежать клиенту ЭТОГО сообщества — иначе по
-            # перебору номеров из чужого бота вытянули бы чужую лестницу подарков.
-            _gev = await resolve_event_for_client(
-                db, event_id=_gev_id, client_id=ctx.client_id)
-            if not _gev:
-                await vk_send_message(
-                    int(from_id),
-                    f"Не нашёл событие №{_gev_id} 🤔\n\n"
-                    "Возможно, в номере опечатка — проверьте и напишите ещё раз.",
-                    token=ctx.token,
-                )
+        await _vk_send_gifts(int(_gm.group(1)), int(from_id), db, ctx)
+        return
+
+    # Тех.поддержка ТЕКСТОМ: `support89` / `/support89` / `поддержка89`.
+    # ⚠️⚠️ Запасной путь к `ref=evsupport_{id}` (22.09.2026). ВК присылает
+    # метку `ref` ТОЛЬКО когда переписка с сообществом ещё не начата: у того,
+    # кто уже писал боту, ссылка «Тех.поддержка» из навигации открывает диалог
+    # с пустым `ref=None` (видно в логах прода) — и не происходит ничего.
+    # Обработчик `ref` остаётся для новых людей, а этот ловит остальных.
+    _sm = re.match(r"(?i)^\s*/?(?:support|поддержка)\s*(\d{1,9})\b", trigger_text)
+    if _sm:
+        _sid = int(_sm.group(1))
+        if await _event_belongs_to_client(db, _sid, ctx.client_id):
+            try:
+                from bot.vk_event_menu import handle_vk_event_support
+                await handle_vk_event_support(_sid, int(from_id), db, ctx)
                 return
-            _gcontact_id = await db.fetchval(
-                """SELECT contact_id FROM platform_users
-                    WHERE platform_slug = 'vk' AND platform_user_id = $1
-                    ORDER BY id LIMIT 1""",
-                str(from_id))
-            _gmsg = await build_gifts_message(
-                db, event_id=_gev_id, client_id=ctx.client_id,
-                contact_id=_gcontact_id, platform="vk",
-            )
-            if not _gmsg:
-                await vk_send_message(
-                    int(from_id), "Событие не найдено.", token=ctx.token)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("VK support%s упал: %s", _sid, e)
                 return
-            _gkb = None
-            if _gmsg["main_url"]:
-                _gkb = tg_inline_to_vk_keyboard(
-                    [[{"text": "Получить ссылку и материалы", "url": _gmsg["main_url"]}]])
-            _gchunks = split_text_chunks(_gmsg["text"])
-            for _gi, _gchunk in enumerate(_gchunks):
-                await vk_send_message(
-                    int(from_id), _gchunk, token=ctx.token,
-                    keyboard=(_gkb if _gi == len(_gchunks) - 1 else None),
-                )
-            return
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"VK podarki{_gm.group(1)} упал: {e}")
-            return
 
     trigger_event_id = _extract_event_trigger_id(trigger_text)
     if trigger_event_id is not None:

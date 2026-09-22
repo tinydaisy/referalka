@@ -301,16 +301,17 @@ async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, s
         if url:
             links["telegram"] = url
 
-    # ⚠️ ВК — ИСКЛЮЧЕНИЕ, остаётся на настройке клиента. У `vk_link` режим `bot`
-    # это не «бот вместо Mini App», как в TG/MAX, а совсем другая ссылка:
-    # маркер `evl_` (заглушка, бот шлёт воронку в ЛС). ВК на лендинг никого и
-    # не уводил — чинить там нечего.
+    # ⚠️ ВК ведём В ДИАЛОГ СООБЩЕСТВА с меткой `ref=menu{event_id}` (22.09.2026).
+    # `vk_link` в ЛЮБОМ режиме отдаёт ссылку на Mini App (`vk.com/app…`) —
+    # меняется только маркер внутри hash. То есть пункт «Кабинет, Программа,
+    # Спикеры» в ВК открывал Mini App, а не меню события в боте, хотя в TG и
+    # MAX открывал именно меню. Метку `menu{id}` ВК-бот уже понимает
+    # (`_extract_event_trigger_id` ловит «ивент|event|menu» + номер).
     if "vk" not in disabled and handles.get("vk"):
-        mode = await resolve_event_link_mode(db, client_id=client_id, platform="vk")
-        app_id = await get_client_vk_app_id(db, client_id)
-        url = vk_link(slug, app_id=app_id, link_mode=mode)
-        if url:
-            links["vk"] = url
+        h = (handles["vk"] or "").lstrip("@")
+        if h:
+            links["vk"] = (f"https://vk.me/{h}?ref=menu{event_id}" if not h.isdigit()
+                           else f"https://vk.me/club{h}?ref=menu{event_id}")
 
     if "max" not in disabled and handles.get("max"):
         url = max_link(slug, bot_handle=handles["max"], link_mode="bot")

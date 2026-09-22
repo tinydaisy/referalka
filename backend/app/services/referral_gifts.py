@@ -121,9 +121,50 @@ def _plural_people(n: int, mode: str) -> str:
     return "приглашённого" if n == 1 else "приглашённых"
 
 
+# Подпись режима подсчёта — человеку должно быть ясно, ЧТО именно ему засчитают
+# (решение владельца 22.09.2026): иначе «Перешли: 5, Зарегистрировано: 1» читается
+# как «подарок за 5», хотя зачтётся единица.
+_MODE_LABEL = {
+    "registered":   "зарегистрированные",
+    "visited":      "перешедшие по ссылке",
+    "clicked_link": "нажавшие кнопку на странице события",
+}
+
+
+async def count_by_stage(
+    db: asyncpg.Connection, *, event_id: int, ref_code: Optional[str],
+) -> dict:
+    """Оба счётчика сразу: сколько перешло и сколько из них зарегистрировалось.
+
+    Показываем ОБА (решение владельца 22.09.2026): человек видит и охват своих
+    рекомендаций, и что из этого зачтено. Раньше печаталась одна цифра — та,
+    что по режиму клиента, — и было непонятно, почему приглашённых «мало».
+    """
+    if not ref_code:
+        return {"visited": 0, "registered": 0}
+    try:
+        row = await db.fetchrow(
+            """SELECT COUNT(*) AS visited,
+                      COUNT(*) FILTER (WHERE ep.is_registered = TRUE) AS registered
+                 FROM event_participants ep
+                WHERE ep.event_id = $1
+                  AND ep.referrer_ref_code IS NOT NULL
+                  AND ep.referrer_ref_code = $2""",
+            event_id, ref_code,
+        )
+        return {
+            "visited": int(row["visited"] or 0) if row else 0,
+            "registered": int(row["registered"] or 0) if row else 0,
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"count_by_stage упал (event={event_id}): {e}")
+        return {"visited": 0, "registered": 0}
+
+
 async def build_gift_ladder_block(
     db: asyncpg.Connection, *, event_id: int, invited: int = 0,
     html: bool = True, mark_earned: bool = True,
+    stats: Optional[dict] = None,
 ) -> str:
     """Текст лестницы подарков.
 
@@ -166,12 +207,20 @@ async def build_gift_ladder_block(
 
     out = "\n\n".join(blocks)
 
-    # Шапка «у вас сейчас N» — только когда есть что показать: нулевой счётчик
-    # в первом же сообщении звучит как упрёк, а не как приглашение.
-    if mark_earned and invited > 0:
-        word = _plural_people(invited, mode)
-        head = f"У вас сейчас: {invited} {word}"
-        out = f"{_b(head)}\n\n{out}"
+    # Шапка «У вас сейчас» — оба счётчика и что именно засчитывается
+    # (решение владельца 22.09.2026). Показываем ВСЕГДА, включая нули: человек
+    # должен видеть стартовую точку и правило игры, иначе «Перешли: 5,
+    # Зарегистрировано: 1» он прочитает как «подарок за 5».
+    if mark_earned and stats is not None:
+        mode_label = _MODE_LABEL.get(mode, _MODE_LABEL["registered"])
+        head = "\n".join([
+            _b("У вас сейчас:"),
+            f"Перешли по ссылке: {stats.get('visited', 0)} чел.",
+            f"Зарегистрировано: {stats.get('registered', 0)} чел.",
+            "",
+            f"Учитываются: {mode_label}",
+        ])
+        out = f"{head}\n\n{out}"
     return out
 
 
@@ -314,13 +363,37 @@ async def build_gifts_message(
         ref_code = await db.fetchval(
             "SELECT ref_code FROM contacts WHERE id = $1", contact_id)
 
+    # ⚠️ Зарегистрирован ли человек на ЭТО событие (решение владельца 22.09.2026).
+    # Сообщение показываем всем — лестница подарков и есть приглашение
+    # зарегистрироваться. Но незарегистрированному:
+    #   • ступени НЕ отмечаем галочками — ему пока ничего не засчитано;
+    #   • в конце зовём зарегистрироваться;
+    #   • кнопка ведёт на РЕГИСТРАЦИЮ, а не в кабинет — кабинет ему всё равно
+    #     не откроется, и кнопка «Подарки и все для анонсов» упёрлась бы в
+    #     форму регистрации, только без объяснения, почему.
+    is_registered = False
+    if contact_id:
+        is_registered = bool(await db.fetchval(
+            "SELECT is_registered FROM event_participants "
+            " WHERE event_id = $1 AND contact_id = $2 LIMIT 1",
+            event_id, contact_id,
+        ))
+
     ref_links = await build_ref_links_block(
         db, event_id=event_id, client_id=client_id, slug=slug,
         ref_code=ref_code, html=html,
     )
     invited = await count_invited(db, event_id=event_id, ref_code=ref_code)
+    stats = await count_by_stage(db, event_id=event_id, ref_code=ref_code)
+    # ⚠️ Галочки «ступень ваша» и счётчики — ТОЛЬКО зарегистрированному.
+    # Незарегистрированному отмечать нечего: приглашённые ему не засчитываются,
+    # пока он сам не в событии. Отметка «✅ За 0 — сразу после регистрации» у
+    # человека, который ещё не зарегистрирован, прямо противоречила бы тексту.
     ladder = await build_gift_ladder_block(
-        db, event_id=event_id, invited=invited, html=html)
+        db, event_id=event_id, invited=invited, html=html,
+        stats=(stats if is_registered else None),
+        mark_earned=is_registered,
+    )
     tab_label = await get_tab_label_game(db, client_id)
 
     def _b(s: str) -> str:
@@ -339,22 +412,40 @@ async def build_gifts_message(
         parts.append(_b("Ваши реферальные ссылки:") + "\n" + ref_links)
     if ladder:
         parts.append("А именно:\n\n" + ladder)
-    parts.append(
-        f"Нажмите на кнопку, чтобы перейти в свой кабинет на вкладку "
-        f"«{escape(tab_label) if html else tab_label}», чтобы забрать вашу "
-        f"реферальную ссылку и готовые материалы для анонсов."
-    )
 
     from app.tasks.nurture import _build_app_url
-    main_url = await _build_app_url(
-        db, platform=platform, client_id=client_id, slug=slug,
-        ref_code=ref_code, contact_id=contact_id, tab="game",
-    )
     share_url = ""
-    if platform == "telegram":
-        share_url = await build_share_friend_url(
-            db, client_id=client_id, slug=slug, ref_code=ref_code,
-            event_title=title,
+    if is_registered:
+        parts.append(
+            f"Нажмите на кнопку, чтобы перейти в свой кабинет на вкладку "
+            f"«{escape(tab_label) if html else tab_label}», чтобы забрать вашу "
+            f"реферальную ссылку и готовые материалы для анонсов."
+        )
+        main_url = await _build_app_url(
+            db, platform=platform, client_id=client_id, slug=slug,
+            ref_code=ref_code, contact_id=contact_id, tab="game",
+        )
+        if platform == "telegram":
+            share_url = await build_share_friend_url(
+                db, client_id=client_id, slug=slug, ref_code=ref_code,
+                event_title=title,
+            )
+    else:
+        # Не зарегистрирован: зовём зарегистрироваться и ведём кнопкой ТУДА.
+        # ⚠️ Ведём на воронку события (`ref_pg{slug}` без вкладки), а не на
+        # `tab=game`: кабинет незарегистрированному не откроется, он упёрся бы
+        # в форму регистрации без объяснения, почему. Воронка — штатный вход:
+        # бот сам покажет правильную кнопку регистрации, с учётом лендинга,
+        # режима площадки и «регистрации прямо в боте».
+        parts.append(
+            _b("Сначала зарегистрируйтесь на событие") + " — тогда у вас "
+            "появится личная реферальная ссылка, а подарки за регистрацию "
+            "станут вашими. Нажмите кнопку ниже, чтобы зарегистрироваться "
+            "и получить материалы для анонсов."
+        )
+        main_url = await _build_app_url(
+            db, platform=platform, client_id=client_id, slug=slug,
+            ref_code=ref_code, contact_id=contact_id,
         )
 
     return {
@@ -363,6 +454,11 @@ async def build_gifts_message(
         "main_url": main_url,
         "share_url": share_url,
         "event_title": title,
+        "is_registered": is_registered,
+        # Подпись кнопки зависит от того, куда она ведёт: обещать «Подарки и
+        # все для анонсов» тому, кто попадёт на форму регистрации, — обман.
+        "button_label": ("Подарки и все для анонсов" if is_registered
+                         else "Зарегистрироваться"),
     }
 
 
