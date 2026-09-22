@@ -333,8 +333,15 @@ export const api = {
       request(`/api/v1/events/${id}/check-chats`, { method: 'POST' }),
     // CRM события: люди по этапам — не зарегистрированы / зарегистрированы /
     // в чате / были в эфире. В коллабе отдаёт только СВОИХ приведённых.
-    crm: (id: number, params?: { tariff_id?: number }) =>
-      request(`/api/v1/events/${id}/crm${params?.tariff_id ? `?tariff_id=${params.tariff_id}` : ''}`),
+    // ⚠️ Параметры собираем через URLSearchParams, а не склейкой: их стало
+    // двое (тариф и внедренец), и ручная склейка «?a=1?b=2» ломала бы запрос.
+    crm: (id: number, params?: { tariff_id?: number; spec_id?: number }) => {
+      const qs = new URLSearchParams()
+      if (params?.tariff_id) qs.set('tariff_id', String(params.tariff_id))
+      if (params?.spec_id) qs.set('spec_id', String(params.spec_id))
+      const s = qs.toString()
+      return request(`/api/v1/events/${id}/crm${s ? `?${s}` : ''}`)
+    },
     addParticipantFromContact: (id: number, contactId: number, isRegistered = false) =>
       request(`/api/v1/events/${id}/participants/from-contact`, {
         method: 'POST',

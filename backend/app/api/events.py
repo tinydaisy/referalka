@@ -1472,6 +1472,9 @@ async def check_chats(
 async def event_crm(
     event_id: int,
     tariff_id: int | None = Query(default=None, description="Только купившие этот тариф события"),
+    spec_id_filter: int | None = Query(
+        default=None, alias="spec_id",
+        description="Только люди этого внедренца: приведённые им или закреплённые за ним как за менеджером"),
     client=Depends(get_current_client), db=Depends(get_db),
 ):
     """Четыре колонки этапов + два блока ПЛЮСОНа для внедренцев.
@@ -1538,6 +1541,37 @@ async def event_crm(
                            WHERE pt.participant_id = ep.id
                              AND pt.tariff_id = ${len(args)}
                              AND pt.status = 'paid')"""
+
+    # ── Фильтр «показать людей одного внедренца» ─────────────────────────
+    # ⚠️⚠️ ДВА СПОСОБА быть «человеком внедренца», и берём ОБА:
+    #   1) его ПРИВЁЛ этот внедренец (реферовод события — контакт, привязанный
+    #      к кабинету внедренца);
+    #   2) он ЗАКРЕПЛЁН за ним как за менеджером лидов (contact_assignments).
+    # Взять только первое — пропали бы выданные ПЛЮСОНОМ; только второе —
+    # пропали бы его приведённые, которых ещё не раздали. Владелец смотрит
+    # «как идут дела у этого внедренца», и ему нужны и те, и другие.
+    #
+    # ⚠️ Фильтр — ТОЛЬКО для владельца кабинета: помощник и так видит лишь
+    # своих, и давать ему выбор чужого внедренца значило бы показать чужих.
+    if spec_id_filter and not leads_gid:
+        args.append(int(spec_id_filter))
+        n = len(args)
+        extra += f"""
+              AND (
+                -- привёл этот внедренец
+                EXISTS (SELECT 1 FROM tech_specialists ts_f
+                         WHERE ts_f.id = ${n}
+                           AND ts_f.client_id = rc.linked_client_id)
+                -- или закреплён за ним как за менеджером лидов
+                OR EXISTS (SELECT 1
+                             FROM contact_assignments ca_f
+                             JOIN assistant_grants g_f ON g_f.id = ca_f.grant_id
+                             JOIN assistants a_f ON a_f.id = g_f.assistant_id
+                             JOIN tech_specialists ts_g ON ts_g.id = ${n}
+                             JOIN clients tc_g ON tc_g.id = ts_g.client_id
+                            WHERE ca_f.contact_id = c.id
+                              AND LOWER(TRIM(a_f.email)) = LOWER(TRIM(tc_g.email)))
+              )"""
 
     rows = await db.fetch(
         f"""SELECT ep.id, c.id AS contact_id, c.name,
@@ -1706,11 +1740,26 @@ async def event_crm(
             ORDER BY t.sort_order, t.id""",
         event_id, client_id)
 
+    # Внедренцы для выпадашки фильтра — только владельцу кабинета.
+    # ⚠️ Отдаём ВСЕХ действующих, а не только тех, у кого есть люди в этом
+    # событии: пустой результат — это тоже ответ («у него тут никого»), и он
+    # должен быть достижим. Пропавший из списка человек выглядел бы как ошибка.
+    specs = []
+    if not leads_gid:
+        specs = [dict(r) for r in await db.fetch(
+            """SELECT ts.id, sc.name, sc.email
+                 FROM tech_specialists ts
+                 JOIN clients sc ON sc.id = ts.client_id
+                WHERE ts.is_active
+                ORDER BY sc.name, ts.id""")]
+
     return {
         "total": total,
         "is_collab": ev["is_collab"],
         "tariffs": [dict(t) for t in tariffs],
         "tariff_id": tariff_id,
+        "specialists": specs,
+        "spec_id": spec_id_filter,
         "columns": [
             {"key": k, "count": len(v), "percent": pct(len(v)), "people": v}
             for k, v in groups.items()

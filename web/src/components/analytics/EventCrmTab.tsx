@@ -53,6 +53,13 @@ export default function EventCrmTab({ eventId }: { eventId: number }) {
   // купивших, и список тарифов в ответе схлопнулся бы до одного — выпадашка
   // потеряла бы остальные пункты, и вернуться к «всем» было бы нечем.
   const [tariffs, setTariffs] = useState<any[]>([])
+  // Фильтр «показать людей одного внедренца» — владельцу, чтобы смотреть,
+  // как идут дела у каждого. В выборку попадают и приведённые им, и
+  // закреплённые за ним как за менеджером.
+  const [specId, setSpecId] = useState<number | null>(null)
+  // ⚠️ Список внедренцев запоминаем отдельно, по той же причине, что тарифы:
+  // при выбранном фильтре сервер отдаёт срез, и выпадашка не должна схлопнуться.
+  const [specs, setSpecs] = useState<any[]>([])
   // Раздача людей менеджерам лидов (миграция 484) — только владельцу кабинета.
   const { isAssistant } = useMe()
   const [managers, setManagers] = useState<any[]>([])
@@ -92,13 +99,17 @@ export default function EventCrmTab({ eventId }: { eventId: number }) {
   }
 
   useEffect(() => {
-    api.events.crm(eventId, tariffId ? { tariff_id: tariffId } : undefined)
+    api.events.crm(eventId, {
+      ...(tariffId ? { tariff_id: tariffId } : {}),
+      ...(specId ? { spec_id: specId } : {}),
+    })
       .then((d: any) => {
         setData(d)
         if (!tariffId) setTariffs(d?.tariffs || [])
+        if (!specId) setSpecs(d?.specialists || [])
       })
       .catch((e: any) => setErr(e?.message || 'Не удалось загрузить'))
-  }, [eventId, tariffId])
+  }, [eventId, tariffId, specId])
 
   if (err) return <p className="text-sm text-red-600">{err}</p>
   if (!data) return <p className="text-sm text-gray-400">Загружаем…</p>
@@ -128,7 +139,34 @@ export default function EventCrmTab({ eventId }: { eventId: number }) {
             </select>
           </label>
         )}
+
+        {/* Фильтр по внедренцу — приходит только владельцу (помощник и так
+            видит лишь своих, выбирать ему не из чего). */}
+        {specs.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-gray-500">
+            Внедренец:
+            <select
+              value={specId ?? ''}
+              onChange={e => setSpecId(e.target.value ? Number(e.target.value) : null)}
+              className="rounded-lg border border-gray-300 px-2 py-1 text-sm text-gray-800"
+            >
+              <option value="">Все</option>
+              {specs.map((s: any) => (
+                <option key={s.id} value={s.id}>{s.name || s.email}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
+
+      {/* Поясняем, кто попал в срез: иначе непонятно, почему человек здесь —
+          его привёл этот внедренец или он за ним закреплён. */}
+      {specId && (
+        <p className="mb-3 text-sm text-gray-500">
+          Показаны люди этого внедренца: кого он привёл и кто закреплён за ним
+          как за менеджером.
+        </p>
+      )}
 
       {data.is_collab && (
         <div className="mb-3 flex items-start gap-2 rounded-xl bg-[#FFCFA4]/35 p-3 text-sm text-[#25455D]">
@@ -145,11 +183,17 @@ export default function EventCrmTab({ eventId }: { eventId: number }) {
         <p className="mb-3 text-sm text-[#25455D]">{assignNote}</p>
       )}
 
+      {/* ⚠️ Текст пустого экрана зависит от фильтра: «никто не заходил» при
+          выбранном внедренце читалось бы как поломка, хотя событие полно людей.
+          ⚠️ Комментарий стоит ДО `? (`, а не внутри: сразу после открывающей
+          скобки тернарного оператора он — выражение, и сборка падает. */}
       {!data.total ? (
         <p className="text-sm text-gray-400">
-          {tariffId
-            ? 'С этим тарифом пока никого нет.'
-            : 'На событие пока никто не заходил.'}
+          {specId
+            ? 'У этого внедренца здесь пока никого нет.'
+            : tariffId
+              ? 'С этим тарифом пока никого нет.'
+              : 'На событие пока никто не заходил.'}
         </p>
       ) : (
         <>
