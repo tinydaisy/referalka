@@ -1169,6 +1169,19 @@ async def handle_start(message: Message, command: CommandObject):
         except Exception as e:
             log.exception("evsupport deeplink handler failed: %s", e)
 
+    # Подарки за рекомендации: `/start podarki<event_id>` — то же, что команда
+    # `/podarki{id}`, набранная руками. Этим deeplink'ом ведёт пункт навигации
+    # «Подарки за регистрацию и рекомендации» из чата события: там человек
+    # только нажимает ссылку, набирать ему нечего.
+    if args.startswith("podarki"):
+        try:
+            _pid_ev = args.removeprefix("podarki")
+            if _pid_ev.isdigit():
+                await handle_event_gifts_command(message, forced_event_id=int(_pid_ev))
+                return
+        except Exception as e:
+            log.exception("podarki deeplink handler failed: %s", e)
+
     if args.startswith("ref_pg"):
         try:
             if await _handle_ref_event_bot_flow(message, args):
@@ -2517,6 +2530,89 @@ async def handle_event_orders_command(message: Message):
 
     for part in build_orders_message(rows, ev_title):
         await message.answer(part, parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.message(F.text.regexp(r"(?i)^\s*/?podarki\s*\d+"))
+async def handle_event_gifts_command(message: Message, forced_event_id: int | None = None):
+    """Команда `/podarki{event_id}` (и слово `podarki{event_id}` без слеша) —
+    подарки за рекомендации: личные реф-ссылки, лестница подарков, кнопки
+    «Получить ссылку и материалы» и «Отправить другу».
+
+    ⚠️ Событие обязано принадлежать клиенту ЭТОГО бота — иначе по перебору
+    номеров из чужого бота вытянули бы лестницу подарков любого события
+    платформы. Проверка — `resolve_event_for_client` (образец: `/vip_link{id}`).
+
+    ⚠️ Регистрация НЕ требуется: человек мог прийти за подарками раньше, чем
+    зарегистрировался. Реф-код есть только у контакта — нет контакта, блок
+    личных ссылок просто не печатается, а лестница подарков видна всем: она и
+    есть приглашение зарегистрироваться."""
+    user = message.from_user
+    if not user:
+        return
+    # `forced_event_id` — вызов из deeplink `/start podarki{id}`: там в тексте
+    # сообщения стоит «/start …», и разбор по тексту ничего бы не нашёл.
+    if forced_event_id is not None:
+        event_id = forced_event_id
+    else:
+        import re as _re
+        m = _re.match(r"(?i)^\s*/?podarki\s*(\d+)", (message.text or "").strip())
+        if not m:
+            return
+        event_id = int(m.group(1))
+    bot_id = message.bot.id if message.bot else None
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        client_id = None
+        if bot_id:
+            from app.services.channels import find_channel_by_bot_id
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if ch:
+                client_id = await db.fetchval(
+                    """SELECT client_id FROM client_channels
+                        WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                    ch["id"])
+        from app.services.referral_gifts import (
+            build_gifts_message, resolve_event_for_client,
+        )
+        ev = await resolve_event_for_client(db, event_id=event_id, client_id=client_id)
+        if not ev:
+            await message.answer(
+                "Неизвестное событие — возможно, вы ошиблись с идентификатором события.")
+            return
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE platform_slug = 'telegram' AND platform_user_id = $1
+                ORDER BY id LIMIT 1""",
+            str(user.id))
+        msg = await build_gifts_message(
+            db, event_id=event_id, client_id=client_id,
+            contact_id=contact_id, platform="telegram",
+        )
+    if not msg:
+        await message.answer("Событие не найдено.")
+        return
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if msg["main_url"]:
+        rows.append([InlineKeyboardButton(
+            text="Получить ссылку и материалы", url=msg["main_url"])])
+    if msg["share_url"]:
+        rows.append([InlineKeyboardButton(
+            text="Отправить другу", url=msg["share_url"])])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+    # ⚠️ Длинный текст бьём на части: лестница подарков у крупных событий
+    # запросто перерастает лимит Telegram в 4096 символов, и всё сообщение
+    # не уходит вовсе. Кнопки вешаем на ПОСЛЕДНЮЮ часть — под ней они и
+    # ожидаются.
+    from app.services.referral_gifts import split_text_chunks
+    chunks = split_text_chunks(msg["text"])
+    for idx, chunk in enumerate(chunks):
+        is_last = (idx == len(chunks) - 1)
+        await message.answer(
+            chunk, parse_mode="HTML", disable_web_page_preview=True,
+            reply_markup=(kb if is_last else None),
+        )
 
 
 @router.message(F.text.regexp(r"^/menu\d+"))

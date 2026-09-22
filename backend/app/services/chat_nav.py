@@ -16,7 +16,8 @@
 
 Виды пунктов (`kind`):
     vip      — тариф события (`events.vip_url`, тот же источник, что {vip_url})
-    cabinet  — кабинет участника, вкладка подарков («Привилегии», tab=game)
+    cabinet  — «Кабинет, Программа, Спикеры»: МЕНЮ события в боте площадки
+    gifts    — «Подарки за регистрацию и рекомендации»: `/podarki{id}` в боте
     support  — тех.поддержка (deeplink `evsupport_`, как {support_command})
     rules    — правила чата (ссылку клиент вписывает руками)
     link     — произвольная ссылка руками
@@ -116,6 +117,7 @@ async def resolve_nav_links(
     handles: Optional[dict] = None
     vip_url: Optional[str] = None
     cabinet_links: Optional[dict] = None
+    gifts_links: Optional[dict] = None
 
     for item in items:
         kind = (item.get("kind") or "").strip()
@@ -160,6 +162,16 @@ async def resolve_nav_links(
                 cabinet_links = await _build_cabinet_links(db, event_id, client_id)
             links = dict(cabinet_links)
 
+        elif kind == "gifts":
+            # ⚠️ Подарки — ОТДЕЛЬНЫЙ пункт от «Кабинет, Программа, Спикеры»
+            # (решение владельца 22.09.2026). Раньше один пункт `cabinet` вёл
+            # и туда, и туда, а это разные намерения: «хочу подарки за
+            # рекомендации» и «хочу посмотреть программу». Ведём командой
+            # `/podarki{event_id}` в бота той площадки, где человек читает чат.
+            if gifts_links is None:
+                gifts_links = await _build_gifts_links(db, event_id, client_id)
+            links = dict(gifts_links)
+
         elif kind == "magnet":
             slug = (item.get("magnet_slug") or "").strip()
             mkind = (item.get("magnet_kind") or "m").strip()
@@ -177,12 +189,64 @@ async def resolve_nav_links(
     return out
 
 
-async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, str]:
-    """Ссылки на кабинет участника — вкладку подарков («Привилегии», tab=game).
+async def _build_gifts_links(db, event_id: int, client_id: int) -> dict[str, str]:
+    """Ссылки на ПОДАРКИ за регистрацию и рекомендации — команда `/podarki{id}`.
 
-    ⚠️ Вкладки «подарки» в Mini App нет: подарки живут ВНУТРИ вкладки
-    «Привилегии» (`game`), и её название клиент настраивает сам. Ведём на саму
-    вкладку, а не внутрь окна подарков (решение владельца 21.09.2026).
+    Отдельный пункт навигации от «Кабинет, Программа, Спикеры» (решение
+    владельца 22.09.2026): это разные намерения, и вести их одной ссылкой
+    значит заставлять человека искать нужное уже внутри.
+
+    Ведём в БОТА той площадки, где человек читает чат — как и `cabinet`:
+    бот ответит личными реф-ссылками, лестницей подарков и кнопкой в кабинет.
+    Ссылка — deeplink `?start=podarki{event_id}`, бот разбирает его тем же
+    обработчиком, что и команду `/podarki{event_id}`, набранную руками.
+
+    ⚠️ ВКонтакте: у бота нет deeplink со стартовым payload, как в TG/MAX, —
+    человека туда ведём на диалог с сообществом, а слово `podarki{id}` он
+    напишет сам (обработчик в `vk_main.py` его ловит). Дать вместо этого
+    Mini App-ссылку нельзя: подарки отдаёт именно бот.
+    """
+    from app.services.share_links import (
+        get_client_bot_handles, get_event_disabled_platforms,
+    )
+
+    row = await db.fetchrow("SELECT slug FROM events WHERE id = $1", event_id)
+    if not row:
+        return {}
+
+    handles = await get_client_bot_handles(db, client_id)
+    disabled = await get_event_disabled_platforms(db, event_slug=(row["slug"] or ""))
+    links: dict[str, str] = {}
+    payload = f"podarki{event_id}"
+
+    if "telegram" not in disabled and handles.get("telegram"):
+        h = (handles["telegram"] or "").lstrip("@")
+        if h:
+            links["telegram"] = f"https://t.me/{h}?start={payload}"
+
+    if "max" not in disabled and handles.get("max"):
+        h = (handles["max"] or "").lstrip("@")
+        if h:
+            links["max"] = f"https://max.ru/{h}?start={payload}"
+
+    # ВК: только адрес сообщества — payload в диалог бота ВК не передать.
+    if "vk" not in disabled and handles.get("vk"):
+        h = (handles["vk"] or "").lstrip("@")
+        if h:
+            links["vk"] = f"https://vk.com/im?sel=-{h}" if h.isdigit() else f"https://vk.com/{h}"
+
+    return links
+
+
+async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, str]:
+    """Ссылки «Кабинет, Программа, Спикеры» — на МЕНЮ СОБЫТИЯ в боте.
+
+    ⚠️ Раньше пункт вёл сразу на вкладку подарков (`tab=game`), и он же был
+    единственным «кабинетным» пунктом. С 22.09.2026 подарки вынесены в
+    отдельный пункт (`kind='gifts'`, `_build_gifts_links`), а этот ведёт на
+    МЕНЮ события — оттуда человек попадает и в кабинет, и в программу, и к
+    спикерам. Вести пункт с названием «Кабинет, Программа, Спикеры» прямо на
+    подарки значило бы обещать одно, а открывать другое.
 
     ⚠️⚠️ **ИЗ ЧАТА ВЕДЁМ В БОТА НА ВСЕХ ТРЁХ ПЛОЩАДКАХ** (решение владельца
     22.09.2026), то есть `link_mode='bot'` принудительно, а не по настройке
@@ -225,31 +289,31 @@ async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, s
     disabled = await get_event_disabled_platforms(db, event_slug=slug)
     links: dict[str, str] = {}
 
-    # ⚠️ `link_mode='bot'` жёстко, без `resolve_event_link_mode` (см. докстринг):
-    # ссылка из ЧАТА обязана привести в бота, к меню события. Настройка клиента
-    # «Mini App или веб» никуда не делась — она решает, чем бот откроет вкладку
-    # подарков по кнопке в меню, и применяется уже там (`send_event_menu`).
-    # `tab="game"` оставляем: бот-флоу пробрасывает его дальше, в кабинет.
+    # ⚠️ `link_mode='bot'` жёстко, без `resolve_event_link_mode`: ссылка из ЧАТА
+    # обязана привести в бота, к меню события (см. докстринг). Настройка клиента
+    # «Mini App или веб» никуда не делась — она решает, чем бот откроет разделы
+    # по кнопкам меню, и применяется уже там (`send_event_menu`).
+    # ⚠️ `tab` НЕ передаём: пункт ведёт на МЕНЮ, а не в конкретную вкладку.
+    # Подарки — отдельный пункт `gifts` (`_build_gifts_links`).
     if "telegram" not in disabled and handles.get("telegram"):
-        url = telegram_link(slug, bot_handle=handles["telegram"], tab="game",
+        url = telegram_link(slug, bot_handle=handles["telegram"],
                             link_mode="bot", client_id=client_id)
         if url:
             links["telegram"] = url
 
     # ⚠️ ВК — ИСКЛЮЧЕНИЕ, остаётся на настройке клиента. У `vk_link` режим `bot`
     # это не «бот вместо Mini App», как в TG/MAX, а совсем другая ссылка:
-    # маркер `evl_` (заглушка, бот шлёт воронку в ЛС) и `tab` отбрасывается
-    # вовсе — то есть до вкладки подарков человек бы не дошёл. ВК на лендинг
-    # никого и не уводил: чинить там нечего.
+    # маркер `evl_` (заглушка, бот шлёт воронку в ЛС). ВК на лендинг никого и
+    # не уводил — чинить там нечего.
     if "vk" not in disabled and handles.get("vk"):
         mode = await resolve_event_link_mode(db, client_id=client_id, platform="vk")
         app_id = await get_client_vk_app_id(db, client_id)
-        url = vk_link(slug, app_id=app_id, tab="game", link_mode=mode)
+        url = vk_link(slug, app_id=app_id, link_mode=mode)
         if url:
             links["vk"] = url
 
     if "max" not in disabled and handles.get("max"):
-        url = max_link(slug, bot_handle=handles["max"], tab="game", link_mode="bot")
+        url = max_link(slug, bot_handle=handles["max"], link_mode="bot")
         if url:
             links["max"] = url
 

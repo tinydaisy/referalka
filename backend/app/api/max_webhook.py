@@ -458,6 +458,67 @@ async def _forward_max_user_message_to_organizer(
         await notify_organizer_all_channels(client_id, notif_text, conn2)
 
 
+async def _send_max_gifts(
+    *, chat_id, user_id, event_id: int, bot_token: str,
+    client_id_override: int | None,
+) -> None:
+    """Подарки за рекомендации в MAX — команда `/podarki{id}` и deeplink
+    `?start=podarki{id}` (пункт навигации из чата события).
+
+    ⚠️ Кнопки «Отправить другу» здесь НЕТ (решение владельца 22.09.2026):
+    у MAX нет механизма «выбери чат и отправь» — конвертер кнопок принимает
+    только link/callback/open_app. Она есть только в Telegram.
+    """
+    _p = await get_pool()
+    async with _p.acquire() as _c:
+        cid = client_id_override
+        if not cid:
+            cid = await _c.fetchval(
+                """SELECT cc.client_id FROM channels ch
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                    WHERE ch.platform_slug='max' AND ch.bot_token=$1
+                    ORDER BY cc.is_active DESC, cc.id LIMIT 1""",
+                bot_token,
+            )
+        from app.services.referral_gifts import (
+            build_gifts_message, resolve_event_for_client, split_text_chunks,
+        )
+        # ⚠️ Событие обязано принадлежать клиенту ЭТОГО бота — иначе по перебору
+        # номеров из чужого бота утекла бы лестница подарков любого события.
+        _ev = await resolve_event_for_client(
+            _c, event_id=event_id, client_id=int(cid) if cid else None)
+        if not _ev:
+            await max_send_message(
+                chat_id,
+                "Неизвестное событие — возможно, вы ошиблись с номером события.",
+                token=bot_token)
+            return
+        _contact_id = await _c.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE platform_slug = 'max' AND platform_user_id = $1
+                ORDER BY id LIMIT 1""",
+            str(user_id))
+        _msg = await build_gifts_message(
+            _c, event_id=event_id, client_id=int(cid),
+            contact_id=_contact_id, platform="max",
+        )
+    if not _msg:
+        await max_send_message(chat_id, "Событие не найдено.", token=bot_token)
+        return
+    _btns = None
+    if _msg["main_url"]:
+        _btns = tg_inline_to_max_keyboard(
+            [[{"text": "Получить ссылку и материалы", "url": _msg["main_url"]}]])
+    # Длинный текст бьём на части: лестница подарков перерастает лимит
+    # сообщения, и целиком оно бы не ушло. Кнопка — на последней части.
+    _chunks = split_text_chunks(_msg["text"])
+    for _i, _chunk in enumerate(_chunks):
+        await max_send_message(
+            chat_id, _chunk, token=bot_token,
+            buttons=(_btns if _i == len(_chunks) - 1 else None),
+        )
+
+
 async def _handle_message_created(update: dict, *, bot_token: str, client_id_override: int | None) -> None:
     msg = update.get("message", {}) or {}
     body = msg.get("body", {}) or {}
@@ -511,6 +572,18 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"MAX /pluson_connect failed chat={chat_id}: {e}")
+        return
+
+    # Команда /podarki89 (и слово `podarki89` без слеша) — подарки за
+    # рекомендации: личные реф-ссылки + лестница подарков + кнопка в кабинет.
+    import re as _re_gifts
+    _mg = _re_gifts.match(r"^\s*/?podarki\s*(\d{1,9})\b", (text or "").strip(),
+                          _re_gifts.IGNORECASE)
+    if _mg:
+        await _send_max_gifts(
+            chat_id=chat_id, user_id=user_id, event_id=int(_mg.group(1)),
+            bot_token=bot_token, client_id_override=client_id_override,
+        )
         return
 
     # Команда /menu24 (со слешем) в личке — открыть меню события по id.
@@ -1301,6 +1374,15 @@ async def _process_start(
     # (max.ru/{bot}?start=menu24). Резолвим slug по id события и подменяем payload
     # на ref_pg{slug} — дальше штатная ветка решит регистрация/меню.
     import re as _re_max
+    # Deeplink `?start=podarki89` — пункт навигации «Подарки за регистрацию и
+    # рекомендации» из чата события. Отвечаем тем же, что команда /podarki89.
+    _gift_m = _re_max.match(r"(?i)^podarki\s*(\d+)$", (payload or "").strip())
+    if _gift_m:
+        await _send_max_gifts(
+            chat_id=chat_id, user_id=user_id, event_id=int(_gift_m.group(1)),
+            bot_token=bot_token, client_id_override=client_id_override,
+        )
+        return
     _ev_m = _re_max.match(r"(?i)^(?:ивент|event|menu)\s*(\d+)$", (payload or "").strip())
     if _ev_m:
         _ev_pool = await get_pool()

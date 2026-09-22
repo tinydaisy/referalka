@@ -24,6 +24,11 @@ from app.auth import get_current_client
 
 router = APIRouter(prefix="/events", tags=["Воронка догрева"])
 
+# Виды кнопки шага — общий список с воронкой зарегистрированных
+# (см. пояснение в event_nurture_reg.py). Держать синхронно с CHECK в БД
+# (миграция 485) и с `_BUTTON_KINDS` соседнего модуля.
+_BUTTON_KINDS = ("event", "support", "gifts")
+
 
 # ─── Pydantic ─────────────────────────────────────────────────────────
 
@@ -221,7 +226,7 @@ async def create_nurture_step(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM event_nurture_steps WHERE event_id = $1",
         event_id,
     )
-    bk = data.button_kind if data.button_kind in ("event", "support") else "event"
+    bk = data.button_kind if data.button_kind in _BUTTON_KINDS else "event"
     new_id = await db.fetchval(
         """INSERT INTO event_nurture_steps
               (event_id, sort_order, offset_seconds, text, button_label, button_kind, is_active)
@@ -299,7 +304,7 @@ async def update_nurture_step(
         args.append(data.text); updates.append(f"text = ${len(args)}")
     if data.button_label is not None:
         args.append(data.button_label); updates.append(f"button_label = ${len(args)}")
-    if data.button_kind is not None and data.button_kind in ("event", "support"):
+    if data.button_kind is not None and data.button_kind in _BUTTON_KINDS:
         args.append(data.button_kind); updates.append(f"button_kind = ${len(args)}")
     if data.is_active is not None:
         args.append(data.is_active); updates.append(f"is_active = ${len(args)}")

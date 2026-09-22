@@ -9,7 +9,7 @@ interface Step {
   offset_seconds: number
   text: string
   button_label: string
-  button_kind: 'event' | 'support'
+  button_kind: 'event' | 'support' | 'gifts'
   is_active: boolean
 }
 
@@ -233,6 +233,12 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
         gifts_link: previewUrls?.gifts_link || '',
         speakers_link: previewUrls?.speakers_link || '',
         vip_link: previewUrls?.vip_link || '',
+        // Подарки за рекомендации: в предпросмотре — примерный вид. Настоящие
+        // значения личные (ссылка со своим реф-кодом, свой счётчик приглашённых),
+        // и у клиента, который смотрит эту страницу, их попросту нет.
+        ref_links: '<i>(личные ссылки участника: Через Телеграм / МАХ / ВК)</i>',
+        gift_ladder: '<i>(лестница подарков из вкладки «Реферальная программа»)</i>',
+        gifts_tab: previewUrls?.gifts_tab || 'Привилегии',
       }
     : {
         event_title: previewUrls?.event_title || 'Название события',
@@ -300,6 +306,11 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
               <li><code>{'{gifts_link}'}</code> — раздел «Подарки» (если включена реф-программа)</li>
               <li><code>{'{speakers_link}'}</code> — раздел «Спикеры» (для конференций/турниров)</li>
               <li><code>{'{vip_link}'}</code> — ссылка на VIP-тариф (если задана)</li>
+              <li><code>{'{ref_links}'}</code> — личные реферальные ссылки участника
+                («Через Телеграм: …»), только те площадки, что есть у вас</li>
+              <li><code>{'{gift_ladder}'}</code> — лестница подарков за рекомендации
+                из настроек реферальной программы; уже полученные ступени с галочкой</li>
+              <li><code>{'{gifts_tab}'}</code> — название вкладки подарков, как вы его назвали</li>
             </>
           )}
         </ul>
@@ -435,11 +446,14 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
                         <label className="block text-xs text-gray-500 mb-1">Кнопка ведёт на</label>
                         <select
                           value={currentKind}
-                          onChange={e => patchDraft(s.id, { button_kind: e.target.value as 'event' | 'support' })}
+                          onChange={e => patchDraft(s.id, { button_kind: e.target.value as 'event' | 'support' | 'gifts' })}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
                         >
                           <option value="event">{audience === 'reg' ? 'Программу события' : 'Страницу события'}</option>
                           <option value="support">Службу поддержки (Telegram)</option>
+                          {/* Подарки — только зарегистрированным: незарегистрированному
+                              нечего рекомендовать, у него ещё нет своей реф-ссылки. */}
+                          {audience === 'reg' && <option value="gifts">Подарки за рекомендации</option>}
                         </select>
                       </div>
                       {currentKind === 'event' && (tgUrl || vkUrl) && (
@@ -455,6 +469,14 @@ function NurtureEditor({ eventId, audience, isCollab }: { eventId: number; audie
                       {currentKind === 'support' && (
                         <p className="text-[11px] text-gray-400 mt-1">
                           Ведёт на ваш Telegram службы поддержки (поле «Служба поддержки» в Профиле).
+                        </p>
+                      )}
+                      {currentKind === 'gifts' && (
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          Ведёт на вкладку подарков в кабинете участника — Mini App или
+                          веб-версия, по вашей настройке для каждой площадки. В Telegram
+                          добавится вторая кнопка «Отправить другу» с готовым текстом
+                          приглашения (в ВК и MAX такой кнопки нет — там её механизма не существует).
                         </p>
                       )}
                     </>

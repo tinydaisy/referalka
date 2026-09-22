@@ -622,6 +622,31 @@ async def public_event_landing_redirect(
     if row["registration_closed"]:
         return {}
 
+    # ⚠️⚠️ УЖЕ ЗАРЕГИСТРИРОВАН — НИКУДА НЕ УВОДИМ, какой бы ни был способ
+    # регистрации (22.09.2026). Проверка стояла НИЖЕ, в ветке стороннего
+    # `landing_url`, и до неё не доходило дело: при `registration_mode='landing'`
+    # функция возвращала редирект на лендинг раньше. В итоге участник события 89
+    # (ivision9), давно зарегистрированный, жал «Подарки» в чате и попадал на
+    # форму регистрации. Регистрация — самый сильный признак: человеку, который
+    # уже внутри, форма не нужна ни при каком режиме.
+    #
+    # ⚠️ В MAX этой болезни не было: там ссылка всегда идёт в бота, а бот
+    # первым делом смотрит `is_registered`. Здесь — то же правило, но для
+    # Mini App: сначала «он уже с нами?», и только потом «куда ведём новичка».
+    if tg_id is not None:
+        _is_reg_any = await db.fetchval(
+            """SELECT ep.is_registered
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                WHERE ep.event_id = $1
+                  AND pu.platform_slug = 'telegram'
+                  AND pu.platform_user_id = $2
+                LIMIT 1""",
+            row["id"], str(tg_id),
+        )
+        if _is_reg_any:
+            return {}
+
     # ⚠️ Способ регистрации задаётся явно (миграция 262). NULL → простая форма.
     # Раньше при пустом режиме угадывали «заполнен landing_url → сторонний»,
     # но у большинства он пуст, а у кого заполнен — там бывает ссылка на бота
@@ -648,21 +673,10 @@ async def public_event_landing_redirect(
     if not landing_url:
         return {}
 
-    # Если уже зарегистрирован — не редиректим (Mini App покажет welcome
-    # или сразу Программу).
-    if tg_id is not None:
-        is_reg = await db.fetchval(
-            """SELECT ep.is_registered
-                 FROM event_participants ep
-                 JOIN platform_users pu ON pu.contact_id = ep.contact_id
-                WHERE ep.event_id = $1
-                  AND pu.platform_slug = 'telegram'
-                  AND pu.platform_user_id = $2
-                LIMIT 1""",
-            row["id"], str(tg_id),
-        )
-        if is_reg:
-            return {}
+    # ⚠️ Проверка «уже зарегистрирован» стояла ЗДЕСЬ и была удалена 22.09.2026:
+    # она перенесена В НАЧАЛО функции, выше разбора режима регистрации. Здесь
+    # она срабатывала только для стороннего `landing_url` и не спасала от
+    # `registration_mode='landing'` — до неё дело просто не доходило.
 
     # Резолвим (или UPSERT-им) participant_id + contact_id из tg_id/vk_id,
     # чтобы подсунуть в URL стороннего лендинга оба идентификатора:

@@ -2116,6 +2116,61 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     # Событие обязано принадлежать ЭТОМУ клиенту (нельзя дёрнуть чужой ивент
     # из чужого сообщества). Нет такого события → честно говорим, что не нашли.
     trigger_text = (message.get("text") or "").strip()
+
+    # Триггер «podarki<id>» / «/podarki<id>» — подарки за рекомендации:
+    # личные реф-ссылки + лестница подарков + кнопка в кабинет.
+    # ⚠️ Стоит ВЫШЕ «ИВЕНТ<id>»: тот ловит и слово `menu`, и если бы подарки
+    # разбирались после, часть запросов ушла бы в меню события.
+    # ⚠️ Кнопки «Отправить другу» в ВК НЕТ (решение владельца 22.09.2026):
+    # механизма «выбери чат и отправь» у ВК-бота не существует — она только
+    # в Telegram. Текст plain: ВК не понимает HTML, теги пришли бы как есть.
+    _gm = re.match(r"(?i)^\s*/?podarki\s*(\d{1,9})\b", trigger_text)
+    if _gm:
+        try:
+            from app.services.referral_gifts import (
+                build_gifts_message, resolve_event_for_client, split_text_chunks,
+            )
+            _gev_id = int(_gm.group(1))
+            # Событие обязано принадлежать клиенту ЭТОГО сообщества — иначе по
+            # перебору номеров из чужого бота вытянули бы чужую лестницу подарков.
+            _gev = await resolve_event_for_client(
+                db, event_id=_gev_id, client_id=ctx.client_id)
+            if not _gev:
+                await vk_send_message(
+                    int(from_id),
+                    f"Не нашёл событие №{_gev_id} 🤔\n\n"
+                    "Возможно, в номере опечатка — проверьте и напишите ещё раз.",
+                    token=ctx.token,
+                )
+                return
+            _gcontact_id = await db.fetchval(
+                """SELECT contact_id FROM platform_users
+                    WHERE platform_slug = 'vk' AND platform_user_id = $1
+                    ORDER BY id LIMIT 1""",
+                str(from_id))
+            _gmsg = await build_gifts_message(
+                db, event_id=_gev_id, client_id=ctx.client_id,
+                contact_id=_gcontact_id, platform="vk",
+            )
+            if not _gmsg:
+                await vk_send_message(
+                    int(from_id), "Событие не найдено.", token=ctx.token)
+                return
+            _gkb = None
+            if _gmsg["main_url"]:
+                _gkb = tg_inline_to_vk_keyboard(
+                    [[{"text": "Получить ссылку и материалы", "url": _gmsg["main_url"]}]])
+            _gchunks = split_text_chunks(_gmsg["text"])
+            for _gi, _gchunk in enumerate(_gchunks):
+                await vk_send_message(
+                    int(from_id), _gchunk, token=ctx.token,
+                    keyboard=(_gkb if _gi == len(_gchunks) - 1 else None),
+                )
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"VK podarki{_gm.group(1)} упал: {e}")
+            return
+
     trigger_event_id = _extract_event_trigger_id(trigger_text)
     if trigger_event_id is not None:
         try:

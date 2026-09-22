@@ -207,6 +207,9 @@ def _format_text(
     section_urls: dict,
     support_link_org: str = "",
     support_link_collabs: str = "",
+    ref_links: str = "",
+    gift_ladder: str = "",
+    gifts_tab_label: str = "",
 ) -> str:
     """Подставляет плейсхолдеры. replace (не .format) — текст содержит HTML с {…}."""
     out = text or ""
@@ -224,6 +227,13 @@ def _format_text(
     out = out.replace("{gifts_link}",    escape(section_urls.get("gifts_link") or "", quote=True))
     out = out.replace("{speakers_link}", escape(section_urls.get("speakers_link") or "", quote=True))
     out = out.replace("{program_link}",  escape(section_urls.get("program_link") or "", quote=True))
+    # Подарки за рекомендации (22.09.2026). Оба блока приходят УЖЕ готовой
+    # разметкой под площадку (HTML для TG/MAX, plain для ВК) — второй раз не
+    # экранируем, иначе <b> и <a> приехали бы человеку тегами.
+    out = out.replace("{ref_links}",   ref_links or "")
+    out = out.replace("{gift_ladder}", gift_ladder or "")
+    # Название вкладки подарков — как настроил клиент («Привилегии», «Подарки»…).
+    out = out.replace("{gifts_tab}",   escape(gifts_tab_label or ""))
     return out
 
 
@@ -350,6 +360,34 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             is_vk = (plat == "vk")
             chats_block = await build_chats_block(db, event_id=run_row["event_id"], html=not is_vk)
             bot_handle = await _bot_handle(db, client_id=client_id, platform=plat)
+            # Подарки за рекомендации. Разметка зависит от площадки (ВК не
+            # понимает HTML), поэтому блоки собираем ВНУТРИ цикла по площадкам,
+            # а не один раз снаружи. Считаются лениво — только если плейсхолдер
+            # реально стоит в тексте шага: иначе каждый шаг догрева платил бы
+            # тремя лишними запросами в базу ради строки, которую не покажут.
+            _txt = step_row["text"] or ""
+            ref_links_block = ""
+            gift_ladder_block = ""
+            gifts_tab_label = ""
+            if "{ref_links}" in _txt or "{gift_ladder}" in _txt or "{gifts_tab}" in _txt:
+                from app.services.referral_gifts import (
+                    build_gift_ladder_block, build_ref_links_block,
+                    count_invited, get_tab_label_game,
+                )
+                if "{ref_links}" in _txt:
+                    ref_links_block = await build_ref_links_block(
+                        db, event_id=run_row["event_id"], client_id=client_id,
+                        slug=run_row["slug"], ref_code=ref_code, html=not is_vk,
+                    )
+                if "{gift_ladder}" in _txt:
+                    _invited = await count_invited(
+                        db, event_id=run_row["event_id"], ref_code=ref_code)
+                    gift_ladder_block = await build_gift_ladder_block(
+                        db, event_id=run_row["event_id"], invited=_invited,
+                        html=not is_vk,
+                    )
+                if "{gifts_tab}" in _txt:
+                    gifts_tab_label = await get_tab_label_game(db, client_id)
             text = _format_text(
                 step_row["text"],
                 event_title=event_title,
@@ -359,15 +397,24 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
                 support_link_collabs=support_link_collabs,
                 support_link_org=support_link_org,
                 section_urls=section_urls,
+                ref_links=ref_links_block,
+                gift_ladder=gift_ladder_block,
+                gifts_tab_label=gifts_tab_label,
             )
             # Кнопка: 'support' → t.me/{поддержка}?text=…; иначе — на программу события
             # (платформо-зависимый URL: для VK — vk.com/app…, для TG — t.me/…).
             # ⚠️ Вкладку передаём В БИЛДЕР (а не клеим строкой к готовому URL):
             # в веб/бот-режиме ссылка это `?start=ref_pg…`, и хвост `_tabprogram`
             # ломал бы её. Билдер сам знает режим клиента на этой площадке.
+            # ⚠️ Вид `gifts` ведёт на вкладку ПОДАРКОВ, а не на программу:
+            # шаг «Подарки за рекомендации» зовёт забрать реф-ссылку и материалы,
+            # и кнопка обязана открыть именно ту вкладку, что названа в тексте.
+            # Mini App или веб решает сам билдер — по настройке клиента на этой
+            # площадке, как и просил владелец («там уже само решается»).
+            _tab = "game" if button_kind == "gifts" else "program"
             main_url = await _build_app_url(
                 db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code,
-                contact_id=run_row["contact_id"], tab="program",
+                contact_id=run_row["contact_id"], tab=_tab,
             )
             # ⚠️ Здесь аудитория УЖЕ зарегистрирована, поэтому главная кнопка —
             # «Открыть программу», а поддержка идёт ВТОРОЙ строкой (в отличие от
@@ -382,6 +429,20 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             else:
                 url = main_url
                 label = button_label or None
+            # ⚠️ «Отправить другу» — ТОЛЬКО Telegram (решение владельца
+            # 22.09.2026). Там есть штатный шеринг `t.me/share/url`: кнопка
+            # открывает выбор чата и подставляет готовый текст со ссылкой,
+            # человеку остаётся нажать «отправить». У ВК и MAX такой кнопки в
+            # API нет вовсе — MAX принимает только link/callback/open_app. Рисовать
+            # там вторую кнопку значило бы обещать механизм, которого нет.
+            if button_kind == "gifts" and plat == "telegram" and ref_code:
+                from app.services.referral_gifts import build_share_friend_url
+                _share = await build_share_friend_url(
+                    db, client_id=client_id, slug=run_row["slug"],
+                    ref_code=ref_code, event_title=event_title,
+                )
+                if _share:
+                    extra.append(("Отправить другу", _share))
             if plat == "telegram":
                 # Только свой VIP-бот клиента. Системный @pluson_bot как fallback убран —
                 # нет своего бота → шаг на TG не отправляем (graceful, без падения).

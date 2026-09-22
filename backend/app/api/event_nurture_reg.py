@@ -22,6 +22,14 @@ from app.auth import get_current_client
 
 router = APIRouter(prefix="/events", tags=["Воронка догрева (зарег.)"])
 
+# ⚠️ Виды кнопки шага — ОДНИМ списком, а не литералом в каждой проверке
+# (миграция 485). Их четыре места: создание, PATCH и такие же две в
+# event_nurture.py. Забытый список не падает, а молча схлопывает вид в 'event':
+# кнопка «Получить ссылку и материалы» увела бы человека на программу события
+# вместо подарков, и понять это можно было бы только нажав.
+# Значения обязаны совпадать с CHECK-констрейнтом в БД (миграция 485).
+_BUTTON_KINDS = ("event", "support", "gifts")
+
 
 # ─── Pydantic ─────────────────────────────────────────────────────────
 
@@ -48,6 +56,11 @@ class NurtureRegStepUpdate(BaseModel):
 #   {bot_handle}    — @ник бота, через который ушло сообщение (VIP или @pluson_bot)
 #   {support_link}  — контакт службы поддержки клиента (work_tg_username)
 #   {vip_link}, {gifts_link}, {speakers_link}, {program_link} — ссылки на разделы
+#   {ref_links}     — ЛИЧНЫЕ реф-ссылки участника по площадкам («Через Телеграм: …»),
+#                     только те площадки, что есть у клиента
+#   {gift_ladder}   — лестница подарков из настроек реферальной программы события
+#                     («За 1 зарегистрированного дарим: 🎁 …»), достигнутые ступени с ✅
+#   {gifts_tab}     — название вкладки подарков, как его настроил клиент
 # HTML-форматирование (<b>, <i>, <a>) разрешено.
 
 DEFAULT_STEPS = [
@@ -72,6 +85,33 @@ DEFAULT_STEPS = [
             "<b>Если возникли какие-то проблемы — напишите нам в тех.поддержку</b>"
         ),
         "button_label": "",
+    },
+    {
+        # Подарки за рекомендации (22.09.2026). Отдельным шагом и ПОЗЖЕ первых
+        # двух: сразу после регистрации человек занят чатами и ботом, и просьба
+        # звать друзей в ту же минуту читается как навязчивость. Через час он
+        # уже освоился — самое время показать, что за рекомендации дарят.
+        #
+        # ⚠️ Шаг приходит ВЫКЛЮЧЕННЫМ у существующих событий (restore-defaults
+        # ставит is_active=FALSE): текст про подарки уйдёт людям только когда
+        # клиент его прочитает и включит сам. Реферальная программа есть не у
+        # каждого события, и у кого её нет — сообщение было бы пустым обещанием.
+        "offset_seconds": 60 * 60,  # через час после регистрации
+        "text": (
+            "Мы щедро благодарим тех, кто рекомендует нас и помогает нам "
+            "сделать наше событие еще более масштабным.\n\n"
+            "Вы можете получать ценнейшие подарки, просто рекомендуя наше "
+            "событие по своей реферальной ссылке.\n\n"
+            "<b>Ваши реферальные ссылки:</b>\n"
+            "{ref_links}\n\n"
+            "А именно:\n\n"
+            "{gift_ladder}\n\n"
+            "Нажмите на кнопку, чтобы перейти в свой кабинет на вкладку "
+            "«{gifts_tab}», чтобы забрать вашу реферальную ссылку и готовые "
+            "материалы для анонсов."
+        ),
+        "button_label": "Получить ссылку и материалы",
+        "button_kind": "gifts",
     },
 ]
 
@@ -148,12 +188,17 @@ async def nurture_reg_preview_urls(
         work_vk=_wrow["work_vk"] if _wrow else None,
         work_max=_wrow["work_max"] if _wrow else None,
     )
+    # Название вкладки подарков — для плейсхолдера {gifts_tab} в предпросмотре:
+    # клиент должен видеть в тексте своё слово, а не чужое «Привилегии».
+    from app.services.referral_gifts import get_tab_label_game
+    gifts_tab = await get_tab_label_game(db, client_id)
     return {
         **sections,
         "chats_html": chats,
         "event_title": row["title"] or "событие",
         "bot_handle": bot_handle,
         "support_link": support_link,
+        "gifts_tab": gifts_tab,
     }
 
 
@@ -189,7 +234,7 @@ async def create_nurture_reg_step(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM event_nurture_reg_steps WHERE event_id = $1",
         event_id,
     )
-    bk = data.button_kind if data.button_kind in ("event", "support") else "event"
+    bk = data.button_kind if data.button_kind in _BUTTON_KINDS else "event"
     new_id = await db.fetchval(
         """INSERT INTO event_nurture_reg_steps
               (event_id, sort_order, offset_seconds, text, button_label, button_kind, is_active)
@@ -259,7 +304,7 @@ async def update_nurture_reg_step(
         args.append(data.text); updates.append(f"text = ${len(args)}")
     if data.button_label is not None:
         args.append(data.button_label); updates.append(f"button_label = ${len(args)}")
-    if data.button_kind is not None and data.button_kind in ("event", "support"):
+    if data.button_kind is not None and data.button_kind in _BUTTON_KINDS:
         args.append(data.button_kind); updates.append(f"button_kind = ${len(args)}")
     if data.is_active is not None:
         args.append(data.is_active); updates.append(f"is_active = ${len(args)}")

@@ -21,7 +21,7 @@ const PLATFORM_NAME: Record<string, string> = {
   telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX',
 }
 
-export type NavKind = 'vip' | 'cabinet' | 'support' | 'rules' | 'link' | 'magnet'
+export type NavKind = 'vip' | 'cabinet' | 'gifts' | 'support' | 'rules' | 'link' | 'magnet'
 
 export interface NavItem {
   kind: NavKind
@@ -45,8 +45,12 @@ const KIND_META: Record<NavKind, { label: string; hint: string }> = {
     hint: 'Ссылка из настроек события («Описание» → ссылка на VIP-тариф). Не заполнена — пункт не появится.',
   },
   cabinet: {
-    label: 'Кабинет участника (подарки)',
-    hint: 'Ведёт на вкладку с подарками в кабинете. Mini App или веб-версия — по вашей настройке для каждой площадки. Кто не зарегистрирован — тому предложат регистрацию.',
+    label: 'Кабинет, Программа, Спикеры',
+    hint: 'Ведёт на меню события в боте той площадки, где человек читает чат. Оттуда он попадёт в кабинет, программу и к спикерам. Кто не зарегистрирован — тому предложат регистрацию.',
+  },
+  gifts: {
+    label: 'Подарки за регистрацию и рекомендации',
+    hint: 'Ведёт на подарки в боте той площадки, где человек читает чат: его реферальные ссылки, лестница подарков и материалы для анонсов.',
   },
   support: {
     label: 'Тех.поддержка',
@@ -67,7 +71,7 @@ const KIND_META: Record<NavKind, { label: string; hint: string }> = {
 }
 
 /** Порядок в меню «добавить пункт»: сверху то, что нужно почти всем. */
-const ADD_ORDER: NavKind[] = ['magnet', 'link', 'rules', 'cabinet', 'vip', 'support']
+const ADD_ORDER: NavKind[] = ['magnet', 'link', 'rules', 'gifts', 'cabinet', 'vip', 'support']
 
 interface Props {
   value: NavItem[]
