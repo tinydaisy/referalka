@@ -21,6 +21,15 @@ interface Props {
   ownerName: string | null
   slug: string
   contactId: string | null
+  /**
+   * ⚠️ Площадка заказчика (22.09.2026). Человек приходит из бота, и его
+   * tg_id/vk_id/max_id известны. Без них заказ опознавал его только по
+   * `?c=`, который по дороге теряется, — и заводил ВТОРОЙ контакт, без
+   * мессенджера.
+   */
+  tgId?: string | null
+  vkId?: string | null
+  maxId?: string | null
   pid: string | null
   utmSource: string | null
   // ⚠️ 'event' | 'product'. Форма ОДНА на обе сущности — различается только
@@ -31,6 +40,7 @@ interface Props {
 
 export default function OrderForm({
   page, event, tariff, offerUrl, privacyUrl, brandName, ownerName, slug, contactId,
+  tgId = null, vkId = null, maxId = null,
   pid, utmSource, ownerType = 'event',
 }: Props) {
   const [name, setName] = useState('')
@@ -277,6 +287,8 @@ export default function OrderForm({
           phone: phone.trim() || null,
           telegram_username: tg.trim() || null,
           contact_id: contactId ? Number(contactId) : null,
+          // ⚠️ Площадка: признак сильнее contact_id — его прислал мессенджер.
+          tg_id: tgId, vk_id: vkId, max_id: maxId,
           ...extra,
           // Кто привёл: ?pid= в адресе лендинга. Позволяет вести рекламу
           // прямо на лендинг, минуя бота, и всё равно считать рефералов.

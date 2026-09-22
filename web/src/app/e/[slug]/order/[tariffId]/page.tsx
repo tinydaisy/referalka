@@ -39,7 +39,11 @@ export default async function OrderPage({
   params, searchParams,
 }: {
   params: { slug: string; tariffId: string }
-  searchParams: { c?: string; pid?: string; utm_source?: string }
+  searchParams: {
+    c?: string; pid?: string; utm_source?: string
+    /** Площадка заказчика — сильнее `c`, её прислал сам мессенджер. */
+    tg_id?: string; vk_id?: string; max_id?: string
+  }
 }) {
   const data = await getLanding(params.slug)
 
@@ -84,6 +88,9 @@ export default async function OrderPage({
         ownerName={data.data?.tariffs?.owner_name || null}
         slug={params.slug}
         contactId={searchParams.c || null}
+        tgId={searchParams.tg_id || null}
+        vkId={searchParams.vk_id || null}
+        maxId={searchParams.max_id || null}
         pid={searchParams.pid || null}
         utmSource={searchParams.utm_source || null}
       />

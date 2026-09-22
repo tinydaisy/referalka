@@ -56,6 +56,15 @@ class OrderIn(BaseModel):
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
     contact_id: Optional[int] = None
+    # ⚠️⚠️ ПЛОЩАДКА ЗАКАЗЧИКА (22.09.2026). Человек приходит из бота, и его
+    # tg_id/vk_id/max_id известны, но форма их не принимала — резолв шёл только
+    # по `contact_id` из ссылки, а он по дороге «бот → лендинг → заказ»
+    # терялся. Итог: ВТОРОЙ контакт с email и телефоном, но без мессенджера
+    # (событие 89 — 20 человек). Площадочный id прислал сам мессенджер, он
+    # врать не может, поэтому это признак СИЛЬНЕЕ `contact_id` из адреса.
+    tg_id: Optional[str] = None
+    vk_id: Optional[str] = None
+    max_id: Optional[str] = None
     # Человек выбрал себя на экране «Это вы?» (несколько совпадений).
     chosen_contact_id: Optional[int] = None
     # Ничего из найденного не подошло — создаём новый контакт.
@@ -237,6 +246,38 @@ async def create_order(
     # регистрации под их собственным ником. Ник используем только для ПОИСКА;
     # настоящая идентичность появится, когда человек зайдёт в бота.
     contact_id = known_cid
+
+    # ⚠️⚠️ ПЛОЩАДКА — ПРИЗНАК СИЛЬНЕЕ `contact_id` ИЗ ССЫЛКИ. Её прислал сам
+    # мессенджер, а `?c=` едет через адресную строку и по дороге теряется.
+    # В отличие от ника, здесь настоящий числовой id — его можно и нужно
+    # привязывать: общая функция найдёт человека по существующей идентичности,
+    # прицепит площадку к контакту из ссылки (`known_contact_id`) или склеит
+    # по email/телефону.
+    _plat = None
+    for _v, _s in ((data.tg_id, "telegram"), (data.vk_id, "vk"),
+                   (data.max_id, "max")):
+        _v = str(_v or "").strip()
+        # Только положительное целое: мусор из адреса создал бы призрака.
+        if _v.isdigit() and int(_v) > 0:
+            _plat = (_s, _v)
+            break
+    if _plat:
+        try:
+            from app.services.contact_merge import upsert_contact_with_identity
+            contact_id, _pu, _new = await upsert_contact_with_identity(
+                db, client_id=t["client_id"],
+                platform_slug=_plat[0], platform_user_id=_plat[1],
+                email=email or None, phone=phone,
+                first_name=name,
+                known_contact_id=known_cid,
+            )
+        except HTTPException:
+            # 409: email уже за ДРУГИМ аккаунтом той же площадки. Человека не
+            # выдумываем — пусть отработает обычный путь ниже (поиск по
+            # email/телефону и, если данные расходятся, экран «Это вы?»).
+            contact_id = known_cid
+        except Exception:
+            contact_id = known_cid
 
     # Человек уже выбрал себя на экране «Это вы?».
     if not contact_id and data.chosen_contact_id:
