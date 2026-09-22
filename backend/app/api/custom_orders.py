@@ -319,10 +319,12 @@ async def _list(db, *, tech_id: Optional[int], status: Optional[str], limit: int
     fields = ", ".join(f"o.{f.strip()}" for f in _FIELDS.replace("\n", " ").split(",")
                        if f.strip())
     rows = await db.fetch(
+        # ⚠️ Имя и почта внедренца — из его клиента (миграция 486).
         f"""SELECT {fields},
-                   ts.name AS spec_name, ts.email AS spec_email
+                   sc.name AS spec_name, sc.email AS spec_email
               FROM custom_orders o
               LEFT JOIN tech_specialists ts ON ts.id = o.tech_specialist_id
+              LEFT JOIN clients sc ON sc.id = ts.client_id
              {'WHERE ' + ' AND '.join(where) if where else ''}
              ORDER BY o.created_at DESC LIMIT ${len(args)}""",
         *args,
@@ -839,9 +841,11 @@ async def _mark_paid(db, order_id: int, *, provider: str,
                   o.lead_source, o.title, o.items, o.client_id,
                   o.client_name, o.client_email, o.client_phone,
                   o.source_kind, o.source_title, o.owner_tech_title,
-                  ts.name AS spec_name, ts.email AS spec_email
+                  -- ⚠️ Имя и почта внедренца — из его клиента (миграция 486).
+                  sc.name AS spec_name, sc.email AS spec_email
              FROM custom_orders o
              LEFT JOIN tech_specialists ts ON ts.id = o.tech_specialist_id
+             LEFT JOIN clients sc ON sc.id = ts.client_id
             WHERE o.id = $1""",
         order_id,
     )

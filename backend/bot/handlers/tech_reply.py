@@ -41,10 +41,13 @@ async def handle_tech_reply(message: Message):
         pool = await get_pool()
         async with pool.acquire() as db:
             link = await db.fetchrow(
+                # ⚠️ Имя внедренца — из клиента (миграция 486): внедренец роль
+                # над клиентом, своей копии имени у него нет.
                 """SELECT m.id, m.spec_id, m.contact_id, m.client_id, m.platform,
-                          ts.name AS spec_name, ts.is_active
+                          sc.name AS spec_name, ts.is_active
                      FROM tech_notify_messages m
                      JOIN tech_specialists ts ON ts.id = m.spec_id
+                     JOIN clients sc ON sc.id = ts.client_id
                     WHERE m.chat_id = $1 AND m.message_id = $2""",
                 chat_id, reply_to,
             )

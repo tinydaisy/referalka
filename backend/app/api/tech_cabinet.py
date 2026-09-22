@@ -39,9 +39,14 @@ async def me(
         # ⚠️ `can_delete_faq` (мигр. 461) отдаём сюда же: по нему кабинет
         # решает, показывать ли кнопку удаления в частых вопросах. Сам запрет
         # стоит на эндпоинте удаления — здесь только вид.
-        """SELECT id, email, name, phone, telegram_username,
-                  can_edit_materials, can_delete_faq, is_active
-             FROM tech_specialists WHERE id = $1""",
+        # ⚠️ Почта, имя, телефон и телеграм — из КЛИЕНТА (миграция 486):
+        # внедренец роль над клиентом, своих копий этих полей у него нет.
+        """SELECT ts.id, c.email, c.name, c.phone, c.telegram_username,
+                  ts.can_edit_materials, ts.can_delete_faq, ts.is_active,
+                  ts.client_id
+             FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
+            WHERE ts.id = $1""",
         spec_id,
     )
     if not row or not row["is_active"]:

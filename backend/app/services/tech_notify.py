@@ -109,9 +109,14 @@ async def notify_tech(
         return {"sent": 0}
 
     spec = await db.fetchrow(
-        """SELECT id, name, email, notify_tg_user_id, notify_chat_id,
-                  notify_kinds, is_active
-             FROM tech_specialists WHERE id = $1""",
+        # ⚠️ Имя и почта — из клиента (миграция 486): внедренец роль над
+        # клиентом. А `notify_*` остаются здесь: это уведомления про клиентов,
+        # которых он ВЕДЁТ, а не про его собственный кабинет.
+        """SELECT ts.id, c.name, c.email, ts.notify_tg_user_id, ts.notify_chat_id,
+                  ts.notify_kinds, ts.is_active
+             FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
+            WHERE ts.id = $1""",
         spec_id,
     )
     if not spec or not spec["is_active"]:

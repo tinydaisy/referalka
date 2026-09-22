@@ -539,9 +539,11 @@ async def all_accruals(
         where.append("a.paid_at IS NULL")
 
     rows = await db.fetch(
-        f"""SELECT a.*, ts.name AS spec_name, c.name AS client_name
+        # ⚠️ Имя внедренца — из его клиента (миграция 486).
+        f"""SELECT a.*, sc.name AS spec_name, c.name AS client_name
               FROM tech_accruals a
               JOIN tech_specialists ts ON ts.id = a.spec_id
+              JOIN clients sc ON sc.id = ts.client_id
               LEFT JOIN clients c ON c.id = a.client_id
              WHERE {' AND '.join(where)}
              ORDER BY a.created_at DESC LIMIT 1000""",
@@ -786,13 +788,15 @@ async def bot_dialogs(
                WHERE {where}
                GROUP BY dm.contact_id
             )
+            -- ⚠️ Имя внедренца — из его клиента (миграция 486).
             SELECT c.id AS contact_id, c.name, a.last_at, a.unread,
-                   da.spec_id, ts.name AS spec_name
+                   da.spec_id, sc.name AS spec_name
               FROM agg a
               JOIN contacts c ON c.id = a.contact_id
               LEFT JOIN dialog_assignments da
                      ON da.client_id = $1 AND da.contact_id = c.id
               LEFT JOIN tech_specialists ts ON ts.id = da.spec_id
+              LEFT JOIN clients sc ON sc.id = ts.client_id
              {"WHERE da.spec_id IS NULL" if unassigned_only else ""}
              ORDER BY a.last_at DESC LIMIT 300""",
         client_id,

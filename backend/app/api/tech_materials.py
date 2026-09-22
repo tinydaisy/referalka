@@ -44,8 +44,12 @@ async def open_session(
     spec_id = int(user["sub"])
 
     spec = await db.fetchrow(
-        """SELECT id, email, name, can_edit_materials, is_active
-             FROM tech_specialists WHERE id = $1""",
+        # ⚠️ Почта и имя — из клиента (миграция 486): внедренец роль над
+        # клиентом, своих копий этих полей у него нет.
+        """SELECT ts.id, c.email, c.name, ts.can_edit_materials, ts.is_active
+             FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
+            WHERE ts.id = $1""",
         spec_id,
     )
     if not spec or not spec["is_active"]:
