@@ -61,7 +61,7 @@ class OrderIn(BaseModel):
     request_text: Optional[str] = None
     contact_id: Optional[int] = None
     # ⚠️⚠️ ЧЕЙ ЛИД НЕ СПРАШИВАЕМ — ВЫЧИСЛЯЕМ. Клиента выбирают из базы, а кто
-    # его привёл, там уже записано (`referred_by_tech_id` / `referred_by_client_id`).
+    # его привёл, там уже записано (`referred_by_client_id`).
     # Спрашивать значило бы просить человека повторить известное системе — и
     # ошибиться в свою пользу. Поэтому здесь id клиента, а не ставка.
     client_id: Optional[int] = None
@@ -146,37 +146,41 @@ async def _resolve_source(db, client_id: Optional[int],
     if not client_id:
         return empty
 
+    # ⚠️⚠️ ПРИВЁЛ ВСЕГДА КЛИЕНТ (миграции 486–487). Раньше здесь было ДВЕ
+    # взаимоисключающие ветки — «привёл внедренец» и «привёл партнёр», по двум
+    # разным колонкам. Колонка `referred_by_tech_id` дропнута: приглашают
+    # клиентской реф-ссылкой, поэтому приведший — один, а «внедренец он или
+    # обычный партнёр» лишь уточнение к нему.
     row = await db.fetchrow(
         """SELECT c.id, c.brand_name, c.email, c.phone,
                   TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
-                  c.referred_by_tech_id, c.referred_by_client_id,
-                  t.name AS tech_name, t.email AS tech_email,
+                  c.referred_by_client_id,
+                  ref.id AS referrer_spec_id,
                   p.brand_name AS partner_brand, p.email AS partner_email,
                   TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person,
                   c.tech_specialist_id,
-                  o.name AS owner_tech_name, o.email AS owner_tech_email
+                  oc.name AS owner_tech_name, oc.email AS owner_tech_email
              FROM clients c
-             LEFT JOIN tech_specialists t ON t.id = c.referred_by_tech_id
              LEFT JOIN clients p ON p.id = c.referred_by_client_id
+             LEFT JOIN tech_specialists ref ON ref.client_id = c.referred_by_client_id
              LEFT JOIN tech_specialists o ON o.id = c.tech_specialist_id
+             LEFT JOIN clients oc ON oc.id = o.client_id
             WHERE c.id = $1""",
         client_id,
     )
     if not row:
         return empty
 
-    if row["referred_by_tech_id"]:
-        kind = "tech"
-        title = row["tech_name"] or row["tech_email"] or "внедренец"
-        email = row["tech_email"]
-    elif row["referred_by_client_id"]:
-        kind = "partner"
-        title = row["partner_person"] or row["partner_brand"] or "партнёр"
+    if row["referred_by_client_id"]:
+        # Внедренец он или обычный партнёр — решает наличие роли у приведшего.
+        kind = "tech" if row["referrer_spec_id"] else "partner"
+        default = "внедренец" if row["referrer_spec_id"] else "партнёр"
+        title = row["partner_person"] or row["partner_brand"] or default
         email = row["partner_email"]
     else:
         kind, title, email = "none", "из базы ПЛЮСОНА", None
 
-    own = bool(tech_id) and row["referred_by_tech_id"] == tech_id
+    own = bool(tech_id) and row["referrer_spec_id"] == tech_id
     return {
         "client_id": row["id"],
         "lead_source": "own" if own else "pluson",
@@ -383,10 +387,12 @@ async def admin_delete(
 async def _search_clients(db, q: str, limit: int = 20) -> list[dict]:
     """Поиск клиента платформы для заказа — вместе с тем, КТО ЕГО ПРИВЁЛ.
 
-    ⚠️⚠️ ИСТОЧНИК НЕ СПРАШИВАЕМ, А ВЫЧИСЛЯЕМ. Кто привёл клиента, уже записано:
-    `referred_by_tech_id` — внедренец, `referred_by_client_id` — партнёр.
-    Спрашивать «свой или из базы» значило бы просить человека повторить то, что
-    система и так знает, — и ошибиться в свою пользу.
+    ⚠️⚠️ ИСТОЧНИК НЕ СПРАШИВАЕМ, А ВЫЧИСЛЯЕМ. Кто привёл клиента, уже записано в
+    `referred_by_client_id` — приглашают клиентской реф-ссылкой, и приведший
+    всегда КЛИЕНТ (миграция 487). Внедренец он или обычный партнёр — уточняется
+    наличием роли у этого клиента. Спрашивать «свой или из базы» значило бы
+    просить человека повторить то, что система и так знает, — и ошибиться в свою
+    пользу.
 
     Правило ставки: 80 % только если клиента привёл ЭТОТ ЖЕ внедренец. Привёл
     партнёр, другой внедренец или никто — считаем как базу ПЛЮСОНА, 60 %.
@@ -401,16 +407,17 @@ async def _search_clients(db, q: str, limit: int = 20) -> list[dict]:
     rows = await db.fetch(
         """SELECT c.id, c.brand_name, c.email, c.phone,
                   TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
-                  c.referred_by_tech_id, c.referred_by_client_id,
-                  t.name AS tech_name, t.email AS tech_email,
+                  c.referred_by_client_id,
+                  ref.id AS referrer_spec_id,
                   p.brand_name AS partner_brand, p.email AS partner_email,
                   TRIM(CONCAT_WS(' ', p.name, p.last_name)) AS partner_person,
                   c.tech_specialist_id,
-                  o.name AS owner_tech_name, o.email AS owner_tech_email
+                  oc.name AS owner_tech_name, oc.email AS owner_tech_email
              FROM clients c
-             LEFT JOIN tech_specialists t ON t.id = c.referred_by_tech_id
              LEFT JOIN clients p ON p.id = c.referred_by_client_id
+             LEFT JOIN tech_specialists ref ON ref.client_id = c.referred_by_client_id
              LEFT JOIN tech_specialists o ON o.id = c.tech_specialist_id
+             LEFT JOIN clients oc ON oc.id = o.client_id
             WHERE LOWER(c.email) LIKE $1
                OR LOWER(COALESCE(c.brand_name, '')) LIKE $1
                OR LOWER(COALESCE(c.name, '')) LIKE $1
@@ -421,14 +428,14 @@ async def _search_clients(db, q: str, limit: int = 20) -> list[dict]:
 
     out = []
     for r in rows:
-        if r["referred_by_tech_id"]:
-            src = {"kind": "tech", "id": r["referred_by_tech_id"],
-                   "title": r["tech_name"] or r["tech_email"] or "внедренец",
-                   "email": r["tech_email"]}
-        elif r["referred_by_client_id"]:
-            src = {"kind": "partner", "id": r["referred_by_client_id"],
+        if r["referred_by_client_id"]:
+            is_tech = bool(r["referrer_spec_id"])
+            src = {"kind": "tech" if is_tech else "partner",
+                   # ⚠️ У внедренца отдаём id РОЛИ (ставка считается по ней),
+                   # у партнёра — id клиента: у него роли нет вовсе.
+                   "id": r["referrer_spec_id"] if is_tech else r["referred_by_client_id"],
                    "title": (r["partner_person"] or r["partner_brand"]
-                             or "партнёр"),
+                             or ("внедренец" if is_tech else "партнёр")),
                    "email": r["partner_email"]}
         else:
             src = {"kind": "none", "id": None, "title": "из базы ПЛЮСОНА",
@@ -439,7 +446,8 @@ async def _search_clients(db, q: str, limit: int = 20) -> list[dict]:
             "brand": r["brand_name"],
             "email": r["email"],
             "phone": r["phone"],
-            "referred_by_tech_id": r["referred_by_tech_id"],
+            # Роль внедренца у приведшего клиента — по ней считается ставка.
+            "referrer_spec_id": r["referrer_spec_id"],
             "source": src,
             # ⚠️ ВЕДЁТ — НЕ ТО ЖЕ, ЧТО ПРИВЁЛ. Клиента мог привести один
             # внедренец (или партнёр), а вести его закреплён другой. Ставку

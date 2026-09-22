@@ -40,7 +40,13 @@ async def _notify_techs_expiring(db) -> None:
                   c.id AS client_id, c.email, c.phone, c.brand_name,
                   c.telegram_username, c.tech_specialist_id,
                   TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
-                  (c.referred_by_tech_id = c.tech_specialist_id) AS is_own,
+                  -- «Свой приведённый» = того, кто его привёл, зовут так же,
+                  -- как обслуживающего. ⚠️ Кто привёл — клиентская реф-ссылка
+                  -- (`referred_by_client_id`), роль внедренца ищется у этого
+                  -- клиента: колонка `referred_by_tech_id` дропнута (мигр. 487).
+                  ((SELECT ts_ref.id FROM tech_specialists ts_ref
+                     WHERE ts_ref.client_id = c.referred_by_client_id)
+                   = c.tech_specialist_id) AS is_own,
                   t.name AS tariff_name
              FROM client_subscriptions cs
              JOIN clients c ON c.id = cs.client_id
@@ -85,7 +91,11 @@ async def _notify_techs_expired(db, client_ids: list[int]) -> None:
         """SELECT c.id, c.tech_specialist_id, c.email, c.phone,
                   TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
                   c.brand_name, c.telegram_username,
-                  (c.referred_by_tech_id = c.tech_specialist_id) AS is_own,
+                  -- См. пояснение выше: роль внедренца ищется у приведшего
+                  -- КЛИЕНТА (мигр. 487).
+                  ((SELECT ts_ref.id FROM tech_specialists ts_ref
+                     WHERE ts_ref.client_id = c.referred_by_client_id)
+                   = c.tech_specialist_id) AS is_own,
                   t.name AS tariff
              FROM clients c
              LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id

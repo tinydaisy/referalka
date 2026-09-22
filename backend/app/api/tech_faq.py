@@ -42,9 +42,15 @@ class FaqPatch(BaseModel):
 
 
 async def _spec_name(db: asyncpg.Connection, spec_id: int) -> str:
-    """Имя специалиста для подписи. Пусто — почта, иначе хоть что-то."""
+    """Имя специалиста для подписи. Пусто — почта, иначе хоть что-то.
+
+    ⚠️ Имя и почта берутся из КЛИЕНТА (миграция 486): внедренец — роль над
+    клиентом, своих копий этих полей у него нет.
+    """
     row = await db.fetchrow(
-        "SELECT name, email FROM tech_specialists WHERE id = $1", spec_id)
+        """SELECT c.name, c.email FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
+            WHERE ts.id = $1""", spec_id)
     if not row:
         return "Техспец"
     return (row["name"] or "").strip() or row["email"] or "Техспец"
@@ -65,9 +71,10 @@ async def _list(db: asyncpg.Connection, q: str) -> dict:
     rows = await db.fetch(
         f"""SELECT f.id, f.question, f.answer, f.author_spec_id,
                    f.author_name, f.updated_by_name, f.created_at, f.updated_at,
-                   ts.name AS author_current_name
+                   ac.name AS author_current_name
               FROM tech_faq f
               LEFT JOIN tech_specialists ts ON ts.id = f.author_spec_id
+              LEFT JOIN clients ac ON ac.id = ts.client_id
               {where}
              ORDER BY f.created_at DESC
              LIMIT 500""",

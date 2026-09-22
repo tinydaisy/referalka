@@ -349,7 +349,11 @@ async def _notify_assigned_tech(*, client_id: int, platform: str,
         # колонки в `clients` нет вовсе — она есть только у `contacts`.
         spec = await db.fetchrow(
             """SELECT c.tech_specialist_id, c.id AS client_id,
-                      c.referred_by_tech_id
+                      -- ⚠️ Кто привёл — клиентская реф-ссылка, роль внедренца
+                      -- ищется у этого клиента (мигр. 487).
+                      (SELECT ts_ref.id FROM tech_specialists ts_ref
+                        WHERE ts_ref.client_id = c.referred_by_client_id)
+                        AS referrer_spec_id
                  FROM clients c
                 WHERE LOWER(TRIM(c.email)) = LOWER(TRIM($1))
                   AND c.tech_specialist_id IS NOT NULL
@@ -374,7 +378,7 @@ async def _notify_assigned_tech(*, client_id: int, platform: str,
             max_username=username if platform == "max" else None,
             platform=platform,
         )
-        own = spec["referred_by_tech_id"] == spec["tech_specialist_id"]
+        own = spec["referrer_spec_id"] == spec["tech_specialist_id"]
         # ⚠️ Текст клиента ЭКРАНИРУЕМ: одна угловая скобка в его сообщении
         # ломает всю разметку, и Telegram отвергает сообщение целиком.
         import html as _html

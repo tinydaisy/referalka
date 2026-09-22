@@ -9,14 +9,13 @@
 from __future__ import annotations
 
 import logging
-import secrets
 from typing import Optional
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.auth import get_current_admin, hash_password
+from app.auth import get_current_admin
 from app.database import get_db
 from app.services.tech_accruals import assign_client
 
@@ -24,20 +23,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/tech", tags=["Админ: тех-специалисты"])
 
-# Алфавит без 0/O/o/1/l/I — те же правила, что у паролей помощников: пароль
-# диктуют голосом, и похожие символы читаются неверно.
-_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz"
-
-
-def _password(length: int = 12) -> str:
-    return "".join(secrets.choice(_ALPHABET) for _ in range(length))
+# ⚠️ Генератора паролей здесь больше нет (миграция 486): своего пароля у
+# внедренца не существует, он входит паролем своего кабинета клиента.
 
 
 class SpecIn(BaseModel):
-    email: str
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    telegram_username: Optional[str] = None
+    """⚠️⚠️ Внедренца ЗАВОДЯТ ИЗ КЛИЕНТОВ (миграция 486), а не вводят почтой.
+
+    Почты, пароля, имени, телефона и телеграма здесь больше нет — они живут в
+    `clients`. Внедренец всегда сначала клиент: кабинет клиента — его же
+    рабочий инструмент, и ссылки для приглашений он берёт оттуда.
+    """
+    client_id: Optional[int] = None
     can_edit_materials: Optional[bool] = None
     # Право удалять вопросы из общей базы частых вопросов (мигр. 461).
     can_delete_faq: Optional[bool] = None
@@ -66,8 +63,11 @@ async def list_specs(
     ⚠️ Считаем и клиентов, и НЕВЫПЛАЧЕННОЕ: это две цифры, ради которых сюда
     заходят. Без второй пришлось бы открывать каждого по очереди.
     """
+    # ⚠️ Почта, имя, телефон и телеграм берутся ИЗ КЛИЕНТА (миграция 486):
+    # внедренец — роль над клиентом, своих копий этих полей у него нет.
     rows = await db.fetch(
-        """SELECT ts.id, ts.email, ts.name, ts.phone, ts.telegram_username,
+        """SELECT ts.id, ts.client_id,
+                  c.email, c.name, c.phone, c.telegram_username,
                   ts.can_edit_materials, ts.can_delete_faq, ts.is_active, ts.takes_clients,
                   ts.last_login_at, ts.created_at,
                   (SELECT COUNT(*) FROM clients c
@@ -81,41 +81,53 @@ async def list_specs(
                   (SELECT COALESCE(SUM(a.amount_kopecks),0) FROM tech_accruals a
                     WHERE a.spec_id = ts.id AND a.paid_at IS NULL) AS unpaid_kopecks
              FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
             -- ⚠️ Сверху те, кто реально берёт клиентов; ниже — работающие, но
             -- в отпуске; в самом низу уволенные. Иначе человек в отпуске
             -- стоит вперемешку с действующими, и его назначают.
-            ORDER BY ts.is_active DESC, ts.takes_clients DESC, ts.name, ts.id"""
+            ORDER BY ts.is_active DESC, ts.takes_clients DESC, c.name, ts.id"""
     )
     return {"specialists": [dict(r) for r in rows]}
 
 
-@router.post("/specialists", summary="Завести тех-специалиста")
+@router.post("/specialists", summary="Сделать клиента внедренцем")
 async def create_spec(
     data: SpecIn,
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Создаёт человека и отдаёт пароль ОДИН РАЗ.
+    """Выдаёт клиенту роль внедренца (миграция 486).
 
-    ⚠️ Пароль показывается admin'у, а не уходит письмом: у специалиста может не
-    быть почты на нашем домене, а завести его надо сейчас. Забыли — сбросить.
+    ⚠️⚠️ ПАРОЛЯ ЗДЕСЬ НЕ ВЫДАЁТСЯ ВОВСЕ. Человек входит на `/tech/login` своей
+    клиентской почтой и своим клиентским паролём — третьего пароля в системе
+    больше нет. Прежняя схема (своя почта + сгенерированный пароль) отменена:
+    у одного человека выходило два пароля и две почты.
     """
-    email = (data.email or "").strip().lower()
-    if not email or "@" not in email:
-        raise HTTPException(400, "Укажите почту")
-    if await db.fetchval("SELECT 1 FROM tech_specialists WHERE LOWER(email)=$1", email):
-        raise HTTPException(409, "Такой тех-специалист уже есть")
+    if not data.client_id:
+        raise HTTPException(400, "Выберите клиента")
 
-    pwd = _password()
+    client = await db.fetchrow(
+        "SELECT id, name, email, is_active FROM clients WHERE id = $1",
+        data.client_id)
+    if not client:
+        raise HTTPException(404, "Такого клиента нет")
+    if not client["is_active"]:
+        raise HTTPException(400, "Кабинет этого клиента заблокирован — "
+                                 "внедренцем его сделать нельзя")
+
+    # ⚠️ Одна роль на клиента: `client_id` уникален (486/488). Проверяем заранее,
+    # чтобы отдать понятный текст вместо 500 от нарушенного ограничения.
+    if await db.fetchval("SELECT 1 FROM tech_specialists WHERE client_id = $1",
+                         data.client_id):
+        raise HTTPException(409, "Этот клиент уже внедренец")
+
     row = await db.fetchrow(
-        """INSERT INTO tech_specialists
-             (email, password_hash, name, phone, telegram_username, can_edit_materials)
-           VALUES ($1,$2,$3,$4,$5,COALESCE($6, FALSE))
-           RETURNING id, email, name""",
-        email, hash_password(pwd), data.name, data.phone,
-        data.telegram_username, data.can_edit_materials,
+        """INSERT INTO tech_specialists (client_id, can_edit_materials)
+           VALUES ($1, COALESCE($2, FALSE))
+           RETURNING id, client_id, can_edit_materials, is_active, takes_clients""",
+        data.client_id, data.can_edit_materials,
     )
-    return {**dict(row), "password": pwd}
+    return {**dict(row), "name": client["name"], "email": client["email"]}
 
 
 @router.patch("/specialists/{spec_id}", summary="Изменить тех-специалиста")
@@ -127,10 +139,13 @@ async def update_spec(
 ):
     # ⚠️ Пишем только присланное: форма может слать часть полей, и не
     # присланное должно остаться прежним, а не обнулиться.
+    #
+    # ⚠️ Имени, телефона и телеграма здесь НЕТ (миграция 486) — это данные
+    # человека, он правит их сам в своём кабинете клиента. Менять их отсюда
+    # значило бы держать вторую копию и расходиться с ней.
     fs = data.model_fields_set
     sets, args = [], []
-    for col in ("name", "phone", "telegram_username", "can_edit_materials",
-                "can_delete_faq", "is_active", "takes_clients"):
+    for col in ("can_edit_materials", "can_delete_faq", "is_active", "takes_clients"):
         if col in fs:
             args.append(getattr(data, col))
             sets.append(f"{col} = ${len(args)}")
@@ -144,7 +159,36 @@ async def update_spec(
     )
     if not row:
         raise HTTPException(404, "Не найден")
-    return dict(row)
+
+    # ⚠️⚠️ УВОЛЬНЕНИЕ ЗАКРЫВАЕТ ПОДАРЕННУЮ ПОДПИСКУ (решение владельца
+    # 22.09.2026). Кабинет клиента внедренцу дарится как рабочий инструмент —
+    # уволился, значит инструмент больше не нужен.
+    #
+    # ⚠️ ПЛАТНУЮ (`source='paid'`) НЕ ТРОГАЕМ: за неё человек заплатил своими
+    # деньгами, и закрыть её значило бы отобрать оплаченное. Он остаётся
+    # клиентом и дорабатывает оплаченный срок.
+    #
+    # ⚠️ Различаем именно по `source`, а не по наличию заказа: подаренная
+    # подписка — `admin` (выдал владелец) или `trial`, и это единственный
+    # надёжный признак «не покупал».
+    closed_subscription = None
+    if "is_active" in fs and data.is_active is False:
+        closed = await db.fetchrow(
+            """UPDATE client_subscriptions cs
+                  SET status = 'expired', expires_at = NOW(), updated_at = NOW()
+                 FROM tech_specialists ts
+                WHERE ts.id = $1
+                  AND cs.id = (SELECT current_subscription_id FROM clients
+                                WHERE id = ts.client_id)
+                  AND cs.status = 'active'
+                  AND cs.source IN ('admin', 'trial')
+              RETURNING cs.id, cs.source""",
+            spec_id,
+        )
+        if closed:
+            closed_subscription = dict(closed)
+
+    return {**dict(row), "closed_subscription": closed_subscription}
 
 
 @router.delete("/specialists/{spec_id}", summary="Удалить тех-специалиста")
@@ -154,7 +198,10 @@ async def delete_spec(
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Удаляет человека насовсем.
+    """Снимает с клиента роль внедренца насовсем.
+
+    ⚠️ Удаляется РОЛЬ, а не человек (миграция 486): кабинет клиента, его база и
+    подписка остаются нетронутыми — он просто перестаёт быть внедренцем.
 
     ⚠️⚠️ У `tech_accruals` стоит ON DELETE CASCADE — удаление УНЕСЁТ ВСЮ ЕГО
     ИСТОРИЮ НАЧИСЛЕНИЙ. Это деньги: сколько человеку начислено и что из этого
@@ -167,8 +214,11 @@ async def delete_spec(
     Клиенты не теряются: `clients.tech_specialist_id` объявлен ON DELETE SET
     NULL, они просто становятся нераспределёнными.
     """
+    # ⚠️ Почта и имя — из клиента (миграция 486).
     spec = await db.fetchrow(
-        "SELECT id, email, name FROM tech_specialists WHERE id=$1", spec_id)
+        """SELECT ts.id, c.email, c.name FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
+            WHERE ts.id = $1""", spec_id)
     if not spec:
         raise HTTPException(404, "Не найден")
 
@@ -200,21 +250,31 @@ async def delete_spec(
             "freed_clients": int(freed or 0)}
 
 
-@router.post("/specialists/{spec_id}/reset-password", summary="Новый пароль")
+@router.post("/specialists/{spec_id}/reset-password", summary="Пароля у внедренца нет")
 async def reset_password(
     spec_id: int,
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    pwd = _password()
+    """⚠️⚠️ Своего пароля у внедренца БОЛЬШЕ НЕТ (миграция 486).
+
+    Он входит клиентским паролём и меняет его сам в своём кабинете, а забыл —
+    восстанавливает обычным «Забыли пароль?» на /login. Ручка оставлена, чтобы
+    старая кнопка в админке отвечала внятным текстом, а не 500 по дропнутой
+    колонке `password_hash`.
+    """
     row = await db.fetchrow(
-        "UPDATE tech_specialists SET password_hash=$2, updated_at=NOW() "
-        "WHERE id=$1 RETURNING email",
-        spec_id, hash_password(pwd),
-    )
+        """SELECT c.email FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
+            WHERE ts.id = $1""",
+        spec_id)
     if not row:
         raise HTTPException(404, "Не найден")
-    return {"email": row["email"], "password": pwd}
+    raise HTTPException(400, detail=(
+        f"У внедренца нет отдельного пароля — он входит паролем своего кабинета "
+        f"клиента ({row['email']}). Забыл пароль — пусть восстановит его на "
+        f"pluson.ru/password-reset, и этот же пароль подойдёт на /tech/login."
+    ))
 
 
 @router.post("/assign", summary="Закрепить клиента за специалистом")
@@ -299,12 +359,15 @@ async def unassigned(
         # приведший — РАЗНЫЕ люди: передача отдаёт новому фикс за обслуживание,
         # а 10 % пожизненно остаются у приведшего и не переезжают никогда.
         # Без этой подписи передача выглядит так, будто отдаёт клиента целиком.
+        # ⚠️ Приведший ищется по КЛИЕНТСКОЙ реф-ссылке, а его имя берётся из
+        # клиента: колонка `referred_by_tech_id` дропнута, своего имени у роли
+        # внедренца нет (миграции 486–487).
         """SELECT c.id, c.name, c.email, c.telegram_username, c.created_at,
                   t.slug AS tariff_slug, cs.expires_at, cs.source AS sub_source,
-                  c.referred_by_tech_id,
-                  ref.name AS referred_by_name,
+                  ref.id AS referred_by_tech_id,
+                  refc.name AS referred_by_name,
                   c.tech_specialist_id,
-                  own.name AS owner_name,
+                  ownc.name AS owner_name,
                   c.tech_assigned_at,
                   (SELECT COUNT(*) FROM subscription_orders so
                     WHERE so.client_id = c.id AND so.status='paid'
@@ -312,8 +375,10 @@ async def unassigned(
              FROM clients c
              LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
              LEFT JOIN tariffs t ON t.id = cs.tariff_id
-             LEFT JOIN tech_specialists ref ON ref.id = c.referred_by_tech_id
+             LEFT JOIN tech_specialists ref ON ref.client_id = c.referred_by_client_id
+             LEFT JOIN clients refc ON refc.id = ref.client_id
              LEFT JOIN tech_specialists own ON own.id = c.tech_specialist_id
+             LEFT JOIN clients ownc ON ownc.id = own.client_id
             -- ⚠️ Тестовые кабинеты самих техспецов (миграция 403) в
             -- распределение не идут: их брали в работу как живых лидов и
             -- пытались оживить.

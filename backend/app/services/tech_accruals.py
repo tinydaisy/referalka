@@ -37,6 +37,19 @@ import asyncpg
 logger = logging.getLogger(__name__)
 
 
+# ⚠️⚠️ ЕДИНАЯ ТОЧКА «КТО ПРИВЁЛ ЭТОГО КЛИЕНТА, ЕСЛИ ОН ВНЕДРЕНЕЦ» (миграция 487).
+#
+# Колонки `clients.referred_by_tech_id` больше нет: внедренец приглашает ссылкой
+# ИЗ СВОЕГО КЛИЕНТСКОГО КАБИНЕТА, поэтому «кто привёл» хранится один раз — в
+# `clients.referred_by_client_id`. Роль внедренца ищется у приведшего клиента.
+#
+# Подставляется как подзапрос в места, где раньше стояло `c.referred_by_tech_id`.
+# Вынесено в константу, чтобы во всех начислениях был ОДИН перевод «клиент →
+# внедренец»: своя копия в каждом запросе разошлась бы с остальными, а это деньги.
+REFERRER_SPEC_SQL = """(SELECT ts_ref.id FROM tech_specialists ts_ref
+                         WHERE ts_ref.client_id = c.referred_by_client_id)"""
+
+
 async def _setting(db, key: str, default: float) -> float:
     """Порог из `tech_settings`. Нет строки → значение по умолчанию."""
     v = await db.fetchval("SELECT value FROM tech_settings WHERE key = $1", key)
@@ -118,7 +131,7 @@ async def _on_payment(db: asyncpg.Connection, order_id: int) -> None:
     o = await db.fetchrow(
         """SELECT so.id, so.client_id, so.amount_paid_card_kopecks AS paid,
                   so.paid_at, c.tech_specialist_id AS spec_id,
-                  c.referred_by_tech_id, c.referred_by_client_id
+                  c.referred_by_client_id
              FROM subscription_orders so JOIN clients c ON c.id = so.client_id
             WHERE so.id = $1 AND so.status = 'paid'""",
         order_id,
@@ -207,13 +220,13 @@ async def network_turnover_kopecks(db, spec_id: int) -> int:
     растёт от общего масштаба работы, а не только от привлечения.
     """
     return int(await db.fetchval(
-        """SELECT COALESCE(SUM(t.price), 0) * 100
+        f"""SELECT COALESCE(SUM(t.price), 0) * 100
              FROM clients c
              JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
              JOIN tariffs t ON t.id = cs.tariff_id
             WHERE cs.status = 'active' AND cs.expires_at > NOW()
               AND cs.source = 'paid'
-              AND (c.tech_specialist_id = $1 OR c.referred_by_tech_id = $1)""",
+              AND (c.tech_specialist_id = $1 OR {REFERRER_SPEC_SQL} = $1)""",
         spec_id) or 0)
 
 
@@ -241,14 +254,27 @@ async def _referral_percents(db, *, client_id: int, order_id: int, period: str) 
     внедренцам: у обычного партнёра линии такой глубины не будет и строка
     останется пустой. Одна механика дешевле двух параллельных.
     """
+    # ⚠️⚠️ ЛИНИЯ СЧИТАЕТСЯ ПО КЛИЕНТСКИМ ССЫЛКАМ (`referred_by_client_id`), а
+    # роль внедренца ищется у приведшего КЛИЕНТА через `tech_specialists.client_id`
+    # (миграция 487). Прежняя колонка `clients.referred_by_tech_id` дропнута:
+    # внедренец приглашает ссылкой из своего клиентского кабинета, поэтому
+    # «кто привёл» одно и живёт в одном месте.
+    #
+    # ⚠️ `_tech_of` переводит «клиент → его роль внедренца». Нет роли — уровень
+    # пустой, и это нормально: приведший мог быть обычным партнёром.
     row = await db.fetchrow(
-        """SELECT c.referred_by_tech_id AS l1,
-                  (SELECT p.referred_by_tech_id FROM clients p
-                    WHERE p.id = c.referred_by_client_id) AS l2,
-                  (SELECT g.referred_by_tech_id FROM clients g
-                    WHERE g.id = (SELECT p2.referred_by_client_id FROM clients p2
-                                   WHERE p2.id = c.referred_by_client_id)) AS l3
-             FROM clients c WHERE c.id = $1""",
+        """WITH chain AS (
+               SELECT c.referred_by_client_id AS c1,
+                      (SELECT p.referred_by_client_id FROM clients p
+                        WHERE p.id = c.referred_by_client_id) AS c2,
+                      (SELECT g.referred_by_client_id FROM clients g
+                        WHERE g.id = (SELECT p2.referred_by_client_id FROM clients p2
+                                       WHERE p2.id = c.referred_by_client_id)) AS c3
+                 FROM clients c WHERE c.id = $1)
+           SELECT (SELECT ts.id FROM tech_specialists ts WHERE ts.client_id = chain.c1) AS l1,
+                  (SELECT ts.id FROM tech_specialists ts WHERE ts.client_id = chain.c2) AS l2,
+                  (SELECT ts.id FROM tech_specialists ts WHERE ts.client_id = chain.c3) AS l3
+             FROM chain""",
         client_id,
     )
     if not row:
@@ -304,14 +330,18 @@ async def _level2_allowed(db, spec_id: int, client_id: int) -> bool:
 
     threshold = int(await _setting(db, "level2_quarter_threshold", 20))
     # Новые оплатившие по линии этого внедренца за последние 90 дней.
+    # ⚠️ Два уровня линии: сам приведённый и приведённый его приведённым.
+    # Второй уровень — на один шаг дальше по клиентской цепочке.
     got = await db.fetchval(
-        """SELECT COUNT(DISTINCT so.client_id)
+        f"""SELECT COUNT(DISTINCT so.client_id)
              FROM subscription_orders so
              JOIN clients c ON c.id = so.client_id
             WHERE so.status = 'paid' AND so.paid_at >= NOW() - INTERVAL '90 days'
-              AND (c.referred_by_tech_id = $1
-                   OR (SELECT p.referred_by_tech_id FROM clients p
-                        WHERE p.id = c.referred_by_client_id) = $1)""",
+              AND ({REFERRER_SPEC_SQL} = $1
+                   OR (SELECT ts2.id FROM tech_specialists ts2
+                        WHERE ts2.client_id = (SELECT p.referred_by_client_id
+                                                 FROM clients p
+                                                WHERE p.id = c.referred_by_client_id)) = $1)""",
         spec_id,
     ) or 0
     return got >= threshold
@@ -333,9 +363,9 @@ async def accrue_monthly_fix(db: asyncpg.Connection, period: Optional[str] = Non
     period = period or datetime.now(timezone.utc).strftime("%Y-%m")
 
     rows = await db.fetch(
-        """SELECT ts.id AS spec_id,
+        f"""SELECT ts.id AS spec_id,
                   COUNT(c.id) FILTER (
-                    WHERE c.referred_by_tech_id IS DISTINCT FROM ts.id
+                    WHERE {REFERRER_SPEC_SQL} IS DISTINCT FROM ts.id
                       AND EXISTS (SELECT 1 FROM client_subscriptions cs
                                    WHERE cs.id = c.current_subscription_id
                                      AND cs.status='active' AND cs.expires_at > NOW()
@@ -434,10 +464,10 @@ async def activations_by_source_dates(db, spec_id: int, starts_on, ends_on) -> d
     засчитало бы работу, сделанную до старта.
     """
     row = await db.fetchrow(
-        """SELECT
-             COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1)
+        f"""SELECT
+             COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} IS DISTINCT FROM $1)
                AS from_pluson,
-             COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS own
+             COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} = $1) AS own
            FROM tech_accruals a
            JOIN clients c ON c.id = a.client_id
           WHERE a.spec_id = $1 AND a.kind = 'activation'
@@ -452,15 +482,15 @@ async def activations_by_source(db, spec_id: int, periods: list[str]) -> dict:
     """Активации внедренца за период, РАЗДЕЛЁННЫЕ по источнику клиента.
 
     ⚠️⚠️ Источник решает всё: «от ПЛЮСОНА» — клиент, которого выдали, «свой» —
-    которого внедренец привёл сам (`clients.referred_by_tech_id`). Условия
-    премии разные для этих двух видов работы, поэтому считать их одной цифрой
-    нельзя.
+    которого внедренец привёл сам (по своей КЛИЕНТСКОЙ реф-ссылке, миграция
+    487). Условия премии разные для этих двух видов работы, поэтому считать их
+    одной цифрой нельзя.
     """
     row = await db.fetchrow(
-        """SELECT
-             COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1)
+        f"""SELECT
+             COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} IS DISTINCT FROM $1)
                AS from_pluson,
-             COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS own
+             COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} = $1) AS own
            FROM tech_accruals a
            JOIN clients c ON c.id = a.client_id
           WHERE a.spec_id = $1 AND a.kind = 'activation'
@@ -613,10 +643,10 @@ async def refresh_bonus_roles(db: asyncpg.Connection,
     need = int((await quarter_requirements(db, q_period))["network_own"])
 
     rows = await db.fetch(
-        """SELECT ts.id AS spec_id, ts.bonus_role,
+        f"""SELECT ts.id AS spec_id, ts.bonus_role,
                   COUNT(a.id) FILTER (
                       WHERE a.kind = 'activation' AND a.period = $1
-                        AND c.referred_by_tech_id = ts.id) AS own_activations
+                        AND {REFERRER_SPEC_SQL} = ts.id) AS own_activations
              FROM tech_specialists ts
              LEFT JOIN tech_accruals a ON a.spec_id = ts.id
              LEFT JOIN clients c ON c.id = a.client_id
@@ -702,9 +732,9 @@ async def _notify_new_client(db, *, client_id: int, spec_id: int) -> None:
     from app.services.tech_notify import format_person, notify_tech
 
     row = await db.fetchrow(
-        """SELECT c.id, c.email, c.phone, c.brand_name, c.telegram_username,
+        f"""SELECT c.id, c.email, c.phone, c.brand_name, c.telegram_username,
                   TRIM(CONCAT_WS(' ', c.name, c.last_name)) AS person,
-                  (c.referred_by_tech_id = $2) AS is_own,
+                  ({REFERRER_SPEC_SQL} = $2) AS is_own,
                   t.name AS tariff, cs.source, cs.expires_at
              FROM clients c
              LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id

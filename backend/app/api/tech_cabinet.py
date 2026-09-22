@@ -22,6 +22,9 @@ from pydantic import BaseModel
 
 from app.auth import get_current_tech
 from app.database import get_db
+# ⚠️ Перевод «клиент → его внедренец» берём из единой точки, а не пишем свой
+# подзапрос: своя копия разошлась бы с расчётом начислений, а это деньги.
+from app.services.tech_accruals import REFERRER_SPEC_SQL
 
 router = APIRouter(prefix="/tech", tags=["Кабинет тех-специалиста"])
 
@@ -125,9 +128,12 @@ async def my_clients(
                    --   2 — привёл тот, кого привёл он;
                    --   NULL — просто назначен на обслуживание.
                    CASE
-                     WHEN c.referred_by_tech_id = $1 THEN 1
-                     WHEN (SELECT l1.referred_by_tech_id FROM clients l1
-                            WHERE l1.id = c.referred_by_client_id) = $1 THEN 2
+                     WHEN {REFERRER_SPEC_SQL} = $1 THEN 1
+                     WHEN (SELECT ts_l2.id FROM tech_specialists ts_l2
+                            WHERE ts_l2.client_id = (SELECT l1.referred_by_client_id
+                                                       FROM clients l1
+                                                      WHERE l1.id = c.referred_by_client_id)
+                          ) = $1 THEN 2
                      ELSE NULL
                    END AS referral_level,
                    (SELECT COUNT(*) FROM subscription_orders so
@@ -141,7 +147,7 @@ async def my_clients(
                    (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id) AS contacts_count,
                    ({crm_case}) AS crm_status,
                    -- Свой или из базы ПЛЮСОНА: от этого зависят проценты.
-                   (c.referred_by_tech_id = $1) AS is_own,
+                   ({REFERRER_SPEC_SQL} = $1) AS is_own,
                    -- ⚠️ Контакты площадок у клиента — это `work_max`/`work_vk`
                    -- (рабочие ники, которые он указал сам), а не id профилей:
                    -- колонок max_username/vk_user_id в `clients` нет вовсе.
@@ -359,8 +365,8 @@ async def my_funnel(
     row = await db.fetchrow(
         f"""SELECT
               COUNT(*) AS total,
-              COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS own,
-              COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1)
+              COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} = $1) AS own,
+              COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} IS DISTINCT FROM $1)
                 AS from_pluson,
               COUNT(*) FILTER (WHERE {paying}) AS active_now,
               COUNT(*) FILTER (WHERE NOT {paying} AND {paid_cnt} > 0) AS churned,
@@ -518,11 +524,11 @@ async def my_kpi(
         f"""SELECT COUNT(*) AS total,
                    COUNT(*) FILTER (WHERE {paying}) AS paying,
                    -- Свои приведённые: за них идёт процент, в фикс они НЕ идут.
-                   COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1) AS mine,
-                   COUNT(*) FILTER (WHERE c.referred_by_tech_id = $1 AND {paying})
+                   COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} = $1) AS mine,
+                   COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} = $1 AND {paying})
                      AS mine_paying,
                    -- Чужие платящие — именно они дают ступень фикса.
-                   COUNT(*) FILTER (WHERE c.referred_by_tech_id IS DISTINCT FROM $1
+                   COUNT(*) FILTER (WHERE {REFERRER_SPEC_SQL} IS DISTINCT FROM $1
                                       AND {paying}) AS others_paying,
                    -- Остывшие: не платят сейчас, но платили раньше. Это работа
                    -- на оживление, а не потеря.
