@@ -186,7 +186,7 @@ function SpecsTab({ specs, rates, onChange }: any) {
     const term = q.trim()
     if (term.length < 2) { setFound([]); return }
     setSearching(true)
-    try { setFound((await api.adminCustomOrders.searchClients(term))?.clients || []) }
+    try { setFound((await api.customOrders.searchClients(term))?.clients || []) }
     catch { setFound([]) }
     finally { setSearching(false) }
   }
