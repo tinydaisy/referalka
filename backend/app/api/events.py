@@ -1632,7 +1632,9 @@ async def event_crm(
                   -- привести в базу год назад, а на это событие — позвать
                   -- сегодня и совсем другой. Для CRM события верен второй.
                   rc.id AS referrer_contact_id,
-                  TRIM(CONCAT_WS(' ', rc.name, rc.last_name)) AS referrer_name,
+                  -- ⚠️ У КОНТАКТА одно поле `name` (фамилия и имя уже в нём) —
+                  -- колонки `last_name` тут нет вовсе, она есть у `clients`.
+                  rc.name AS referrer_name,
                   -- Этот реферовод — я сам? Считаем на сервере: у фронта нет
                   -- надёжного способа сопоставить контакт с вошедшим человеком.
                   (rc.linked_client_id IS NOT NULL
