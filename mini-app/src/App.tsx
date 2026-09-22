@@ -100,6 +100,53 @@ async function handleVkFunnelIfNeeded(
   if (!sp) return false
   const lp = adapter.launchParams
 
+  // ⚠️⚠️ ПУНКТ НАВИГАЦИИ ПО ЧАТУ: `nav_<action><event_id>` (22.09.2026).
+  // Ссылка из закреплённого поста в ВК-чате: `vk.com/app{aid}#nav_gifts89`.
+  // Открываем Mini App, просим разрешение на ЛС и зовём сервер — он шлёт
+  // человеку сообщение САМ. Ссылкой в диалог это сделать нельзя: метку `ref`
+  // ВК отдаёт только тем, кто ещё не писал сообществу, а `?text=` требует
+  // нажать «отправить» вручную.
+  if (sp.startsWith('nav_')) {
+    const m = /^nav_(gifts|menu|support)(\d+)$/.exec(sp)
+    if (m && lp.vk_user_id) {
+      const action = m[1]
+      const eventId = Number(m[2])
+      setFunnelKind('event')
+      let ok = false
+      let groupId = Number(lp.vk_group_id || 0)
+      if (!groupId && lp.vk_app_id) {
+        try {
+          const g: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+            .then(x => x.ok ? x.json() : null)
+          if (g?.group_id) groupId = Number(g.group_id)
+        } catch (_) {}
+      }
+      // Разрешение на ЛС обязательно: без него сообщество не сможет написать.
+      await new Promise<void>((resolve) => {
+        if (!groupId) return resolve()
+        adapter.requestWriteAccess({ vkGroupId: groupId }, () => resolve())
+      })
+      if (adapter.joinGroup && groupId) {
+        try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch (_) {}
+      }
+      try {
+        const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/nav-action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launch_params: lp, action, event_id: eventId }),
+        }).then(x => x.ok ? x.json() : null)
+        if (r?.ok) {
+          ok = true
+          if (r.group_id) groupId = Number(r.group_id)
+        }
+      } catch (e) { console.warn('vk nav-action failed', e) }
+      setFunnelStatus(ok ? 'ok' : 'fail')
+      setFunnelGroupId(groupId)
+      setLoading(false)
+      return true
+    }
+  }
+
   // Лёгкая заглушка открытия СОБЫТИЯ: `evl_<slug>[_pid..][_src..][_ct..]`.
   // Альтернатива полному Mini App (`ref_pg`): показываем лёгкий экран
   // «подробности в чате», бэк шлёт в ЛС порт TG-воронки события.

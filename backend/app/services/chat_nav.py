@@ -30,7 +30,6 @@ import json
 import logging
 import re
 from typing import Any, Optional
-from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +156,16 @@ async def resolve_nav_links(
                 handles = await get_client_bot_handles(db, client_id)
             links = {k: v for k, v in
                      build_support_command_links(handles, event_id).items() if v}
+            # ⚠️ ВК — через Mini App (`#nav_support{id}`): контакты поддержки
+            # приходят в ЛС сами. Ссылка `vk.me/...?ref=evsupport_` не работала
+            # у тех, кто уже писал сообществу — ВК метку не передаёт (см.
+            # пояснение в `_build_gifts_links`).
+            from app.services.share_links import get_client_vk_app_id as _vk_app
+            _aid = await _vk_app(db, client_id)
+            if _aid:
+                links["vk"] = f"https://vk.com/app{_aid}#nav_support{event_id}"
+            else:
+                links.pop("vk", None)
 
         elif kind == "cabinet":
             if cabinet_links is None:
@@ -179,23 +188,14 @@ async def resolve_nav_links(
             if slug:
                 links = {k: v for k, v in
                          (await build_gift_funnel_links_by_owner(db, mkind, slug)).items() if v}
-                # ⚠️⚠️ ВК ИЗ ЧАТА — через `?text=m_<slug>`, а не Mini App
-                # (22.09.2026). Общая функция отдаёт для ВК `vk.com/app#m_slug`,
-                # но ВК теряет hash при холодном запуске через экран «Запустить»
-                # — человек попадал в ПРОСТО Mini App события, без воронки.
-                # Текстовый путь этого лишён: команда кладётся в поле ввода и
-                # приходит боту обычным сообщением (обработчик в vk_main.py).
-                # ⚠️ Магнит ПЛЮСОНа не трогаем: у него своя прямая ссылка в бот
-                # ПЛЮСОНА (`is_plusson`), и её подменять нельзя.
-                _vk_url = (links.get("vk") or "")
-                if "vk.com/app" in _vk_url and "#" in _vk_url:
-                    if handles is None:
-                        handles = await get_client_bot_handles(db, client_id)
-                    _h = (handles.get("vk") or "").lstrip("@")
-                    if _h:
-                        _base = (f"https://vk.me/club{_h}" if _h.isdigit()
-                                 else f"https://vk.me/{_h}")
-                        links["vk"] = f"{_base}?text={quote(f'{mkind}_{slug}', safe='')}"
+                # ⚠️ ВК-ссылка магнита (`vk.com/app{aid}#m_<slug>`) остаётся как
+                # есть: Mini App разбирает маркер и сам просит сервер выслать
+                # воронку в ЛС — тот же механизм, на который 22.09.2026
+                # переведены подарки, меню и поддержка (`#nav_*`).
+                # ⚠️ Жалоба «ссылка на лид-магнит открывает мини-апп события»
+                # была следствием ДРУГОГО: у пунктов навигации ВК ссылки вели в
+                # диалог с меткой `?ref=`, которую ВК не передаёт писавшим
+                # ранее, и человек оставался в приложении без воронки.
 
         if label or links:
             # ⚠️ `own_only` — ссылка имеет смысл ТОЛЬКО на своей площадке.
@@ -225,7 +225,7 @@ async def _build_gifts_links(db, event_id: int, client_id: int) -> dict[str, str
     Mini App-ссылку нельзя: подарки отдаёт именно бот.
     """
     from app.services.share_links import (
-        get_client_bot_handles, get_event_disabled_platforms,
+        get_client_bot_handles, get_client_vk_app_id, get_event_disabled_platforms,
     )
 
     row = await db.fetchrow("SELECT slug FROM events WHERE id = $1", event_id)
@@ -247,24 +247,23 @@ async def _build_gifts_links(db, event_id: int, client_id: int) -> dict[str, str
         if h:
             links["max"] = f"https://max.ru/{h}?start={payload}"
 
-    # ⚠️⚠️ ВК: диалог сообщества с ПРЕДЗАПОЛНЕННЫМ ТЕКСТОМ (`?text=`), а не с
-    # меткой `?ref=` (22.09.2026, после проверки на проде).
+    # ⚠️⚠️ ВК — ЧЕРЕЗ MINI APP, сообщение уходит САМО (22.09.2026, решение
+    # владельца: «чтобы при переходе по ссылке в боте отправлялись нужные
+    # сообщения»).
     #
-    # `ref` ВК отдаёт ТОЛЬКО когда переписка с сообществом ещё НЕ начата. У
-    # того, кто боту уже писал, приходит `ref=None` — в логах прода это видно
-    # на каждом заходе. Человек попадал в пустой диалог, и «ничего не
-    # приходило»: ни подарков, ни меню, ни поддержки. Это была одна причина у
-    # всех трёх неработающих пунктов навигации.
+    # Ссылкой в диалог это недостижимо: метку `?ref=` ВК передаёт ТОЛЬКО тем,
+    # кто ещё ни разу не писал сообществу (у остальных приходит пусто — отсюда
+    # жалоба «ничего не приходит»), а `?text=` лишь кладёт команду в поле
+    # ввода, и человеку надо нажать «отправить» самому.
     #
-    # `?text=` кладёт готовую команду в поле ввода — остаётся нажать
-    # «отправить», и её ловит текстовый обработчик (`podarki89` / `menu89` /
-    # `support89`). От истории переписки это не зависит вовсе. Тот же приём
-    # уже используется на экране-заглушке ВК (`PREFILL` в mini-app/App.tsx).
-    if "vk" not in disabled and handles.get("vk"):
-        h = (handles["vk"] or "").lstrip("@")
-        if h:
-            base = f"https://vk.me/club{h}" if h.isdigit() else f"https://vk.me/{h}"
-            links["vk"] = f"{base}?text={quote(payload, safe='')}"
+    # `vk.com/app{aid}#nav_gifts{id}` открывает Mini App клиента, тот просит
+    # разрешение на ЛС и зовёт `/api/v1/vk/nav-action` — сервер отправляет
+    # человеку подарки в личные сообщения. Ровно тот же механизм, что у
+    # лид-магнитов (`m_<slug>`), он работает давно.
+    if "vk" not in disabled:
+        vk_app_id = await get_client_vk_app_id(db, client_id)
+        if vk_app_id:
+            links["vk"] = f"https://vk.com/app{vk_app_id}#nav_gifts{event_id}"
 
     return links
 
@@ -338,14 +337,12 @@ async def _build_cabinet_links(db, event_id: int, client_id: int) -> dict[str, s
     # Спикеры» в ВК открывал Mini App, а не меню события в боте, хотя в TG и
     # MAX открывал именно меню. Метку `menu{id}` ВК-бот уже понимает
     # (`_extract_event_trigger_id` ловит «ивент|event|menu» + номер).
-    if "vk" not in disabled and handles.get("vk"):
-        h = (handles["vk"] or "").lstrip("@")
-        if h:
-            # ⚠️ `?text=`, а не `?ref=`: метку ВК отдаёт только тем, кто ещё не
-            # писал сообществу (см. пояснение в `_build_gifts_links`). Готовая
-            # команда в поле ввода работает всегда.
-            base = f"https://vk.me/club{h}" if h.isdigit() else f"https://vk.me/{h}"
-            links["vk"] = f"{base}?text={quote(f'menu{event_id}', safe='')}"
+    # ⚠️ ВК — через Mini App (`#nav_menu{id}`): сообщение с меню события
+    # приходит само, см. пояснение в `_build_gifts_links`.
+    if "vk" not in disabled:
+        vk_app_id = await get_client_vk_app_id(db, client_id)
+        if vk_app_id:
+            links["vk"] = f"https://vk.com/app{vk_app_id}#nav_menu{event_id}"
 
     if "max" not in disabled and handles.get("max"):
         url = max_link(slug, bot_handle=handles["max"], link_mode="bot")

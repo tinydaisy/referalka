@@ -98,6 +98,28 @@ class VkFunnelStartRequest(BaseModel):
     run_id: int
 
 
+class VkNavActionRequest(BaseModel):
+    """Открыт пункт НАВИГАЦИИ ПО ЧАТУ во ВКонтакте (22.09.2026).
+
+    Ссылка вида `vk.com/app{aid}#nav_<action><event_id>`: Mini App открывается,
+    показывает лёгкий экран и просит сервер отправить человеку в ЛС нужное
+    сообщение — подарки, меню события или контакты поддержки.
+
+    ⚠️⚠️ ЗАЧЕМ ТАК, А НЕ ССЫЛКОЙ В ДИАЛОГ. У ВК нет способа открыть бота с
+    командой: метку `?ref=` он передаёт ТОЛЬКО тем, кто ещё ни разу не писал
+    сообществу (у остальных приходит пусто — это и была жалоба «ничего не
+    приходит»), а `?text=` лишь подставляет текст в поле ввода, и человеку
+    надо нажать «отправить» самому. Через Mini App сообщение уходит САМО,
+    сразу после перехода по ссылке — как у лид-магнитов (`m_<slug>`), где
+    этот механизм работает давно.
+    """
+    launch_params: dict[str, str]
+    # 'gifts' — подарки за рекомендации, 'menu' — меню события,
+    # 'support' — контакты тех.поддержки.
+    action: str
+    event_id: int
+
+
 class VkEventLandingRequest(BaseModel):
     """Лёгкая заглушка открытия СОБЫТИЯ в VK (альтернатива полному Mini App).
 
@@ -1722,6 +1744,149 @@ async def _vk_event_landing_background(body: VkEventLandingRequest, vk_user_id: 
                     logger.warning(f"VK event-landing organizer notification failed: {e}")
     except Exception as e:
         logger.warning(f"VK event-landing background failed (vk={vk_user_id}): {e}")
+
+
+@router.post("/vk/nav-action", summary="Пункт навигации по чату в VK (nav_)")
+async def vk_nav_action(body: VkNavActionRequest):
+    """Открыт пункт навигации: шлём человеку в ЛС нужное сообщение.
+
+    Ссылка `vk.com/app{aid}#nav_gifts89` / `#nav_menu89` / `#nav_support89`.
+
+    ⚠️⚠️ Почему через Mini App, а не ссылкой в диалог сообщества. ВК передаёт
+    метку `?ref=` ТОЛЬКО тем, кто ещё ни разу не писал сообществу — у всех
+    остальных приходит пусто, и по ссылке не происходило НИЧЕГО (прод,
+    22.09.2026: «в вк ссылка на кабинет / подарки / поддержку не работает»).
+    Вариант `?text=` лишь кладёт команду в поле ввода — человеку надо нажать
+    «отправить» самому. Здесь сообщение уходит САМО: Mini App открылся,
+    спросил разрешение на ЛС и позвал эту ручку. Тот же механизм, что у
+    лид-магнитов (`m_<slug>`) — он работает давно.
+
+    Отвечаем фронту сразу, отправку делаем в фоне: человек видит лёгкий экран,
+    а не ждёт, пока соберётся сообщение с афишей.
+    """
+    import asyncio
+
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+    action = (body.action or "").strip()
+    if action not in ("gifts", "menu", "support"):
+        raise HTTPException(status_code=400, detail="unknown action")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="db not available")
+
+    async with pool.acquire() as conn:
+        secure_key = await _resolve_vk_secure_key(conn, vk_app_id_raw)
+        if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+            raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+        vk_user_id_raw = body.launch_params.get("vk_user_id")
+        if not vk_user_id_raw:
+            raise HTTPException(status_code=400, detail="vk_user_id required")
+        try:
+            vk_user_id = int(vk_user_id_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+        chan = await conn.fetchrow(
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id,
+                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND cc.is_active = TRUE
+                  AND (ch.platform_meta->>'vk_app_id')::int = $1
+                LIMIT 1""",
+            int(vk_app_id_raw or 0),
+        )
+        if not chan or not chan["bot_token"]:
+            raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено")
+
+        # ⚠️ Событие обязано принадлежать клиенту ЭТОГО сообщества: номер
+        # события стоит прямо в ссылке, и без проверки по перебору номеров
+        # вытянули бы чужие подарки.
+        owns = await conn.fetchval(
+            """SELECT 1 FROM event_owners
+                WHERE event_id = $1 AND client_id = $2 AND status = 'accepted' LIMIT 1""",
+            body.event_id, chan["client_id"],
+        )
+        if not owns:
+            raise HTTPException(status_code=404, detail="Событие не найдено")
+
+        group_id = int(body.launch_params.get("vk_group_id") or 0) or int(chan["vk_group_id"] or 0)
+        client_id = chan["client_id"]
+        token = chan["bot_token"]
+
+    async def _deliver():
+        pool2 = await get_pool()
+        if not pool2:
+            return
+        try:
+            async with pool2.acquire() as c2:
+                if action == "support":
+                    from app.services.support_message import support_text_for_event
+                    txt = await support_text_for_event(
+                        c2, body.event_id, html=False, client_id=client_id)
+                    await vk_send_message(vk_user_id, txt, token=token)
+                    return
+
+                if action == "gifts":
+                    from app.services.dialog_archive import resolve_contact_id
+                    from app.services.referral_gifts import (
+                        build_gifts_message, split_text_chunks,
+                    )
+                    from app.services.vk_api import tg_inline_to_vk_keyboard
+                    contact_id = await resolve_contact_id(
+                        c2, client_id, "vk", str(vk_user_id))
+                    msg = await build_gifts_message(
+                        c2, event_id=body.event_id, client_id=client_id,
+                        contact_id=contact_id, platform="vk",
+                    )
+                    if not msg:
+                        return
+                    kb = None
+                    if msg["main_url"]:
+                        kb = tg_inline_to_vk_keyboard(
+                            [[{"text": msg["button_label"], "url": msg["main_url"]}]])
+                    chunks = split_text_chunks(msg["text"])
+                    for i, chunk in enumerate(chunks):
+                        await vk_send_message(
+                            vk_user_id, chunk, token=token,
+                            keyboard=(kb if i == len(chunks) - 1 else None))
+                    return
+
+                # action == "menu" — воронка события: незарегистрированному
+                # приглашение, зарегистрированному меню кабинета. Ровно то же,
+                # что человек получает, написав «ИВЕНТ<id>».
+                from app.services.external_landing import resolve_or_create_participant
+                ev_row = await c2.fetchrow(
+                    f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e WHERE e.id = $1 LIMIT 1",
+                    body.event_id)
+                if not ev_row:
+                    return
+                _pid, contact_id = await resolve_or_create_participant(
+                    c2, client_id=client_id, event_id=body.event_id,
+                    platform_slug="vk", platform_user_id=str(vk_user_id),
+                )
+                is_registered = bool(await c2.fetchval(
+                    "SELECT is_registered FROM event_participants"
+                    " WHERE event_id = $1 AND contact_id = $2",
+                    body.event_id, contact_id))
+                await send_vk_event_funnel(
+                    c2,
+                    vk_user_id=vk_user_id,
+                    token=token,
+                    client_vk_app_id=int(vk_app_id_raw or 0) or None,
+                    event_row=ev_row,
+                    contact_id=contact_id,
+                    is_registered=is_registered,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vk nav-action %s(%s) failed: %s", action, body.event_id, e)
+
+    asyncio.create_task(_deliver())
+    return {"ok": True, "group_id": group_id}
 
 
 @router.post("/vk/event-landing", summary="Лёгкая заглушка открытия события в VK (evl_)")
