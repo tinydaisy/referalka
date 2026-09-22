@@ -8,7 +8,9 @@ from app.services.event_access import is_collab_event
 import asyncpg
 import re
 import secrets
-from app.services.assistant_access import assistant_is_restricted, leads_only_grant_id
+from app.services.assistant_access import (
+    assistant_is_restricted, leads_only_grant_id, tech_spec_id_of,
+)
 
 router = APIRouter(prefix="/events", tags=["События"])
 
@@ -1472,10 +1474,20 @@ async def event_crm(
     tariff_id: int | None = Query(default=None, description="Только купившие этот тариф события"),
     client=Depends(get_current_client), db=Depends(get_db),
 ):
-    """Четыре колонки: не зарегистрированы / зарегистрированы / в чате / были в эфире.
+    """Четыре колонки этапов + два блока ПЛЮСОНа для внедренцев.
 
     Доступно ВСЕМ тарифам — это другой показ уже имеющихся данных о людях,
     а не отдельная платная возможность.
+
+    ⚠️⚠️ ДВА БЛОКА ПЛЮСОНА («Заинтересовались» и «Зарегистрированы») видит
+    ТОЛЬКО человек с ролью внедренца — `tech_spec_id_of`. У обычного помощника
+    их нет вовсе: это данные про воронку ПЛЮСОНА, а не про событие клиента.
+
+    ⚠️ Блоки СТОЯТ ОТДЕЛЬНО от общей ветки, хотя и считаются по людям с этого
+    события. Причина: связи не совпадают. Человек может быть зарегистрирован в
+    ПЛЮСОНе, но не быть в чате события; может не регистрироваться на событие,
+    но давно быть клиентом ПЛЮСОНА. Втащи их в шкалу «интерес → рега → чат →
+    эфир» — и получится, что один и тот же человек стоит на двух этапах сразу.
 
     ⚠️ В КОЛЛАБ-событии каждый организатор видит ТОЛЬКО СВОИХ приведённых.
     Суть коллаборации в том, что каждый ведёт свою базу через своего бота:
@@ -1521,6 +1533,11 @@ async def event_crm(
     rows = await db.fetch(
         f"""SELECT ep.id, c.id AS contact_id, c.name,
                   ep.is_registered, ep.is_in_chat,
+                  -- ⚠️ ДАТЫ ЭТАПОВ. Раньше `registered_at` брался только для
+                  -- сортировки и в ответ не попадал: в карточке было видно
+                  -- «дошёл до эфира», но не видно КОГДА. Для звонка это первое,
+                  -- что нужно знать — вчера человек пришёл или три месяца назад.
+                  ep.registered_at, ep.link_clicked_at, ep.chat_check_at,
                   -- Что человек купил в этом событии. Подпись под именем: без
                   -- неё в CRM не отличить платного участника от зашедшего
                   -- посмотреть, а звонить им надо по-разному.
@@ -1553,7 +1570,37 @@ async def event_crm(
                   (SELECT COALESCE(pu.username, pu.platform_user_id)
                      FROM platform_users pu
                     WHERE pu.contact_id = c.id AND pu.platform_slug='max'
-                    LIMIT 1) AS max_nick
+                    LIMIT 1) AS max_nick,
+
+                  -- ── ПЛЮСОН: интерес и регистрация ───────────────────────
+                  -- ⚠️ Два РАЗНЫХ признака, и одно не следует из другого:
+                  --   дошёл до бота (`plusson_referrer_code`) — интерес;
+                  --   завёл кабинет (`linked_client_id`)      — регистрация.
+                  -- Человек может быть клиентом ПЛЮСОНА, ни разу не пройдя по
+                  -- ссылке (регистрировался раньше сам), и наоборот.
+                  (c.plusson_referrer_code IS NOT NULL) AS plusson_interested,
+                  c.plusson_referrer_source,
+                  (c.linked_client_id IS NOT NULL) AS plusson_registered,
+                  c.linked_client_id,
+                  -- Когда завёл кабинет ПЛЮСОНА. ⚠️ Берём дату СОЗДАНИЯ
+                  -- клиента, а не сегодняшнюю: «когда зарегался» — про него.
+                  (SELECT pc.created_at FROM clients pc
+                    WHERE pc.id = c.linked_client_id) AS plusson_registered_at,
+                  -- На каком тарифе ПЛЮСОНА он сейчас и до какого числа.
+                  (SELECT pt.name FROM clients pc
+                     JOIN client_subscriptions pcs ON pcs.id = pc.current_subscription_id
+                     JOIN tariffs pt ON pt.id = pcs.tariff_id
+                    WHERE pc.id = c.linked_client_id) AS plusson_tariff,
+                  (SELECT pcs.expires_at FROM clients pc
+                     JOIN client_subscriptions pcs ON pcs.id = pc.current_subscription_id
+                    WHERE pc.id = c.linked_client_id) AS plusson_expires_at,
+                  (SELECT pcs.status FROM clients pc
+                     JOIN client_subscriptions pcs ON pcs.id = pc.current_subscription_id
+                    WHERE pc.id = c.linked_client_id) AS plusson_sub_status,
+                  -- Подключённые модули — списком через запятую.
+                  (SELECT STRING_AGG(cm.module_slug, ', ' ORDER BY cm.module_slug)
+                     FROM client_modules cm
+                    WHERE cm.client_id = c.linked_client_id) AS plusson_modules
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
             WHERE ep.event_id = $1 AND c.client_id = $2
@@ -1573,6 +1620,22 @@ async def event_crm(
         "in_chat": [p for p in people if p["is_in_chat"]],
         "was_live": [p for p in people if p["was_live"]],
     }
+
+    # ── Блоки ПЛЮСОНА: только для внедренца ──────────────────────────────
+    # ⚠️ Отдельным списком, а не колонками общей ветки: это ДРУГАЯ воронка —
+    # не «докуда дошёл на событии», а «дошёл ли до ПЛЮСОНА». Человек может
+    # стоять в обеих сразу, поэтому смешивать их в одну шкалу нельзя.
+    spec_id = await tech_spec_id_of(client)
+    plusson_columns = []
+    if spec_id:
+        plusson_groups = {
+            "plusson_interested": [p for p in people if p["plusson_interested"]],
+            "plusson_registered": [p for p in people if p["plusson_registered"]],
+        }
+        plusson_columns = [
+            {"key": k, "count": len(v), "percent": pct(len(v)), "people": v}
+            for k, v in plusson_groups.items()
+        ]
     # Тарифы события — для выпадашки фильтра. Отдаём только те, что кто-то
     # уже купил: пустой пункт в фильтре бесполезен, а список тарифов может
     # быть длинным (VIP, стандарт, раннее бронирование, партнёрский…).
@@ -1599,6 +1662,9 @@ async def event_crm(
             {"key": k, "count": len(v), "percent": pct(len(v)), "people": v}
             for k, v in groups.items()
         ],
+        # ⚠️ Пустой список у не-внедренца: фронт по нему и решает, рисовать ли
+        # раздел. Отдельный флаг «is_tech» был бы вторым источником правды.
+        "plusson_columns": plusson_columns,
     }
 
 

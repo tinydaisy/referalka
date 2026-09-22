@@ -36,6 +36,22 @@ export interface ColumnPerson {
   paid_tariffs?: string | null
   /** Сколько человек заплатил всего, ₽. */
   paid_amount?: number | null
+
+  /** Даты этапов события: когда зарегистрировался, когда жал кнопку эфира,
+   *  когда проверяли чат. Для звонка важно не только «дошёл», но и «когда». */
+  registered_at?: string | null
+  link_clicked_at?: string | null
+  chat_check_at?: string | null
+
+  /** ПЛЮСОН — видно только внедренцу (блоки «Заинтересовались» /
+   *  «Зарегистрированы»). Два признака НЕ следуют один из другого. */
+  plusson_interested?: boolean
+  plusson_registered?: boolean
+  plusson_registered_at?: string | null
+  plusson_tariff?: string | null
+  plusson_expires_at?: string | null
+  plusson_sub_status?: string | null
+  plusson_modules?: string | null
 }
 
 export default function PeopleColumnBase({
@@ -181,6 +197,27 @@ function PersonRow({ person, hrefFor, num }: {
     person.max_nick && `MAX ${at(person.max_nick)}`,
   ].filter(Boolean) as string[]
 
+  // Даты этапов события. Показываем только заполненные: «эфир —» у того, кто
+  // до эфира не дошёл, занимал бы строку и ничего не сообщал.
+  const dates = [
+    d(person.registered_at) && `рега ${d(person.registered_at)}`,
+    d(person.link_clicked_at) && `эфир ${d(person.link_clicked_at)}`,
+  ].filter(Boolean) as string[]
+
+  // ПЛЮСОН одной строкой: тариф (или «зареган»), срок, модули.
+  // ⚠️ Просроченную подписку помечаем словом, а не молчанием: внедренцу важно
+  // видеть, что человек уже НЕ платит — это повод позвонить.
+  const plussonParts = [
+    person.plusson_tariff
+      || (person.plusson_registered ? 'в ПЛЮСОНе' : ''),
+    person.plusson_sub_status && person.plusson_sub_status !== 'active'
+      ? 'подписка неактивна'
+      : (d(person.plusson_expires_at) && `до ${d(person.plusson_expires_at)}`),
+    d(person.plusson_registered_at) && `с ${d(person.plusson_registered_at)}`,
+    person.plusson_modules || '',
+  ].filter(Boolean) as string[]
+  const plusson = plussonParts.join(' · ')
+
   return (
     <Link href={hrefFor ? hrefFor(person) : `/dashboard/clients?contact=${person.id}`}
           className="flex gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50">
@@ -207,9 +244,31 @@ function PersonRow({ person, hrefFor, num }: {
             {person.paid_amount ? ` · ${person.paid_amount.toLocaleString('ru-RU')} ₽` : ''}
           </span>
         )}
+
+        {/* Даты этапов: когда пришёл и когда дошёл до эфира. Серым и мелко —
+            это справка при звонке, а не главное в строке. */}
+        {dates.length > 0 && (
+          <span className="block truncate text-[11px] text-gray-400">{dates.join(' · ')}</span>
+        )}
+
+        {/* ПЛЮСОН: тариф, модули и срок. Приходит только внедренцу, у
+            остальных полей нет вовсе — строка не рисуется. */}
+        {plusson && (
+          <span className="block truncate text-[11px] font-medium" style={{ color: '#5B4B8A' }}>
+            {plusson}
+          </span>
+        )}
       </span>
     </Link>
   )
+}
+
+/** Дата по-русски и коротко: «12 сен 2026». Пустое — пустая строка. */
+function d(v?: string | null): string {
+  if (!v) return ''
+  const dt = new Date(v)
+  if (Number.isNaN(dt.getTime())) return ''
+  return dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 /** Ник показываем с «собакой», числовой id — как есть. */

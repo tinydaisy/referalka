@@ -10,12 +10,21 @@
  * ⚠️ В коллаб-событии каждый организатор видит ТОЛЬКО СВОИХ приведённых —
  * так устроена коллаборация: каждый ведёт свою базу через своего бота.
  * Об этом прямо написано плашкой, иначе цифры выглядят заниженными.
+ *
+ * ⚠️⚠️ ДВА БЛОКА ПЛЮСОНА — ОТДЕЛЬНЫМ РАЗДЕЛОМ, а не пятой и шестой колонкой
+ * общей ветки. Видит их только внедренец (сервер отдаёт `plusson_columns`
+ * пустым всем остальным). Отдельно потому, что это ДРУГАЯ воронка: человек
+ * может быть зарегистрирован в ПЛЮСОНе и при этом не состоять в чате события,
+ * а может не регистрироваться на событие, но давно быть клиентом ПЛЮСОНА.
+ * В одной шкале «интерес → рега → чат → эфир» он оказался бы на двух этапах
+ * сразу, и проценты перестали бы что-либо значить.
  */
 
 import { useEffect, useState } from 'react'
 import { Info, UserCog } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
+import CollapsibleGroup from '@/components/CollapsibleGroup'
 import PeopleColumnBase from './PeopleColumnBase'
 
 const TITLES: Record<string, { title: string; hint: string; tone: 'dark' | 'peach' }> = {
@@ -23,6 +32,15 @@ const TITLES: Record<string, { title: string; hint: string; tone: 'dark' | 'peac
   registered:     { title: 'Зарегистрированы',    hint: 'записались на событие',      tone: 'dark' },
   in_chat:        { title: 'Перешли в чат',       hint: 'состоят в чате события',     tone: 'dark' },
   was_live:       { title: 'Были в эфире',        hint: 'открыли трансляцию',         tone: 'dark' },
+
+  plusson_interested: {
+    title: 'Заинтересовались ПЛЮСОНом',
+    hint: 'перешли в бот по вашей ссылке', tone: 'dark',
+  },
+  plusson_registered: {
+    title: 'Зарегистрированы в ПЛЮСОНе',
+    hint: 'завели кабинет — виден тариф и срок', tone: 'dark',
+  },
 }
 
 export default function EventCrmTab({ eventId }: { eventId: number }) {
@@ -134,43 +152,70 @@ export default function EventCrmTab({ eventId }: { eventId: number }) {
             : 'На событие пока никто не заходил.'}
         </p>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-3 scroll-visible">
-          {data.columns.map((c: any) => {
-            const meta = TITLES[c.key] || { title: c.key, hint: '', tone: 'dark' as const }
-            return (
-              <PeopleColumnBase key={c.key}
-                title={meta.title} hint={meta.hint} tone={meta.tone}
-                count={c.count} percent={c.percent} people={c.people}
-                footer={managers.length > 0 && c.count > 0 ? (
-                  /* Раздать людей колонки менеджерам: выбрал — и все из этой
-                     колонки закреплены. Так распределяют участников события
-                     между сотрудниками, не открывая каждого по отдельности. */
-                  <label className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <UserCog size={12} className="shrink-0" />
-                    <select
-                      value=""
-                      disabled={assignBusy}
-                      onChange={e => {
-                        const v = Number(e.target.value)
-                        if (v) assignColumn(c.people, v, meta.title)
-                        e.target.value = ''
-                      }}
-                      className="min-w-0 flex-1 rounded border border-gray-200 px-1 py-0.5 text-[11px] disabled:opacity-60"
-                    >
-                      <option value="">Закрепить всех за…</option>
-                      {managers.map((m: any) => (
-                        <option key={m.grant_id} value={m.grant_id}>
-                          {m.name || m.email}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : undefined}
-              />
-            )
-          })}
-        </div>
+        <>
+          <div className="flex gap-3 overflow-x-auto pb-3 scroll-visible">
+            {data.columns.map(renderColumn)}
+          </div>
+
+          {/* ⚠️ Раздел рисуется, только если сервер прислал блоки — то есть
+              человек внедренец. У обычного помощника массив пуст, и здесь
+              не появляется ничего: отдельного флага «я внедренец» на фронте
+              нет намеренно, он был бы вторым источником правды. */}
+          {data.plusson_columns?.length > 0 && (
+            <div className="mt-4">
+              <CollapsibleGroup title="ПЛЮСОН: кто из них дошёл до платформы"
+                                count={data.plusson_columns.length}>
+                <p className="mb-3 text-sm text-gray-500">
+                  Эти два блока — про вашу работу внедренцем, а не про событие.
+                  Здесь только закреплённые за вами люди. Человек может быть в
+                  ПЛЮСОНе, но не в чате события — и наоборот, поэтому блоки
+                  стоят отдельно от воронки выше.
+                </p>
+                <div className="flex gap-3 overflow-x-auto pb-1 scroll-visible">
+                  {data.plusson_columns.map(renderColumn)}
+                </div>
+              </CollapsibleGroup>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
+
+  /** Одна колонка воронки. Общая для этапов события и блоков ПЛЮСОНА —
+   *  чтобы вид и раздача людей менеджерам были в них одинаковые. */
+  function renderColumn(c: any) {
+    const meta = TITLES[c.key] || { title: c.key, hint: '', tone: 'dark' as const }
+    return (
+      <PeopleColumnBase key={c.key}
+        title={meta.title} hint={meta.hint} tone={meta.tone}
+        count={c.count} percent={c.percent} people={c.people}
+        footer={managers.length > 0 && c.count > 0 ? (
+          /* Раздать людей колонки менеджерам: выбрал — и все из этой
+             колонки закреплены. Так распределяют участников события
+             между сотрудниками, не открывая каждого по отдельности. */
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-500">
+            <UserCog size={12} className="shrink-0" />
+            <select
+              value=""
+              disabled={assignBusy}
+              onChange={e => {
+                const v = Number(e.target.value)
+                if (v) assignColumn(c.people, v, meta.title)
+                e.target.value = ''
+              }}
+              className="min-w-0 flex-1 rounded border border-gray-200 px-1 py-0.5 text-[11px] disabled:opacity-60"
+            >
+              <option value="">Закрепить всех за…</option>
+              {managers.map((m: any) => (
+                <option key={m.grant_id} value={m.grant_id}>
+                  {m.name || m.email}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : undefined}
+      />
+    )
+  }
 }

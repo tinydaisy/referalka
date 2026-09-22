@@ -120,6 +120,55 @@ async def leads_only_grant_id(user: dict) -> Optional[int]:
     return int(gid) if gid else None
 
 
+async def tech_spec_id_of(user: dict) -> Optional[int]:
+    """Роль внедренца у вошедшего человека — иначе None.
+
+    ⚠️⚠️ ЕДИНСТВЕННАЯ ТОЧКА, где решается «этот человек ещё и внедренец». От
+    неё зависят два блока CRM события («Заинтересовались ПЛЮСОНом» и
+    «Зарегистрированы в ПЛЮСОНе»): их видит только помощник-внедренец, у
+    обычного помощника этих блоков нет вовсе.
+
+    ⚠️ СВЯЗЬ ПО ПОЧТЕ, а не по внешнему ключу. Внедренец — роль над КЛИЕНТОМ
+    (`tech_specialists.client_id` → `clients`), а помощник живёт отдельной
+    строкой в `assistants`: прямой связи между ними в базе нет. Общее у них
+    одно — человек и его почта. Тот же приём, что в `dialog_archive`, где
+    контакт сопоставляется с клиентом платформы.
+
+    ⚠️ Сравниваем `LOWER(TRIM(email))`: колонки `email_normalized` у `clients`
+    и `assistants` нет вовсе — она есть только у `contacts`.
+
+    ⚠️ Уволенный (`is_active = FALSE`) внедренцем НЕ считается: доступ к
+    кабинету внедренца ему закрыт, значит и блоков ПЛЮСОНа он видеть не должен.
+
+    ⚠️ Владелец кабинета, который сам внедренец, тоже получает роль — блоки
+    ему покажутся. Это верно: данные его собственные, и прятать их не от кого.
+    """
+    role = user.get("role")
+    if role == "assistant":
+        email_q = "SELECT email FROM assistants WHERE id = $1"
+        who = user.get("assistant_id")
+    elif role == "client":
+        email_q = "SELECT email FROM clients WHERE id = $1"
+        who = user.get("sub")
+    else:
+        return None
+    if not who:
+        return None
+
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        email = await db.fetchval(email_q, int(who))
+        if not email:
+            return None
+        return await db.fetchval(
+            """SELECT ts.id FROM tech_specialists ts
+                 JOIN clients c ON c.id = ts.client_id
+                WHERE LOWER(TRIM(c.email)) = LOWER(TRIM($1))
+                  AND ts.is_active""",
+            email,
+        )
+
+
 async def assistant_is_restricted(user: dict) -> bool:
     """
     True — если это помощник с ограниченными правами (нужно резать доступ).
