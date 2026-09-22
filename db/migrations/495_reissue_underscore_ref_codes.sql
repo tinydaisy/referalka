@@ -112,6 +112,20 @@ UPDATE event_participants ep
   FROM _bak_495_ref_codes b
  WHERE ep.referrer_ref_code = b.old_code;
 
+-- ⚠️ «Висячие» коды: реферер уже был перевыпущен КОГДА-ТО РАНЬШЕ (его старый
+-- код лежит в merged_ref_codes), а записи участников остались со старым.
+-- Такого кода нет в contacts.ref_code, поэтому шаг выше его не видит.
+-- На момент миграции это `sp_4c0ab5d9` — 36 записей Дмитрия Ледовских
+-- (contacts.id=6825, сейчас `3388EFB0`). Без этого шага проверка ниже падает,
+-- и правильно падает: записи указывали бы на код, которого нет ни у кого.
+UPDATE event_participants ep
+   SET referrer_ref_code = c.ref_code
+  FROM contacts c
+ WHERE c.merged_ref_codes ? ep.referrer_ref_code
+   AND ep.referrer_ref_code LIKE '%\_%'
+   AND ep.referrer_ref_code <> 'tg_392695076'   -- Элина: не трогаем
+   AND c.ref_code NOT LIKE '%\_%';              -- целимся только в нормальный код
+
 -- ── 5. Проверки ──────────────────────────────────────────────────────────
 DO $$
 DECLARE
