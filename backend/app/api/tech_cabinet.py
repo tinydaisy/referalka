@@ -655,7 +655,13 @@ async def my_kpi(
         """SELECT turnover_from, turnover_to, percent FROM tech_qualification_tiers
             WHERE $1 >= turnover_from AND $1 < turnover_to
             ORDER BY turnover_from DESC LIMIT 1""", turnover)
-    q_next = await db.fetchrow(
+    # ⚠️⚠️ ИМЯ `qual_next`, А НЕ `q_next`: выше по функции уже есть `q_next` —
+    # следующая ступень ПРЕМИИ (`tech_quarter_tiers`, колонка `rate_from`).
+    # Здесь другая вилка — КВАЛИФИКАЦИИ (`tech_qualification_tiers`, колонка
+    # `turnover_from`), и одинаковое имя затирало первую: экран «Показатели»
+    # падал с `KeyError: 'rate_from'` на блоке премии. Поймано на проде
+    # 22.09.2026 живой проверкой кабинета.
+    qual_next = await db.fetchrow(
         """SELECT turnover_from, percent FROM tech_qualification_tiers
             WHERE turnover_from > $1 ORDER BY turnover_from LIMIT 1""", turnover)
 
@@ -663,8 +669,8 @@ async def my_kpi(
         "qualification": {
             "turnover_kopecks": turnover,
             "percent": float(q_cur["percent"]) if q_cur else None,
-            "next_at_kopecks": int(q_next["turnover_from"]) if q_next else None,
-            "next_percent": float(q_next["percent"]) if q_next else None,
+            "next_at_kopecks": int(qual_next["turnover_from"]) if qual_next else None,
+            "next_percent": float(qual_next["percent"]) if qual_next else None,
         },
         "bonus_conditions": {
             "period": q_period,
