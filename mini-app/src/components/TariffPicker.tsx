@@ -563,11 +563,14 @@ export default function TariffPicker({
               )}
             </div>
           ) : (
+            // ⚠️ Не мельчим: было 13px — надпись терялась, и люди не находили,
+            // куда вводить промокод.
             <button type="button" onClick={() => setPromoOpen(true)}
                     style={{
                       background: 'none', border: 'none', padding: 0,
-                      color: 'var(--accent)', fontSize: 13,
-                      textDecoration: 'underline', cursor: 'pointer',
+                      color: 'var(--accent)', fontSize: 16, fontWeight: 600,
+                      textDecoration: 'underline', textUnderlineOffset: 3,
+                      cursor: 'pointer',
                     }}>
               У меня есть промокод
             </button>

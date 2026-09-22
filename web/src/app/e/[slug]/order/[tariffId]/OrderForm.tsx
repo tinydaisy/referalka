@@ -591,8 +591,10 @@ export default function OrderForm({
                 )}
               </Field>
             ) : (
+              // ⚠️ Не мельчим: было .85em + opacity-80 — надпись терялась на
+              // фоне, люди не находили, куда вводить промокод.
               <button type="button" onClick={() => setPromoOpen(true)}
-                      className="text-[.85em] underline opacity-80 hover:opacity-100"
+                      className="text-[1.05em] font-semibold underline underline-offset-4"
                       style={{ color: page.color_link || '#FFCFA4' }}>
                 У меня есть промокод
               </button>
