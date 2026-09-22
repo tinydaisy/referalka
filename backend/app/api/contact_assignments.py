@@ -108,6 +108,163 @@ async def assign_contacts(
     return {"ok": True, "assigned": len(set(ids)), "removed": 0}
 
 
+class AutoAssignBody(BaseModel):
+    event_id: int
+    # Только посчитать и показать, что получится, ничего не закрепляя.
+    dry_run: bool = False
+
+
+@router.post("/auto", summary="Раздать участников события менеджерам автоматически")
+async def auto_assign_event(
+    body: AutoAssignBody, client=Depends(get_current_client), db=Depends(get_db),
+):
+    """Раздаёт участников события менеджерам лидов «с умом».
+
+    Порядок правил задан владельцем (22.09.2026) и важен именно в этом порядке:
+
+    1. **Привёл клиент-внедренец** — участник уходит ЕМУ. Он его и привёл,
+       значит ему и вести: за своих приведённых он получает процент.
+    2. **Участник уже клиент ПЛЮСОНА и у него УЖЕ есть внедренец** — не трогаем
+       вовсе. Забрать клиента у его внедренца автораздачей нельзя: это чужая
+       работа и чужие деньги.
+    3. **Остальные** (реферовод не внедренец или его нет) — делим ПОРОВНУ между
+       менеджерами.
+
+    ⚠️ Правило 2 проверяется РАНЬШЕ третьего, иначе действующий клиент чужого
+    внедренца попал бы в общую дележку.
+
+    ⚠️ Уже закреплённых за кем-то в ЭТОМ кабинете не трогаем: автораздача
+    добирает нераспределённых, а не тасует всех заново. Иначе каждый запуск
+    перемешивал бы людей, с которыми менеджеры уже начали работать.
+
+    ⚠️ Раздаёт только владелец (как и ручное закрепление): дай это менеджерам —
+    и любой перетянет к себе чужих.
+    """
+    client_id = await _require_owner(client)
+
+    ev = await db.fetchval(
+        """SELECT 1 FROM events e
+            WHERE e.id = $1 AND EXISTS (SELECT 1 FROM event_owners eo
+                  WHERE eo.event_id = e.id AND eo.client_id = $2
+                    AND eo.status = 'accepted')""",
+        int(body.event_id), client_id)
+    if not ev:
+        raise HTTPException(404, "Событие не найдено")
+
+    # Менеджеры лидов кабинета. ⚠️ Порядок постоянный (по grant_id): при
+    # дележке поровну остаток должен доставаться предсказуемо, а не случайно.
+    managers = await db.fetch(
+        """SELECT g.id AS grant_id, a.name, a.email,
+                  -- Кабинет ПЛЮСОНА этого человека и его роль внедренца:
+                  -- по ним узнаём «он привёл — ему и отдать».
+                  (SELECT ts.client_id FROM tech_specialists ts
+                     JOIN clients tc ON tc.id = ts.client_id
+                    WHERE LOWER(TRIM(tc.email)) = LOWER(TRIM(a.email))
+                      AND ts.is_active) AS tech_client_id
+             FROM assistant_grants g
+             JOIN assistants a ON a.id = g.assistant_id
+            WHERE g.client_id = $1 AND g.access_level = 'leads'
+            ORDER BY g.id""",
+        client_id)
+    if not managers:
+        raise HTTPException(400, "В кабинете нет ни одного менеджера лидов. "
+                                 "Сначала выдайте кому-нибудь эту роль.")
+
+    # Участники события со всем, что нужно для решения.
+    rows = await db.fetch(
+        """SELECT c.id AS contact_id,
+                  -- Кабинет ПЛЮСОНА того, кто привёл (если привёл клиент).
+                  rc.linked_client_id AS referrer_client_id,
+                  -- Свой внедренец у участника, если он сам клиент ПЛЮСОНА.
+                  (SELECT pc.tech_specialist_id FROM clients pc
+                    WHERE pc.id = c.linked_client_id) AS own_tech_id,
+                  -- Уже закреплён в этом кабинете?
+                  (SELECT ca.grant_id FROM contact_assignments ca
+                    WHERE ca.client_id = $2 AND ca.contact_id = c.id) AS cur_grant
+             FROM event_participants ep
+             JOIN contacts c ON c.id = ep.contact_id
+             LEFT JOIN event_participants rep ON rep.id = ep.referrer_participant_id
+             LEFT JOIN contacts rc ON rc.id = rep.contact_id
+            WHERE ep.event_id = $1 AND c.client_id = $2
+            ORDER BY ep.id""",
+        int(body.event_id), client_id)
+
+    # grant_id по кабинету ПЛЮСОНА внедренца — для правила 1.
+    by_tech_client = {m["tech_client_id"]: m["grant_id"]
+                      for m in managers if m["tech_client_id"]}
+
+    plan: dict[int, int] = {}        # contact_id → grant_id
+    skipped_has_tech = 0             # правило 2
+    skipped_assigned = 0             # уже закреплён
+    to_share: list[int] = []         # правило 3
+
+    for r in rows:
+        cid = r["contact_id"]
+        if r["cur_grant"]:
+            skipped_assigned += 1
+            continue
+        # 1. Привёл внедренец — ему же.
+        gid = by_tech_client.get(r["referrer_client_id"])
+        if gid:
+            plan[cid] = gid
+            continue
+        # 2. Уже клиент ПЛЮСОНА со своим внедренцем — не трогаем.
+        if r["own_tech_id"]:
+            skipped_has_tech += 1
+            continue
+        # 3. Остальные — в общую дележку.
+        to_share.append(cid)
+
+    # Делим поровну. ⚠️ Начинаем с наименее загруженного — иначе при повторных
+    # запусках первый в списке набирал бы всех новых.
+    loads = {m["grant_id"]: 0 for m in managers}
+    for gid in plan.values():
+        loads[gid] = loads.get(gid, 0) + 1
+    existing = await db.fetch(
+        """SELECT grant_id, COUNT(*) AS n FROM contact_assignments
+            WHERE client_id = $1 GROUP BY grant_id""", client_id)
+    for e in existing:
+        if e["grant_id"] in loads:
+            loads[e["grant_id"]] += int(e["n"])
+
+    for cid in to_share:
+        gid = min(loads, key=lambda g: (loads[g], g))
+        plan[cid] = gid
+        loads[gid] += 1
+
+    names = {m["grant_id"]: (m["name"] or m["email"]) for m in managers}
+    per_manager = {}
+    for gid in plan.values():
+        per_manager[gid] = per_manager.get(gid, 0) + 1
+
+    result = {
+        "ok": True,
+        "total_participants": len(rows),
+        "assigned": len(plan),
+        "skipped_already_assigned": skipped_assigned,
+        "skipped_has_own_tech": skipped_has_tech,
+        "by_manager": [
+            {"grant_id": g, "name": names.get(g, "?"), "count": n}
+            for g, n in sorted(per_manager.items(), key=lambda kv: -kv[1])
+        ],
+        "dry_run": body.dry_run,
+    }
+    if body.dry_run or not plan:
+        return result
+
+    await db.executemany(
+        """INSERT INTO contact_assignments (client_id, contact_id, grant_id, assigned_by, note)
+                VALUES ($1, $2, $3, 'owner', 'автораспределение')
+           ON CONFLICT (client_id, contact_id)
+           DO UPDATE SET grant_id = EXCLUDED.grant_id,
+                         assigned_at = NOW(),
+                         assigned_by = 'owner',
+                         note = EXCLUDED.note""",
+        [(client_id, cid, gid) for cid, gid in plan.items()],
+    )
+    return result
+
+
 def _affected(status: str) -> int:
     """Сколько строк тронула команда: asyncpg возвращает строку вида 'DELETE 12'."""
     try:

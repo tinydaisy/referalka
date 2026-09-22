@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle, MessagesSquare, Pencil, Copy, Link2 } from 'lucide-react'
+import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle, MessagesSquare, Pencil, Copy, Link2, UserCog } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useMe } from '@/hooks/useMe'
@@ -1055,6 +1055,48 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
   const [pFilter, setPFilter] = useState<ParticipantFilter>({ platform: 'all', stage: 'landed' })
   const [showAdd, setShowAdd] = useState(false)
   const [checkingChats, setCheckingChats] = useState(false)
+  // Автораздача участников менеджерам лидов. Кнопка видна только владельцу и
+  // только если менеджеры в кабинете вообще есть.
+  const { isAssistant: isAsstForAssign } = useMe()
+  const [leadManagers, setLeadManagers] = useState<any[]>([])
+  const [assigning, setAssigning] = useState(false)
+
+  useEffect(() => {
+    if (isAsstForAssign) return
+    api.contactAssignments.managers()
+      .then((r: any) => setLeadManagers(r?.managers || []))
+      .catch(() => setLeadManagers([]))
+  }, [isAsstForAssign])
+
+  /** Раздать участников менеджерам: сперва показываем расклад, потом делаем. */
+  async function autoAssign() {
+    if (assigning) return
+    setAssigning(true)
+    try {
+      // ⚠️ Сначала ВСЕГДА пробный расчёт: раздача переписывает закрепления, и
+      // человек должен увидеть, что получится, до того как это случится.
+      const p: any = await api.contactAssignments.auto(eventId, true)
+      const lines = (p.by_manager || [])
+        .map((m: any) => `  • ${m.name} — ${m.count}`).join('\n')
+      const ok = confirm(
+        `Раздать участников менеджерам лидов?\n\n` +
+        `Всего участников: ${p.total_participants}\n` +
+        `Будет закреплено: ${p.assigned}\n` +
+        (lines ? `${lines}\n` : '') +
+        `\nНе трогаем:\n` +
+        `  • уже закреплённых — ${p.skipped_already_assigned}\n` +
+        `  • у кого свой внедренец — ${p.skipped_has_own_tech}\n\n` +
+        `Кого привёл внедренец — уйдёт ему же, остальных поделим поровну.`
+      )
+      if (!ok) return
+      const r: any = await api.contactAssignments.auto(eventId, false)
+      alert(`Готово. Закреплено: ${r.assigned} чел.`)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось раздать')
+    } finally {
+      setAssigning(false)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -1258,6 +1300,20 @@ export default function EventParticipants({ eventId, moduleSlug, isCollab }: { e
             </button>
             <span className="text-[10px] text-gray-400 mt-0.5 leading-none">работает только в Telegram</span>
           </div>
+          {/* ⚠️ Кнопка есть, только если в кабинете ЕСТЬ менеджеры лидов:
+              иначе она вела бы в ошибку «раздавать некому». Помощнику не
+              показываем вовсе — раздаёт только владелец. */}
+          {leadManagers.length > 0 && (
+            <button
+              onClick={autoAssign}
+              disabled={assigning}
+              title="Кого привёл внедренец — уйдёт ему же; у кого уже есть свой внедренец — не трогаем; остальных поделим поровну"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {assigning ? <Spinner className="text-gray-500 text-base" /> : <UserCog size={15} />}
+              {assigning ? 'Раздаю…' : 'Менеджеру лидов'}
+            </button>
+          )}
           <button onClick={() => setShowAdd(true)}
             className="btn-gold inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
             <Plus size={15} /> Добавить из контактов

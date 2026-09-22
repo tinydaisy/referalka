@@ -1505,8 +1505,11 @@ async def event_crm(
     """
     client_id = int(client["sub"])
     leads_gid = await leads_only_grant_id(client)
+    # ⚠️ `created_at` события нужен, чтобы отличить «пришёл в ПЛЮСОН ЧЕРЕЗ это
+    # событие» от «был клиентом ПЛЮСОНА и до него». Вторых из CRM не убираем —
+    # но помечаем, потому что работа с ними другая.
     ev = await db.fetchrow(
-        """SELECT e.id, e.is_collab FROM events e
+        """SELECT e.id, e.is_collab, e.created_at FROM events e
             WHERE e.id = $1 AND EXISTS (SELECT 1 FROM event_owners eo
                   WHERE eo.event_id = e.id AND eo.client_id = $2
                     AND eo.status = 'accepted')""",
@@ -1514,9 +1517,25 @@ async def event_crm(
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
-    # Необязательные условия набираем по порядку: $1 event_id, $2 client_id.
+    # ⚠️ Роль внедренца нужна ДО сборки запроса: от неё зависят и блоки
+    # ПЛЮСОНА, и пилюля «свой» (реферовод — я сам).
+    spec_id = await tech_spec_id_of(client)
+    # Кабинет ПЛЮСОНА вошедшего человека — с ним сравниваем реферовода, чтобы
+    # пометить «этого привёл я». У помощника это НЕ кабинет, в котором он
+    # работает (`sub` = кабинет владельца), а его собственный клиент по роли
+    # внедренца: пилюля про него как про реферовода, а не про место работы.
+    me_client_id = None
+    if spec_id:
+        me_client_id = await db.fetchval(
+            "SELECT client_id FROM tech_specialists WHERE id = $1", spec_id)
+
+    # Обязательные параметры по порядку: $1 event_id, $2 client_id,
+    # $3 дата события (для «был в ПЛЮСОНе до него»), $4 мой кабинет ПЛЮСОНА
+    # (для пилюли «свой»; None у не-внедренца — сравнение просто не сработает).
+    # ⚠️ Свои номера заняли ЗДЕСЬ, до необязательных: номера ниже раздаёт
+    # `len(args)`, и вставка в середину сдвинула бы их молча.
     extra = ""
-    args: list = [event_id, client_id]
+    args: list = [event_id, client_id, ev["created_at"], me_client_id]
     if leads_gid:
         args.append(leads_gid)
         extra += f"""
@@ -1600,15 +1619,54 @@ async def event_crm(
                   -- Подключённые модули — списком через запятую.
                   (SELECT STRING_AGG(cm.module_slug, ', ' ORDER BY cm.module_slug)
                      FROM client_modules cm
-                    WHERE cm.client_id = c.linked_client_id) AS plusson_modules
+                    WHERE cm.client_id = c.linked_client_id) AS plusson_modules,
+                  -- ⚠️ «Был в ПЛЮСОНе ДО этого события». Такие люди приходят на
+                  -- событие уже клиентами — их не прячем, но работа с ними
+                  -- другая: это не новый лид, а действующий клиент.
+                  (SELECT pc.created_at < $3::timestamptz FROM clients pc
+                    WHERE pc.id = c.linked_client_id) AS plusson_before_event,
+
+                  -- ── Кто привёл участника ────────────────────────────────
+                  -- ⚠️ Реферовод по СОБЫТИЮ (`referrer_participant_id`), а не
+                  -- общий `contacts.first_referrer_contact_id`: человека могли
+                  -- привести в базу год назад, а на это событие — позвать
+                  -- сегодня и совсем другой. Для CRM события верен второй.
+                  rc.id AS referrer_contact_id,
+                  TRIM(CONCAT_WS(' ', rc.name, rc.last_name)) AS referrer_name,
+                  -- Этот реферовод — я сам? Считаем на сервере: у фронта нет
+                  -- надёжного способа сопоставить контакт с вошедшим человеком.
+                  (rc.linked_client_id IS NOT NULL
+                   AND rc.linked_client_id = $4) AS referrer_is_me,
+
+                  -- Метки контакта — их ставят руками, и в CRM по ним видно,
+                  -- что про человека уже знают.
+                  c.tags
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
+             -- Кто привёл: участник события → его контакт.
+             LEFT JOIN event_participants rep ON rep.id = ep.referrer_participant_id
+             LEFT JOIN contacts rc ON rc.id = rep.contact_id
             WHERE ep.event_id = $1 AND c.client_id = $2
               {extra}
-            ORDER BY ep.registered_at DESC NULLS LAST, ep.id DESC""",
+            -- ⚠️ Свежие сверху: и по регистрации на событие, и по заходу в бот
+            -- ПЛЮСОНА. У кого регистрации нет (только зашёл в бот) —
+            -- становится по своей дате, а не падает в конец списка.
+            ORDER BY GREATEST(
+                       COALESCE(ep.registered_at, '-infinity'::timestamptz),
+                       COALESCE(c.first_referred_at, '-infinity'::timestamptz)
+                     ) DESC NULLS LAST,
+                     ep.id DESC""",
         *args)
 
-    people = [dict(r) for r in rows]
+    # ⚠️ `tags` в базе — jsonb, и asyncpg отдаёт его СТРОКОЙ. Разбираем той же
+    # `parse_tags`, что и список контактов: свой разбор разошёлся бы с ним на
+    # пустых значениях.
+    from app.api.contacts import parse_tags
+    people = []
+    for r in rows:
+        d = dict(r)
+        d["tags"] = parse_tags(d.get("tags")) or []
+        people.append(d)
     total = len(people)
 
     def pct(n: int) -> float:
@@ -1625,7 +1683,7 @@ async def event_crm(
     # ⚠️ Отдельным списком, а не колонками общей ветки: это ДРУГАЯ воронка —
     # не «докуда дошёл на событии», а «дошёл ли до ПЛЮСОНА». Человек может
     # стоять в обеих сразу, поэтому смешивать их в одну шкалу нельзя.
-    spec_id = await tech_spec_id_of(client)
+    # `spec_id` вычислен выше — он нужен был ещё до сборки запроса.
     plusson_columns = []
     if spec_id:
         plusson_groups = {

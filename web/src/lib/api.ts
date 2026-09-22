@@ -639,6 +639,13 @@ export const api = {
     // Карта «номер человека → менеджер» одним запросом на весь список.
     forContacts: (ids: number[]) =>
       request(`/api/v1/contact-assignments?contact_ids=${ids.join(',')}`),
+    // Автораздача участников события: привёл внедренец → ему, у кого уже есть
+    // свой внедренец → не трогаем, остальных поровну. `dry_run` — посчитать и
+    // показать, ничего не закрепляя.
+    auto: (event_id: number, dry_run = false) =>
+      request('/api/v1/contact-assignments/auto', {
+        method: 'POST', body: JSON.stringify({ event_id, dry_run }),
+      }),
   },
   contacts: {
     // Значение дополнительного поля у одного человека (миграция 280).

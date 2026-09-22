@@ -26,6 +26,9 @@ const PEACH = '#FFCFA4'
 
 export interface ColumnPerson {
   id: number
+  /** Номер КОНТАКТА. В CRM события `id` — номер участника, а карточка
+   *  открывается по контакту: по нему и строится ссылка. */
+  contact_id?: number | null
   name?: string | null
   telegram?: string | null
   vk?: string | null
@@ -52,6 +55,16 @@ export interface ColumnPerson {
   plusson_expires_at?: string | null
   plusson_sub_status?: string | null
   plusson_modules?: string | null
+  /** Был клиентом ПЛЮСОНА ещё ДО этого события — пришёл уже «своим». */
+  plusson_before_event?: boolean | null
+
+  /** Кто привёл человека на событие. */
+  referrer_name?: string | null
+  /** Этого привёл сам вошедший (он же реферовод) — пилюля «свой». */
+  referrer_is_me?: boolean | null
+
+  /** Метки контакта — их ставят руками в базе контактов. */
+  tags?: string[] | null
 }
 
 export default function PeopleColumnBase({
@@ -219,7 +232,14 @@ function PersonRow({ person, hrefFor, num }: {
   const plusson = plussonParts.join(' · ')
 
   return (
-    <Link href={hrefFor ? hrefFor(person) : `/dashboard/clients?contact=${person.id}`}
+    // ⚠️⚠️ ССЫЛКА ПО `contact_id`, А НЕ ПО `id`. В CRM события `id` — это
+    // номер УЧАСТНИКА (`event_participants.id`), а `?contact=` ждёт номер
+    // КОНТАКТА. Из-за подмены карточка не открывалась вовсе или открывалась
+    // чужая, и человека приходилось искать в списке руками.
+    // `id` оставлен запасным: в других воронках (лид-магниты, анкеты) в него
+    // кладут именно контакт, и там `contact_id` не приходит.
+    <Link href={hrefFor ? hrefFor(person)
+                        : `/dashboard/clients?contact=${person.contact_id ?? person.id}`}
           className="flex gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50">
       {/* ⚠️ Номер выровнен по правому краю и моноширинный (`tabular-nums`):
           иначе на двузначных именах колонка «прыгает». */}
@@ -229,8 +249,27 @@ function PersonRow({ person, hrefFor, num }: {
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium" style={{ color: DARK }}>
-          {person.name || 'Без имени'}
+        <span className="flex items-center gap-1.5">
+          <span className="min-w-0 truncate text-sm font-medium" style={{ color: DARK }}>
+            {person.name || 'Без имени'}
+          </span>
+          {/* ⚠️ «Свой» — ПЕРСИКОВАЯ пилюля (фирменный акцент): этого человека
+              привёл сам смотрящий, значит он его и ведёт. */}
+          {person.referrer_is_me && (
+            <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{ background: PEACH, color: DARK }}>
+              свой
+            </span>
+          )}
+          {/* ⚠️ «Был в ПЛЮСОНе» — СИНЯЯ пилюля с персиковым текстом: человек
+              пришёл на событие уже клиентом платформы, до него. Его не прячем,
+              но работа с ним другая — это не новый лид. */}
+          {person.plusson_before_event && (
+            <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{ background: DARK, color: PEACH }}>
+              уже в ПЛЮСОНе
+            </span>
+          )}
         </span>
         {nicks.length > 0 && (
           <span className="block truncate text-[11px] text-gray-500">{nicks.join(' · ')}</span>
@@ -242,6 +281,27 @@ function PersonRow({ person, hrefFor, num }: {
           <span className="block truncate text-[11px] font-medium" style={{ color: '#B57A3C' }}>
             {person.paid_tariffs}
             {person.paid_amount ? ` · ${person.paid_amount.toLocaleString('ru-RU')} ₽` : ''}
+          </span>
+        )}
+
+        {/* Кто привёл. Для внедренца это первое, что нужно знать: от этого
+            зависит, его это человек или общий. */}
+        {person.referrer_name && (
+          <span className="block truncate text-[11px] text-gray-500">
+            привёл: {person.referrer_name}
+          </span>
+        )}
+
+        {/* Метки контакта — то, что про человека уже знают в базе. */}
+        {person.tags && person.tags.length > 0 && (
+          <span className="mt-0.5 flex flex-wrap gap-1">
+            {person.tags.map((t, i) => (
+              <span key={i}
+                    className="rounded px-1 py-0.5 text-[10px] text-gray-600"
+                    style={{ background: '#F1F1F1' }}>
+                {t}
+              </span>
+            ))}
           </span>
         )}
 
