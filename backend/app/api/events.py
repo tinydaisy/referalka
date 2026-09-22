@@ -5,6 +5,7 @@ from app.auth import get_current_client
 from app.database import get_db
 from app.services import collaborator_sort
 from app.services.event_access import is_collab_event
+from app.services.plusson_match import matched_client_id_sql, plusson_interest_sql
 import asyncpg
 import re
 import secrets
@@ -1559,9 +1560,12 @@ async def event_crm(
         extra += f"""
               AND (
                 -- привёл этот внедренец
+                -- ⚠️ Аккаунт рефовода вычисляем сопоставлением, а не берём из
+                -- `rc.linked_client_id`: поле пустое у всех контактов, и фильтр
+                -- «показать людей этого внедренца» не находил никого вовсе.
                 EXISTS (SELECT 1 FROM tech_specialists ts_f
                          WHERE ts_f.id = ${n}
-                           AND ts_f.client_id = rc.linked_client_id)
+                           AND ts_f.client_id = {matched_client_id_sql('rc.id')})
                 -- или закреплён за ним как за менеджером лидов
                 OR EXISTS (SELECT 1
                              FROM contact_assignments ca_f
@@ -1618,37 +1622,40 @@ async def event_crm(
                   -- ── ПЛЮСОН: интерес и регистрация ───────────────────────
                   -- ⚠️ Два РАЗНЫХ признака, и одно не следует из другого:
                   --   дошёл до бота (`plusson_referrer_code`) — интерес;
-                  --   завёл кабинет (`linked_client_id`)      — регистрация.
+                  --   завёл кабинет (`pm.client_id`)          — регистрация.
                   -- Человек может быть клиентом ПЛЮСОНА, ни разу не пройдя по
                   -- ссылке (регистрировался раньше сам), и наоборот.
-                  (c.plusson_referrer_code IS NOT NULL) AS plusson_interested,
+                  --
+                  -- ⚠️⚠️ НЕ `contacts.linked_client_id` (22.09.2026): это поле
+                  -- заполняет только форма `/link-pluson`, и на проде им не
+                  -- воспользовался НИКТО — 0 заполненных из 5330 контактов.
+                  -- Блок «кто дошёл до платформы» из-за этого всегда показывал
+                  -- нули, хотя люди регистрируются каждый день. Сопоставляем по
+                  -- почте, никам площадок и телефону — `services/plusson_match`.
+                  (pi.code IS NOT NULL) AS plusson_interested,
+                  pi.code AS plusson_referrer_code,
                   c.plusson_referrer_source,
-                  (c.linked_client_id IS NOT NULL) AS plusson_registered,
-                  c.linked_client_id,
+                  (pm.client_id IS NOT NULL) AS plusson_registered,
+                  pm.client_id AS linked_client_id,
                   -- Когда завёл кабинет ПЛЮСОНА. ⚠️ Берём дату СОЗДАНИЯ
                   -- клиента, а не сегодняшнюю: «когда зарегался» — про него.
-                  (SELECT pc.created_at FROM clients pc
-                    WHERE pc.id = c.linked_client_id) AS plusson_registered_at,
+                  pc.created_at AS plusson_registered_at,
                   -- На каком тарифе ПЛЮСОНА он сейчас и до какого числа.
-                  (SELECT pt.name FROM clients pc
-                     JOIN client_subscriptions pcs ON pcs.id = pc.current_subscription_id
+                  (SELECT pt.name FROM client_subscriptions pcs
                      JOIN tariffs pt ON pt.id = pcs.tariff_id
-                    WHERE pc.id = c.linked_client_id) AS plusson_tariff,
-                  (SELECT pcs.expires_at FROM clients pc
-                     JOIN client_subscriptions pcs ON pcs.id = pc.current_subscription_id
-                    WHERE pc.id = c.linked_client_id) AS plusson_expires_at,
-                  (SELECT pcs.status FROM clients pc
-                     JOIN client_subscriptions pcs ON pcs.id = pc.current_subscription_id
-                    WHERE pc.id = c.linked_client_id) AS plusson_sub_status,
+                    WHERE pcs.id = pc.current_subscription_id) AS plusson_tariff,
+                  (SELECT pcs.expires_at FROM client_subscriptions pcs
+                    WHERE pcs.id = pc.current_subscription_id) AS plusson_expires_at,
+                  (SELECT pcs.status FROM client_subscriptions pcs
+                    WHERE pcs.id = pc.current_subscription_id) AS plusson_sub_status,
                   -- Подключённые модули — списком через запятую.
                   (SELECT STRING_AGG(cm.module_slug, ', ' ORDER BY cm.module_slug)
                      FROM client_modules cm
-                    WHERE cm.client_id = c.linked_client_id) AS plusson_modules,
+                    WHERE cm.client_id = pm.client_id) AS plusson_modules,
                   -- ⚠️ «Был в ПЛЮСОНе ДО этого события». Такие люди приходят на
                   -- событие уже клиентами — их не прячем, но работа с ними
                   -- другая: это не новый лид, а действующий клиент.
-                  (SELECT pc.created_at < $3::timestamptz FROM clients pc
-                    WHERE pc.id = c.linked_client_id) AS plusson_before_event,
+                  (pc.created_at < $3::timestamptz) AS plusson_before_event,
 
                   -- ── Кто привёл участника ────────────────────────────────
                   -- ⚠️ Реферовод по СОБЫТИЮ (`referrer_participant_id`), а не
@@ -1672,6 +1679,18 @@ async def event_crm(
                   c.tags
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
+             -- ⚠️ Аккаунт ПЛЮСОНа считаем ОДИН раз на контакт и переиспользуем
+             -- во всех полях ниже. Восемь одинаковых подзапросов (как было с
+             -- `linked_client_id`) на 264 участниках — это 2000 лишних поисков.
+             LEFT JOIN LATERAL (
+                 SELECT {matched_client_id_sql('c.id')} AS client_id
+             ) pm ON TRUE
+             LEFT JOIN clients pc ON pc.id = pm.client_id
+             -- Код захода в @pluson_bot ищется по ЧЕЛОВЕКУ: он лежит на
+             -- карточке контакта в базе клиента 3, а здесь мы среди своих.
+             LEFT JOIN LATERAL (
+                 SELECT {plusson_interest_sql('c.id')} AS code
+             ) pi ON TRUE
              -- Кто привёл: участник события → его контакт.
              LEFT JOIN event_participants rep ON rep.id = ep.referrer_participant_id
              LEFT JOIN contacts rc ON rc.id = rep.contact_id
