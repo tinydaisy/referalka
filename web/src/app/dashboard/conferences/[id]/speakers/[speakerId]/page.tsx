@@ -1,4 +1,5 @@
 'use client'
+import SpeakerPostersTabs from '@/components/SpeakerPostersTabs'
 import { useState, useEffect, useRef } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { useRouter, useParams, usePathname } from 'next/navigation'
@@ -1681,9 +1682,22 @@ export default function ConferenceSpeakerPage() {
           </div>
           )}
 
+          {/* ⚠️⚠️ АФИШИ СОБЫТИЯ — ТРИ СЛОТА (22.09.2026, решение владельца).
+              Новое место хранения: по одной афише на формат, ориентация —
+              поле в базе (миграция 492). Именно отсюда рассылки берут афишу
+              спикера, и сюда же кладёт генератор.
+              Блок «Индивидуальные афиши» ниже — СТАРАЯ библиотека коллаба
+              (общая на все события, ориентация строкой в подписи). Она пока
+              остаётся: на ней висят ZIP-выгрузка старых афиш и кабинет
+              спикера, а у 66 из 96 афиш прода подписи нет вовсе — перенести
+              их автоматически нельзя. */}
+          <SpeakerPostersTabs eventId={confId} ecId={speakerEventId} />
+
           <div>
             <div className="flex items-center justify-between mb-1.5 gap-3">
-              <label className="block text-sm font-medium text-gray-700">Индивидуальные афиши</label>
+              <label className="block text-sm font-medium text-gray-700">
+                Индивидуальные афиши <span className="text-xs font-normal text-gray-400">(старая библиотека)</span>
+              </label>
               <button
                 type="button"
                 onClick={() => posterFileRef.current?.click()}

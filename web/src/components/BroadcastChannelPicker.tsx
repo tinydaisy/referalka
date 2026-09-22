@@ -58,9 +58,19 @@ type Props = {
    * список (фронт всегда отдаёт массив).
    */
   onChange: (next: number[]) => void
+  /**
+   * Скрыть площадку Email целиком (22.09.2026). Нужно там, где выбор площадок
+   * управляет ЧАТАМИ: у письма чата не бывает, и галочка Email в таком списке
+   * только сбивает с толку.
+   * ⚠️ Фильтр применяется ДО onChange — скрытая площадка не попадёт в
+   * target_channel_ids даже при автовыборе «все каналы».
+   */
+  hideEmail?: boolean
+  /** Подпись над полем. По умолчанию «Каналы для отправки». */
+  label?: string
 }
 
-export default function BroadcastChannelPicker({ value, onChange }: Props) {
+export default function BroadcastChannelPicker({ value, onChange, hideEmail, label }: Props) {
   const [channels, setChannels] = useState<Channel[] | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
@@ -78,7 +88,7 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
       const hasEmail = !!(me?.features || []).includes(EMAIL_FEATURE)
       const items: Channel[] = (res?.items || []).filter((c: Channel) => {
         if (HIDDEN_PLATFORMS.has(c.platform_slug)) return false
-        if (c.platform_slug === 'email' && !hasEmail) return false
+        if (c.platform_slug === 'email' && (hideEmail || !hasEmail)) return false
         return true
       })
       setChannels(items)
@@ -117,7 +127,7 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
   if (channels === null) {
     return (
       <div>
-        <label className="text-xs text-gray-500 mb-1 block">Каналы для отправки</label>
+        <label className="text-xs text-gray-500 mb-1 block">{label || 'Каналы для отправки'}</label>
         <div className="text-xs text-gray-400 px-3 py-2">Загружаю каналы…</div>
       </div>
     )
@@ -177,7 +187,7 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
 
   return (
     <div ref={wrapperRef} className="relative">
-      <label className="text-xs text-gray-500 mb-1 block">Каналы для отправки</label>
+      <label className="text-xs text-gray-500 mb-1 block">{label || 'Каналы для отправки'}</label>
       <button
         type="button"
         onClick={() => setOpen(v => !v)}

@@ -312,6 +312,9 @@ type SpeakerMaterials = {
   broadcast_poster_url: string | null
   // Афиши помеченные «Для анонсов» — массив (миграция 122).
   announcement_posters: { id: number; url: string; label: string | null; sort_order: number }[]
+  /** Афиши этого события по форматам (миграция 492): по одной на
+   *  горизонтальную / квадратную / вертикальную. */
+  speaker_posters?: { orientation: string; url: string }[]
   // Алиас для обратной совместимости (тот же URL что broadcast_poster_url).
   speaker_poster_url: string | null
   event_video_url: string | null
@@ -2478,6 +2481,61 @@ function MaterialsTab({
 
       {/* Афиши для анонсов — множественные, отмеченные организатором
           чек-боксом «Для анонсов» в этой конференции (миграция 122). */}
+      {/* ⚠️ Афиши ЭТОГО события по форматам (миграция 492) — отдельным блоком
+          и ВЫШЕ старой библиотеки: они собраны под эту конференцию, тогда как
+          библиотека общая на все. Подписываем формат словами — спикеру надо
+          выбрать под площадку, куда он публикует. */}
+      {materials.speaker_posters && materials.speaker_posters.length > 0 && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Ваши афиши этого события</div>
+          <div style={subCss}>
+            Организатор подготовил афиши в трёх форматах. Скачайте подходящий и
+            опубликуйте в своих каналах.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            {materials.speaker_posters.map(p => {
+              const RU: Record<string, string> = {
+                horizontal: 'Горизонтальная', square: 'Квадратная', vertical: 'Вертикальная',
+              }
+              const RATIO: Record<string, string> = {
+                horizontal: '16/9', square: '1/1', vertical: '9/16',
+              }
+              return (
+                <div key={p.orientation} style={{
+                  border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
+                }}>
+                  <img
+                    src={p.url}
+                    alt={RU[p.orientation] || p.orientation}
+                    onClick={() => setLightbox(p.url)}
+                    style={{
+                      width: '100%', aspectRatio: RATIO[p.orientation] || '1/1',
+                      objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                    }}
+                  />
+                  <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7c8b', borderTop: '1px solid #e6edf3' }}>
+                    {RU[p.orientation] || p.orientation}
+                  </div>
+                  <a
+                    href={p.url}
+                    download
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: 'block', textAlign: 'center', padding: '6px 8px',
+                      fontSize: 12, color: '#25455D', textDecoration: 'none',
+                      borderTop: '1px solid #e6edf3', background: '#fff',
+                    }}
+                  >
+                    Скачать
+                  </a>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {materials.announcement_posters && materials.announcement_posters.length > 0 && (
         <div style={sectionCss}>
           <div style={titleCss}>Афиши для анонсов</div>

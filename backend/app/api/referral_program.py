@@ -842,8 +842,12 @@ async def delete_announcement_text(
 #     (плейсхолдеры {event}/{date}/{brand} подставлены, {link} оставлен —
 #     он персональный, лежит в «Реферальных ссылках»).
 #   • Афиши/<Ориентация>.<ext> — афиши события (event_posters) в корне.
-#   • Афиши/Индивидуальные афиши/Имя_Фамилия.<ext> — афиши коллабов,
-#     отмеченные «для анонсов» (event_collaborators.announcement_poster_ids).
+#   • Афиши/Индивидуальные афиши/Имя Фамилия/<Ориентация>.<ext> — афиши
+#     спикера, ПАПКА НА ЧЕЛОВЕКА (22.09.2026). Источник — слоты
+#     `event_speaker_posters` (миграция 492), где ориентация это поле.
+#     Раньше всё валилось в одну папку файлами «Имя_Фамилия_2.png», и какая
+#     из них горизонтальная, было не понять. Запасной источник для ещё не
+#     перенесённых афиш — старая библиотека по announcement_poster_ids.
 #   • Кодовые слова для розыгрыша.txt — если розыгрыш включён.
 #
 # Кого включаем зависит от типа события:
@@ -1096,8 +1100,53 @@ async def export_speaker_materials(
             ext = _ext_from_url(p["url"])
             zf.writestr(f"Афиши/{folder}/{label}{suffix}.{ext}", data)
 
-        # Индивидуальные афиши коллабов (отмеченные «для анонсов»)
+        # ── Индивидуальные афиши: ПАПКА НА СПИКЕРА (22.09.2026) ──────────
+        # Было: все афиши валились в одну папку файлами «Имя_Фамилия.png»,
+        # «Имя_Фамилия_2.png» — по имени файла не понять, где горизонтальная,
+        # а где вертикальная. Стало: папка на человека, внутри файлы названы
+        # ориентацией — ровно то, что человек ищет глазами.
+        #
+        #   Афиши/Индивидуальные афиши/Наталья Барвинская/Квадратная.png
+        #                                                /Горизонтальная.png
+        #                                                /Вертикальная.png
+        #
+        # ⚠️ Источник — НОВЫЕ СЛОТЫ (`event_speaker_posters`, миграция 492):
+        # там ориентация это поле, а не строка в подписи. Старая библиотека
+        # остаётся запасным источником для афиш, которые ещё не перенесены
+        # (у 66 из 96 на проде подпись пуста — ориентацию не восстановить).
         for c in collabs:
+            safe_dir = _safe_filename(c["name"])
+            wrote_any = False
+
+            # 1) Новые слоты по ориентациям.
+            srows = await db.fetch(
+                """SELECT orientation, url FROM event_speaker_posters
+                    WHERE ec_id = $1
+                    ORDER BY CASE orientation
+                               WHEN 'horizontal' THEN 1
+                               WHEN 'square'     THEN 2
+                               WHEN 'vertical'   THEN 3
+                               ELSE 4 END""",
+                c["ec_id"],
+            )
+            # Тумблер «фото вместо афиши» гасит выдачу и здесь: клиент явно
+            # сказал, что афиши этого спикера использовать не надо.
+            if c.get("announcement_poster_ids") is None:
+                srows = []
+            for sr in srows:
+                data = await _download_file_bytes(sr["url"])
+                if data is None:
+                    continue
+                ext = _ext_from_url(sr["url"])
+                name_ru = _ORIENTATION_RU.get(sr["orientation"], sr["orientation"])
+                zf.writestr(
+                    f"Афиши/Индивидуальные афиши/{safe_dir}/{name_ru}.{ext}", data)
+                wrote_any = True
+
+            # 2) Запасной источник — старая библиотека, только если слотов нет
+            # вовсе. Иначе одна и та же афиша легла бы в папку дважды.
+            if wrote_any:
+                continue
             ids = list(c.get("announcement_poster_ids") or [])
             if not ids:
                 continue
@@ -1107,7 +1156,6 @@ async def export_speaker_materials(
                     ORDER BY sort_order, id""",
                 ids, c["collaborator_id"],
             )
-            safe = _safe_filename(c["name"])
             n = 0
             for pr in prows:
                 data = await _download_file_bytes(pr["url"])
@@ -1115,8 +1163,9 @@ async def export_speaker_materials(
                     continue
                 n += 1
                 ext = _ext_from_url(pr["url"])
-                fname = f"{safe}.{ext}" if n == 1 else f"{safe}_{n}.{ext}"
-                zf.writestr(f"Афиши/Индивидуальные афиши/{fname}", data)
+                fname = f"Афиша.{ext}" if n == 1 else f"Афиша {n}.{ext}"
+                zf.writestr(
+                    f"Афиши/Индивидуальные афиши/{safe_dir}/{fname}", data)
 
     zip_bytes = buf.getvalue()
     fname_base = "materialy-zhyuri" if _is_jury_module(ev["module_slug"]) else "materialy-spikery"
@@ -1183,10 +1232,33 @@ async def referral_report(
     """
     await _check_event_owned(event_id, int(client["sub"]), db)
 
+    from app.services import person_name
+
     rows = await db.fetch(
         f"""
         SELECT rc.id                        AS contact_id,
-               rc.name                      AS name,
+               -- ⚠️ ФАМИЛИЯ СПИКЕРА (22.09.2026, просьба владельца). У контакта
+               -- фамилии нет вовсе — в `contacts` одно поле `name`. А у спикера
+               -- (`collaborators`) есть `last_name`, и в отчёте по привлечению
+               -- он выглядел «Наталья» без фамилии: в списке из нескольких
+               -- Наталий не понять, кто это.
+               -- Берём имя из карточки спикера ЭТОГО события, если рефовод там
+               -- есть; иначе — как раньше, имя контакта. Склейка общим
+               -- хелпером (правило проекта), не руками.
+               COALESCE(
+                 (SELECT """ + person_name.DISPLAY_NAME_SQL("co_r") + f"""
+                    FROM event_collaborators ec_r
+                    JOIN collaborators co_r ON co_r.id = ec_r.speaker_id
+                   WHERE ec_r.event_id = $1
+                     AND co_r.contact_id = rc.id
+                   LIMIT 1),
+                 rc.name
+               )                            AS name,
+               -- Признак «этот рефовод — спикер события»: фронт помечает строку.
+               EXISTS (SELECT 1 FROM event_collaborators ec_f
+                        JOIN collaborators co_f ON co_f.id = ec_f.speaker_id
+                       WHERE ec_f.event_id = $1 AND co_f.contact_id = rc.id)
+                                            AS is_speaker,
                rc.ref_code                  AS ref_code,
                rc.phone                     AS phone,
                (SELECT pe.platform_user_id FROM platform_users pe

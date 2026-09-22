@@ -25,6 +25,9 @@ import PlatformList from '@/components/PlatformList'
 interface Row {
   contact_id: number
   name: string | null
+  /** Рефовод — спикер этого события (22.09.2026): имя тогда идёт
+   *  с фамилией из карточки спикера, у контакта фамилии нет вовсе. */
+  is_speaker?: boolean
   ref_code: string | null
   email: string | null
   phone: string | null
@@ -306,6 +309,14 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
                           className="font-medium text-gray-900 hover:text-[#25455D] hover:underline">
                       {r.name || 'Без имени'}
                     </Link>
+                    {/* Пометка «спикер» — в списке привлечения полезно сразу
+                        видеть, кто из рефоводов выступает на событии. */}
+                    {r.is_speaker && (
+                      <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded font-semibold align-middle"
+                            style={{ background: '#FFCFA4', color: '#25455D' }}>
+                        спикер
+                      </span>
+                    )}
                   </td>
                   <td className="group-hover:bg-gray-50 px-2 py-3 text-xs text-gray-600">
                     {r.email || <span className="text-gray-300">—</span>}

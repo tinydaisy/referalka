@@ -2331,6 +2331,15 @@ export default function TemplatesPage() {
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
 
+              {/* ⚠️ Площадки выше управляют И ЧАТАМИ (22.09.2026): выбран только
+                  Telegram — пост уйдёт в телеграмный чат события, а в MAX и ВК
+                  нет. Раньше чаты слались во все площадки, где чат задан,
+                  независимо от выбора каналов. */}
+              <p className="text-[11px] text-gray-500 -mt-1 px-1">
+                Площадки выше действуют и на чаты: снимете Telegram — в чат
+                Telegram не уйдёт.
+              </p>
+
               {/* Три независимые галочки: чаты события / общие чаты / личные каналы. */}
               <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"

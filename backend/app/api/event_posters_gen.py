@@ -1592,6 +1592,29 @@ async def poster_render_all(
                 " WHERE event_id = $2 AND speaker_id = $3",
                 row["id"], event_id, p["id"],
             )
+            # ⚠️⚠️ НОВОЕ ХРАНИЛИЩЕ: слот ориентации в карточке спикера
+            # (миграция 492, решение владельца 22.09.2026). У спикера на
+            # событие ровно три афиши — горизонтальная, квадратная,
+            # вертикальная, — и пересборка ЗАМЕНЯЕТ ту же ориентацию, а не
+            # кладёт рядом ещё одну. Старая библиотека выше пока остаётся:
+            # на ней висят ZIP-выгрузка и кабинет спикера, их переводим
+            # отдельно.
+            # `source='generator'` — чтобы было видно, что афишу собрал
+            # генератор, а не клиент загрузил руками.
+            _ec_id = await db.fetchval(
+                "SELECT id FROM event_collaborators"
+                " WHERE event_id = $1 AND speaker_id = $2", event_id, p["id"])
+            if _ec_id:
+                await db.execute(
+                    """INSERT INTO event_speaker_posters
+                           (event_id, ec_id, orientation, url, source)
+                       VALUES ($1, $2, $3, $4, 'generator')
+                       ON CONFLICT (ec_id, orientation) DO UPDATE
+                           SET url = EXCLUDED.url,
+                               source = 'generator',
+                               updated_at = NOW()""",
+                    event_id, _ec_id, orientation, saved["url"],
+                )
             made.append({"what": f"speaker{p['id']}", "url": saved["url"]})
 
     # ⚠️ Публикация — отдельное осознанное действие (миграция 469). Без неё

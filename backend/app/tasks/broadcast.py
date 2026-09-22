@@ -301,6 +301,37 @@ async def _send_broadcast(schedule_id: int):
                 return False  # клиент явно ограничил — без id не слать
             return channel_id in target_channel_set
 
+        # ⚠️⚠️ ПЛОЩАДКИ ВЫБРАННЫХ КАНАЛОВ — для ЧАТОВ (22.09.2026, решение
+        # владельца). «Каналы для отправки» фильтровали только личные сообщения
+        # по базе, а чаты (события, спикеров, общие, личные каналы) слали во ВСЕ
+        # площадки, где чат задан: клиент выбирал Telegram, а пост уходил ещё и
+        # в MAX-чат. Ни один из трёх путей отправки в чаты `target_channel_ids`
+        # не читал вовсе.
+        #
+        # Чат не привязан к конкретному каналу-боту (у события это ссылка на
+        # `client_broadcast_chats`, у спикеров — прямой chat_id), поэтому
+        # сверять по `channel_id` нечего — сверяем по ПЛОЩАДКЕ.
+        # NULL (каналы не ограничивали) → None = слать во все, как раньше.
+        allowed_platforms: set[str] | None = None
+        if target_channel_ids is not None:
+            try:
+                _rows = await conn.fetch(
+                    "SELECT DISTINCT platform_slug FROM channels WHERE id = ANY($1::int[])",
+                    list(target_channel_ids),
+                )
+                allowed_platforms = {r["platform_slug"] for r in _rows if r["platform_slug"]}
+            except Exception as _e:  # noqa: BLE001
+                # Не смогли определить — шлём как раньше (во все чаты), а не
+                # молча никуда: рассылка важнее фильтра.
+                logger.warning(f"Рассылка {schedule_id}: платформы каналов не определились: {_e}")
+                allowed_platforms = None
+
+        def _platform_allowed(platform: str) -> bool:
+            """Разрешена ли площадка для отправки В ЧАТ."""
+            if allowed_platforms is None:
+                return True
+            return platform in allowed_platforms
+
         # Токен бота для тех получателей, у кого нет привязки к конкретному каналу
         # (легаси-контакты без записи в platform_user_channels). Берём главный
         # активный канал клиента; если такого нет — любой канал клиента с токеном;
@@ -953,7 +984,11 @@ async def _send_broadcast(schedule_id: int):
         # Без своего TG-бота (default_bot_token=None) в групповые TG-чаты слать нечем —
         # системный @pluson_bot как fallback убран.
         sent_tg_chats: set[str] = set()
-        if not schedule["is_test"] and default_bot_token:
+        # ⚠️ `_platform_allowed("telegram")`: если клиент в «Каналах для
+        # отправки» не выбрал ни одного TG-канала, в телеграмные чаты не шлём
+        # вовсе — раньше уходило независимо от выбора (см. пояснение у
+        # `allowed_platforms`).
+        if not schedule["is_test"] and default_bot_token and _platform_allowed("telegram"):
             tg_chats: list[tuple[str, str]] = []  # (chat_id, chat_kind)
             if schedule.get("send_to_event_chats") and event_id:
                 # Чат события TG — через ref на client_broadcast_chats.
@@ -1123,6 +1158,7 @@ async def _send_broadcast(schedule_id: int):
                     conn, schedule, event_id, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
                     sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst,
+                    allowed_platforms=allowed_platforms,
                 )
                 sent += chats_sent
                 logger.info(f"Чаты события для рассылки {schedule_id}: отправлено {chats_sent}")
@@ -1139,6 +1175,7 @@ async def _send_broadcast(schedule_id: int):
                     buttons=buttons, video_url=video_url, media_type=media_type,
                     sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst,
                     chat_kind="event_speakers", speakers=True,
+                    allowed_platforms=allowed_platforms,
                 )
                 sent += sp_sent
                 logger.info(f"Чат спикеров для рассылки {schedule_id}: отправлено {sp_sent}")
@@ -1154,6 +1191,7 @@ async def _send_broadcast(schedule_id: int):
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
                     sent_vk=_sent_vk, sent_max=_sent_max, is_private=False, with_support=_with_platform_subst,
+                    allowed_platforms=allowed_platforms,
                 )
                 sent += cl_sent
                 logger.info(f"Общие чаты клиента для рассылки {schedule_id}: отправлено {cl_sent}")
@@ -1168,6 +1206,7 @@ async def _send_broadcast(schedule_id: int):
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
                     sent_vk=_sent_vk, sent_max=_sent_max, is_private=True, with_support=_with_platform_subst,
+                    allowed_platforms=allowed_platforms,
                 )
                 sent += pr_sent
                 logger.info(f"Личные каналы клиента для рассылки {schedule_id}: отправлено {pr_sent}")
@@ -1246,7 +1285,11 @@ async def _send_broadcast_to_event_chats(
     sent = 0
 
     # ── MAX-чат ──
+    # ⚠️ Пустая строка вместо chat_id, если площадка не выбрана в «Каналах для
+    # отправки»: клиент указал Telegram — в MAX-чат не шлём (22.09.2026).
     max_chat = (ev["max_chat_id"] or "").strip() if ev["max_chat_id"] else ""
+    if allowed_platforms is not None and "max" not in allowed_platforms:
+        max_chat = ""
     if max_chat:
         try:
             from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard, upload_media as max_upload_media
@@ -1317,6 +1360,8 @@ async def _send_broadcast_to_event_chats(
     # ── VK-беседа ──
     # VK chat_id события хранится как ПОЛНЫЙ peer_id беседы (2000000000+local).
     vk_chat = (ev["vk_chat_id"] or "").strip() if ev["vk_chat_id"] else ""
+    if allowed_platforms is not None and "vk" not in allowed_platforms:
+        vk_chat = ""
     if vk_chat:
         try:
             import random as _random
@@ -1396,6 +1441,7 @@ async def _send_broadcast_to_client_chats(
     sent_vk: set | None = None, sent_max: set | None = None,
     is_private: bool = False,
     with_support=None,
+    allowed_platforms: set[str] | None = None,
 ) -> int:
     """Шлёт рассылку в базу чатов клиента (client_broadcast_chats) для VK и MAX.
     is_private=False — общие чаты (is_private=FALSE); True — личные каналы (is_private=TRUE).
@@ -1411,6 +1457,13 @@ async def _send_broadcast_to_client_chats(
     )
     if not rows:
         return 0
+    # ⚠️ Фильтр по выбранным площадкам (22.09.2026): общие чаты и личные каналы
+    # тоже слушаются «Каналов для отправки». Раньше пост уходил во все площадки
+    # базы чатов независимо от выбора — та же болезнь, что у чатов события.
+    if allowed_platforms is not None:
+        rows = [r for r in rows if r["platform"] in allowed_platforms]
+        if not rows:
+            return 0
     sent = 0
     # Вид чата для статистики: личный канал клиента vs общий чат клиента.
     _ckind = "client_private" if is_private else "client_common"

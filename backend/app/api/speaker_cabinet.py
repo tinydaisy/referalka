@@ -1169,6 +1169,26 @@ async def get_me_materials(
     else:
         announcement_posters = []
 
+    # ⚠️⚠️ НОВЫЕ СЛОТЫ АФИШ (миграция 492, 22.09.2026). У спикера на событие
+    # три афиши — горизонтальная, квадратная, вертикальная. Показываем их в
+    # кабинете ПЕРВЫМИ: это актуальные афиши именно этого события, тогда как
+    # старая библиотека общая на все конференции.
+    #
+    # ⚠️ Тумблер «фото вместо афиши» гасит и их: клиент явно сказал, что
+    # афиши этого спикера использовать не надо.
+    slot_posters = []
+    if not base.get("use_photo_instead_of_poster"):
+        slot_posters = [dict(r) for r in await db.fetch(
+            """SELECT orientation, url FROM event_speaker_posters
+                WHERE ec_id = $1
+                ORDER BY CASE orientation
+                           WHEN 'horizontal' THEN 1
+                           WHEN 'square'     THEN 2
+                           WHEN 'vertical'   THEN 3
+                           ELSE 4 END""",
+            se_id,
+        )]
+
     # ⚠️⚠️ ТОЛЬКО ОПУБЛИКОВАННОЕ (миграция 469). Раньше кабинет показывал всё
     # подряд: клиент собирает афишу в несколько заходов, подбирая раскладку, — и
     # каждая проба немедленно уезжала спикерам. Теперь показываем лишь те виды
@@ -1364,6 +1384,9 @@ async def get_me_materials(
         # Афиши помеченные «для анонсов» (чек-бокс) в этой конференции —
         # массив. Спикер скачивает любую для своих анонсов.
         "announcement_posters": [dict(r) for r in announcement_posters],
+        # Афиши-слоты этого события (миграция 492): фронт кабинета показывает
+        # их отдельным блоком с подписями форматов.
+        "speaker_posters": slot_posters,
         "event_video_url":    base.get("event_video_url"),
         "speaker_video_url":  base.get("speaker_video_url"),
         # Записи ЕГО выступлений из эфира — смотреть и скачивать.

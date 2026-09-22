@@ -14,6 +14,7 @@ from app.api import auth, events, gifts, participants, referral, admin, event, c
 from app.api import client_offers, client_testimonials, client_payment_settings, event_orders
 from app.api import client_call_settings, call_campaigns, client_zoom_settings
 from app.api import tg_autosetup, admin_tg_setup, support_onboarding
+from app.api import speaker_posters
 from app.api import admin_plusson_lm
 from app.api import support_public
 from app.api import partner_program, partner_public
@@ -312,6 +313,7 @@ app.include_router(client_zoom_settings.webhook_router, prefix="/api/v1")       
 app.include_router(call_campaigns.router,           prefix="/api/v1")           # /api/v1/call-campaigns
 app.include_router(call_campaigns.public_router,    prefix="/api/v1")           # /api/v1/public/calls/webhook
 # Автонастройка Telegram «под ключ» — разовая услуга (миграция 364).
+app.include_router(speaker_posters.router)                                    # /api/v1/events/{id}/speakers/{ec}/posters
 app.include_router(tg_autosetup.router,             prefix="/api/v1")           # /api/v1/clients/me/tg-autosetup
 app.include_router(support_onboarding.router,       prefix="/api/v1")           # шаг ноль: почта + бот поддержки
 app.include_router(tg_autosetup.leadpay_webhook_router,  prefix="/api/v1")      # оплата услуги (LeadPay)

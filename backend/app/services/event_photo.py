@@ -132,16 +132,37 @@ def poster_subquery(alias_ec: str = "cse", alias_c: str = "c") -> str:
     # Ничего не нашлось — возвращаем NULL, и зовущий подставит ФОТО. Чужая
     # афиша хуже отсутствия: человек анонсирует одну конференцию картинкой
     # другой.
+    # ⚠️⚠️ СНАЧАЛА НОВЫЕ СЛОТЫ (миграция 492, 22.09.2026): у спикера на событие
+    # ровно три афиши, ориентация — ПОЛЕ, а не строка в подписи. Приоритет
+    # задан владельцем: КВАДРАТ → ГОРИЗОНТАЛЬНАЯ → ВЕРТИКАЛЬНАЯ. Квадрат
+    # одинаково хорош и в ленте, и в превью сообщения; вертикальная занимает
+    # весь экран и в переписке выглядит навязчиво.
+    #
+    # ⚠️ Старая библиотека остаётся ВТОРЫМ шагом (COALESCE): у 66 из 96 афиш
+    # прода подпись пуста, перенести их миграцией нельзя — ориентацию не
+    # угадать. Пока клиент не перезальёт их в слоты, они продолжают работать
+    # по-старому. Убрать эту половину можно будет, когда слоты заполнятся.
     return (
-        " (SELECT url FROM collaborator_posters cp"
-        f"   WHERE NOT {alias_ec}.use_photo_instead_of_poster"
-        f"     AND (cp.id = {alias_ec}.poster_id"
-        f"          OR ({alias_ec}.poster_id IS NULL"
-        f"              AND cp.collaborator_id = {alias_c}.id"
-        f"              AND cp.label LIKE (SELECT title FROM events"
-        f"                                  WHERE id = {alias_ec}.event_id) || ' (%'))"
-        f"   ORDER BY (cp.id = {alias_ec}.poster_id) DESC, cp.sort_order, cp.id"
-        "    LIMIT 1)"
+        " COALESCE("
+        "   (SELECT esp.url FROM event_speaker_posters esp"
+        f"     WHERE NOT {alias_ec}.use_photo_instead_of_poster"
+        f"       AND esp.ec_id = {alias_ec}.id"
+        "     ORDER BY CASE esp.orientation"
+        "                WHEN 'square'     THEN 1"
+        "                WHEN 'horizontal' THEN 2"
+        "                WHEN 'vertical'   THEN 3"
+        "                ELSE 4 END"
+        "     LIMIT 1),"
+        "   (SELECT url FROM collaborator_posters cp"
+        f"     WHERE NOT {alias_ec}.use_photo_instead_of_poster"
+        f"       AND (cp.id = {alias_ec}.poster_id"
+        f"            OR ({alias_ec}.poster_id IS NULL"
+        f"                AND cp.collaborator_id = {alias_c}.id"
+        f"                AND cp.label LIKE (SELECT title FROM events"
+        f"                                    WHERE id = {alias_ec}.event_id) || ' (%'))"
+        f"     ORDER BY (cp.id = {alias_ec}.poster_id) DESC, cp.sort_order, cp.id"
+        "      LIMIT 1)"
+        " )"
     )
 
 

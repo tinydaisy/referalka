@@ -18,11 +18,23 @@
 # Когда какую: обычно deploygit. deploy — если GitHub недоступен и выкатить
 # надо здесь и сейчас.
 #
-# ⚠️ Сборку на GitHub запускает пуш в main. Если её ещё нет или она идёт —
-# команда честно скажет об этом и подождёт, а не выкатит вчерашнюю.
+# ⚠️⚠️ СБОРКА БОЛЬШЕ НЕ ЗАПУСКАЕТСЯ САМА НА КАЖДЫЙ ПУШ (22.09.2026).
+# Репозиторий приватный — минуты Actions платные (2000/мес на Free), и
+# автосборка каждого коммита выбрала месячный лимит: 16 сборок за день при
+# двух выкатках. Теперь собираем ТОЛЬКО когда реально катим.
+#
+# Запустить сборку: `deploygit --build` (или кнопка Run workflow на GitHub,
+# или `git tag build-<имя> && git push --tags`).
+#
+# ⚠️ `--build` требует токен с правом запускать Actions. Штатный
+# /root/.github_token — ТОЛЬКО НА ЧТЕНИЕ (так задумано: кто может запустить
+# workflow, тот фактически управляет выкаткой). Положите второй токен с
+# правом `actions:write` в /root/.github_build_token — тогда команда сработает;
+# без него она честно скажет, что запустить нечем, и предложит кнопку.
 #
 # Запуск:  deploygit           — последняя сборка ветки main
 #          deploygit --wait    — дождаться, если сборка ещё идёт
+#          deploygit --build   — запустить сборку и дождаться её
 # ═══════════════════════════════════════════════════════════════════════════
 set -e
 
@@ -34,8 +46,12 @@ TOKEN_FILE="/root/.github_token"
 
 WAIT=0
 LAST=0
+BUILD=0
 for a in "$@"; do
   [ "$a" = "--wait" ] && WAIT=1
+  # --build: сначала ЗАПУСТИТЬ сборку текущего main, потом дождаться и выкатить.
+  # Нужно теперь всегда, когда катим свежий коммит: сама она не запускается.
+  [ "$a" = "--build" ] && { BUILD=1; WAIT=1; }
   # --last: выкатить последнюю успешную сборку, даже если она не самого свежего
   # коммита. Нужно, когда сборка нового коммита упала, а откатиться на рабочее
   # надо прямо сейчас.
@@ -56,6 +72,38 @@ api() { curl -sS -H "Authorization: token $TOKEN" \
              -H "Accept: application/vnd.github+json" "$@"; }
 
 echo "══════ НАКАТ СБОРКИ С GITHUB ══════"
+
+# ── 0. Запуск сборки по --build ────────────────────────────────────────────
+# ⚠️ Отдельный токен: штатный /root/.github_token только на чтение. Право
+# запускать workflow = право выкатить что угодно на прод, поэтому оно лежит
+# отдельным файлом и выдаётся осознанно.
+if [ "$BUILD" = "1" ]; then
+  BUILD_TOKEN_FILE="/root/.github_build_token"
+  if [ ! -f "$BUILD_TOKEN_FILE" ]; then
+    echo "❌ Нет токена для запуска сборки: $BUILD_TOKEN_FILE"
+    echo "   Он нужен ОТДЕЛЬНО от обычного: у того прав на запуск нет."
+    echo "   Создайте токен с правом actions:write и положите:"
+    echo "     echo 'ghp_...' > $BUILD_TOKEN_FILE && chmod 600 $BUILD_TOKEN_FILE"
+    echo
+    echo "   Либо запустите сборку кнопкой: GitHub → Actions → «Сборка» → Run workflow"
+    exit 1
+  fi
+  BTOKEN=$(tr -d '[:space:]' < "$BUILD_TOKEN_FILE")
+  echo "► Запускаю сборку ветки $BRANCH..."
+  HTTP=$(curl -sS -o /tmp/deploygit_dispatch.log -w '%{http_code}' -X POST \
+    -H "Authorization: token $BTOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$REPO/actions/workflows/build.yml/dispatches" \
+    -d "{\"ref\":\"$BRANCH\"}" || true)
+  if [ "$HTTP" != "204" ]; then
+    echo "❌ Не удалось запустить сборку (HTTP $HTTP):"
+    cat /tmp/deploygit_dispatch.log 2>/dev/null | head -3
+    echo "   Запустите кнопкой: GitHub → Actions → «Сборка» → Run workflow"
+    exit 1
+  fi
+  echo "  ✓ Сборка запущена, жду появления прогона..."
+  sleep 8
+fi
 
 # ── 1. Ищем сборку ─────────────────────────────────────────────────────────
 # Берём последний ПРОШЕДШИЙ прогон сборки ветки main. Упавшие и идущие
