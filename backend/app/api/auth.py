@@ -614,34 +614,17 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
             }
         }
 
-    # Тех-специалист (внедренец) — третий тип входа (миграция 391).
-    # ⚠️ Ищем ПОСЛЕ клиентов и помощников: у человека может быть кабинет
-    # клиента на ту же почту, и он важнее — там его собственные события и база.
-    spec = await db.fetchrow(
-        """SELECT id, email, name, password_hash, is_active, can_edit_materials
-             FROM tech_specialists WHERE LOWER(email) = $1""",
-        data.email,
-    )
-    if spec and verify_password(data.password, spec["password_hash"]):
-        if not spec["is_active"]:
-            # Уволенного не удаляем (на нём история начислений) — просто не пускаем.
-            raise HTTPException(status_code=403, detail="Доступ закрыт")
-        await db.execute(
-            "UPDATE tech_specialists SET last_login_at = NOW() WHERE id = $1", spec["id"])
-        # ⚠️ В `sub` — id САМОГО специалиста, а не клиента: он не работает
-        # «в кабинете», у него свой срез данных платформы. Этим он отличается от
-        # помощника, у которого в `sub` лежит кабинет клиента.
-        token = create_token({
-            "sub": str(spec["id"]),
-            "email": spec["email"],
-            "role": "tech",
-        })
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "tech": {"id": spec["id"], "name": spec["name"],
-                     "can_edit_materials": spec["can_edit_materials"]},
-        }
+    # ⚠️⚠️ ВНЕДРЕНЦА ЗДЕСЬ БОЛЬШЕ НЕТ — у него свой вход `/auth/tech/login`
+    # (миграция 486). Причина: внедренец стал РОЛЬЮ клиента, пароль у человека
+    # один — клиентский. Оставь ветку здесь — и она никогда бы не сработала:
+    # проверка клиента выше нашла бы того же человека по той же почте и тому же
+    # паролю и отдала бы клиентский кабинет.
+    #
+    # ⚠️ Куда пускать, решает ФОРМА, а не порядок веток: обычная форма → свой
+    # кабинет и кабинеты, где он помощник; форма внедренца → только кабинет
+    # внедренца. Прежний перебор ролей «до первого совпадения» именно поэтому и
+    # ломался: человеку с двумя ролями доставалась та, что стояла в списке выше,
+    # и приходилось заводить ему почту-алиас, чтобы попасть во вторую.
 
     # Пробуем залогинить как администратора
     admin = await db.fetchrow(
@@ -676,6 +659,75 @@ async def admin_login(data: AdminLoginRequest, db: asyncpg.Connection = Depends(
         "access_token": token,
         "token_type": "bearer",
         "admin": {"id": admin["id"], "name": admin["name"], "is_superadmin": admin["is_superadmin"]}
+    }
+
+
+@router.post("/tech/login", summary="Вход внедренца (роль над клиентом)")
+async def tech_login(data: AdminLoginRequest, db: asyncpg.Connection = Depends(get_db)):
+    """Вход в кабинет внедренца — по КЛИЕНТСКОМУ паролю (миграция 486).
+
+    ⚠️⚠️ Внедренец — РОЛЬ клиента, а не отдельный человек. Поэтому здесь нет
+    ни своей почты, ни своего пароля: ищем клиента по почте, проверяем его
+    клиентский пароль и только потом смотрим, есть ли у этого клиента роль
+    внедренца. Третьего пароля в системе больше нет.
+
+    ⚠️ Отдельная ручка, а не ветка в общем `/login`: куда пускать человека,
+    решает ФОРМА входа. У человека с двумя ролями один пароль, и перебор ролей
+    «до первого совпадения» в общем логине всегда отдавал бы ту роль, что
+    стоит в списке выше. Именно из-за этого менеджерам лидов приходилось
+    заводить почты-алиасы, чтобы попасть во вторую роль.
+    """
+    email_norm = (data.email or "").strip().lower()
+
+    row = await db.fetchrow(
+        """SELECT ts.id, ts.is_active, ts.can_edit_materials, ts.can_delete_faq,
+                  c.id AS client_id, c.name, c.email, c.password_hash,
+                  c.is_active AS client_active
+             FROM clients c
+             JOIN tech_specialists ts ON ts.client_id = c.id
+            WHERE LOWER(c.email) = $1""",
+        email_norm,
+    )
+
+    # ⚠️ Одна и та же ошибка на «нет такого клиента», «нет роли внедренца» и
+    # «неверный пароль»: разные тексты подсказали бы постороннему, кто из
+    # клиентов работает внедренцем.
+    if not row or not verify_password(data.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Неверный email или пароль")
+
+    if not row["client_active"]:
+        raise HTTPException(status_code=403, detail="Аккаунт заблокирован. Напишите в поддержку.")
+
+    if not row["is_active"]:
+        # Уволенный: запись НЕ удаляем (на ней история начислений), но в кабинет
+        # внедренца не пускаем. Клиентский кабинет у него при этом остаётся — он
+        # заходит в него с обычной формы.
+        raise HTTPException(status_code=403, detail="Доступ закрыт")
+
+    await db.execute(
+        "UPDATE tech_specialists SET last_login_at = NOW() WHERE id = $1", row["id"])
+
+    # ⚠️ В `sub` — id САМОЙ РОЛИ (`tech_specialists.id`), а не клиента: внедренец
+    # видит срез данных платформы по закреплённым за ним клиентам, а не работает
+    # внутри кабинета. Этим он отличается от помощника, у которого в `sub` лежит
+    # id кабинета. `client_id` кладём рядом — он нужен, чтобы показать, из какого
+    # кабинета этот человек, и чтобы не ходить за ним в базу на каждый запрос.
+    token = create_token({
+        "sub": str(row["id"]),
+        "email": row["email"],
+        "role": "tech",
+        "client_id": row["client_id"],
+    })
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "tech": {
+            "id": row["id"],
+            "name": row["name"],
+            "client_id": row["client_id"],
+            "can_edit_materials": row["can_edit_materials"],
+            "can_delete_faq": row["can_delete_faq"],
+        },
     }
 
 
@@ -996,6 +1048,18 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class AssistantChangePasswordRequest(BaseModel):
+    """⚠️ Своя модель, а НЕ общая с клиентской: у помощника текущий пароль не
+    спрашивается (решение владельца 22.09.2026), а у клиента спрашивается.
+    Сделать поле необязательным в общей модели значило бы заодно отключить
+    проверку и у владельца кабинета.
+    """
+    new_password: str
+    # Принимаем, но не проверяем: старый фронт мог его прислать, и падать на
+    # лишнем поле нельзя.
+    current_password: Optional[str] = None
+
+
 @router.post("/change-password", summary="Сменить пароль клиента")
 async def change_password(
     data: ChangePasswordRequest,
@@ -1024,11 +1088,21 @@ async def change_password(
 
 @router.post("/assistant/change-password", summary="Помощник меняет СВОЙ пароль")
 async def assistant_change_password(
-    data: ChangePasswordRequest,
+    data: AssistantChangePasswordRequest,
     db: asyncpg.Connection = Depends(get_db),
     credentials=Depends(__import__("app.auth", fromlist=["security"]).security),
 ):
     """Помощник меняет свой пароль сам.
+
+    ⚠️⚠️ ТЕКУЩИЙ ПАРОЛЬ НЕ СПРАШИВАЕМ (решение владельца 22.09.2026). Помощник
+    и так вошёл в кабинет — значит пароль у него уже есть, и повторный ввод
+    ничего не проверяет сверх этого. А мешает он в живом случае: пароль выдал
+    владелец, человек вошёл по нему один раз и хочет поставить свой, не
+    отыскивая выданный в переписке.
+
+    ⚠️ У КЛИЕНТА текущий пароль по-прежнему спрашивается (`/change-password`):
+    там за паролем стоят его деньги и вся база, и цена чужого доступа к
+    незакрытой вкладке выше.
 
     ⚠️ Отдельный адрес, а не общий `/change-password`. Тот берёт номер
     кабинета из токена (`sub`) и правит таблицу `clients` — а у помощника в
@@ -1053,13 +1127,13 @@ async def assistant_change_password(
     if not data.new_password or len(data.new_password) < 8:
         raise HTTPException(status_code=400, detail="Новый пароль должен быть не короче 8 символов")
 
+    # ⚠️ Запись всё равно проверяем: пропуск могли отозвать, пока вкладка была
+    # открыта, и тогда менять нечего.
     row = await db.fetchrow(
-        "SELECT password_hash FROM assistants WHERE id = $1", int(assistant_id)
+        "SELECT id FROM assistants WHERE id = $1", int(assistant_id)
     )
     if not row:
         raise HTTPException(status_code=404, detail="Учётная запись не найдена")
-    if not row["password_hash"] or not verify_password(data.current_password, row["password_hash"]):
-        raise HTTPException(status_code=400, detail="Текущий пароль неверный")
 
     await db.execute(
         "UPDATE assistants SET password_hash = $1, updated_at = NOW() WHERE id = $2",

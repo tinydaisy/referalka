@@ -9,6 +9,11 @@
  *
  * До появления этой страницы помощник не мог сменить пароль НИКАК: забыл или
  * пароль утёк — только просить владельца выслать новый.
+ *
+ * ⚠️⚠️ ТЕКУЩИЙ ПАРОЛЬ НЕ СПРАШИВАЕМ (решение владельца 22.09.2026). Человек уже
+ * вошёл в кабинет — повторный ввод ничего не проверяет сверх этого, а мешает в
+ * живом случае: пароль выдал владелец, помощник вошёл по нему один раз и хочет
+ * поставить свой, не отыскивая выданный в переписке.
  */
 
 import { useState } from 'react'
@@ -20,7 +25,6 @@ import { useMe } from '@/hooks/useMe'
 export default function MyPasswordPage() {
   const { me, isAnyAssistant } = useMe()
   const router = useRouter()
-  const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [repeat, setRepeat] = useState('')
   const [saving, setSaving] = useState(false)
@@ -45,9 +49,9 @@ export default function MyPasswordPage() {
     if (next !== repeat) { setError('Новый пароль и повтор не совпадают'); return }
     setSaving(true)
     try {
-      await api.auth.changeAssistantPassword(current, next)
+      await api.auth.changeAssistantPassword(next)
       setDone(true)
-      setCurrent(''); setNext(''); setRepeat('')
+      setNext(''); setRepeat('')
     } catch (e: any) {
       setError(e?.message || 'Не удалось сменить пароль')
     } finally {
@@ -76,14 +80,14 @@ export default function MyPasswordPage() {
         </div>
       ) : (
         <form onSubmit={save} className="space-y-4 rounded-2xl border card-border bg-white p-5">
-          <Field label="Текущий пароль" value={current} onChange={setCurrent} autoComplete="current-password" />
+          {/* ⚠️ Поля «Текущий пароль» здесь НЕТ намеренно — см. шапку файла. */}
           <Field label="Новый пароль" value={next} onChange={setNext} autoComplete="new-password"
                  hint="Не короче 8 символов" />
           <Field label="Повторите новый" value={repeat} onChange={setRepeat} autoComplete="new-password" />
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <button type="submit" disabled={saving || !current || !next || !repeat}
+          <button type="submit" disabled={saving || !next || !repeat}
                   className="btn-gold disabled:opacity-60">
             {saving ? 'Сохраняем…' : 'Сменить пароль'}
           </button>

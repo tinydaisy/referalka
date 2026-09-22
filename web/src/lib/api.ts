@@ -248,8 +248,10 @@ export const api = {
     // ⚠️ Помощник меняет СВОЙ пароль отдельным адресом: общий правит запись
     // клиента по номеру кабинета из токена, а у помощника там кабинет
     // ВЛАДЕЛЬЦА — он сменил бы пароль ему.
-    changeAssistantPassword: (current_password: string, new_password: string) =>
-      request('/api/v1/auth/assistant/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
+    // ⚠️ Текущий пароль НЕ передаётся (решение владельца 22.09.2026): помощник
+    // уже вошёл, повторный ввод ничего не проверяет. У клиента — проверяется.
+    changeAssistantPassword: (new_password: string) =>
+      request('/api/v1/auth/assistant/change-password', { method: 'POST', body: JSON.stringify({ new_password }) }),
     regenerateIntegrationToken: () =>
       request('/api/v1/auth/me/regenerate-integration-token', { method: 'POST' }),
     verifyEmailConfirm: (token: string) =>
