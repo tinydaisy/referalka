@@ -420,6 +420,19 @@ async def crm(
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    """Админский вход: та же CRM, но по всей базе (`spec_id` сужает)."""
+    return await build_crm(db, spec_id=spec_id, status=status, q=q,
+                           limit=limit, offset=offset)
+
+
+async def build_crm(
+    db: asyncpg.Connection,
+    spec_id: Optional[int] = None,
+    status: Optional[str] = None,
+    q: str = "",
+    limit: int = 50,
+    offset: int = 0,
+):
     """Клиенты платформы одним списком — с фильтром по внедренцу (23.09.2026).
 
     ⚠️ Это ТОТ ЖЕ экран, что «Мои клиенты» в кабинете внедренца, только без
@@ -561,6 +574,19 @@ async def crm(
     #
     # ⚠️ «Кабинет не завёл» = нет клиента с той же почтой. Сравниваем
     # `LOWER(TRIM(...))`, как в `plusson_match`: регистр расходится постоянно.
+    # ⚠️ У ВНЕДРЕНЦА — только ЕГО лиды: пришедшие по его реф-ссылке
+    # (`plusson_referrer_code` = его клиентский `referral_code`). У владельца
+    # фильтра нет — он смотрит всю базу.
+    lead_where = """"""
+    lead_args: list = []
+    if spec_id is not None:
+        lead_args.append(spec_id)
+        lead_where = """
+              AND ct.plusson_referrer_code = (
+                    SELECT cl2.referral_code FROM clients cl2
+                     JOIN tech_specialists ts2 ON ts2.client_id = cl2.id
+                    WHERE ts2.id = $1)"""
+
     lead_rows = await db.fetch(
         """SELECT ct.id, ct.name, ct.phone,
                   (SELECT pe.platform_user_id FROM platform_users pe
@@ -583,8 +609,9 @@ async def crm(
                            SELECT pe2.platform_user_id FROM platform_users pe2
                             WHERE pe2.contact_id = ct.id
                               AND pe2.platform_slug = 'email' LIMIT 1))))
+              """ + lead_where + """
             ORDER BY ct.created_at DESC
-            LIMIT 100""")
+            LIMIT 100""", *lead_args)
     leads = [dict(r) for r in lead_rows]
     leads_total = await db.fetchval(
         """SELECT COUNT(*) FROM contacts ct
@@ -598,7 +625,8 @@ async def crm(
                      WHERE LOWER(TRIM(cl.email)) = LOWER(TRIM((
                            SELECT pe2.platform_user_id FROM platform_users pe2
                             WHERE pe2.contact_id = ct.id
-                              AND pe2.platform_slug = 'email' LIMIT 1))))""")
+                              AND pe2.platform_slug = 'email' LIMIT 1))))
+              """ + lead_where, *lead_args)
 
     board: dict[str, list] = {s: [] for s in CRM_STATUSES}
     for r in board_rows:

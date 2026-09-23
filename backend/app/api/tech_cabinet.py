@@ -347,6 +347,30 @@ async def my_money(
     }
 
 
+@router.get("/crm", summary="Моя CRM — воронка по моим клиентам")
+async def my_crm(
+    status: Optional[str] = Query(None),
+    q: str = Query(""),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️⚠️ ТОТ ЖЕ КОД, ЧТО У АДМИНА (решение владельца 23.09.2026).
+
+    Функционал один: у владельца сводка по всем, у внедренца — выборка по нему.
+    Поэтому зовём общую `build_crm` и жёстко подставляем `spec_id` из токена,
+    а не принимаем его параметром: иначе внедренец подставил бы чужой номер и
+    увидел чужих клиентов.
+
+    Своя копия запроса здесь разошлась бы с админской — и воронка у владельца
+    и у внедренца показывала бы разное по одним и тем же людям.
+    """
+    from app.api.admin_tech import build_crm
+    return await build_crm(db, spec_id=int(user["sub"]), status=status, q=q,
+                           limit=limit, offset=offset)
+
+
 @router.get("/funnel", summary="Моя воронка и сводка по базе")
 async def my_funnel(
     user: dict = Depends(get_current_tech),
