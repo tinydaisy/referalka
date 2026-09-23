@@ -1489,9 +1489,23 @@ async def list_schedules(
                bt.schedule_mode,
                bt.text AS tmpl_text, bt.button_url AS tmpl_btn_url,   -- для проверки пустых плейсхолдеров
                cs.title as session_title,
-               -- Тема выступления (live из conf_speaker_topics по topic_id слота,
-               -- fallback title слота) — чтобы раскрыть {speaker_topic} в заголовке списка.
-               COALESCE(NULLIF(cst.topic,''), cs.title) AS speaker_topic_resolved,
+               -- Тема выступления — чтобы раскрыть {speaker_topic} в заголовке списка.
+               -- ⚠️⚠️ ДВЕ ветки, ровно как при отправке (23.09.2026). У спикерских
+               -- типов (speaker_intro/expert_day/custom) `session_id` — это ec_id
+               -- спикера, а НЕ слот программы: джойн `cs` для них отключён ниже, и
+               -- тема всегда выходила NULL → очередь писала «тема уточняется», хотя
+               -- в предпросмотре и в письме тема была. Берём её оттуда же, откуда
+               -- берёт `message_builder._speaker_topics_strings` — из тем спикера.
+               COALESCE(
+                 NULLIF(cst.topic, ''),
+                 (SELECT string_agg(NULLIF(btrim(t.topic), ''), ' · '
+                                    ORDER BY t.sort_order, t.id)
+                    FROM conf_speaker_topics t WHERE t.cse_id = cse_intro.id),
+                 (SELECT NULLIF(btrim(t.topic), '')
+                    FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id
+                   ORDER BY t.sort_order, t.id LIMIT 1),
+                 cs.title
+               ) AS speaker_topic_resolved,
                cs.start_time, cs.end_time,
                -- ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно
                -- имя. Очередь рассылок показывала «Анастасия» — из двух разных

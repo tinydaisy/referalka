@@ -309,6 +309,98 @@ async def _speaker_topics_strings(conn, ec_id) -> tuple:
     return "\n".join(names), "\n\n".join(full), "\n\n".join(descs)
 
 
+# ─── Подарки спикера: ОДНА точка на все рассылки ────────────────────────────
+# ⚠️⚠️ ЕДИНЫЙ КОД ДЛЯ ПРЕМИЙ И КОНФЕРЕНЦИЙ (правило владельца 23.09.2026).
+# Один и тот же CASE был скопирован ВОСЕМЬ раз по четырём веткам рассылок
+# («Подарки», конец дня, анонс спикера, за 5 минут). Копии уже разъезжались:
+# в анонсе спикера ссылки не было вовсе — только название, и у получателя на
+# её месте была пустота. Дальше расходились бы и дальше, каждая по-своему.
+#
+# Правило одно на всех: ручной подарок → своя ссылка как есть; лид-магнит или
+# пакет ПЛЮСОНа → ТОКЕН воронки ⟦GF:m|p:slug⟧. Прямой файл в рассылку не
+# уходит: он выдаётся воронкой за подписку, а сама воронка живёт в базе
+# ХОЗЯИНА магнита. Токен раскрывается при отправке
+# (`share_links.build_gift_funnel_links_by_owner`) — там же учтён и
+# плюсоновский подарок, который ведёт в бот ПЛЮСОНа с реф-кодом клиента.
+#
+# `ec` — алиас `event_collaborators` в запросе, куда вставляется блок.
+def gift_url_sql(ec: str = "cse") -> str:
+    """Ссылка ПЕРВОГО подарка спикера (для {gift_url}/{gift_after_speech_title})."""
+    return f"""(SELECT CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
+                            WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                            THEN '⟦GF:p:'||glp.slug||'⟧'
+                            WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
+                            THEN '⟦GF:m:'||glm.slug||'⟧'
+                            ELSE glm.url END
+                  FROM event_collaborator_lead_magnets eclm
+                  LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                  LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                 WHERE eclm.ec_id = {ec}.id
+                 ORDER BY eclm.sort_order, eclm.id LIMIT 1)"""
+
+
+def gift_title_sql(ec: str = "cse") -> str:
+    """Название ПЕРВОГО подарка спикера."""
+    return f"""(SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
+                  FROM event_collaborator_lead_magnets eclm
+                  LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                  LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                 WHERE eclm.ec_id = {ec}.id
+                 ORDER BY eclm.sort_order, eclm.id LIMIT 1)"""
+
+
+def gift_magnets_sql(ec: str = "cse") -> str:
+    """ВСЕ подарки спикера JSON-списком `[{title, url}]` — для {gifts}."""
+    return f"""(SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
+                  SELECT eclm.id, eclm.sort_order,
+                         COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
+                         CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
+                              WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
+                              THEN '⟦GF:p:'||glp.slug||'⟧'
+                              WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
+                              THEN '⟦GF:m:'||glm.slug||'⟧'
+                              ELSE glm.url END AS url
+                    FROM event_collaborator_lead_magnets eclm
+                    LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
+                    LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
+                   WHERE eclm.ec_id = {ec}.id
+               ) g)"""
+
+
+def gifts_block(gifts: list, *, numbered: bool = False) -> str:
+    """Подарки текстом: «Название\\nссылка», между подарками — пустая строка.
+
+    ⚠️ ОДИН формат на все рассылки: и «Подарки», и анонс спикера, и конец дня
+    показывают подарок одинаково. Два своих формата подряд выглядели бы у
+    клиента как два разных подарка.
+    """
+    parts = []
+    for i, g in enumerate(gifts or [], 1):
+        t = ((g or {}).get("title") or "").strip()
+        u = ((g or {}).get("url") or "").strip()
+        if not t:
+            continue
+        head = f"{i}. {t}" if numbered else t
+        parts.append(f"{head}\n{u}" if u else head)
+    return "\n\n".join(parts)
+
+
+def _parse_gift_magnets(raw) -> list[dict]:
+    """Подарки спикера из JSONB → список `[{title, url}]`.
+
+    ⚠️ ОДНА точка разбора на весь файл: asyncpg отдаёт json_agg СТРОКОЙ, и
+    каждая ветка рассылки разбирала его сама. Веток стало три (подарки, день,
+    анонс спикера) — четвёртая копия неизбежно разошлась бы с остальными.
+    """
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except (ValueError, TypeError):
+            raw = None
+    return [{"title": g.get("title"), "url": g.get("url")}
+            for g in (raw or []) if g and g.get("title")]
+
+
 def _msk_ref_date(fire_at):
     """Дата отправки в МСК — точка отсчёта для «Сегодня/Завтра».
     fire_at не задан (превью из формы) → сегодняшняя дата."""
@@ -466,7 +558,14 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
                                 speaker_notes=None, speaker_ask_topics=None,
                                 speaker_time=None, speaker_date=None, speaker_datetime=None,
                                 speaker_when=None, speaker_topic_full=None,
-                                speaker_topic_desc=None):
+                                speaker_topic_desc=None, gift_url=None,
+                                gifts=None):
+    """⚠️⚠️ `gift_url` / `gifts` — ССЫЛКИ НА ПОДАРКИ (23.09.2026). Раньше анонс
+    спикера подставлял только НАЗВАНИЕ подарка: `{gift_url}` не доезжал сюда
+    вовсе и вычищался финальной зачисткой ВМЕСТЕ СО СТРОКОЙ — у получателя на
+    месте ссылки была пустота, хотя подарок у спикера задан. Ссылки берутся тем
+    же путём, что в рассылке «Подарки» (токен ⟦GF:m|p:slug⟧ → воронка хозяина
+    магнита), поэтому плюсоновский подарок работает здесь ровно так же."""
     text = tmpl_text or ""
     role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
     tg_ch = (tg_channel_url or "").strip()
@@ -475,6 +574,20 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     topic = (speaker_topic or "").strip()
     gift_title_v = (gift_title or "").strip()
     gift_raffle_v = (gift_raffle or "").strip()
+
+    # Подарки спикера со ссылками — ОБЩИМ `gifts_block`, тем же, что в рассылке
+    # «Подарки» и в «Итогах дня»: один подарок обязан выглядеть одинаково во
+    # всех рассылках, иначе клиент читает это как два разных подарка.
+    _glist = [g for g in (gifts or []) if (g or {}).get("title")]
+    _gift_url_v = (gift_url or "").strip()
+    # Одиночный подарок из старых полей — в тот же список, а не «вместо».
+    if gift_title_v and not any(
+            (g.get("title") or "").strip() == gift_title_v for g in _glist):
+        _glist.insert(0, {"title": gift_title_v, "url": _gift_url_v})
+    # {gift_url} — ссылка ПЕРВОГО подарка (плейсхолдер одиночный по смыслу).
+    if not _gift_url_v and _glist:
+        _gift_url_v = (_glist[0].get("url") or "").strip()
+    _gifts_block_v = gifts_block(_glist, numbered=len(_glist) > 1)
 
     ach_text = "\n".join(f"• {a}" for a in ach_list)
 
@@ -506,6 +619,12 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{gift_after_speech_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not gift_raffle_v:
         text = re.sub(r"^[^\n]*\{gift_raffle_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    # Ссылки на подарки нет — строку убираем целиком, как и у остальных пустых
+    # плейсхолдеров: иначе осталась бы подпись «Забрать:» без адреса.
+    if not _gift_url_v:
+        text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not _gifts_block_v:
+        text = re.sub(r"^[^\n]*\{gifts\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not tg_ch:
         text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not insta:
@@ -593,6 +712,11 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     text = text.replace("{speaker_achievements}", ach_text)
     text = text.replace("{gift_after_speech_title}", gift_title_v)
     text = text.replace("{gift_raffle_title}", gift_raffle_v)
+    # ⚠️ {gifts} — ДО {gift_url}/{gift_title}: блок сам несёт в себе названия и
+    # ссылки, и подстановка одиночных плейсхолдеров внутрь него ничего не даст.
+    text = text.replace("{gifts}", _gifts_block_v)
+    text = text.replace("{gift_url}", _gift_url_v)
+    text = text.replace("{gift_title}", gift_title_v)
     # {landing_url} — новое имя плейсхолдера, {registration_url} оставляем для
     # совместимости со старыми шаблонами в БД клиентов (миграция 057).
     text = text.replace("{landing_url}", registration_url or "")
@@ -688,13 +812,10 @@ def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_tex
         # Пакет — свой формат (ссылка/название/подпись), не «Название\nссылка».
         if is_package:
             return _package_block()
-        # По каждому подарку «Название\nссылка», разделитель между подарками —
-        # 2 переноса строки (пустая строка). numbered=True → «1. Название\nссылка».
-        parts = []
-        for i, (t, u) in enumerate(glist, 1):
-            head = f"{i}. {t}" if numbered else t
-            parts.append(f"{head}\n{u}" if u else head)
-        return "\n\n".join(parts)
+        # ⚠️ Формат — ОБЩИЙ `gifts_block`, тот же что в «Итогах дня» и в анонсе
+        # спикера: один подарок должен выглядеть одинаково во всех рассылках.
+        return gifts_block([{"title": t, "url": u} for t, u in glist],
+                           numbered=numbered)
 
     title = glist[0][0] if glist else ""
     url = glist[0][1] if glist else ""
@@ -1136,12 +1257,9 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
                c.tg_channel_url, c.instagram_url, c.vk_url, c.max_url, c.website_url,
                c.title AS positioning, NULL AS bio, c.achievements,
                cse.id AS ec_id, cse.role,
-               (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
-                          FROM event_collaborator_lead_magnets eclm
-                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                         WHERE eclm.ec_id = cse.id
-                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_title,
+               %(gift_title_sql)s AS gift_after_speech_title,
+               %(gift_url_sql)s AS gift_after_speech_url,
+               %(gift_magnets_sql)s AS gift_magnets_json,
                cse.gift_raffle_title, cse.notes AS speaker_notes,
                c.ask_topics AS speaker_ask_topics,
                cse.knowledge_base_title, cse.knowledge_base_url,
@@ -1173,7 +1291,10 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
         """ % {"poster_sql": poster_subquery("cse", "c"),
                "speaker_photo_sql": photo_url_sql("cse", "c"),
                "profile_photo_sql": profile_photo_sql("c"),
-               "event_photo_sql": event_photo_sql("cse")},
+               "event_photo_sql": event_photo_sql("cse"),
+               "gift_title_sql": gift_title_sql("cse"),
+               "gift_url_sql": gift_url_sql("cse"),
+               "gift_magnets_sql": gift_magnets_sql("cse")},
         ec_id
     )
     if not sp:
@@ -1196,6 +1317,8 @@ async def _resolve_speaker_placeholders(conn, ec_id, text, buttons, speaker_phot
         speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
         speaker_when=relative_when(sp["slot_date"], sp["slot_start"], ref_date),
         speaker_topic_full=topic_full, speaker_topic_desc=topic_desc,
+        gift_url=sp["gift_after_speech_url"],
+        gifts=_parse_gift_magnets(sp["gift_magnets_json"]),
     )
     text = apply_speaker_material(
         text, build_speaker_material(sp["knowledge_base_title"], sp["knowledge_base_url"]))
@@ -1632,42 +1755,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        COALESCE(cse.priority, 60) AS _prio,
                        btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                        pu_tg.username AS personal_tg_username,
-                       (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
-                          FROM event_collaborator_lead_magnets eclm
-                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                         WHERE eclm.ec_id = cse.id
-                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_title,
-                       (SELECT CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
-                                   WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                   THEN '⟦GF:p:'||glp.slug||'⟧'
-                                   WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
-                                   THEN '⟦GF:m:'||glm.slug||'⟧'
-                                   ELSE glm.url END
-                          FROM event_collaborator_lead_magnets eclm
-                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                         WHERE eclm.ec_id = cse.id
-                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_url,
+                       """ + gift_title_sql("cse") + """ AS gift_after_speech_title,
+                       """ + gift_url_sql("cse") + """ AS gift_after_speech_url,
                        cse.role, cse.is_commercial,
-                       (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
-                          SELECT eclm.id, eclm.sort_order,
-                                 COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
-                                 -- Ручной подарок → своя ссылка как есть.
-                                 -- Лид-магнит/пакет ПЛЮСОНа → ТОКЕН воронки (⟦GF:m|p:slug⟧),
-                                 -- который на отправке заменяется платформенной ссылкой на
-                                 -- воронку через VIP-бот (НЕ прямой файл — он выдаётся за подписку).
-                                 CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
-                                      WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                      THEN '⟦GF:p:'||glp.slug||'⟧'
-                                      WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
-                                      THEN '⟦GF:m:'||glm.slug||'⟧'
-                                      ELSE glm.url END AS url
-                            FROM event_collaborator_lead_magnets eclm
-                            LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                            LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                           WHERE eclm.ec_id = cse.id
-                       ) g) AS gift_magnets_json
+                       """ + gift_magnets_sql("cse") + """ AS gift_magnets_json
                 FROM conf_sessions cs
                 JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 JOIN collaborators c ON c.id = cse.speaker_id
@@ -1694,24 +1785,14 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 tg = (gs["personal_tg_username"] or "").strip()
                 tg_mention = ("@" + tg.lstrip("@")) if tg else ""
                 # Список подарков-лид-магнитов спикера (до 4). Приоритет ручному подарку.
-                _gm = gs["gift_magnets_json"]
-                if isinstance(_gm, str):
-                    try:
-                        _gm = _json.loads(_gm)
-                    except (ValueError, TypeError):
-                        _gm = None
-                magnets = [(g.get("title"), g.get("url")) for g in (_gm or []) if g and g.get("title")]
+                magnets = _parse_gift_magnets(gs["gift_magnets_json"])
                 # У кого подарка НЕТ вообще (ни ручного, ни лид-магнита) — не показываем
                 # в сводном перечне «Итоги дня» (раньше был мусор «пишите в личку»).
                 if not title and not magnets:
                     continue
                 if not title and magnets:
                     # Несколько подарков у спикера → нумеруем «1. …\n2. …»; один — без номера.
-                    if len(magnets) > 1:
-                        body = "\n\n".join(f"{i}. {t}\n{u}" if u else f"{i}. {t}"
-                                           for i, (t, u) in enumerate(magnets, 1))
-                    else:
-                        body = "\n\n".join(f"{t}\n{u}" if u else t for t, u in magnets)
+                    body = gifts_block(magnets, numbered=len(magnets) > 1)
                     block = f"🎁 <b>{gs['speaker_name']}:</b>\n{body}"
                 elif not url:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}" + (f"\nПишите в личку {tg_mention}" if tg_mention else "")
@@ -1781,23 +1862,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.title AS positioning, NULL AS bio,
                        c.achievements,
                        cse.id AS ec_id, cse.role,
-                       (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
-                          FROM event_collaborator_lead_magnets eclm
-                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                         WHERE eclm.ec_id = cse.id
-                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_title,
-                       (SELECT CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
-                                   WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                   THEN '⟦GF:p:'||glp.slug||'⟧'
-                                   WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
-                                   THEN '⟦GF:m:'||glm.slug||'⟧'
-                                   ELSE glm.url END
-                          FROM event_collaborator_lead_magnets eclm
-                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                         WHERE eclm.ec_id = cse.id
-                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_after_speech_url,
+                       %(gift_title_sql)s AS gift_after_speech_title,
+                       %(gift_url_sql)s AS gift_after_speech_url,
+                       %(gift_magnets_sql)s AS gift_magnets_json,
                        cse.gift_raffle_title, cse.notes AS speaker_notes,
                        c.ask_topics AS speaker_ask_topics,
                        cse.knowledge_base_title, cse.knowledge_base_url,
@@ -1829,7 +1896,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """ % {"poster_sql": poster_subquery("cse", "c"),
                "speaker_photo_sql": photo_url_sql("cse", "c"),
                "profile_photo_sql": profile_photo_sql("c"),
-               "event_photo_sql": event_photo_sql("cse")},
+               "event_photo_sql": event_photo_sql("cse"),
+               "gift_title_sql": gift_title_sql("cse"),
+               "gift_url_sql": gift_url_sql("cse"),
+               "gift_magnets_sql": gift_magnets_sql("cse")},
                 session_id
             )
             if sp:
@@ -1866,6 +1936,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     speaker_time=sp_time, speaker_date=sp_date, speaker_datetime=sp_dt,
                     speaker_when=sp_when,
                     speaker_topic_full=topic_full, speaker_topic_desc=topic_desc,
+                    gift_url=sp["gift_after_speech_url"],
+                    gifts=_parse_gift_magnets(sp["gift_magnets_json"]),
                 )
                 text = apply_speaker_material(
                     text,
@@ -1883,6 +1955,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     "speaker_when": sp_when or "",
                     "gift_after_speech_title": sp["gift_after_speech_title"] or "",
                     "gift_raffle_title": sp["gift_raffle_title"] or "",
+                    "gift_title": sp["gift_after_speech_title"] or "",
                 }
                 # Плейсхолдеры в URL КНОПКИ (не только в тексте): карточка спикера,
                 # регистрация, ник спикера. {stream_url}/{vip_url}/{event_chat_*}
@@ -1892,6 +1965,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                            .replace("{landing_url}", reg_url)
                            .replace("{registration_url}", reg_url)
                            .replace("{speaker_card_link}", card_link or "")
+                           # ⚠️ Подарок и КНОПКОЙ, а не только строкой в тексте:
+                           # токен ⟦GF:…⟧ в адресе раскрывается дальше по стеку
+                           # (в бою — pick_single_link, один адрес на кнопку).
+                           .replace("{gift_url}", sp["gift_after_speech_url"] or "")
                            .replace("{speaker_tg_username}", _pmention))
 
     elif tpl_type in ("5min_before", "gift", "speakers_call"):
@@ -1916,42 +1993,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cst.topic as speaker_topic,
                        -- Описание темы («что будет») — для {speaker_topic_full}.
                        cst.description as speaker_topic_desc,
-                       (SELECT COALESCE(eclm.manual_title, glm.name, glp.name)
-                          FROM event_collaborator_lead_magnets eclm
-                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                         WHERE eclm.ec_id = cse.id
-                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_title,
-                       (SELECT CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
-                                   WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                   THEN '⟦GF:p:'||glp.slug||'⟧'
-                                   WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
-                                   THEN '⟦GF:m:'||glm.slug||'⟧'
-                                   ELSE glm.url END
-                          FROM event_collaborator_lead_magnets eclm
-                          LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                          LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                         WHERE eclm.ec_id = cse.id
-                         ORDER BY eclm.sort_order, eclm.id LIMIT 1) AS gift_url,
+                       %(gift_title_sql)s AS gift_title,
+                       %(gift_url_sql)s AS gift_url,
                        cse.knowledge_base_title, cse.knowledge_base_url,
                        cse.gift_lead_magnet_id, cse.gift_package_id,
                        lm.name AS lm_name, lm.url AS lm_url, lm.slug AS lm_slug,
                        lp.name AS lp_name, lp.slug AS lp_slug,
-                       (SELECT json_agg(g ORDER BY g.sort_order, g.id) FROM (
-                          SELECT eclm.id, eclm.sort_order,
-                                 COALESCE(eclm.manual_title, glm.name, glp.name) AS title,
-                                 -- см. day_end: лид-магнит/пакет → ТОКЕН воронки, ручной → url как есть.
-                                 CASE WHEN eclm.manual_title IS NOT NULL THEN eclm.manual_url
-                                      WHEN eclm.package_id IS NOT NULL AND glp.slug IS NOT NULL
-                                      THEN '⟦GF:p:'||glp.slug||'⟧'
-                                      WHEN eclm.lead_magnet_id IS NOT NULL AND glm.slug IS NOT NULL
-                                      THEN '⟦GF:m:'||glm.slug||'⟧'
-                                      ELSE glm.url END AS url
-                            FROM event_collaborator_lead_magnets eclm
-                            LEFT JOIN lead_magnets glm ON glm.id = eclm.lead_magnet_id
-                            LEFT JOIN lead_magnet_packages glp ON glp.id = eclm.package_id
-                           WHERE eclm.ec_id = cse.id
-                       ) g) AS gift_magnets_json,
+                       %(gift_magnets_sql)s AS gift_magnets_json,
                        cs.day AS session_day, cs.event_id AS session_event_id,
                        COALESCE(cl.link_mode_telegram, 'bot') AS tg_link_mode,
                        (SELECT ch.handle FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
@@ -1971,22 +2019,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """ % {"poster_sql": poster_subquery("cse", "c"),
                "speaker_photo_sql": photo_url_sql("cse", "c"),
                "profile_photo_sql": profile_photo_sql("c"),
-               "event_photo_sql": event_photo_sql("cse")},
+               "event_photo_sql": event_photo_sql("cse"),
+               "gift_title_sql": gift_title_sql("cse"),
+               "gift_url_sql": gift_url_sql("cse"),
+               "gift_magnets_sql": gift_magnets_sql("cse")},
                 session_id
             )
             if session:
                 session_data = dict(session)
                 # Список подарков-лид-магнитов спикера (до 4, миграция 200).
-                _gm = session_data.get("gift_magnets_json")
-                if isinstance(_gm, str):
-                    try:
-                        _gm = _json.loads(_gm)
-                    except (ValueError, TypeError):
-                        _gm = None
-                session_data["gift_magnets_list"] = [
-                    {"title": g.get("title"), "url": g.get("url")}
-                    for g in (_gm or []) if g and g.get("title")
-                ]
+                session_data["gift_magnets_list"] = _parse_gift_magnets(
+                    session_data.get("gift_magnets_json"))
                 # Одиночный подарок (fallback): приоритет ручному вводу; иначе из ПЛЮСОНа.
                 # Лид-магнит/пакет ПЛЮСОНа → ТОКЕН воронки (⟦GF:m|p:slug⟧), НЕ прямой файл.
                 if not session_data.get("gift_title"):
@@ -2401,7 +2444,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # Рассылка «вы следующие» в чат спикеров (speakers_call).
         "next_speaker_name", "next_speaker_tg_username", "next_speaker_time",
         "speaker_join_url",
-        "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url",
+        # ⚠️ {gifts} в списке ОБЯЗАТЕЛЕН (23.09.2026): он подставляется только в
+        # «Подарках» и в анонсе спикера, а в остальных типах его не было в этом
+        # перечне — и он уходил получателю сырым текстом «{gifts}».
+        "gift_after_speech_title", "gift_raffle_title", "gift_title", "gift_url", "gifts",
         "stream_url", "landing_url", "registration_url", "conf_title", "conf_date",
         "conf_description", "day_number", "day_ordinal", "day_title", "day_date",
         "day_datetime", "day_program", "day_program_with_links",

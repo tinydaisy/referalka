@@ -212,6 +212,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
   { name: '{gift_url}', desc: 'Ссылка на подарок' },
+  { name: '{gifts}', desc: 'ВСЕ подарки спикера списком: «Название» + ссылка под ним. Работает в «Подарках» и в анонсе спикера. Подарков нет — строка убирается' },
   { name: '{stream_url}', desc: 'Ссылка на эфир (вебинарная комната дня) — для ЗРИТЕЛЕЙ' },
   { name: '{speaker_join_url}', desc: 'Ссылка входа СПИКЕРА в эфир (Zoom) — не то же, что эфир для зрителей. Задаётся у каждого дня в разделе «Вебинары». Не задана — строка убирается' },
   { name: '{next_speaker_name}', desc: 'Имя следующего по программе спикера (кто выступает после текущего в этот же день). Следующего нет — строка убирается' },
@@ -1102,6 +1103,18 @@ export default function TemplatesPage() {
     return g?.url || ''
   }
 
+  // Подарки текстом: «Название\nссылка», между подарками — пустая строка.
+  // ⚠️⚠️ ЗЕРКАЛО серверной `gifts_block` (message_builder.py) — один формат на
+  // все рассылки и обе стороны. Сборка была скопирована трижды по этому файлу,
+  // и копии уже расходились: где-то нумерация была всегда, где-то только от
+  // двух подарков — превью показывало не то, что уходило получателю.
+  function giftsBlock(gifts: Array<{ title: string; url: string }>, numbered = false): string {
+    return gifts
+      .filter(g => (g?.title || '').trim())
+      .map((g, i) => (numbered ? `${i + 1}. ${g.title}` : g.title) + (g.url ? `\n${g.url}` : ''))
+      .join('\n\n')
+  }
+
   function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number, platform: 'telegram' | 'vk' | 'max' | 'email' = 'telegram', navItems?: any[]): string {
     if (!text) return ''
     // Нормализуем литеральные \n на случай старых данных из БД
@@ -1206,6 +1219,20 @@ export default function TemplatesPage() {
         }
         if (!giftTitle) out = out.replace(/^[^\n]*\{gift_after_speech_title\}[^\n]*\n?/gm, '')
         if (!giftRaffle) out = out.replace(/^[^\n]*\{gift_raffle_title\}[^\n]*\n?/gm, '')
+        // ⚠️ Подарки СО ССЫЛКАМИ — как в рассылке «Подарки» (та же giftMagnetUrl,
+        // ссылка ведёт в бот ВЛАДЕЛЬЦА магнита). Раньше в анонсе спикера была
+        // только строка с названием, а {gift_url} превью вырезало — клиент видел
+        // пустоту там, где у получателя должна быть ссылка.
+        const introGifts: Array<{ title: string; url: string }> = (Array.isArray(speaker.gift_magnets) ? speaker.gift_magnets : [])
+          .filter((g: any) => g && g.name)
+          .map((g: any) => ({ title: String(g.name), url: giftMagnetUrl(g, platform) }))
+        if (giftTitle && !introGifts.some((g) => g.title === giftTitle)) {
+          introGifts.unshift({ title: giftTitle, url: giftUrl })
+        }
+        const introGiftUrl = giftUrl || (introGifts[0]?.url || '')
+        const introGiftsBlock = giftsBlock(introGifts, introGifts.length > 1)
+        if (!introGiftUrl) out = out.replace(/^[^\n]*\{gift_url\}[^\n]*\n?/gm, '')
+        if (!introGiftsBlock) out = out.replace(/^[^\n]*\{gifts\}[^\n]*\n?/gm, '')
         if (!tgChannel) out = out.replace(/^[^\n]*\{speaker_tg\}[^\n]*\n?/gm, '')
         if (!insta) out = out.replace(/^[^\n]*\{speaker_instagram\}[^\n]*\n?/gm, '')
         // {speaker_socials} — все соцсети спикера списком (личный TG, TG-канал, VK,
@@ -1238,6 +1265,9 @@ export default function TemplatesPage() {
           .replace(/\{speaker_achievements\}/g, achText)
           .replace(/\{gift_after_speech_title\}/g, giftTitle)
           .replace(/\{gift_raffle_title\}/g, giftRaffle)
+          .replace(/\{gifts\}/g, introGiftsBlock)
+          .replace(/\{gift_url\}/g, introGiftUrl)
+          .replace(/\{gift_title\}/g, giftTitle)
           .replace(/\{landing_url\}/g, landingUrl())
         if (tgChannel) out = out.replace(/\{speaker_tg\}/g, `<b>Тг канал:</b> ${tgChannel}`)
         if (insta) out = out.replace(/\{speaker_instagram\}/g, `<b>Нельзяграм:</b> ${insta}`)
@@ -1262,7 +1292,7 @@ export default function TemplatesPage() {
         }
         let giftBlock = ''
         if (magnets.length) {
-          giftBlock = magnets.map((g) => (g.url ? `${g.title}\n${g.url}` : g.title)).join('\n\n')
+          giftBlock = giftsBlock(magnets)
         } else if (!giftTitle) {
           giftBlock = tgUrl
             ? `🎁 Чтобы забрать материалы — пишите в личку ${tgUrl}`
@@ -1582,10 +1612,11 @@ export default function TemplatesPage() {
         // Подарка нет вовсе — спикера в перечне не показываем (как на бэке),
         // чтобы не было мусорных строк «пишите в личку».
         if (!list.length) return ''
-        const body = list.length > 1
-          ? list.map((g, i) => (g.url ? `${i + 1}. ${g.title}\n${g.url}` : `${i + 1}. ${g.title}`)).join('\n\n')
-          : (list[0].url ? `${list[0].title}\n${list[0].url}`
-              : `${list[0].title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`)
+        // Единственный подарок БЕЗ ссылки — особый случай: зовём в личку, иначе
+        // осталось бы одно название без подсказки, что с ним делать.
+        const body = (list.length === 1 && !list[0].url)
+          ? `${list[0].title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`
+          : giftsBlock(list, list.length > 1)
         return `🎁 <b>${s.speaker_name}:</b>\n${body}`
       })
       .filter(Boolean)
