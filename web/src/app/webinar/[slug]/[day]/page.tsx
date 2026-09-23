@@ -449,8 +449,53 @@ export default function WebinarRoomPage() {
   // автоскролл чата
   useEffect(() => { chatBoxRef.current?.scrollTo(0, chatBoxRef.current.scrollHeight) }, [chat])
 
+  /**
+   * Модерация прямо в чате — доступна только организатору (`is_moderator`
+   * считает бэкенд по токену кабинета, подделать нельзя).
+   *
+   * ⚠️ Эндпоинты существовали давно, но кнопок к ним не было НИГДЕ: удалить
+   * сообщение или выгнать человека было физически нечем (19.09.2026).
+   *
+   * ⚠️⚠️ ХУК СТОИТ ЗДЕСЬ — ДО ВСЕХ `return`, И ПЕРЕНОСИТЬ ЕГО НИЖЕ НЕЛЬЗЯ.
+   * Он лежал после ранних `return` («Загрузка…»), и на первой же отрисовке,
+   * когда данные ещё не пришли, React видел РАЗНОЕ число хуков и ронял
+   * страницу целиком: «Minified React error #310», белый экран у зрителей
+   * при полностью исправном сервере (прод, 23.09.2026). Правило React —
+   * хуки вызываются всегда и в одном порядке, поэтому любой новый хук в
+   * этом компоненте добавлять только ВЫШЕ этой черты.
+   */
+  const modApi = useCallback(async (path: string) => {
+    const tok = typeof localStorage !== 'undefined' ? localStorage.getItem('plusson_token') : null
+    if (!tok || !room?.event?.id) return null
+    return fetch(`${API_URL}/api/v1/events/${room.event.id}/webinar/${day}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+    }).then(r => r.json()).catch(() => null)
+  }, [room?.event?.id, day])
+
+  // ─────────── ниже — только рендер, хуки сюда добавлять НЕЛЬЗЯ ───────────
   if (error) return <Centered>{error}</Centered>
   if (!room) return <Centered>Загрузка…</Centered>
+
+  // ⚠️⚠️ ПРОВЕРЯЕМ И `room.room`, а не только `room` (23.09.2026). Ответ
+  // приходил успешным, но без самой комнаты — и следующая же строка
+  // (`rm.room_state`) роняла страницу с «Application error» на белом экране.
+  // Человек при этом видел не «что-то пошло не так», а полностью мёртвую
+  // страницу, хотя сервер отвечал 200 и в логах было чисто.
+  //
+  // Такое возможно, когда комната ещё не создана или её удалили, пока
+  // страница была открыта. Показываем понятный экран вместо падения.
+  if (!room.room) {
+    return (
+      <Centered>
+        Комната этого дня ещё не настроена.
+        <br />
+        <span className="text-white/50 text-sm">
+          Если эфир вот-вот начнётся — обновите страницу через минуту.
+        </span>
+      </Centered>
+    )
+  }
 
   const rm = room.room
   const roomState = rm.room_state || 'created'
@@ -546,22 +591,6 @@ export default function WebinarRoomPage() {
       setChat(c => c.map(m => m._tmpId === tmpId ? { ...m, _failed: true } : m))
     }
   }
-
-  /**
-   * Модерация прямо в чате — доступна только организатору (`is_moderator`
-   * считает бэкенд по токену кабинета, подделать нельзя).
-   *
-   * ⚠️ Эндпоинты существовали давно, но кнопок к ним не было НИГДЕ: удалить
-   * сообщение или выгнать человека было физически нечем (19.09.2026).
-   */
-  const modApi = useCallback(async (path: string) => {
-    const tok = typeof localStorage !== 'undefined' ? localStorage.getItem('plusson_token') : null
-    if (!tok || !room?.event?.id) return null
-    return fetch(`${API_URL}/api/v1/events/${room.event.id}/webinar/${day}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-    }).then(r => r.json()).catch(() => null)
-  }, [room?.event?.id, day])
 
   async function hideMsg(msgId: number) {
     // Убираем сразу, не дожидаясь ответа: модератор жмёт, когда в чате уже
