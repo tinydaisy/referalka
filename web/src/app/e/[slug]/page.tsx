@@ -75,7 +75,12 @@ const SHARE_PREVIEW_DEFAULT = 'Приходи {дата} на «{названи�
 // падежи вычитанием.
 const SHARE_PREVIEW_DEFAULT_NO_DATE = 'Приходи на «{название}»'
 
-export function buildSharePreviewText(
+// ⚠️ БЕЗ `export`: Next.js разрешает странице экспортировать только свой набор
+// (default, generateMetadata, dynamic и т.п.) и падает на сборке —
+// «buildSharePreviewText is not a valid Page export field». Функция нужна
+// только здесь; понадобится снаружи — выносить в отдельный модуль, а не
+// экспортировать из файла страницы.
+function buildSharePreviewText(
   template: string | null | undefined,
   { title, date }: { title: string; date: string },
 ): string {
