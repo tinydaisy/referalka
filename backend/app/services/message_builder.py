@@ -1733,6 +1733,23 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # рассылку участникам не нужен.
         # ⚠️ Только по тексту: subject на этом шаге ещё не собран (он строится
         # ниже), обращение к нему здесь упало бы с NameError при отправке.
+        # ⚠️ {speaker_join_url} — вход СПИКЕРА в Zoom ЭТОГО дня (23.09.2026).
+        # Раньше он подставлялся только в «вы следующие» (`speakers_call`), где
+        # есть слот спикера. В «Программе дня» слота нет вовсе — рассылка на
+        # день целиком, — и плейсхолдер оставался сырым. У каждого дня своя
+        # зум-конференция, поэтому берём по (event_id, day).
+        if "{speaker_join_url}" in (text or ""):
+            _day_join = await conn.fetchval(
+                "SELECT speaker_join_url FROM webinar_rooms "
+                "WHERE event_id=$1 AND day_number=$2", event_id, day) or ""
+            if _day_join.strip():
+                text = text.replace("{speaker_join_url}", _day_join.strip())
+            else:
+                # Пусто → убираем строку целиком, как это делают остальные
+                # плейсхолдеры: «Зум:» без ссылки хуже, чем ничего.
+                text = re.sub(r"^[^\n]*\{speaker_join_url\}[^\n]*\n?", "",
+                              text or "", flags=re.MULTILINE)
+
         if "{day_program_speakers}" in (text or ""):
             _prog_sp = await _day_program_for_speakers(conn, event_id, day)
             if _prog_sp:
