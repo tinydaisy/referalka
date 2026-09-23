@@ -128,6 +128,33 @@ async def my_clients(
                       FROM subscription_orders so
                      WHERE so.client_id = c.id AND so.status='paid') AS total_paid_kopecks,
                    (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id) AS contacts_count,
+                   -- ⚠️ ЧТО У КЛИЕНТА ЕСТЬ (23.09.2026). Раньше внедренец видел
+                   -- только число контактов и не мог понять, живой это кабинет
+                   -- или пустой: события, боты, подписчики и вебинары говорят
+                   -- об этом сразу. Те же счётчики, что в админском списке
+                   -- клиентов, — чтобы цифры у владельца и у внедренца
+                   -- совпадали, а не спорили.
+                   (SELECT COUNT(*) FROM events e
+                     WHERE EXISTS (SELECT 1 FROM event_owners eo
+                                    WHERE eo.event_id = e.id AND eo.client_id = c.id
+                                      AND eo.status = 'accepted')) AS events_count,
+                   (SELECT COUNT(*) FROM client_channels cc
+                      JOIN channels ch ON ch.id = cc.channel_id
+                     WHERE cc.client_id = c.id AND ch.is_system = FALSE)
+                     AS own_channels_count,
+                   (SELECT COUNT(*) FROM platform_user_channels puc
+                      JOIN client_channels cc ON cc.id = puc.client_channel_id
+                     WHERE cc.client_id = c.id AND puc.is_unsubscribed = FALSE)
+                     AS subscribers_count,
+                   -- Комнаты считаем через события: своего client_id у них нет.
+                   (SELECT COUNT(*) FROM webinar_rooms wr
+                     WHERE EXISTS (SELECT 1 FROM event_owners eo
+                                    WHERE eo.event_id = wr.event_id
+                                      AND eo.client_id = c.id
+                                      AND eo.status = 'accepted')) AS webinars_count,
+                   (SELECT COUNT(*) FROM collaborators co
+                      JOIN contacts ct ON ct.id = co.contact_id
+                     WHERE ct.client_id = c.id) AS collaborators_count,
                    ({crm_case}) AS crm_status,
                    -- Свой или из базы ПЛЮСОНА: от этого зависят проценты.
                    ({REFERRER_SPEC_SQL} = $1) AS is_own,
