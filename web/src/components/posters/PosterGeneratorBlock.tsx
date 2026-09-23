@@ -96,6 +96,21 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // обновляется (замыкание держит значение с начала вызова), а сообщение об
   // ошибке должно назвать спикера, на котором оборвалось ПРЯМО СЕЙЧАС.
   const progressRef = useRef<{ done: number; total: number; who: string } | null>(null)
+
+  // ⚠️⚠️ ДВА ДЕЙСТВИЯ ВМЕСТО ПЯТИ КНОПОК (требование владельца 23.09.2026).
+  // Было: «Сохранить», «Скачать PNG (выбранного спикера)», «Опубликовать афиши
+  // спикеров (15)», «Только этому спикеру», «Опубликовать все три формата» —
+  // и по названиям не понять ни что делает «Сохранить», ни на кого действует
+  // «Только этому спикеру», ни чем два «опубликовать» отличаются друг от друга.
+  //
+  // Стало: ДВА действия — «Скачать на компьютер» и «Опубликовать», — а «кого»
+  // и «сколько форматов» выбирается переключателями рядом. Вопрос «что делает
+  // кнопка» перестаёт стоять: делает то, что на ней написано, с тем, что
+  // отмечено выше.
+  //
+  // ⚠️ Выбор общий на оба действия: скачать хотят то же самое, что публикуют.
+  const [scopeAll, setScopeAll] = useState(true)      // всех / только выбранного
+  const [allFormats, setAllFormats] = useState(false) // три формата / текущий
   const [dragId, setDragId] = useState<number | null>(null)
   // Пунктир границы полей — подсказка редактора, в макете не хранится.
   const [showMargins, setShowMargins] = useState(false)
@@ -204,17 +219,17 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     return () => clearTimeout(t)
   }, [layout, eventId, o, kind])
 
-  async function save() {
-    if (!layout) return
-    setSaving(true)
-    try {
-      const { orientation, ...body } = layout
-      const r = await api.posterLayout.save(eventId, o, body, kind)
-      setLayout({ ...r, orientation: o })
-      setSaved(true)
-    } catch (e: any) { setErr(e?.message || 'Не удалось сохранить') }
-    finally { setSaving(false) }
-  }
+  // ⚠️⚠️ КНОПКИ «СОХРАНИТЬ» ЗДЕСЬ БОЛЬШЕ НЕТ (23.09.2026). Владелец спросил
+  // прямо: «а сохранение макета нужно для чего? правки же и так пишутся в
+  // базу» — и был прав. Макет уходит на сервер сам через полторы секунды
+  // после последней правки (автосохранение выше), а скачивание и публикация
+  // сохраняют его ещё раз перед работой: картинку сервер рисует ПО БАЗЕ, а не
+  // по экрану. Кнопка делала ровно то, что уже случилось само, и стояла
+  // рядом с «Опубликовать» — из-за чего было непонятно, чем они отличаются.
+  //
+  // Состояния `saving` / `saved` живут: ими подписано автосохранение
+  // («Сохраняем настройки…» / «Настройки сохранены») — без этой надписи
+  // человек не видит, что правки вообще куда-то записались.
 
   /**
    * ⚠️ Перед снимком СОХРАНЯЕМ: картинку сервер рисует по базе, а не по экрану.
@@ -230,31 +245,48 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     try {
       const { orientation, ...body } = layout
       await api.posterLayout.save(eventId, o, body, kind)
-      await api.posterLayout.png(eventId, o, kind, {
-        // ⚠️ День — ТОТ ЖЕ, что в главном превью (первый), либо явно
-        // переданный кнопкой под конкретным днём.
-        day: kind === 'day' ? (dayNo ?? days[0]?.day ?? null) : null,
-        speaker: kind === 'individual' ? indSpeakerId : null,
-      })
+
+      // ⚠️⚠️ ОДИН ФАЙЛ ИЛИ АРХИВ — решают переключатели над кнопкой.
+      // Пачка (всех спикеров, все дни, три формата) уходит ZIP-архивом:
+      // браузер за раз отдаёт ОДИН файл, а пятнадцать подряд он считает
+      // подозрительными — просит разрешение, часть глотает вовсе.
+      //
+      // ⚠️ Кнопка под конкретным днём (`dayNo`) качает ровно его одним PNG,
+      // мимо переключателей: человек нажал под нужным превью, это и есть
+      // его выбор.
+      const single = dayNo != null || (!scopeAll && !allFormats)
+      if (single) {
+        await api.posterLayout.png(eventId, o, kind, {
+          day: kind === 'day' ? (dayNo ?? days[0]?.day ?? null) : null,
+          speaker: kind === 'individual' ? indSpeakerId : null,
+        })
+      } else {
+        await api.posterLayout.zip(eventId, o, kind, {
+          allFormats,
+          // Не «все» — значит только то, что открыто на экране.
+          day: kind === 'day' && !scopeAll ? (days[0]?.day ?? null) : null,
+          speaker: kind === 'individual' && !scopeAll ? indSpeakerId : null,
+        })
+      }
     } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
     finally { setBusy('') }
   }
 
   /**
-   * ⚠️⚠️ ОДНА КНОПКА СОБИРАЕТ ВСЕ АФИШИ РАЗДЕЛА (требование владельца).
-   * У события бывает четыре дня и полтора десятка спикеров: собирать каждую
-   * афишу отдельно — это двадцать нажатий и двадцать ожиданий подряд.
+   * ⚠️⚠️ ОДНА ФУНКЦИЯ ПУБЛИКАЦИИ вместо трёх кнопок (23.09.2026).
+   *
+   * Было три: «Опубликовать афиши спикеров (15)», «Только этому спикеру» и
+   * «Опубликовать все три формата». По названиям было не понять, на кого
+   * действует каждая и чем они отличаются: владелец спрашивал «что такое
+   * „только этому"?» — а это был охват, спрятанный в название кнопки.
+   *
+   * Теперь охват («всех / только этого») и число форматов («текущий / все
+   * три») — переключатели НАД кнопкой, а кнопка одна.
    *
    * Куда попадает результат, решает бэкенд:
    *   общие      — в афиши события;
    *   по дням    — в афиши СВОЕГО дня;
    *   спикерские — в карточку своего спикера (с проставленной галочкой).
-   */
-  /**
-   * ⚠️⚠️ ПУБЛИКАЦИЯ — ОДНА КНОПКА НА ВСЁ. Она же собирает афиши, она же
-   * кладёт их на место, она же открывает их спикерам. Отдельная кнопка
-   * «сохранить в афиши» не нужна: опубликовал — значит сохранил (решение
-   * владельца 19.09.2026).
    *
    * ⚠️ СПРАШИВАЕМ, ЗАМЕНИТЬ ИЛИ ДОБАВИТЬ. Раньше афиши всегда ложились рядом,
    * и после трёх пересборок у события копилась куча одинаковых картинок —
@@ -262,17 +294,14 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
    * sort и id, а все вставлялись с sort = 0). Несколько афиш оставить можно,
    * поэтому это вопрос, а не жёсткая замена.
    */
-  async function renderToLibrary() {
+  async function publish() {
     if (!layout) return
 
     const had = existing
     let replace = false
     if (had > 0) {
-      // ⚠️ Заменяем только ЭТУ ориентацию: опубликовал вертикальную —
-      // горизонтальная осталась на месте.
       replace = window.confirm(
-        `У события уже есть ${had} ${had === 1 ? 'афиша' : 'афиш'} этого вида `
-        + `(${ORIENTATIONS.find(x => x.key === o)?.label.toLowerCase()}).\n\n`
+        `У события уже есть ${had} ${had === 1 ? 'афиша' : 'афиш'} этого вида.\n\n`
         + 'ОК — заменить их новыми.\n'
         + 'Отмена — добавить новые рядом со старыми.',
       )
@@ -280,30 +309,37 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
 
     setBusy('render')
     try {
+      // В макете могут быть правки, которых сервер ещё не видел: автосохранение
+      // ждёт полторы секунды, а картинку сервер рисует ПО БАЗЕ, не по экрану.
       const { orientation, ...body } = layout
       await api.posterLayout.save(eventId, o, body, kind)
-      let n = 0
-      if (kind === 'individual') {
-        n = await renderSpeakersOneByOne(o, replace)
-      } else {
-        const r: any = await api.posterLayout.renderAll(eventId, o, kind, { replace, publish: true })
-        n = Array.isArray(r?.made) ? r.made.length : 0
+
+      const orients = allFormats ? ORIENTATIONS.map(x => x.key) : [o]
+      let total = 0
+      for (const ori of orients) {
+        if (kind === 'individual' && scopeAll) {
+          // По одному спикеру — короткие запросы вместо одного длинного,
+          // и виден счётчик «3 из 15».
+          total += await renderSpeakersOneByOne(ori, replace)
+        } else {
+          const r: any = await api.posterLayout.renderAll(eventId, ori, kind, {
+            replace,
+            publish: true,
+            // Не «всех» — значит того, кто открыт на экране.
+            speaker: kind === 'individual' && !scopeAll ? indSpeakerId : null,
+          })
+          total += Array.isArray(r?.made) ? r.made.length : 0
+        }
       }
+
       setErr(null)
       patch({ published_to_cabinet: true })
-      alert(
-        (kind === 'common' ? 'Афиша собрана и добавлена в афиши события'
-         : kind === 'day' ? `Готово: афиш по дням — ${n}. Каждая легла в афиши своего дня`
-         : `Готово: индивидуальных афиш — ${n}. Каждая легла в карточку своего спикера`)
-        + '\nСпикеры уже видят их в кабинете.',
-      )
+      alert(`Готово: собрано афиш — ${total}.\nСпикеры уже видят их в кабинете.`)
     } catch (e: any) { setErr(failMessage(e)) }
     finally { setBusy(''); setProgress(null); progressRef.current = null }
   }
 
-  /**
-   * Текст ошибки с именем спикера, на котором оборвалось.
-   *
+
    * ⚠️ Без имени сообщение «Что-то пошло не так» ничего не давало: пятнадцать
    * афиш собираются минутами, и понять, собралось ли хоть что-то и с кого
    * продолжать, было нельзя. Теперь видно, кто последний и сколько успело.
@@ -353,74 +389,6 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     progressRef.current = null
     return made
   }
-
-  /**
-   * ⚠️⚠️ АФИША ОДНОМУ СПИКЕРУ — отдельная кнопка (требование владельца
-   * 21.09.2026). Соседняя кнопка собирает всем сразу, и чтобы перевыпустить
-   * афишу одному человеку (переснял фото, поменялась тема выступления)
-   * приходилось пересобирать весь десяток: минуты ожидания и по лишней
-   * картинке в библиотеке у девяти человек, которых не трогали.
-   *
-   * ⚠️ Без вопроса «заменить или добавить»: заменять тут нечего — у человека
-   * в библиотеке лежат и его собственные загруженные афиши, сносить их нельзя.
-   */
-  async function publishOneSpeaker() {
-    if (!layout || indSpeakerId == null) return
-    const who = draggable.find(p => Number(p.id) === Number(indSpeakerId))
-    const fio = who ? [who.name, who.last_name].filter(Boolean).join(' ') : 'спикеру'
-    setBusy('one')
-    try {
-      const { orientation, ...body } = layout
-      await api.posterLayout.save(eventId, o, body, kind)
-      await api.posterLayout.renderAll(eventId, o, 'individual',
-                                       { publish: true, speaker: indSpeakerId })
-      setErr(null)
-      patch({ published_to_cabinet: true })
-      alert(`Готово: афиша собрана и лежит в кабинете — ${fio}.`)
-    } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
-    finally { setBusy('') }
-  }
-
-  /**
-   * ⚠️⚠️ ОДНА КНОПКА НА ВЕСЬ ТИП — все три ориентации сразу.
-   * Клиент публиковал вертикальную, горизонтальную и квадратную по очереди:
-   * «задолбалась по одной кнопке» (21.09.2026). Ориентации у макета разные,
-   * но решение «выпускаем» одно.
-   */
-  async function publishAllOrientations() {
-    if (!layout) return
-    const had = existing
-    let replace = false
-    if (had > 0) {
-      replace = window.confirm(
-        `У события уже есть собранные афиши этого вида.\n\n`
-        + 'ОК — заменить их новыми.\nОтмена — добавить рядом со старыми.',
-      )
-    }
-    setBusy('render')
-    try {
-      // Текущую сохраняем — в ней несохранённые правки.
-      const { orientation, ...body } = layout
-      await api.posterLayout.save(eventId, o, body, kind)
-      let total = 0
-      for (const ori of ORIENTATIONS) {
-        if (kind === 'individual') {
-          // По одному спикеру — см. renderSpeakersOneByOne: короткие запросы
-          // вместо одного длинного, и виден счётчик.
-          total += await renderSpeakersOneByOne(ori.key, replace)
-        } else {
-          const r: any = await api.posterLayout.renderAll(eventId, ori.key, kind,
-                                                          { replace, publish: true })
-          total += Array.isArray(r?.made) ? r.made.length : 0
-        }
-      }
-      setErr(null)
-      patch({ published_to_cabinet: true })
-      alert(`Готово: собрано афиш — ${total} (все три формата).\nСпикеры уже видят их в кабинете.`)
-    } catch (e: any) { setErr(e?.message || 'Не удалось собрать афиши') }
-    finally { setBusy(''); setProgress(null); progressRef.current = null }
-  }
-
   /** Копирование фона и оформления в другие виды этой же ориентации. */
   async function copyDesign() {
     if (!layout) return
@@ -741,54 +709,121 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-3 mt-4">
-            <button onClick={save} disabled={saving} className="btn-gold px-6 py-2.5 text-sm">
-              {saving ? 'Сохраняем…' : 'Сохранить'}
-            </button>
-            {/* ⚠️ Оборачиваем в стрелку: `onClick={download}` передал бы в
-                аргумент событие мыши вместо номера дня. */}
-            <button onClick={() => download()} disabled={!!busy} className="btn-primary px-5 py-2.5 text-sm">
-              {busy === 'png' ? 'Собираем…'
-                : kind === 'day' ? `Скачать PNG (${days[0]?.label || 'первый день'})`
-                : kind === 'individual' ? 'Скачать PNG (выбранного спикера)'
-                : 'Скачать PNG'}
-            </button>
-            {/* ⚠️ Публикация — главное действие экрана, поэтому золотая кнопка.
-                Она же собирает афиши и открывает их спикерам: отдельная
-                «сохранить в афиши» не нужна. */}
-            <button onClick={renderToLibrary} disabled={!!busy} className="btn-gold px-5 py-2.5 text-sm">
-              {busy === 'render'
-                // ⚠️ Счётчик прямо НА кнопке, а не только строкой ниже: глаза
-                // человека на кнопке, которую он нажал, и «Собираем…» само по
-                // себе не отличает живую сборку от зависшей.
-                ? (progress ? `Собираем… ${progress.done + 1} из ${progress.total}` : 'Собираем…')
-                : kind === 'common' ? 'Опубликовать афишу'
-                : kind === 'day' ? `Опубликовать афиши дней (${days.length})`
-                : `Опубликовать афиши спикеров (${draggable.length})`}
-            </button>
-            {/* ⚠️⚠️ АФИША ОДНОМУ СПИКЕРУ. Соседняя кнопка собирает всем сразу:
-                перевыпустить одному человеку значило пересобрать весь десяток
-                и положить девятерым по лишней картинке. */}
-            {kind === 'individual' && indSpeakerId != null && (
-              <button onClick={publishOneSpeaker} disabled={!!busy}
-                      className="btn-primary px-5 py-2.5 text-sm">
-                {busy === 'one' ? 'Собираем…' : 'Только этому спикеру'}
+          {/* ⚠️⚠️ ДВА ДЕЙСТВИЯ, А НЕ ПЯТЬ КНОПОК (требование владельца 23.09.2026).
+              Было: «Сохранить», «Скачать PNG (выбранного спикера)»,
+              «Опубликовать афиши спикеров (15)», «Только этому спикеру»,
+              «Опубликовать все три формата». Владелец спрашивал прямо: что
+              такое «Сохранить» и чем оно отличается от «Опубликовать»? что
+              значит «только этому»? Охват был спрятан в НАЗВАНИЯ кнопок, и
+              каждое новое сочетание требовало ещё одной кнопки.
+
+              Стало: два действия — скачать и опубликовать, — а «кого» и
+              «сколько форматов» выбирается переключателями над ними. Выбор
+              общий: скачивают обычно то же самое, что публикуют.
+
+              ⚠️ Кнопки «Сохранить» больше нет ВОВСЕ. Макет пишется в базу сам
+              через полторы секунды после правки (автосохранение выше), и
+              каждое скачивание с публикацией сохраняют его перед работой.
+              Кнопка не делала ничего, чего не случилось бы без неё. */}
+          <div className="mt-4 rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-2.5 text-sm font-semibold"
+                 style={{ background: '#FFCFA4', color: '#25455D' }}>
+              Что сделать с афишей
+            </div>
+
+            <div className="p-4 space-y-4">
+              {/* ── Переключатели охвата ───────────────────────────────── */}
+              <div className="flex flex-wrap gap-x-8 gap-y-3">
+                {/* Кого. На общих афишах выбирать некого — блока нет. */}
+                {kind !== 'common' && (
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1.5">Кого собираем</div>
+                    <div className="flex flex-wrap gap-4">
+                      {[
+                        { v: true,  label: kind === 'day'
+                                             ? `Все дни (${days.length})`
+                                             : `Всех спикеров (${draggable.length})` },
+                        { v: false, label: kind === 'day' ? 'Только этот день' : 'Только этого спикера' },
+                      ].map(x => (
+                        <label key={String(x.v)} className="flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                          <input
+                            type="radio"
+                            name="poster-scope"
+                            checked={scopeAll === x.v}
+                            onChange={() => setScopeAll(x.v)}
+                          />
+                          {x.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Сколько форматов. */}
+                <div>
+                  <div className="text-xs text-gray-500 mb-1.5">В каком формате</div>
+                  <div className="flex flex-wrap gap-4">
+                    {[
+                      { v: false, label: `Текущий (${ORIENTATIONS.find(x => x.key === o)?.label.toLowerCase()})` },
+                      { v: true,  label: 'Все три формата' },
+                    ].map(x => (
+                      <label key={String(x.v)} className="flex items-center gap-2 cursor-pointer text-sm text-gray-800">
+                        <input
+                          type="radio"
+                          name="poster-formats"
+                          checked={allFormats === x.v}
+                          onChange={() => setAllFormats(x.v)}
+                        />
+                        {x.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Сами действия ──────────────────────────────────────── */}
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                {/* ⚠️ Публикация — главное действие экрана, поэтому золотая
+                    кнопка. Она же собирает афиши, она же кладёт их на место,
+                    она же открывает их спикерам. */}
+                <button onClick={publish} disabled={!!busy} className="btn-gold px-5 py-2.5 text-sm">
+                  {busy === 'render'
+                    /* ⚠️ Счётчик прямо НА кнопке, а не только строкой ниже:
+                       глаза человека на кнопке, которую он нажал, и
+                       «Собираем…» само по себе не отличает живую сборку от
+                       зависшей. */
+                    ? (progress ? `Собираем… ${progress.done + 1} из ${progress.total}` : 'Собираем…')
+                    : 'Опубликовать в карточку и кабинет спикера'}
+                </button>
+
+                {/* ⚠️ Оборачиваем в стрелку: `onClick={download}` передал бы в
+                    аргумент событие мыши вместо номера дня. */}
+                <button onClick={() => download()} disabled={!!busy}
+                        className="btn-primary px-5 py-2.5 text-sm">
+                  {busy === 'png' ? 'Собираем…' : 'Скачать на компьютер'}
+                </button>
+
+                {layout.published_to_cabinet && (
+                  <span className="text-xs text-green-600">Видно спикерам</span>
+                )}
+                {saving && <span className="text-xs text-gray-400">Сохраняем настройки…</span>}
+                {saved && !saving && <span className="text-xs text-green-600">Настройки сохранены</span>}
+              </div>
+
+              <p className="text-[11px] text-gray-400">
+                {kind === 'common'
+                  ? 'Публикация кладёт афишу в афиши события.'
+                  : kind === 'day'
+                  ? 'Публикация кладёт каждую афишу в афиши своего дня.'
+                  : 'Публикация кладёт каждую афишу в карточку своего спикера — он сразу видит её в кабинете.'}
+                {' '}Скачивание нескольких афиш приходит одним ZIP-архивом.
+              </p>
+
+              <button onClick={copyDesign} disabled={!!busy}
+                      className="text-sm text-gray-500 hover:text-gray-700 underline">
+                Скопировать оформление во все {ORIENTATIONS.find(x => x.key === o)?.label.toLowerCase()}
               </button>
-            )}
-            <button onClick={publishAllOrientations} disabled={!!busy}
-                    className="btn-primary px-5 py-2.5 text-sm">
-              {busy === 'render'
-                ? (progress ? `Собираем… ${progress.done + 1} из ${progress.total}` : 'Собираем…')
-                : 'Опубликовать все три формата'}
-            </button>
-            <button onClick={copyDesign} disabled={!!busy}
-                    className="text-sm text-gray-500 hover:text-gray-700 underline">
-              Скопировать оформление во все {ORIENTATIONS.find(x => x.key === o)?.label.toLowerCase()}
-            </button>
-            {layout.published_to_cabinet && (
-              <span className="text-xs text-green-600">Видно спикерам</span>
-            )}
-            {saved && <span className="text-sm text-green-600">Сохранено</span>}
+            </div>
           </div>
 
           {/* ⚠️⚠️ ЧЬЯ АФИША СОБИРАЕТСЯ ПРЯМО СЕЙЧАС. Сборка десятка афиш идёт

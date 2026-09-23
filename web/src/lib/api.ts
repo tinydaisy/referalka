@@ -1864,6 +1864,24 @@ export const api = {
         + (kind === 'day' && opts?.day != null ? `&day=${opts.day}` : '')
         + (kind === 'individual' && opts?.speaker != null ? `&speaker=${opts.speaker}` : ''),
         'afisha.png'),
+    /** Пачка афиш одним ZIP-архивом (23.09.2026).
+     *
+     * ⚠️ Почему архив, а не пятнадцать скачиваний подряд: браузер за раз
+     * отдаёт один файл, а пятнадцать считает подозрительными — просит
+     * разрешение, часть глотает вовсе. Внутри архива имена говорящие
+     * («Наталья_Барвинская_квадратная.png»).
+     *
+     * `speaker`/`day` не переданы — собираем ВСЕХ (в этом и смысл архива).
+     * `allFormats` — три формата вместо одного текущего. */
+    zip: (eventId: number, o: 'horizontal' | 'vertical' | 'square',
+          kind: PosterKind = 'common',
+          opts?: { day?: number | null; speaker?: number | null; allFormats?: boolean }) =>
+      downloadPdf(
+        `/api/v1/events/${eventId}/poster-layout/${o}/zip?kind=${kind}`
+        + `&all_formats=${opts?.allFormats ? 'true' : 'false'}`
+        + (kind === 'day' && opts?.day != null ? `&day=${opts.day}` : '')
+        + (kind === 'individual' && opts?.speaker != null ? `&speaker=${opts.speaker}` : ''),
+        'afishi.zip'),
     // Собрать афишу и сразу положить её в афиши события — чтобы не качать
     // картинку и не загружать обратно руками.
     render: (eventId: number, o: 'horizontal' | 'vertical' | 'square') =>

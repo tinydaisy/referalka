@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 from urllib.parse import quote, urlencode
 
@@ -34,9 +35,21 @@ from app.services.preview_token import make_preview_token
 from app.services.event_photo import apply_event_photo
 from app.services.store_file import store_bytes
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["Генератор афиш"])
 
 ORIENTATIONS = ("horizontal", "vertical", "square")
+
+# Как формат называется В ИМЕНИ ФАЙЛА при скачивании пачкой.
+# ⚠️ Те же слова, что в ZIP «Материалов для спикеров»: человек видит одни и
+# те же названия форматов везде, а не «square» в одном месте и
+# «квадратная» в другом.
+_ORIENTATION_FILE = {
+    "horizontal": "горизонтальная",
+    "vertical":   "вертикальная",
+    "square":     "квадратная",
+}
 
 # ⚠️ ОДИН перечень полей на чтение и на запись. Два разных списка неизбежно
 # разъезжаются, и новое поле формы молча перестаёт сохраняться — ровно этим
@@ -1270,6 +1283,98 @@ async def poster_png(
     return Response(content=png, media_type="image/png", headers={
         "Content-Disposition":
             f"attachment; filename=\"poster.png\"; filename*=UTF-8''{quote(name)}.png",
+    })
+
+
+@router.get("/events/{event_id}/poster-layout/{orientation}/zip",
+            summary="Скачать пачку афиш одним архивом")
+async def poster_zip(
+    event_id: int,
+    orientation: str,
+    kind: str = "common",
+    # all_formats — три формата вместо одного текущего.
+    all_formats: bool = False,
+    # Для kind='day' / 'individual': ОДИН день или спикер вместо всех.
+    # Не передан — собираем всех, это и есть смысл архива.
+    day: int | None = None,
+    speaker: int | None = None,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Пачка афиш одним ZIP.
+
+    ⚠️⚠️ ПОЧЕМУ АРХИВ, А НЕ ПЯТНАДЦАТЬ СКАЧИВАНИЙ (23.09.2026). Браузер за раз
+    отдаёт один файл; пятнадцать подряд он считает подозрительными и просит
+    разрешение, а часть просто глотает. Плюс в папке «Загрузки» вперемешку
+    оказываются афиши всех событий — здесь же они лежат внутри одного архива
+    с именем события.
+
+    ⚠️ Имя файла внутри архива — ИМЯ ЧЕЛОВЕКА И ФОРМАТ («Наталья_Барвинская_
+    квадратная.png»), как в «Материалах для спикеров». Файл отправляют по
+    одному, вытащив из архива: «квадратная.png» вне папки не говорит ни о чём.
+    """
+    import io
+    import zipfile
+
+    _check_orientation(orientation)
+    if kind not in KINDS:
+        raise HTTPException(404, detail="Неизвестный вид афиши")
+    client_id = int(user["sub"])
+    await _guard(db, event_id, client_id)
+
+    orients = list(ORIENTATIONS) if all_formats else [orientation]
+
+    # Что снимаем: список (день|спикер, подпись для имени файла).
+    targets: list[tuple[int | None, int | None, str]] = []
+    if kind == "common":
+        targets = [(None, None, "")]
+    elif kind == "day":
+        days = await _days(db, event_id)
+        if not days:
+            raise HTTPException(400, detail="У события нет дней — афишу дня собрать не из чего")
+        if day is not None:
+            days = [d for d in days if int(d["day"]) == int(day)] or days[:1]
+        for d in days:
+            label = d["label"].split(" — ")[0].strip().replace(" ", "_")
+            targets.append((int(d["day"]), None, label))
+    else:
+        people = [p for p in await _people(db, event_id) if not p.get("is_company")]
+        if not people:
+            raise HTTPException(400, detail="У события нет спикеров с фото — афишу собрать не из чего")
+        if speaker is not None:
+            people = [p for p in people if int(p["id"]) == int(speaker)] or people[:1]
+        for p in people:
+            fio = "_".join(x for x in [p.get("name"), p.get("last_name")] if x).strip("_")
+            targets.append((None, int(p["id"]), fio or f"спикер_{p['id']}"))
+
+    ev_title = await db.fetchval("SELECT title FROM events WHERE id = $1", event_id) or "событие"
+
+    buf = io.BytesIO()
+    made = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for ori in orients:
+            for d_no, sp_id, label in targets:
+                try:
+                    png = await render_poster_png(
+                        _render_url(event_id, ori, client_id, kind, d_no, sp_id), ori,
+                    )
+                except PosterRenderError as e:
+                    # ⚠️ Одна не собралась — архив всё равно отдаём. Пятнадцать
+                    # афиш собираются минутами, и ронять всю пачку из-за одного
+                    # спикера значит заставить ждать заново с нуля.
+                    logger.warning("ZIP афиш: не собралась %s/%s: %s", label or "общая", ori, e)
+                    continue
+                name = "_".join(x for x in [label, _ORIENTATION_FILE[ori]] if x)
+                zf.writestr(f"{name}.png", png)
+                made += 1
+
+    if made == 0:
+        raise HTTPException(503, detail="Ни одна афиша не собралась. Попробуйте ещё раз.")
+
+    fname = f"афиши {ev_title}".replace("/", "-")
+    return Response(content=buf.getvalue(), media_type="application/zip", headers={
+        "Content-Disposition":
+            f"attachment; filename=\"posters.zip\"; filename*=UTF-8''{quote(fname)}.zip",
     })
 
 
