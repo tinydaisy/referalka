@@ -372,7 +372,9 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
    *
    * Возвращает, сколько афиш собралось.
    */
-  async function renderSpeakersOneByOne(ori: string, replace: boolean): Promise<number> {
+  // ⚠️ `PosterOrientation`, а не `string`: api.posterLayout.renderAll принимает
+  // ровно три значения, и с `string` сборка падает на типах.
+  async function renderSpeakersOneByOne(ori: PosterOrientation, replace: boolean): Promise<number> {
     const list = draggable
     let made = 0
     for (let i = 0; i < list.length; i++) {
