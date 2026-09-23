@@ -86,6 +86,16 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   // 'one' — сборка афиши одному спикеру (кнопка «Только этому спикеру»).
   const [busy, setBusy] = useState<'' | 'png' | 'render' | 'one'>('')
   const [err, setErr] = useState<string | null>(null)
+  // ⚠️⚠️ ПРОГРЕСС СБОРКИ «3 из 15 — Наталья Барвинская» (23.09.2026).
+  // Раньше кнопка просто гасла на несколько минут: понять, идёт сборка или
+  // давно умерла, было нельзя, и владелец жал второй раз поверх идущей.
+  // Заодно это лечит обрыв по таймауту: пятнадцать афиш собирались ОДНИМ
+  // запросом, который жил минутами, — теперь пятнадцать коротких.
+  const [progress, setProgress] = useState<{ done: number; total: number; who: string } | null>(null)
+  // ⚠️ Тот же прогресс в ref: состояние внутри одного прохода функции не
+  // обновляется (замыкание держит значение с начала вызова), а сообщение об
+  // ошибке должно назвать спикера, на котором оборвалось ПРЯМО СЕЙЧАС.
+  const progressRef = useRef<{ done: number; total: number; who: string } | null>(null)
   const [dragId, setDragId] = useState<number | null>(null)
   // Пунктир границы полей — подсказка редактора, в макете не хранится.
   const [showMargins, setShowMargins] = useState(false)
@@ -272,18 +282,76 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     try {
       const { orientation, ...body } = layout
       await api.posterLayout.save(eventId, o, body, kind)
-      const r: any = await api.posterLayout.renderAll(eventId, o, kind, { replace, publish: true })
+      let n = 0
+      if (kind === 'individual') {
+        n = await renderSpeakersOneByOne(o, replace)
+      } else {
+        const r: any = await api.posterLayout.renderAll(eventId, o, kind, { replace, publish: true })
+        n = Array.isArray(r?.made) ? r.made.length : 0
+      }
       setErr(null)
       patch({ published_to_cabinet: true })
-      const n = Array.isArray(r?.made) ? r.made.length : 0
       alert(
         (kind === 'common' ? 'Афиша собрана и добавлена в афиши события'
          : kind === 'day' ? `Готово: афиш по дням — ${n}. Каждая легла в афиши своего дня`
          : `Готово: индивидуальных афиш — ${n}. Каждая легла в карточку своего спикера`)
         + '\nСпикеры уже видят их в кабинете.',
       )
-    } catch (e: any) { setErr(e?.message || 'Не удалось собрать афишу') }
-    finally { setBusy('') }
+    } catch (e: any) { setErr(failMessage(e)) }
+    finally { setBusy(''); setProgress(null); progressRef.current = null }
+  }
+
+  /**
+   * Текст ошибки с именем спикера, на котором оборвалось.
+   *
+   * ⚠️ Без имени сообщение «Что-то пошло не так» ничего не давало: пятнадцать
+   * афиш собираются минутами, и понять, собралось ли хоть что-то и с кого
+   * продолжать, было нельзя. Теперь видно, кто последний и сколько успело.
+   */
+  function failMessage(e: any): string {
+    const base = e?.message || 'Не удалось собрать афишу'
+    const p = progressRef.current
+    if (!p) return base
+    return `${base} Оборвалось на «${p.who}» (${p.done + 1} из ${p.total}). `
+      + 'Афиши, собранные до него, на месте — нажмите ещё раз и откажитесь от замены.'
+  }
+
+  /**
+   * ⚠️⚠️ ИНДИВИДУАЛЬНЫЕ АФИШИ СОБИРАЕМ ПО ОДНОМУ СПИКЕРУ (23.09.2026).
+   *
+   * Раньше весь десяток собирался ОДНИМ запросом: сервер рендерил афиши в
+   * headless Chrome по очереди, запрос жил минутами, а экран всё это время
+   * молчал. Отсюда две беды разом — владелец не понимал, идёт сборка или
+   * умерла (и жал второй раз поверх идущей), а сам запрос иногда обрывался,
+   * не дойдя до конца: «Что-то пошло не так», со второго раза проходило.
+   *
+   * Теперь на каждого спикера свой короткий запрос, и между ними виден
+   * счётчик «3 из 15 — Наталья Барвинская».
+   *
+   * ⚠️ `replace` отдаём ТОЛЬКО с первым спикером. На втором и дальше он
+   * снёс бы афиши, которые только что положил первый.
+   *
+   * Возвращает, сколько афиш собралось.
+   */
+  async function renderSpeakersOneByOne(ori: string, replace: boolean): Promise<number> {
+    const list = draggable
+    let made = 0
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]
+      const fio = [p.name, p.last_name].filter(Boolean).join(' ') || 'спикер'
+      const st = { done: i, total: list.length, who: fio }
+      progressRef.current = st
+      setProgress(st)
+      const r: any = await api.posterLayout.renderAll(eventId, ori, 'individual', {
+        replace: replace && i === 0,
+        publish: true,
+        speaker: p.id,
+      })
+      made += Array.isArray(r?.made) ? r.made.length : 0
+    }
+    setProgress(null)
+    progressRef.current = null
+    return made
   }
 
   /**
@@ -336,15 +404,21 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       await api.posterLayout.save(eventId, o, body, kind)
       let total = 0
       for (const ori of ORIENTATIONS) {
-        const r: any = await api.posterLayout.renderAll(eventId, ori.key, kind,
-                                                        { replace, publish: true })
-        total += Array.isArray(r?.made) ? r.made.length : 0
+        if (kind === 'individual') {
+          // По одному спикеру — см. renderSpeakersOneByOne: короткие запросы
+          // вместо одного длинного, и виден счётчик.
+          total += await renderSpeakersOneByOne(ori.key, replace)
+        } else {
+          const r: any = await api.posterLayout.renderAll(eventId, ori.key, kind,
+                                                          { replace, publish: true })
+          total += Array.isArray(r?.made) ? r.made.length : 0
+        }
       }
       setErr(null)
       patch({ published_to_cabinet: true })
       alert(`Готово: собрано афиш — ${total} (все три формата).\nСпикеры уже видят их в кабинете.`)
     } catch (e: any) { setErr(e?.message || 'Не удалось собрать афиши') }
-    finally { setBusy('') }
+    finally { setBusy(''); setProgress(null); progressRef.current = null }
   }
 
   /** Копирование фона и оформления в другие виды этой же ориентации. */
@@ -683,7 +757,11 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 Она же собирает афиши и открывает их спикерам: отдельная
                 «сохранить в афиши» не нужна. */}
             <button onClick={renderToLibrary} disabled={!!busy} className="btn-gold px-5 py-2.5 text-sm">
-              {busy === 'render' ? 'Собираем…'
+              {busy === 'render'
+                // ⚠️ Счётчик прямо НА кнопке, а не только строкой ниже: глаза
+                // человека на кнопке, которую он нажал, и «Собираем…» само по
+                // себе не отличает живую сборку от зависшей.
+                ? (progress ? `Собираем… ${progress.done + 1} из ${progress.total}` : 'Собираем…')
                 : kind === 'common' ? 'Опубликовать афишу'
                 : kind === 'day' ? `Опубликовать афиши дней (${days.length})`
                 : `Опубликовать афиши спикеров (${draggable.length})`}
@@ -699,7 +777,9 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             )}
             <button onClick={publishAllOrientations} disabled={!!busy}
                     className="btn-primary px-5 py-2.5 text-sm">
-              {busy === 'render' ? 'Собираем…' : 'Опубликовать все три формата'}
+              {busy === 'render'
+                ? (progress ? `Собираем… ${progress.done + 1} из ${progress.total}` : 'Собираем…')
+                : 'Опубликовать все три формата'}
             </button>
             <button onClick={copyDesign} disabled={!!busy}
                     className="text-sm text-gray-500 hover:text-gray-700 underline">
@@ -710,6 +790,34 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             )}
             {saved && <span className="text-sm text-green-600">Сохранено</span>}
           </div>
+
+          {/* ⚠️⚠️ ЧЬЯ АФИША СОБИРАЕТСЯ ПРЯМО СЕЙЧАС. Сборка десятка афиш идёт
+              минуты, и без этой строки экран молчал: непонятно, живой процесс
+              или упал. Здесь же видно, на ком остановилось, если оборвётся. */}
+          {progress && (
+            <div className="mt-3 p-3 rounded-xl bg-[#25455D]/5 border border-[#25455D]/15">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="text-sm text-[#25455D]">
+                  Собираем афишу: <b>{progress.who}</b>
+                </span>
+                <span className="text-sm font-semibold text-[#25455D] shrink-0">
+                  {progress.done + 1} из {progress.total}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-[#25455D]/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%`,
+                    background: '#FFCFA4',
+                  }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1.5">
+                Не закрывайте страницу — афиши собираются по одной.
+              </p>
+            </div>
+          )}
 
           {/* ⚠️⚠️ ПРЕВЬЮ ВСЕХ ДНЕЙ ДРУГ ПОД ДРУГОМ (требование владельца):
               настройки общие на все дни, и проверять их надо сразу на всех —
