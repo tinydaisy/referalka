@@ -736,12 +736,20 @@ function AssignTab({ specs, onChange }: any) {
                 {label}
               </button>
             ))}
+          {/* ⚠️ В подписи перечислены ВСЕ поля, по которым ищет сервер, —
+              имя, фамилия, почта, телеграм. Неполный список читается как
+              ограничение: по фамилии не искали, считая, что она не найдётся. */}
           <input value={q} onChange={e => setQ(e.target.value)}
-                 placeholder="Поиск по имени, почте, телеграму"
+                 placeholder="Поиск: имя, фамилия, почта, телеграм"
                  className="min-w-[220px] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
         </div>
+        {/* ⚠️ Показываем НАЙДЕНО ВСЕГО, а не длину страницы: строк на экране
+            всегда 50, и по ним не понять, три человека нашлись или триста. */}
         <div className="mt-2 text-sm font-semibold text-gray-800">
-          {loading ? 'Загружаем…' : `Показано — ${items.length}`}
+          {loading ? 'Загружаем…'
+            : total > items.length
+              ? `Найдено — ${total}, показаны ${offset + 1}–${Math.min(offset + PAGE, total)}`
+              : `Показано — ${items.length}`}
         </div>
         <p className="mt-0.5 text-xs text-gray-500">
           Остывшие показаны наравне с остальными: именно с ними работают ради оживления.
