@@ -56,7 +56,13 @@ async def email_verification_guard_middleware(request: Request, call_next):
         return await call_next(request)
 
     role = payload.get("role")
-    if role in ("admin", "assistant"):
+    # ⚠️⚠️ `tech` В СПИСКЕ (23.09.2026): у внедренца в `sub` лежит id РОЛИ
+    # (`tech_specialists.id`), а не кабинета. Без этой ветки охранник читал его
+    # как `client_id` и проверял подтверждение почты У ПОСТОРОННЕГО КЛИЕНТА с
+    # таким номером — то есть закрывал кабинет внедренца по чужим данным.
+    # Та же ошибка была в `subscription_guard`, там она дала «Тариф истёк» у
+    # человека, у которого тарифа быть не может.
+    if role in ("admin", "assistant", "tech"):
         return await call_next(request)
 
     sub = payload.get("sub")

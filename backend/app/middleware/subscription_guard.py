@@ -254,6 +254,19 @@ async def subscription_guard_middleware(request: Request, call_next):
     if payload.get("role") == "admin":
         return await call_next(request)
 
+    # ⚠️⚠️ ВНЕДРЕНЕЦ СЮДА НЕ ПОПАДАЕТ (23.09.2026). Он работает с ЧУЖИМИ
+    # клиентами, своей подписки у его роли нет вовсе — замораживать ему
+    # кабинет не за что.
+    #
+    # ⚠️ Хуже того: у роли `tech` в `sub` лежит id САМОЙ РОЛИ
+    # (`tech_specialists.id`), а не кабинета. Охранник читал его как
+    # `client_id` и проверял подписку У ПОСТОРОННЕГО КЛИЕНТА с таким номером —
+    # то есть закрывал или открывал кабинет внедренца по чужой подписке.
+    # На проде это проявилось как «Тариф истёк» в разделе диалогов у человека,
+    # у которого никакого тарифа и быть не может.
+    if payload.get("role") == "tech":
+        return await call_next(request)
+
     sub = payload.get("sub")
     if not sub:
         return await call_next(request)
