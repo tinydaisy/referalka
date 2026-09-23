@@ -1270,6 +1270,23 @@ async def copy_event(
                 )
 
         # broadcast_templates — копируем шаблоны (без расписания/очереди)
+        #
+        # ⚠️⚠️ АФИША ПЕРЕСАЖИВАЕТСЯ НА НОВОЕ СОБЫТИЕ (23.09.2026). Раньше
+        # `photo_url` копировался как есть — вместе с путём чужого события
+        # (`posters/event_4/…`). Рассылка «Итоги дня» у событий 14 и 89 так и
+        # уходила с афишей события 4, и никто не понимал, откуда она берётся:
+        # в кабинете у события своя афиша, а в письме чужая.
+        #
+        # ⚠️ Меняем ТОЛЬКО ссылку, совпадающую с афишей оригинала. Картинку,
+        # которую клиент загрузил в шаблон руками, не трогаем вовсе — это его
+        # осознанный выбор, и подменять её нашей догадкой нельзя.
+        old_posters = {r["url"] for r in await db.fetch(
+            "SELECT url FROM event_posters WHERE event_id = $1 AND url IS NOT NULL",
+            event_id)}
+        # Афиша копии: горизонтальная в приоритете (правило проекта, мигр. 215).
+        new_poster = await db.fetchval(
+            "SELECT url FROM event_posters WHERE event_id = $1 AND url IS NOT NULL "
+            " ORDER BY (orientation = 'horizontal') DESC, sort, id LIMIT 1", new_id)
         templates = await db.fetch("SELECT * FROM broadcast_templates WHERE event_id = $1", event_id)
         for tpl in templates:
             td = dict(tpl)
@@ -1283,6 +1300,10 @@ async def copy_event(
                 td['custom_slot_session_id'] = None
                 if td.get('custom_bind_kind') == 'slot':
                     td['custom_bind_kind'] = 'day'
+            # Афиша оригинала → афиша копии (или пусто, если у копии её нет:
+            # чужая картинка хуже, чем никакой).
+            if td.get('photo_url') and td['photo_url'] in old_posters:
+                td['photo_url'] = new_poster
             cols = list(td.keys())
             placeholders = ",".join(f"${i+2}" for i in range(len(cols)))
             await db.execute(
