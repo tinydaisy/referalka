@@ -32,6 +32,7 @@ import logging
 from app.database import get_db
 from app.auth import get_current_client
 from app.services.channels import get_client_telegram_token
+from app.services.person_name import DISPLAY_NAME_SQL
 from app.config import settings as app_settings
 
 logger = logging.getLogger(__name__)
@@ -383,7 +384,10 @@ async def list_winners(
             t.code_word,
             cse.gift_raffle_title,
             cse.gift_raffle_url,
-            col.name                   AS speaker_name,
+            -- ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно имя,
+            -- фамилия в `last_name`. Победителю показывали «Анастасия» — из
+            -- двух разных не понять, чей приз.
+            """ + DISPLAY_NAME_SQL("col") + """ AS speaker_name,
             (SELECT pu.username FROM platform_users pu
               WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
               ORDER BY pu.id LIMIT 1) AS speaker_tg_username,
@@ -482,7 +486,7 @@ async def draw_winner(
               ORDER BY pu.id LIMIT 1) AS winner_tg_id,
             cse.gift_raffle_title,
             cse.gift_raffle_url,
-            col.name                  AS speaker_name,
+            """ + DISPLAY_NAME_SQL("col") + """ AS speaker_name,   -- имя + фамилия, см. выше
             (SELECT pu.username FROM platform_users pu
               WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
               ORDER BY pu.id LIMIT 1) AS speaker_tg_username,

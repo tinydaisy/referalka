@@ -25,6 +25,7 @@ import logging
 
 from app.database import get_pool
 from app.services.contact_merge import upsert_contact_with_identity
+from app.services.person_name import DISPLAY_NAME_SQL
 
 router = APIRouter(prefix="/events/{slug}/raffle", tags=["Розыгрыш — Mini App"])
 
@@ -298,7 +299,9 @@ async def get_my_raffle(slug: str, tg_id: int):
             SELECT
                 cse.gift_raffle_title       AS prize_title,
                 cse.gift_raffle_url         AS prize_url,
-                col.name                    AS speaker_name,
+                -- ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно
+                -- имя, фамилия в `last_name`. Публичная страница розыгрыша.
+                """ + DISPLAY_NAME_SQL("col") + """ AS speaker_name,
                 (SELECT pu.username FROM platform_users pu
                   WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
                   ORDER BY pu.id LIMIT 1) AS speaker_tg_username,
