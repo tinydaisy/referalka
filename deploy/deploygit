@@ -39,7 +39,13 @@
 set -e
 
 REPO="tinydaisy/referalka"
-BRANCH="main"
+# ⚠️ Прогоны ищутся по `?branch=`, и для сборки, запущенной ТЕГОМ
+# (`git tag build-… && git push --tags`), там стоит имя тега, а не `main` —
+# такая сборка для выкатки невидима: команда вечно пишет «сборка ещё не
+# началась», хотя она давно готова и успешна (23.09.2026, тег
+# build-20260923-091920). Теперь ветку можно задать снаружи:
+#     DEPLOY_BRANCH=build-20260923-091920 deploygit --last
+BRANCH="${DEPLOY_BRANCH:-main}"
 WORKFLOW="Сборка"
 PROJECT="/var/www/plusson"
 TOKEN_FILE="/root/.github_token"
