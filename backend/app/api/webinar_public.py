@@ -593,8 +593,13 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                     opens_at_iso = f"{drow['day_date'].isoformat()}T10:00:00+03:00"
 
         # бренд клиента для шапки комнаты (как в Mini App: логотип + название)
+        # ⚠️ `timezone` берём здесь же: время сообщений чата показываем в
+        # поясе ОРГАНИЗАТОРА (23.09.2026), а не зрителя. Эфир идёт по его
+        # расписанию — «в 19:00» в анонсе и время в чате должны совпадать,
+        # иначе зритель из другого пояса видит разнобой.
         brand = await conn.fetchrow(
-            "SELECT COALESCE(NULLIF(brand_name,''), name) AS brand_name, brand_logo_url "
+            "SELECT COALESCE(NULLIF(brand_name,''), name) AS brand_name, brand_logo_url, "
+            "       NULLIF(TRIM(timezone), '') AS timezone "
             "FROM clients WHERE id=$1", ev["client_id"])
 
         # Афиша-заставка до эфира: сначала афиша ЭТОГО дня, иначе общая афиша
@@ -626,6 +631,9 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
             "brand": {
                 "name": brand["brand_name"] if brand else None,
                 "logo_url": brand["brand_logo_url"] if brand else None,
+                # Пояс организатора для показа времени в чате.
+                # Не задан → фронт возьмёт московское.
+                "timezone": (brand["timezone"] if brand else None) or "Europe/Moscow",
             },
             "has_registration": has_registration,
             "poster_url": poster,   # заставка до начала эфира
@@ -643,6 +651,7 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                 # Зрителю нужен, чтобы предупредить о запрете ДО отправки,
                 # а не отказом после набранного сообщения.
                 "block_links": room.get("block_links"),
+                "chat_input_on_top": room.get("chat_input_on_top"),
                 "one_vote_per_person": room.get("one_vote_per_person"),
                 # Организатор, открывший комнату в браузере с залогиненным
                 # кабинетом, получает кнопки модерации прямо в чате.

@@ -296,6 +296,7 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
     outro_redirect_sec: r?.outro_redirect_sec ?? 15,
     reaction_up_label: r?.reaction_up_label || 'Огонь',
     reaction_down_label: r?.reaction_down_label || 'Слабо',
+    chat_input_on_top: r?.chat_input_on_top ?? false,
     show_up_reaction: r?.show_up_reaction ?? true,
     show_down_reaction: r?.show_down_reaction ?? true,
     intro_text: r?.intro_text || '',
@@ -409,6 +410,7 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
       outro_redirect_sec: rr?.outro_redirect_sec ?? 15,
       reaction_up_label: rr?.reaction_up_label || 'Огонь',
       reaction_down_label: rr?.reaction_down_label || 'Слабо',
+      chat_input_on_top: rr?.chat_input_on_top ?? false,
       show_up_reaction: rr?.show_up_reaction ?? true,
       show_down_reaction: rr?.show_down_reaction ?? true,
       intro_text: rr?.intro_text || '',
@@ -451,6 +453,7 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
           outro_redirect_sec: rr.outro_redirect_sec ?? 15,
           reaction_up_label: rr.reaction_up_label ?? 'Огонь',
           reaction_down_label: rr.reaction_down_label ?? 'Слабо',
+          chat_input_on_top: rr.chat_input_on_top ?? false,
           show_up_reaction: rr.show_up_reaction ?? true,
           show_down_reaction: rr.show_down_reaction ?? true,
           intro_text: rr.intro_text ?? '',
@@ -812,6 +815,10 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
             эфира (оплата, материалы). Зритель при попытке получает ответ по
             имени: «Имя! Ссылки в чате запрещены правилами вебинара». */}
         <Toggle label="Запретить ссылки в чате" checked={f.block_links} onChange={v => setF({ ...f, block_links: v })} />
+        {/* ⚠️ На длинном эфире лента уезжает вниз, и поле ввода приходится
+            искать глазами. Сверху оно всегда на виду, а свежие сообщения
+            видно прямо под ним. */}
+        <Toggle label="Поле ввода чата — сверху, над сообщениями" checked={f.chat_input_on_top} onChange={v => setF({ ...f, chat_input_on_top: v })} />
         {/* ⚠️ Без неё счётчик реакций спикеру просто прибавлял +1 на каждое
             нажатие — один человек мог накрутить сколько угодно. Батлы
             защищены всегда, там голоса лежат строками. */}

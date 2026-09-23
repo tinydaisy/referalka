@@ -104,6 +104,9 @@ class RoomUpsert(BaseModel):
     premoderation: Optional[bool] = None
     # Запрет ссылок в чате (миграция 470). На организаторов не действует.
     block_links: Optional[bool] = None
+    # ⚠️ Поле ввода чата НАД лентой (23.09.2026). Два положения, поэтому
+    # флаг, а не строка: третьего варианта быть не может.
+    chat_input_on_top: Optional[bool] = None
     # Один человек = один голос спикеру (миграция 471).
     one_vote_per_person: Optional[bool] = None
     redirect_url: Optional[str] = None
@@ -340,6 +343,7 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "chat_enabled": r.get("chat_enabled"),
         "premoderation": r.get("premoderation"),
         "block_links": r.get("block_links"),
+        "chat_input_on_top": r.get("chat_input_on_top"),
         "one_vote_per_person": r.get("one_vote_per_person"),
         "redirect_url": r.get("redirect_url"),
         "outro_offer_text": r.get("outro_offer_text"),
@@ -719,7 +723,7 @@ async def delete_zoom_meeting(
 # Афиши живут не здесь (event_posters / conf_days), их это не касается вовсе.
 _COPYABLE_ROOM_FIELDS = (
     "stream_type",
-    "hide_viewer_count", "chat_enabled", "premoderation", "block_links",
+    "hide_viewer_count", "chat_enabled", "premoderation", "block_links", "chat_input_on_top",
     "one_vote_per_person",
     "reaction_up_label", "reaction_down_label", "show_up_reaction", "show_down_reaction",
     "intro_text", "buttons_per_row",

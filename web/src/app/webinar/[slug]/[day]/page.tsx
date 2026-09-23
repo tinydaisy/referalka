@@ -554,6 +554,28 @@ export default function WebinarRoomPage() {
   // блоки). Внутри на месте видео — афиша + «трансляция скоро начнётся» + отсчёт.
   // Как только ведущий нажмёт «Начать эфир» — заставка сменится плеером (WS load()).
 
+  /** Время сообщения в поясе ОРГАНИЗАТОРА, «14:05».
+   *
+   * ⚠️ Пояс берём с сервера (`room.brand.timezone`), а не у браузера зрителя:
+   * эфир идёт по расписанию организатора, и «в 19:00» из анонса должно
+   * совпадать со временем в чате. Зритель из другого пояса иначе видит
+   * разнобой и решает, что сообщение пришло не тогда (23.09.2026).
+   *
+   * ⚠️ Битую дату или неизвестный пояс не показываем вовсе — пустая строка
+   * лучше, чем «Invalid Date» в ленте.
+   */
+  function msgTime(at: any): string {
+    if (!at) return ''
+    try {
+      const d = new Date(at)
+      if (isNaN(d.getTime())) return ''
+      return d.toLocaleTimeString('ru-RU', {
+        hour: '2-digit', minute: '2-digit',
+        timeZone: room?.brand?.timezone || 'Europe/Moscow',
+      })
+    } catch { return '' }
+  }
+
   async function sendChat() {
     const text = chatText.trim()
     if (!text) return
@@ -642,6 +664,39 @@ export default function WebinarRoomPage() {
     }
     if (b.url) window.open(b.url, '_blank')
   }
+
+  // ⚠️ Поле ввода вынесено в переменную (23.09.2026): по настройке комнаты
+  // оно рисуется НАД лентой или ПОД ней. Копировать разметку в два места
+  // нельзя — правка в одном тут же разошлась бы со вторым.
+  // ⚠️ Рамка меняет сторону вместе с положением: снизу — верхняя, сверху —
+  // нижняя, иначе блок визуально отрывается от ленты.
+  const chatInput = (
+    rm.chat_enabled ? (
+      <div className={`p-3 ${rm.chat_input_on_top ? 'border-b' : 'border-t'} border-white/10 shrink-0`}>
+        {/* Причина отказа — над полем, чтобы её увидели сразу: сообщение
+            при этом возвращается в поле, набирать заново не нужно. */}
+        {chatError && (
+          <div className="mb-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-lg px-2.5 py-1.5">
+            {chatError}
+          </div>
+        )}
+        <div className="flex gap-2">
+        <input
+          value={chatText}
+          onChange={e => { setChatText(e.target.value); if (chatError) setChatError('') }}
+          onKeyDown={e => e.key === 'Enter' && sendChat()}
+          placeholder={rm.block_links ? 'Написать… (ссылки запрещены)' : 'Написать…'}
+          className="flex-1 min-w-0 bg-white/10 rounded-lg px-3 py-2 text-sm outline-none"
+        />
+        <button onClick={sendChat} aria-label="Отправить"
+          className="shrink-0 w-10 h-10 flex items-center justify-center rounded-lg text-base font-semibold"
+          style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</button>
+        </div>
+      </div>
+    ) : (
+      <div className={`p-3 ${rm.chat_input_on_top ? 'border-b' : 'border-t'} border-white/10 text-xs text-white/40 text-center shrink-0`}>Чат отключён</div>
+    )
+  )
 
   const cur = room.current_speaker
   const curRx = cur ? (reactions[cur.ec_id] || { up: 0, down: 0 }) : null
@@ -793,15 +848,19 @@ export default function WebinarRoomPage() {
               </div>
               {(cur.channels?.telegram || cur.channels?.max || cur.channels?.vk) && (
                 <div className="flex flex-wrap gap-2 items-center ml-auto">
+                  {/* ⚠️ «В ТГ» / «В МАХ» / «В ВК» без слова «Канал»
+                      (23.09.2026): рядом уже стоит «Подписаться:», и
+                      «Подписаться: Канал в ТГ» читается коряво. Три
+                      кнопки в ряд на телефоне ещё и не помещались. */}
                   <span className="text-xs text-white/50">Подписаться:</span>
                   {cur.channels?.telegram && (
-                    <a href={cur.channels.telegram} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>Канал в ТГ</a>
+                    <a href={cur.channels.telegram} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>В ТГ</a>
                   )}
                   {cur.channels?.max && (
-                    <a href={cur.channels.max} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>Канал в МАХ</a>
+                    <a href={cur.channels.max} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>В МАХ</a>
                   )}
                   {cur.channels?.vk && (
-                    <a href={cur.channels.vk} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>Канал в ВК</a>
+                    <a href={cur.channels.vk} target="_blank" rel="noreferrer" className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: '#FFCFA4', color: '#0a1520' }}>В ВК</a>
                   )}
                 </div>
               )}
@@ -925,6 +984,10 @@ export default function WebinarRoomPage() {
           {/* ⚠️ `scroll-brand`, а не `scroll-visible`: второй серый и на тёмном
               фоне комнаты читается как чёрная полоса — человек не видит, что
               лента вообще прокручивается (19.09.2026). */}
+          {/* ⚠️ Поле ввода НАД лентой — по настройке комнаты
+              (23.09.2026): на длинном эфире лента уезжает вниз, и
+              искать поле глазами каждый раз неудобно. */}
+          {rm.chat_input_on_top && chatInput}
           <div ref={chatBoxRef} className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2 text-sm scroll-brand">
             {chat.map((m, i) => (
               <div key={m.id ?? m._tmpId ?? i}
@@ -941,6 +1004,11 @@ export default function WebinarRoomPage() {
                       className="text-white/40 hover:text-red-400 text-xs px-1">🚫</button>
                   </span>
                 )}
+                {/* ⚠️ Время — перед именем и приглушённее: в ленте важнее
+                    кто и что сказал, а время нужно «на глаз». */}
+                {msgTime(m.at) && (
+                  <span className="text-white/30 mr-1 text-xs tabular-nums">{msgTime(m.at)}</span>
+                )}
                 <span className="text-white/50 mr-1">{m.author_name || 'Гость'}:</span>
                 {/* ⚠️ `break-all`, а не только `break-words` (19.09.2026):
                     `break-words` переносит ПО ПРОБЕЛАМ и бессилен против
@@ -954,31 +1022,7 @@ export default function WebinarRoomPage() {
             ))}
             {!chat.length && <div className="text-white/40 text-center py-8">Сообщений пока нет</div>}
           </div>
-          {rm.chat_enabled ? (
-            <div className="p-3 border-t border-white/10 shrink-0">
-              {/* Причина отказа — над полем, чтобы её увидели сразу: сообщение
-                  при этом возвращается в поле, набирать заново не нужно. */}
-              {chatError && (
-                <div className="mb-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-lg px-2.5 py-1.5">
-                  {chatError}
-                </div>
-              )}
-              <div className="flex gap-2">
-              <input
-                value={chatText}
-                onChange={e => { setChatText(e.target.value); if (chatError) setChatError('') }}
-                onKeyDown={e => e.key === 'Enter' && sendChat()}
-                placeholder={rm.block_links ? 'Написать… (ссылки запрещены)' : 'Написать…'}
-                className="flex-1 min-w-0 bg-white/10 rounded-lg px-3 py-2 text-sm outline-none"
-              />
-              <button onClick={sendChat} aria-label="Отправить"
-                className="shrink-0 w-10 h-10 flex items-center justify-center rounded-lg text-base font-semibold"
-                style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</button>
-              </div>
-            </div>
-          ) : (
-            <div className="p-3 border-t border-white/10 text-xs text-white/40 text-center shrink-0">Чат отключён</div>
-          )}
+          {!rm.chat_input_on_top && chatInput}
           {/* счётчик зрителей — внизу чата, а не на видео */}
           {online != null && (
             <div className="px-3 py-2 border-t border-white/10 text-xs text-white/50 flex items-center gap-1.5 shrink-0">
