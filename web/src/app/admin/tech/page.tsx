@@ -119,7 +119,7 @@ function AdminTechPageInner() {
                                     onChange={() => setTick(t => t + 1)} />}
       {tab === 'bonus' && <BonusTab fundTiers={fundTiers}
                                     onChange={() => setTick(t => t + 1)} />}
-      {tab === 'dialogs' && <DialogsTab specs={specs} />}
+      {tab === 'dialogs' && <DialogsTab />}
       {tab === 'money' && <MoneyTab specs={specs} />}
       {/* ⚠️ Экран ОБЩИЙ с кабинетом внедренца: база вопросов одна на всех,
           отличается только набор методов (`adminFaq` против `techFaq`). */}
@@ -1250,7 +1250,9 @@ function MoneyTab({ specs }: any) {
 // ── Диалоги бота ─────────────────────────────────────────────────────────
 // ⚠️ Распределяются ОТДЕЛЬНО от клиентов: в @pluson_bot пишут и те, кто
 // клиентом ещё не стал, — в списке клиентов платформы их попросту нет.
-function DialogsTab({ specs }: any) {
+// ⚠️ `specs` больше не нужен: ответственного не выбирают руками,
+// он вычисляется по клиенту (23.09.2026).
+function DialogsTab() {
   const [items, setItems] = useState<any[]>([])
   const [onlyFree, setOnlyFree] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1264,21 +1266,22 @@ function DialogsTab({ specs }: any) {
   }
   useEffect(load, [onlyFree])
 
-  async function assign(contactId: number, specId: number | null) {
-    try {
-      await api.adminTech.assignDialog({ contact_id: contactId, spec_id: specId })
-      load()
-    } catch (e: any) { alert(e?.message || 'Не удалось') }
-  }
-
-  const active = specs.filter((s: any) => s.is_active)
-
   return (
     <div className="space-y-4">
+      {/* ⚠️⚠️ РАЗДАЧИ ЗДЕСЬ БОЛЬШЕ НЕТ (23.09.2026). Ответственный считается
+          сам: чей клиент — того и разговор. Прежняя выпадашка была вторым
+          ответом на тот же вопрос и отвечала неверно — у внедренца с шестью
+          клиентами раздел «Диалоги» стоял пустым, пока руками не раздадут. */}
+      <p className="rounded-xl bg-[#FFCFA4]/35 p-3 text-sm text-[#25455D]">
+        Ответственный определяется сам: разговор принадлежит тому внедренцу,
+        за кем закреплён этот клиент. Чтобы передать переписку — передайте
+        клиента во вкладке «Клиенты».
+      </p>
+
       <label className="flex items-center gap-2 text-sm text-gray-700">
         <input type="checkbox" checked={onlyFree}
                onChange={e => setOnlyFree(e.target.checked)} />
-        Только нераспределённые
+        Только те, у кого нет ответственного
       </label>
 
       {loading ? <div className="text-sm text-gray-400">Загружаем…</div> : (
@@ -1306,15 +1309,15 @@ function DialogsTab({ specs }: any) {
                       ? <span className="rounded-full bg-[#FFCFA4] px-2 text-xs font-bold text-[#0a1520]">{d.unread}</span>
                       : <span className="text-gray-400">—</span>}
                   </td>
-                  <td className="px-4 py-3">
-                    <select value={d.spec_id || ''}
-                            onChange={e => assign(d.contact_id, e.target.value ? Number(e.target.value) : null)}
-                            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
-                      <option value="">— никому —</option>
-                      {active.map((s: any) => (
-                        <option key={s.id} value={s.id}>{s.name || s.email}</option>
-                      ))}
-                    </select>
+                  {/* Не выпадашка, а факт: ответственный вычисляется по
+                      клиенту. Менять его здесь нечем и не нужно. */}
+                  <td className="px-4 py-3 text-gray-600">
+                    {d.spec_name
+                      ? <Link href={`/admin/tech/clients?spec=${d.spec_id}`}
+                              className="underline decoration-gray-300 underline-offset-2 hover:decoration-gray-600">
+                          {d.spec_name}
+                        </Link>
+                      : <span className="text-gray-400">не клиент платформы</span>}
                   </td>
                 </tr>
               ))}

@@ -1781,9 +1781,9 @@ export const api = {
       request('/api/v1/admin/tech/accruals/mark-paid', { method: 'POST', body: JSON.stringify({ ids }) }),
     botDialogs: (unassignedOnly?: boolean) =>
       request(`/api/v1/admin/tech/dialogs${unassignedOnly ? '?unassigned_only=true' : ''}`),
-    assignDialog: (data: { contact_id: number; spec_id: number | null }) =>
-      request('/api/v1/admin/tech/dialogs/assign',
-              { method: 'POST', body: JSON.stringify(data) }),
+    // ⚠️ `assignDialog` удалён (23.09.2026): диалоги неотделимы от клиентов,
+    // ответственный считается по `clients.tech_specialist_id`. Передать
+    // переписку = передать клиента во вкладке «Клиенты».
     manualAccrual: (data: any) =>
       request('/api/v1/admin/tech/accruals/manual', { method: 'POST', body: JSON.stringify(data) }),
   },
