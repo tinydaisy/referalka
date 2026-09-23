@@ -1,12 +1,19 @@
 'use client'
 
 /**
- * Сводная CRM клиентов платформы — админский экран (23.09.2026).
+ * CRM клиентов платформы — ВОРОНКА по статусам (23.09.2026).
  *
- * ⚠️ Тот же срез, что «Мои клиенты» в кабинете внедренца, но по ВСЕЙ базе:
- * владелец видит всех разом и сужает фильтром до одного внедренца. Раньше
- * посмотреть клиентов конкретного человека можно было, только зайдя в его
- * кабинет — то есть никак.
+ * ⚠️⚠️ ЭТО НЕ «КЛИЕНТЫ» (`/admin/clients`). Два разных экрана, и путать их
+ * нельзя:
+ *   • «Клиенты» — КАРТОЧКА клиента: события, боты, подписчики, вебинары,
+ *     коллаборации, тариф, когда зарегался. Отвечает «что у него есть».
+ *   • «CRM» (этот) — ВОРОНКА: триал → активирован → удержан → оживлён →
+ *     отвалился. Отвечает «где он в пути и что с ним делать дальше».
+ * Логика у них разная, поэтому и пункты меню разные.
+ *
+ * ⚠️ Два вида показа — БЛОКАМИ (колонки-этапы, как в CRM события у помощников)
+ * и СПИСКОМ. Блоками видно перекос воронки с одного взгляда, списком удобнее
+ * искать конкретного человека. Выбор живёт в адресе, как и фильтры.
  *
  * ⚠️ Отдельная СТРАНИЦА, а не всплывающее окно: в окне нет адреса, его нельзя
  * дать ссылкой и нельзя вернуться назад. Фильтр живёт в адресе (`?spec=<id>`),
@@ -70,9 +77,14 @@ function CrmScreen() {
   const [specs, setSpecs] = useState<any[]>([])
   const [specId, setSpecId] = useState<number | null>(
     specFromUrl ? Number(specFromUrl) : null)
+  // ⚠️ Вид показа — в адресе: выбранный вид должен пережить обновление
+  // страницы, иначе человек каждый раз переключает его заново.
+  const [view, setView] = useState<'board' | 'list'>(
+    params.get('view') === 'list' ? 'list' : 'board')
   const [status, setStatus] = useState('')
   const [q, setQ] = useState('')
   const [items, setItems] = useState<any[]>([])
+  const [board, setBoard] = useState<Record<string, any[]>>({})
   const [funnel, setFunnel] = useState<any>({})
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -98,18 +110,28 @@ function CrmScreen() {
           setItems(r.clients || [])
           setTotal(r.total || 0)
           setFunnel(r.funnel || {})
+          setBoard(r.board || {})
         })
-        .catch(() => { if (alive) { setItems([]); setTotal(0); setFunnel({}) } })
+        .catch(() => {
+          if (alive) { setItems([]); setTotal(0); setFunnel({}); setBoard({}) }
+        })
         .finally(() => { if (alive) setLoading(false) })
     }, q ? 350 : 0)
     return () => { alive = false; clearTimeout(t) }
   }, [specId, status, q, offset])
 
   /** Меняем фильтр и адрес вместе — чтобы ссылку можно было отдать. */
-  function pickSpec(v: number | null) {
-    setSpecId(v)
-    router.replace(v ? `/admin/tech/crm?spec=${v}` : '/admin/tech/crm')
+  /** Фильтр и вид живут в адресе — чтобы ссылку можно было отдать. */
+  function syncUrl(nextSpec: number | null, nextView: 'board' | 'list') {
+    const s = new URLSearchParams()
+    if (nextSpec) s.set('spec', String(nextSpec))
+    if (nextView === 'list') s.set('view', 'list')
+    const qs = s.toString()
+    router.replace(`/admin/tech/crm${qs ? `?${qs}` : ''}`)
   }
+
+  function pickSpec(v: number | null) { setSpecId(v); syncUrl(v, view) }
+  function pickView(v: 'board' | 'list') { setView(v); syncUrl(specId, v) }
 
   const current = specs.find((s: any) => s.id === specId)
 
@@ -149,12 +171,29 @@ function CrmScreen() {
               ))}
             </select>
 
-            <select value={status} onChange={e => setStatus(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
-              {STATUSES.map(s => (
-                <option key={s.id} value={s.id}>{s.label}</option>
+            {/* ⚠️ Фильтр по статусу только в СПИСКЕ: в блоках этапы и так
+                разложены по колонкам, и фильтр оставил бы одну из них. */}
+            {view === 'list' && (
+              <select value={status} onChange={e => setStatus(e.target.value)}
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
+                {STATUSES.map(s => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Вид показа: блоками — видно перекос воронки, списком — удобнее
+                искать конкретного человека. */}
+            <div className="flex overflow-hidden rounded-lg border border-gray-300">
+              {([['board', 'Блоками'], ['list', 'Списком']] as const).map(([id, label]) => (
+                <button key={id} type="button" onClick={() => pickView(id)}
+                        className={`px-3 py-1.5 text-sm ${
+                          view === id ? 'bg-[#25455D] text-white'
+                                      : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
+                  {label}
+                </button>
               ))}
-            </select>
+            </div>
 
             <div className="relative min-w-[240px] flex-1">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -166,13 +205,70 @@ function CrmScreen() {
 
           <div className="mt-2 text-sm font-semibold text-gray-800">
             {loading ? 'Загружаем…'
+              : view === 'board' ? `Всего — ${total}`
               : total > items.length
                 ? `Найдено — ${total}, показаны ${offset + 1}–${Math.min(offset + PAGE, total)}`
                 : `Показано — ${items.length}`}
           </div>
         </div>
 
-        {!items.length && !loading ? (
+        {view === 'board' ? (
+          /* ⚠️ Колонки — ЭТАПЫ ПУТИ, порядок не произвольный: триал →
+             активирован → удержан → оживлён → отвалился. Лиды в конце: это
+             те, кто ещё ничего не сделал. */
+          <div className="flex gap-3 overflow-x-auto p-4">
+            {STATUSES.filter(s => s.id).map(s => {
+              const people = board[s.id] || []
+              const cnt = funnel[s.id] ?? people.length
+              const st = CRM_LABEL[s.id]
+              return (
+                <div key={s.id} className="w-64 shrink-0 rounded-xl border border-gray-200">
+                  <div className="rounded-t-xl px-3 py-2"
+                       style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                    <div className="text-sm font-semibold text-white">{st.label}</div>
+                    <div className="text-lg font-bold" style={{ color: '#FFCFA4' }}>
+                      {cnt}
+                      {funnel.total > 0 && (
+                        <span className="ml-1 text-xs font-normal text-white/60">
+                          {Math.round(cnt * 100 / funnel.total)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="max-h-[460px] space-y-1 overflow-y-auto p-2">
+                    {!people.length && (
+                      <div className="px-1 py-2 text-xs text-gray-400">Пусто</div>
+                    )}
+                    {people.map((c: any) => (
+                      <div key={c.id} className="rounded-lg border border-gray-100 p-2">
+                        <div className="truncate text-sm font-medium text-gray-900">
+                          {[c.name, c.last_name].filter(Boolean).join(' ') || 'Без имени'}
+                        </div>
+                        <div className="truncate text-[11px] text-gray-400">{c.email}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-gray-500">
+                          {c.tariff_name || 'без тарифа'}
+                          {c.payments_count > 0 && ` · оплат: ${c.payments_count}`}
+                        </div>
+                        {c.owner_name && (
+                          <div className="truncate text-[11px] text-gray-500">
+                            ведёт: {c.owner_name}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {/* Честно говорим, что список блока обрезан: счётчик
+                        сверху полный, а карточек показано меньше. */}
+                    {cnt > people.length && (
+                      <div className="px-1 py-2 text-[11px] text-gray-400">
+                        …и ещё {cnt - people.length}. Откройте «Списком», чтобы найти нужного.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : !items.length && !loading ? (
           <div className="p-8 text-center text-sm text-gray-500">
             {q || status || specId ? 'Никого не нашли — смягчите фильтры.' : 'Клиентов пока нет.'}
           </div>
@@ -231,7 +327,8 @@ function CrmScreen() {
           </div>
         )}
 
-        {total > PAGE && (
+        {/* Страницы — только в списке: в блоках прокрутка внутри колонок. */}
+        {view === 'list' && total > PAGE && (
           <div className="flex items-center justify-between gap-3 border-t border-gray-100 p-4">
             <button type="button" disabled={offset === 0 || loading}
                     onClick={() => setOffset(Math.max(0, offset - PAGE))}

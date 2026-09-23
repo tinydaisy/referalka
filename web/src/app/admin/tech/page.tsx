@@ -368,16 +368,28 @@ function SpecsTab({ specs, rates, onChange }: any) {
                       клиентов, а не открыть окно с настройками. Отдельная
                       страница, а не модалка: у окна нет адреса, его не дать
                       ссылкой и из него не вернуться назад. */}
-                  <Link href={`/admin/tech/crm?spec=${s.id}`}
+                  <Link href={`/admin/tech/clients?spec=${s.id}`}
                         className="font-medium text-gray-900 underline decoration-gray-300 underline-offset-2 hover:decoration-gray-600">
                     {s.name || s.email}
                   </Link>
                   <div className="text-xs text-gray-400">{s.email}</div>
+                  {/* ⚠️ ДВЕ ссылки, потому что это два разных вопроса:
+                      «что у его клиентов есть» и «где они в воронке». */}
+                  <div className="mt-1 flex gap-2 text-[11px]">
+                    <Link href={`/admin/tech/clients?spec=${s.id}`}
+                          className="text-gray-500 underline decoration-gray-300 hover:text-gray-800">
+                      клиенты
+                    </Link>
+                    <Link href={`/admin/tech/crm?spec=${s.id}`}
+                          className="text-gray-500 underline decoration-gray-300 hover:text-gray-800">
+                      CRM
+                    </Link>
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   {/* Число клиентов — тоже вход в его срез: по нему кликают
                       чаще всего, когда хотят «посмотреть, кого он ведёт». */}
-                  <Link href={`/admin/tech/crm?spec=${s.id}`}
+                  <Link href={`/admin/tech/clients?spec=${s.id}`}
                         className="underline decoration-gray-300 underline-offset-2 hover:decoration-gray-600">
                     {s.clients_count}
                   </Link>
