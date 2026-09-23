@@ -1647,6 +1647,13 @@ async def event_crm(
                   -- почте, никам площадок и телефону — `services/plusson_match`.
                   (pi.code IS NOT NULL) AS plusson_interested,
                   pi.code AS plusson_referrer_code,
+                  -- ⚠️ Кто привёл ИМЕННО В ПЛЮСОН — это ДРУГОЙ человек, чем
+                  -- реферовод события (`referrer_name` ниже). Одной подписью
+                  -- «привёл: Имя» их путать нельзя: непонятно, привёл на
+                  -- событие или на платформу, а для внедренца это разные вещи —
+                  -- от второго зависят его начисления.
+                  (SELECT pcl.name FROM clients pcl
+                    WHERE pcl.referral_code = pi.code) AS plusson_referrer_name,
                   c.plusson_referrer_source,
                   (pm.client_id IS NOT NULL) AS plusson_registered,
                   pm.client_id AS linked_client_id,

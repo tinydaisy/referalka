@@ -150,11 +150,12 @@ async def resolve_plusson_referrer(
     Порядок поиска:
       1. code == clients.referral_code            → это уже клиентский код,
                                                      вернуть его client_id.
-      2. code == contacts.ref_code (глоб. уник.)  → это код-контакт;
-         или в contacts.merged_ref_codes            если у контакта есть привязка
-                                                     collaborators.linked_client_id
-                                                     (контакт-спикер привязал свой
-                                                     ПЛЮСОН) — вернуть этот client_id.
+      2. code == contacts.ref_code (глоб. уник.)  → это код-контакт; если человек
+         или в contacts.merged_ref_codes            связал свой ПЛЮСОН — вернуть
+                                                     его client_id. Связка живёт в
+                                                     ОДНОМ ИЗ ДВУХ мест (см. ниже):
+                                                     contacts.linked_client_id или
+                                                     collaborators.linked_client_id.
       3. иначе                                    → None (рефовод не является
                                                      клиентом ПЛЮСОНа / кода нет).
     """
@@ -172,8 +173,18 @@ async def resolve_plusson_referrer(
         return client_id
 
     # 2) Код-контакт (глобально уникален) → его привязка к клиенту ПЛЮСОНа.
-    #    Приоритет: contacts.linked_client_id (любой участник связал свой ПЛЮСОН,
-    #    миграция 191), затем fallback на collaborators.linked_client_id (спикер).
+    #
+    #    ⚠️⚠️ ДВА поля `linked_client_id` — это ДВА РАЗНЫХ СЦЕНАРИЯ, а не дубль
+    #    и не «основное + запасное» (23.09.2026). Оба живые, удалять нельзя:
+    #      • contacts.linked_client_id     — ЛЮБОЙ участник связал свой ПЛЮСОН
+    #        командой /pluson_connect в боте организатора (миграция 191);
+    #      • collaborators.linked_client_id — СПИКЕР связал свой ПЛЮСОН формой
+    #        в кабинете спикера (миграция 167); на этом же поле висят подарок
+    #        после эфира, турнирный критерий и МедиаЛифт.
+    #    COALESCE берёт любое непустое — спикеру, связавшемуся через кабинет,
+    #    запись на контакте не нужна. Подробности и таблица отличий:
+    #    documentation/architecture/DB-AND-CONTACTS.md.
+    #
     #    Прямое совпадение по ref_code + fallback на merged_ref_codes (старые коды
     #    после ручного мерджа контактов — чтобы старые ссылки жили).
     linked = await db.fetchval(
