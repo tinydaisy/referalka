@@ -220,6 +220,74 @@ async def messages(
             "messages": [dict(r) for r in rows]}
 
 
+class StartIn(BaseModel):
+    """Начать переписку с клиентом, которого в боте ещё нет."""
+    client_id: int
+
+
+@router.post("/start", summary="Завести разговор с моим клиентом")
+async def start_dialog(
+    data: StartIn,
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Создаёт контакт в системном боте для клиента, у которого его ещё нет.
+
+    ⚠️⚠️ ЗАЧЕМ. В списке диалогов теперь ВСЕ клиенты внедренца, но у половины
+    из них контакта в боте не существует — они туда не заходили. Без контакта
+    ни открыть переписку, ни написать нельзя: и лента, и отправка адресуются
+    `contact_id`. Получался список, в котором половина строк не кликается.
+
+    ⚠️ Контакт заводится ТОЛЬКО для своего клиента (проверка ниже) и ТОЛЬКО в
+    базе системного кабинета — это карточка «человек, которому мы пишем», а не
+    новый клиент платформы.
+
+    ⚠️ Почта кладётся в `platform_users`, потому что именно по ней контакт
+    связывается с клиентом платформы (см. `MINE_SQL`). Без неё разговор тут же
+    перестал бы считаться своим.
+    """
+    spec_id = int(user["sub"])
+    sys_client_id = await _system_client_id(db)
+
+    cl = await db.fetchrow(
+        """SELECT id, name, email, phone, telegram_username
+             FROM clients WHERE id = $1 AND tech_specialist_id = $2""",
+        data.client_id, spec_id)
+    if not cl:
+        raise HTTPException(404, "Это не ваш клиент")
+
+    # Контакт мог появиться параллельно — ищем по той же почте.
+    existing = await db.fetchval(
+        """SELECT c.id FROM contacts c
+            JOIN platform_users pe ON pe.contact_id = c.id
+                                  AND pe.platform_slug = 'email'
+           WHERE c.client_id = $1
+             AND LOWER(TRIM(pe.platform_user_id)) = LOWER(TRIM($2))
+           LIMIT 1""",
+        sys_client_id, cl["email"])
+    if existing:
+        return {"contact_id": existing, "created": False}
+
+    contact_id = await db.fetchval(
+        """INSERT INTO contacts (client_id, name, phone)
+           VALUES ($1, $2, $3) RETURNING id""",
+        sys_client_id, cl["name"], cl["phone"])
+    await db.execute(
+        """INSERT INTO platform_users (contact_id, platform_slug, platform_user_id)
+           VALUES ($1, 'email', $2)
+           ON CONFLICT DO NOTHING""",
+        contact_id, cl["email"])
+    # Телеграм — если клиент его указал: это второй канал, по которому можно
+    # написать, и без записи он был бы недоступен отправке.
+    if (cl["telegram_username"] or "").strip():
+        await db.execute(
+            """INSERT INTO platform_users (contact_id, platform_slug, username)
+               VALUES ($1, 'telegram', $2)
+               ON CONFLICT DO NOTHING""",
+            contact_id, cl["telegram_username"].strip().lstrip("@"))
+    return {"contact_id": contact_id, "created": True}
+
+
 @router.post("/{contact_id}/reply", summary="Ответить")
 async def reply(
     contact_id: int,

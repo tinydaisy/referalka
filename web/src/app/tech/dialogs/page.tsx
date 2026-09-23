@@ -1,10 +1,15 @@
 'use client'
 
 /**
- * Диалоги внедренца — переписка с теми, кто написал в @pluson_bot.
+ * Диалоги внедренца — его клиенты и переписка с ними.
  *
- * ⚠️ Видны ТОЛЬКО назначенные ему разговоры: фильтрует бэкенд, здесь фильтра
- * нет и быть не должно — он обходится прямым запросом.
+ * ⚠️⚠️ ЗДЕСЬ ВСЕ ЕГО КЛИЕНТЫ, а не только написавшие (23.09.2026). Раньше
+ * разговоры раздавали вручную, и раздел пустовал; теперь основание одно — чей
+ * клиент, того и разговор. Клиент без переписки тоже в списке: ему как раз и
+ * нужно написать первым.
+ *
+ * ⚠️ Отбор делает БЭКЕНД по `clients.tech_specialist_id`: здесь фильтра нет и
+ * быть не должно — он обходится прямым запросом.
  *
  * ⚠️ Два столбца, а не переход на отдельную страницу: разбирая вопросы, человек
  * прыгает между разговорами, и возврат в список каждый раз мешал бы.
@@ -71,8 +76,11 @@ export default function TechDialogsPage() {
           <div className="text-xs text-gray-500">Вопросы в @pluson_bot</div>
         </div>
         {!list.length ? (
+          /* ⚠️ Текст поменялся вместе с логикой (23.09.2026): разговоры больше
+             не «назначают» — здесь все ваши клиенты, и пусто тут может быть
+             только если клиентов нет вовсе. */
           <div className="p-6 text-center text-sm text-gray-500">
-            Вам пока не назначили ни одного разговора.
+            За вами пока не закреплён ни один клиент.
           </div>
         ) : list.map(d => (
           <button key={d.contact_id} onClick={() => setOpenId(d.contact_id)}
@@ -86,8 +94,22 @@ export default function TechDialogsPage() {
             </div>
             <div className="mt-0.5 flex items-center gap-2">
               <span className="truncate text-xs text-gray-500">
-                {d.last_direction === 'out' ? 'Вы: ' : ''}
-                {d.last_text || (d.last_media_kind ? `[${d.last_media_kind}]` : '')}
+                {/* ⚠️ Переписки может НЕ БЫТЬ вовсе: в списке теперь все свои
+                    клиенты, в том числе те, кому ещё не писали. Вместо пустой
+                    строки показываем, куда ему можно написать. */}
+                {d.last_at ? (
+                  <>
+                    {d.last_direction === 'out' ? 'Вы: ' : ''}
+                    {d.last_text || (d.last_media_kind ? `[${d.last_media_kind}]` : '')}
+                  </>
+                ) : (d.where_to_write?.length
+                  ? <span className="text-gray-400">
+                      Ещё не писали · можно: {d.where_to_write
+                        .map((p: string) => ({ telegram: 'Telegram', vk: 'ВК',
+                                               max: 'MAX', email: 'почта' }[p] || p))
+                        .join(', ')}
+                    </span>
+                  : <span className="text-gray-400">Ещё не писали</span>)}
               </span>
               {d.unread > 0 && (
                 <span className="ml-auto shrink-0 rounded-full bg-[#FFCFA4] px-1.5 text-[11px] font-bold text-[#0a1520]">
