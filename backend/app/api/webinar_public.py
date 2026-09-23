@@ -64,18 +64,32 @@ async def _remember_vote(conn, room: dict, target_kind: str, target_id: int,
 
 # ⚠️ Ловим ссылку ШИРЕ, чем «http://»: запрет обходят голым доменом
 # («канал t.me/name», «пиши мне в вк vk.com/id1»), и именно так его и обходят.
-# Поэтому три случая: схема (http/https/ftp), «www.» и голый домен в известной
-# зоне. Список зон — самые частые в рунете; редкую зону пропустим, но ловить
-# ЛЮБОЕ «слово с точкой» нельзя: под это попадут «спасибо.мне понравилось» и
-# числа вида «1.5», и чат встанет у обычных людей.
+#
+# ⚠️⚠️ ЗОНА ЛЮБАЯ, а не из списка (23.09.2026). Раньше тут был перечень
+# популярных зон — и всё, чего в нём нет, проходило мимо запрета: `example.gg`,
+# `mysite.xyz`, даже `youtu.be/abc`. Перечисление зон обречено: их больше
+# полутора тысяч, и новые появляются. Берём любую зону из 2–24 латинских букв.
+#
+# ⚠️ От ложных срабатываний защищаемся иначе — НЕ списком зон:
+#   • зона только латиницей → «спасибо.мне понравилось» не ссылка;
+#   • перед точкой запрещены цифры в конце → «1.5» и «версия 2.0» проходят;
+#   • зона не короче двух букв → сокращения вроде «т.е» не ловятся.
 _LINK_RE = re.compile(
     r"(?:(?:https?|ftp)://\S+)"
     r"|(?:www\.\S+)"
-    r"|(?:\b[a-zA-Zа-яА-Я0-9][-a-zA-Zа-яА-Я0-9]*"
-    r"\.(?:ru|рф|com|net|org|io|me|tv|cc|biz|info|online|site|store|shop|club|"
-    r"live|link|bio|app|dev|ai|co|us|uk|de|kz|by|ua|su|pro|top|space|website|"
-    r"fun|life|world|today|art|agency|studio|team|group|digital|media|blog)"
+    r"|(?:\b[a-zA-Zа-яА-Я][-a-zA-Zа-яА-Я0-9]*"
+    r"\.[a-zA-Z]{2,24}"
     r"(?:/\S*)?\b)",
+    re.IGNORECASE,
+)
+
+# ⚠️ Маскировка точки: «site(.)ru», «site . ru», «site[dot]ru» — тот же адрес,
+# написанный так, чтобы проскочить проверку. Приводим текст к обычному виду
+# ПЕРЕД поиском, иначе запрет обходится одним лишним символом.
+_DOT_MASK_RE = re.compile(
+    r"\s*(?:\(\s*\.\s*\)|\[\s*\.\s*\]|\{\s*\.\s*\}"
+    r"|\(\s*(?:dot|точка)\s*\)|\[\s*(?:dot|точка)\s*\]"
+    r"|\s\.\s)\s*",
     re.IGNORECASE,
 )
 
@@ -83,10 +97,42 @@ _LINK_RE = re.compile(
 _HANDLE_RE = re.compile(r"(?<![\w@])@[A-Za-z][A-Za-z0-9_]{3,}\b")
 
 
+def _unmask_dots(text: str) -> str:
+    """«site(.)ru» → «site.ru». Только для ПРОВЕРКИ, не для показа."""
+    return _DOT_MASK_RE.sub(".", text or "")
+
+
+LINK_HIDDEN = "<ссылка скрыта>"
+
+
 def has_link(text: str) -> bool:
-    """Есть ли в тексте ссылка (в широком смысле: схема, домен, @хендл)."""
-    t = text or ""
+    """Есть ли в тексте ссылка (в широком смысле: схема, домен, @хендл).
+
+    ⚠️ Ищем в ТЕКСТЕ БЕЗ МАСКИРОВКИ точки: «site(.)ru» — та же ссылка.
+    """
+    t = _unmask_dots(text or "")
     return bool(_LINK_RE.search(t) or _HANDLE_RE.search(t))
+
+
+def strip_links(text: str) -> str:
+    """Заменяет каждую ссылку и @хендл на «<ссылка скрыта>».
+
+    ⚠️⚠️ ЗАМЕНЯЕМ, А НЕ ОТКЛОНЯЕМ СООБЩЕНИЕ (23.09.2026). Раньше сообщение со
+    ссылкой отвергалось целиком — человек писал вопрос со ссылкой на свой
+    пример и не понимал, почему чат «не работает», и слал снова. Теперь мысль
+    доходит до эфира, а адрес — нет.
+
+    ⚠️ Маскировку («site(.)ru») снимаем ДО замены: иначе в чат уйдёт рабочий
+    адрес, просто записанный хитрее.
+    """
+    t = _unmask_dots(text or "")
+    t = _LINK_RE.sub(LINK_HIDDEN, t)
+    t = _HANDLE_RE.sub(LINK_HIDDEN, t)
+    # Несколько ссылок подряд схлопываем в одну пометку — «<ссылка скрыта>
+    # <ссылка скрыта> <ссылка скрыта>» читается как мусор.
+    t = re.sub(r"(?:" + re.escape(LINK_HIDDEN) + r"[\s,;]*){2,}",
+               LINK_HIDDEN + " ", t)
+    return t.strip()
 
 
 async def _is_room_moderator(conn, room: dict, token: Optional[str]) -> bool:
@@ -111,11 +157,29 @@ async def _is_room_moderator(conn, room: dict, token: Optional[str]) -> bool:
     if not ev.get("id"):
         return False
     # Все организаторы события равноправны ([[feedback_collab_owners_are_equal]]).
-    return bool(await conn.fetchval(
+    if await conn.fetchval(
         "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 "
         "  AND status='accepted'",
         ev["id"], client_id,
-    ))
+    ):
+        return True
+    # ⚠️ ПОМОЩНИК организатора — тоже свой (23.09.2026). Он ведёт эфир вместо
+    # клиента и раздаёт в чате ссылки на оплату и материалы; запрет на него не
+    # писан. Вход у помощника — токен КЛИЕНТА, к которому он приставлен
+    # (`sub` = client_id), плюс `grant_id` в токене: отдельного «своего»
+    # client_id у него нет вовсе, поэтому проверка выше его уже покрывает.
+    # Явная ветка — на случай пропуска, выданного не владельцем события.
+    try:
+        if payload.get("grant_id"):
+            return bool(await conn.fetchval(
+                "SELECT 1 FROM assistant_grants g "
+                " JOIN event_owners eo ON eo.client_id = g.client_id "
+                "WHERE g.id = $1 AND eo.event_id = $2 AND eo.status = 'accepted'",
+                int(payload["grant_id"]), ev["id"],
+            ))
+    except Exception:
+        return False
+    return False
 
 
 async def _load_room(conn, slug: str, day: int) -> dict:
@@ -685,20 +749,28 @@ async def chat_send(slug: str, day: int, body: ChatIn):
         if not text:
             raise HTTPException(400, "Пустое сообщение")
 
-        # ⚠️ Запрет ссылок НЕ действует на организаторов: их ссылки — часть
-        # эфира (оплата, материалы). Зрителю отвечаем ПО ИМЕНИ и объясняем
-        # причину: молчаливый отказ человек читает как «сломалось» и жмёт
-        # отправку снова и снова.
+        # ⚠️ Запрет ссылок НЕ действует на организаторов и их помощников: их
+        # ссылки — часть эфира (оплата, материалы).
+        #
+        # ⚠️⚠️ ССЫЛКУ ВЫРЕЗАЕМ, А НЕ ОТКЛОНЯЕМ ВСЁ СООБЩЕНИЕ (23.09.2026).
+        # Раньше сообщение отвергалось целиком: человек писал вопрос, в котором
+        # мимоходом упомянул адрес, получал отказ и решал, что чат сломан —
+        # и слал снова. Теперь мысль доходит до эфира, а адрес заменяется на
+        # «<ссылка скрыта>»: и правило соблюдено, и разговор не оборван.
         if room.get("block_links") and has_link(text):
             if not await _is_room_moderator(conn, room, body.token):
-                who = (body.author_name or "").strip()
-                if not who and body.contact_id:
-                    who = await conn.fetchval(
-                        "SELECT NULLIF(TRIM(name), '') FROM contacts WHERE id = $1",
-                        body.contact_id) or ""
-                prefix = f"{who}! " if who else ""
-                raise HTTPException(
-                    403, f"{prefix}Ссылки в чате запрещены правилами вебинара")
+                text = strip_links(text)
+                # Осталась одна пометка и ничего больше — сообщение было
+                # голой ссылкой. Такое в эфир не пускаем: смысла в нём нет.
+                if text.replace(LINK_HIDDEN, "").strip() == "":
+                    who = (body.author_name or "").strip()
+                    if not who and body.contact_id:
+                        who = await conn.fetchval(
+                            "SELECT NULLIF(TRIM(name), '') FROM contacts WHERE id = $1",
+                            body.contact_id) or ""
+                    prefix = f"{who}! " if who else ""
+                    raise HTTPException(
+                        403, f"{prefix}Ссылки в чате запрещены правилами вебинара")
 
         status = "premod" if room.get("premoderation") else "visible"
         # Имя автора: из формы; если пусто, но зритель опознан — берём имя контакта из БД
