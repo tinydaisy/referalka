@@ -831,7 +831,12 @@ export default function WebinarRoomPage() {
               меняется, и он считает, что кнопка сломана. Счётчики у КАЖДОГО
               спикера свои — при смене спикера показываются его цифры, чужие
               не переносятся. */}
-          {cur && (() => {
+          {/* ⚠️ Обе реакции выключены → блока НЕТ вовсе (23.09.2026).
+              Раньше выключался только «палец вниз», и оставалась одинокая
+              кнопка «Огонь», убрать которую было нечем.
+              ⚠️ `!== false`, а не `?? true`: у старых комнат поле может не
+              прийти вовсе, и реакции должны остаться как были. */}
+          {cur && (rm.show_up_reaction !== false || rm.show_down_reaction) && (() => {
             const voted = myVotes[cur.ec_id]
             const lock = !!rm.one_vote_per_person && !!voted
             const cls = (active: boolean) =>
@@ -840,11 +845,13 @@ export default function WebinarRoomPage() {
               } ${lock ? 'opacity-70 cursor-default' : 'hover:bg-white/20'}`
             return (
             <div className="mt-2 flex gap-2">
-              <button onClick={() => !lock && react(cur.ec_id, 'up')} disabled={lock}
-                className={cls(voted === 'up')}
-                style={voted === 'up' ? { background: 'rgba(255,207,164,0.22)', color: '#FFCFA4' } : undefined}>
-                🔥 {rm.reaction_up_label} · {curRx?.up || 0}
-              </button>
+              {rm.show_up_reaction !== false && (
+                <button onClick={() => !lock && react(cur.ec_id, 'up')} disabled={lock}
+                  className={cls(voted === 'up')}
+                  style={voted === 'up' ? { background: 'rgba(255,207,164,0.22)', color: '#FFCFA4' } : undefined}>
+                  🔥 {rm.reaction_up_label} · {curRx?.up || 0}
+                </button>
+              )}
               {rm.show_down_reaction && (
                 <button onClick={() => !lock && react(cur.ec_id, 'down')} disabled={lock}
                   className={cls(voted === 'down')}
@@ -884,7 +891,7 @@ export default function WebinarRoomPage() {
                   <div key={pl.id} className="rounded-lg bg-white/10 p-3 text-center">
                     <div className="font-semibold text-sm mb-2 truncate">{pl.name || `#${pl.speaker_id}`}</div>
                     <div className="flex gap-1 justify-center">
-                      <button onClick={() => voteBattle(pl.id, 'up')} className="px-2 py-1 rounded bg-white/10 text-xs">🔥 {pl.up_count}</button>
+                      {battle.show_up_reaction !== false && <button onClick={() => voteBattle(pl.id, 'up')} className="px-2 py-1 rounded bg-white/10 text-xs">🔥 {pl.up_count}</button>}
                       {battle.show_down_reaction && <button onClick={() => voteBattle(pl.id, 'down')} className="px-2 py-1 rounded bg-white/10 text-xs">👎 {pl.down_count}</button>}
                     </div>
                   </div>

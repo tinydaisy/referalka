@@ -296,6 +296,7 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
     outro_redirect_sec: r?.outro_redirect_sec ?? 15,
     reaction_up_label: r?.reaction_up_label || 'Огонь',
     reaction_down_label: r?.reaction_down_label || 'Слабо',
+    show_up_reaction: r?.show_up_reaction ?? true,
     show_down_reaction: r?.show_down_reaction ?? true,
     intro_text: r?.intro_text || '',
     buttons_per_row: r?.buttons_per_row || 1,
@@ -408,6 +409,7 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
       outro_redirect_sec: rr?.outro_redirect_sec ?? 15,
       reaction_up_label: rr?.reaction_up_label || 'Огонь',
       reaction_down_label: rr?.reaction_down_label || 'Слабо',
+      show_up_reaction: rr?.show_up_reaction ?? true,
       show_down_reaction: rr?.show_down_reaction ?? true,
       intro_text: rr?.intro_text || '',
       buttons_per_row: rr?.buttons_per_row || 1,
@@ -449,6 +451,7 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
           outro_redirect_sec: rr.outro_redirect_sec ?? 15,
           reaction_up_label: rr.reaction_up_label ?? 'Огонь',
           reaction_down_label: rr.reaction_down_label ?? 'Слабо',
+          show_up_reaction: rr.show_up_reaction ?? true,
           show_down_reaction: rr.show_down_reaction ?? true,
           intro_text: rr.intro_text ?? '',
           buttons_per_row: rr.buttons_per_row ?? 1,
@@ -813,14 +816,20 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
             нажатие — один человек мог накрутить сколько угодно. Батлы
             защищены всегда, там голоса лежат строками. */}
         <Toggle label="Один человек — один голос спикеру" checked={f.one_vote_per_person} onChange={v => setF({ ...f, one_vote_per_person: v })} />
+        {/* ⚠️ Выключатели РАЗДЕЛЬНЫЕ (23.09.2026): выключался только «палец
+            вниз», а «Огонь» показывался всегда — убрать реакции совсем было
+            нечем. Выключены оба → блок реакций у зрителя не показывается. */}
+        <Toggle label="Показывать положительную реакцию (🔥)" checked={f.show_up_reaction} onChange={v => setF({ ...f, show_up_reaction: v })} />
         <Toggle label="Показывать отрицательную реакцию (👎)" checked={f.show_down_reaction} onChange={v => setF({ ...f, show_down_reaction: v })} />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        <div>
-          <label className="label">Название положительной реакции</label>
-          <input className="input" value={f.reaction_up_label} onChange={e => setF({ ...f, reaction_up_label: e.target.value })} placeholder="Огонь" />
-        </div>
+        {f.show_up_reaction && (
+          <div>
+            <label className="label">Название положительной реакции</label>
+            <input className="input" value={f.reaction_up_label} onChange={e => setF({ ...f, reaction_up_label: e.target.value })} placeholder="Огонь" />
+          </div>
+        )}
         {f.show_down_reaction && (
           <div>
             <label className="label">Название отрицательной реакции</label>

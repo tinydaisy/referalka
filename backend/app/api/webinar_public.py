@@ -595,6 +595,7 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
                 "next_day": next_day_info,
                 "reaction_up_label": room.get("reaction_up_label"),
                 "reaction_down_label": room.get("reaction_down_label"),
+                "show_up_reaction": room.get("show_up_reaction"),
                 "show_down_reaction": room.get("show_down_reaction"),
                 "intro_text": room.get("intro_text"),
                 "buttons_per_row": room.get("buttons_per_row") or 1,
@@ -785,8 +786,14 @@ async def react(slug: str, day: int, body: ReactIn):
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         rid = room["id"]
+        # ⚠️ Проверка на СЕРВЕРЕ, а не только скрытой кнопкой: запрос
+        # повторяется мимо интерфейса, и выключенная реакция всё равно
+        # накручивалась бы. Для «Огня» такой проверки не было вовсе
+        # (23.09.2026) — выключателя у него тоже не было.
         if body.reaction == "down" and not room.get("show_down_reaction"):
             raise HTTPException(403, "Отрицательная реакция отключена")
+        if body.reaction == "up" and room.get("show_up_reaction") is False:
+            raise HTTPException(403, "Положительная реакция отключена")
         if await _is_banned(conn, rid, body.contact_id, body.session_key):
             raise HTTPException(403, "Вы удалены из эфира")
 
@@ -835,11 +842,13 @@ async def battle_vote(slug: str, day: int, battle_id: int, body: BattleVoteIn):
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         rid = room["id"]
-        b = await conn.fetchrow("SELECT show_down_reaction FROM webinar_battles WHERE id=$1 AND room_id=$2 AND status='live'", battle_id, rid)
+        b = await conn.fetchrow("SELECT show_up_reaction, show_down_reaction FROM webinar_battles WHERE id=$1 AND room_id=$2 AND status='live'", battle_id, rid)
         if not b:
             raise HTTPException(404, "Батл не активен")
         if body.reaction == "down" and not b["show_down_reaction"]:
             raise HTTPException(403, "Отрицательная реакция отключена")
+        if body.reaction == "up" and b["show_up_reaction"] is False:
+            raise HTTPException(403, "Положительная реакция отключена")
         # ⚠️ Батлы от накрутки защищены ВСЕГДА, независимо от настройки
         # `one_vote_per_person`: голоса лежат строками в webinar_battle_votes
         # с уникальностью по (игрок, зритель), а счётчики пересчитываются

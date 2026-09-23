@@ -115,6 +115,10 @@ class RoomUpsert(BaseModel):
     outro_redirect_sec: Optional[int] = None
     reaction_up_label: Optional[str] = None
     reaction_down_label: Optional[str] = None
+    # ⚠️ Выключатели РАЗДЕЛЬНЫЕ (23.09.2026): выключить можно было только
+    # «палец вниз», а «Огонь» показывался всегда — убрать реакции совсем
+    # было нечем. Оба FALSE = блок реакций не показывается вовсе.
+    show_up_reaction: Optional[bool] = None
     show_down_reaction: Optional[bool] = None
     intro_text: Optional[str] = None
     buttons_per_row: Optional[int] = None      # сколько кнопок-офферов в ряд (1=столбик)
@@ -156,6 +160,10 @@ class BattleIn(BaseModel):
     speaker_ids: List[int] = []                # event_collaborators.id
     reaction_up_label: Optional[str] = None
     reaction_down_label: Optional[str] = None
+    # ⚠️ Выключатели РАЗДЕЛЬНЫЕ (23.09.2026): выключить можно было только
+    # «палец вниз», а «Огонь» показывался всегда — убрать реакции совсем
+    # было нечем. Оба FALSE = блок реакций не показывается вовсе.
+    show_up_reaction: Optional[bool] = None
     show_down_reaction: Optional[bool] = None
 
 
@@ -339,6 +347,7 @@ def _room_public(room: Optional[dict]) -> Optional[dict]:
         "outro_redirect_sec": r.get("outro_redirect_sec"),
         "reaction_up_label": r.get("reaction_up_label"),
         "reaction_down_label": r.get("reaction_down_label"),
+        "show_up_reaction": r.get("show_up_reaction"),
         "show_down_reaction": r.get("show_down_reaction"),
         "intro_text": r.get("intro_text"),
         "buttons_per_row": r.get("buttons_per_row") or 1,
@@ -412,12 +421,12 @@ async def upsert_room(
             " stream_key, hls_url, external_url, hide_viewer_count, chat_enabled, premoderation, "
             " redirect_url, reaction_up_label, reaction_down_label, show_down_reaction, intro_text, "
             " buttons_per_row, auth_mode, auth_require_name, auth_require_email, auth_require_phone, "
-            " auth_require_tg, auth_intro_text, speaker_join_url) "
+            " auth_require_tg, auth_intro_text, speaker_join_url, show_up_reaction) "
             "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,"
             " COALESCE($9,FALSE), COALESCE($10,TRUE), COALESCE($11,FALSE),"
             " $12, COALESCE($13,'Огонь'), COALESCE($14,'Слабо'), COALESCE($15,TRUE), $16,"
             " COALESCE($17,1), COALESCE($18,'auto'), COALESCE($19,TRUE), COALESCE($20,FALSE),"
-            " COALESCE($21,FALSE), COALESCE($22,FALSE), $23, $24)",
+            " COALESCE($21,FALSE), COALESCE($22,FALSE), $23, $24, COALESCE($25,TRUE))",
             event_id, day_number, fields.get("title"), fields.get("starts_at"), stream_type,
             stream_key, hls, fields.get("external_url"), fields.get("hide_viewer_count"),
             fields.get("chat_enabled"), fields.get("premoderation"), fields.get("redirect_url"),
@@ -427,6 +436,10 @@ async def upsert_room(
             fields.get("auth_require_email"), fields.get("auth_require_phone"),
             fields.get("auth_require_tg"), fields.get("auth_intro_text"),
             fields.get("speaker_join_url"),
+            # ⚠️ В КОНЕЦ списка, а не рядом с show_down_reaction: номера
+            # плейсхолдеров здесь сквозные, и вставка в середину сдвинула
+            # бы все последующие значения на чужие колонки.
+            fields.get("show_up_reaction"),
         )
     room = await db.fetchrow(
         "SELECT * FROM webinar_rooms WHERE event_id=$1 AND day_number=$2", event_id, day_number)
@@ -708,7 +721,7 @@ _COPYABLE_ROOM_FIELDS = (
     "stream_type",
     "hide_viewer_count", "chat_enabled", "premoderation", "block_links",
     "one_vote_per_person",
-    "reaction_up_label", "reaction_down_label", "show_down_reaction",
+    "reaction_up_label", "reaction_down_label", "show_up_reaction", "show_down_reaction",
     "intro_text", "buttons_per_row",
     "auth_mode", "auth_require_name", "auth_require_email",
     "auth_require_phone", "auth_require_tg", "auth_intro_text",
@@ -1046,9 +1059,12 @@ async def create_battle(event_id: int, day_number: int, data: BattleIn, client=D
     rid = await _room_id(db, event_id, day_number)
     async with db.transaction():
         b = await db.fetchrow(
-            "INSERT INTO webinar_battles (room_id, title, status, reaction_up_label, reaction_down_label, show_down_reaction) "
-            "VALUES ($1,$2,'live',COALESCE($3,'Огонь'),COALESCE($4,'Слабо'),COALESCE($5,TRUE)) RETURNING *",
-            rid, data.title, data.reaction_up_label, data.reaction_down_label, data.show_down_reaction)
+            "INSERT INTO webinar_battles (room_id, title, status, reaction_up_label, reaction_down_label, "
+            " show_up_reaction, show_down_reaction) "
+            "VALUES ($1,$2,'live',COALESCE($3,'Огонь'),COALESCE($4,'Слабо'),"
+            " COALESCE($5,TRUE),COALESCE($6,TRUE)) RETURNING *",
+            rid, data.title, data.reaction_up_label, data.reaction_down_label,
+            data.show_up_reaction, data.show_down_reaction)
         players = []
         for idx, ec_id in enumerate(data.speaker_ids):
             # ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно имя.
