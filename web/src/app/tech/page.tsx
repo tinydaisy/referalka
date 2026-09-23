@@ -174,6 +174,10 @@ export default function TechClientsPage() {
               <tr>
                 <th className="px-4 py-3">Клиент</th>
                 <th className="px-4 py-3">Статус</th>
+                {/* ⚠️ «Что у клиента есть» (23.09.2026): по одному тарифу не
+                    понять, живой это кабинет или пустой. Внедренцу это первое,
+                    что нужно перед звонком. */}
+                <th className="px-4 py-3">Что есть</th>
                 <th className="px-4 py-3">Тариф</th>
                 <th className="px-4 py-3">Оплат</th>
                 <th className="px-4 py-3">Последняя</th>
@@ -219,6 +223,19 @@ export default function TechClientsPage() {
                     )}
                     <div className="mt-1 text-[11px] text-gray-400">
                       {c.is_own ? 'свой' : 'из базы ПЛЮСОНА'}
+                    </div>
+                  </td>
+                  {/* События, боты, подписчики, вебинары, коллаборации —
+                      компактно, в две строки: отдельные колонки под каждое
+                      растянули бы таблицу за край экрана. */}
+                  <td className="px-4 py-3 text-[11px] text-gray-600">
+                    <div>
+                      {c.events_count ?? 0} соб · {c.own_channels_count ?? 0} ботов
+                    </div>
+                    <div className="text-gray-400">
+                      {(c.subscribers_count ?? 0).toLocaleString('ru-RU')} подп
+                      {(c.webinars_count ?? 0) > 0 && ` · ${c.webinars_count} веб`}
+                      {(c.collaborators_count ?? 0) > 0 && ` · ${c.collaborators_count} колл`}
                     </div>
                   </td>
                   <td className="px-4 py-3">
