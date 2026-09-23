@@ -41,6 +41,9 @@ export default function TechLayout({ children }: { children: React.ReactNode }) 
   const router = useRouter()
   const [me, setMe] = useState<any>(null)
   const [checked, setChecked] = useState(false)
+  // Новые сообщения — цифрой у пункта «Диалоги», как в кабинете клиента:
+  // без неё человек не знает, что ему написали, пока сам не откроет раздел.
+  const [unread, setUnread] = useState(0)
 
   useEffect(() => {
     if (pathname === '/tech/login') { setChecked(true); return }
@@ -49,6 +52,20 @@ export default function TechLayout({ children }: { children: React.ReactNode }) 
       .catch(() => router.replace('/tech/login'))
       .finally(() => setChecked(true))
   }, [pathname, router])
+
+  // ⚠️ Отдельным лёгким запросом и ПЕРИОДИЧЕСКИ: сообщение может прийти, пока
+  // человек сидит на другой странице, и цифра должна появиться сама.
+  // Перечитываем и при смене страницы — вышел из диалогов, цифра упала.
+  useEffect(() => {
+    if (pathname === '/tech/login') return
+    let alive = true
+    const load = () => api.tech.dialogsUnread()
+      .then((r: any) => { if (alive) setUnread(r?.unread || 0) })
+      .catch(() => {})
+    load()
+    const t = setInterval(load, 60_000)
+    return () => { alive = false; clearInterval(t) }
+  }, [pathname])
 
   if (pathname === '/tech/login') return <>{children}</>
   if (!checked) return null
@@ -81,7 +98,17 @@ export default function TechLayout({ children }: { children: React.ReactNode }) 
               <Link key={href} href={href}
                     className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                       active ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
-                <Icon size={17} /> {label}
+                <Icon size={17} />
+                <span className="flex-1">{label}</span>
+                {/* Цифра новых сообщений — только у «Диалогов» и только когда
+                    есть что показать: ноль в кружке ничего не сообщает. */}
+                {href === '/tech/dialogs' && unread > 0 && (
+                  <span className="rounded-full px-1.5 py-0.5 text-[11px] font-bold"
+                        style={{ background: '#FFCFA4', color: '#25455D' }}
+                        title={`Новых сообщений: ${unread}`}>
+                    {unread}
+                  </span>
+                )}
               </Link>
             )
           })}

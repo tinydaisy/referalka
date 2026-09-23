@@ -104,6 +104,37 @@ async def my_dialogs(
     return {"dialogs": [dict(r) for r in rows]}
 
 
+@router.get("/unread-count", summary="Сколько у меня новых сообщений")
+async def unread_count(
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Цифра для пункта меню «Диалоги» — как у клиента в кабинете.
+
+    ⚠️⚠️ ОБЪЯВЛЕН ДО `/{contact_id}`: FastAPI разбирает маршруты по порядку, и
+    после него «unread-count» ушёл бы в динамический путь как номер контакта —
+    эндпоинт молча отвечал бы 422 вместо цифры.
+
+    ⚠️ Считаем ровно то же, что показывает список: только НАЗНАЧЕННЫЕ мне
+    разговоры (`dialog_assignments`). Иначе в меню висела бы цифра от чужих
+    диалогов, которые человек не может открыть, — то самое расхождение, из-за
+    которого у клиентов счётчик уже переделывали.
+    """
+    spec_id = int(user["sub"])
+    client_id = await _system_client_id(db)
+    n = await db.fetchval(
+        """SELECT COUNT(*)
+             FROM direct_messages dm
+             JOIN dialog_assignments da ON da.contact_id = dm.contact_id
+                                       AND da.client_id = dm.client_id
+            WHERE dm.client_id = $1 AND da.spec_id = $2
+              AND dm.contact_id IS NOT NULL
+              AND dm.direction = 'in' AND NOT dm.is_read""",
+        client_id, spec_id,
+    )
+    return {"unread": int(n or 0)}
+
+
 @router.get("/{contact_id}", summary="Лента переписки")
 async def messages(
     contact_id: int,
