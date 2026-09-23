@@ -2199,7 +2199,17 @@ async def generate_schedules(
             if _sp_raw:
                 _h, _m = _tmpl_time_msk(tmpl, 0, 0)
                 _prev_date = first_session.get("day_date")
-                _sp_fire = (_msk_str_to_utc(_prev_date, f"{_h:02d}:{_m:02d}") - timedelta(days=1)
+                # ⚠️ «За сколько дней» берём из `intro_days_before`, а не всегда
+                # сутки (23.09.2026). Раньше здесь стояло жёсткое `days=1`, и
+                # настройки в интерфейсе не было вовсе — поправить время
+                # отправки было нечем. 0 = в сам день программы.
+                _days = tmpl["intro_days_before"] if "intro_days_before" in tmpl else None
+                try:
+                    _days = int(_days) if _days is not None else 1
+                except (TypeError, ValueError):
+                    _days = 1
+                _days = max(0, min(30, _days))
+                _sp_fire = (_msk_str_to_utc(_prev_date, f"{_h:02d}:{_m:02d}") - timedelta(days=_days)
                             if _prev_date else None)
             else:
                 _sp_fire = first_start_utc - timedelta(minutes=tmpl["offset_minutes"] or 1440)

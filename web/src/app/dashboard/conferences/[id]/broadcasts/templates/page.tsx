@@ -2181,14 +2181,28 @@ export default function TemplatesPage() {
               )}
 
               {/* Настройки расписания для Знакомства со спикером и Экспертного дня */}
-              {(editModal?.type === 'speaker_intro' || editModal?.type === 'expert_day') && (
+              {/* ⚠️ `speakers_day` добавлен сюда 23.09.2026: у «Программы дня
+                  в чат спикеров» настроек времени не было ВОВСЕ — ни часа
+                  отправки, ни «за сколько дней», и поправить расписание
+                  было нечем. Бэкенд её время читал и раньше, просто отнимал
+                  жёстко сутки. */}
+              {(editModal?.type === 'speaker_intro' || editModal?.type === 'expert_day'
+                || editModal?.type === 'speakers_day') && (
                 <div className="border border-blue-100 rounded-xl p-3 bg-blue-50 space-y-3">
                   <p className="text-xs font-medium text-blue-700">
-                    {editModal?.type === 'expert_day' ? '⏰ Расписание Экспертного дня' : '⏰ Расписание знакомств со спикерами'}
+                    {editModal?.type === 'expert_day' ? '⏰ Расписание Экспертного дня'
+                      : editModal?.type === 'speakers_day' ? '⏰ Когда слать программу в чат спикеров'
+                      : '⏰ Расписание знакомств со спикерами'}
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* ⚠️ У «Программы дня» ИНТЕРВАЛА НЕТ: рассылка одна на день,
+                      разносить во времени нечего. Показывать поле, которое ни
+                      на что не влияет, — обманывать: человек его настроит и
+                      будет ждать эффекта. */}
+                  <div className={editModal?.type === 'speakers_day' ? '' : 'grid grid-cols-2 gap-2'}>
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Время старта (МСК)</label>
+                      <label className="text-xs text-gray-500 mb-1 block">
+                        {editModal?.type === 'speakers_day' ? 'Во сколько отправить (МСК)' : 'Время старта (МСК)'}
+                      </label>
                       <input
                         type="time"
                         value={(form as any).intro_start_time || '11:00'}
@@ -2196,36 +2210,57 @@ export default function TemplatesPage() {
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
                       />
                     </div>
-                    <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Интервал (мин)</label>
-                      <input
-                        type="number"
-                        min={5} max={120}
-                        value={(form as any).intro_interval_min || 15}
-                        onChange={e => setForm({ ...form, intro_interval_min: Number(e.target.value) } as any)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
-                      />
-                    </div>
+                    {editModal?.type !== 'speakers_day' && (
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Интервал (мин)</label>
+                        <input
+                          type="number"
+                          min={5} max={120}
+                          value={(form as any).intro_interval_min || 15}
+                          onChange={e => setForm({ ...form, intro_interval_min: Number(e.target.value) } as any)}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
+                        />
+                      </div>
+                    )}
                   </div>
+                  {/* ⚠️ У «Программы дня» отсчёт идёт от ДНЯ ПРОГРАММЫ (своя
+                      рассылка на каждый день), а у знакомств — от начала
+                      конференции. Подписи разные, иначе человек поймёт
+                      наоборот. Ещё у неё есть «в сам день»: тайминг нередко
+                      шлют утром того же дня, а не накануне. */}
                   <div>
-                    <label className="text-xs text-gray-500 mb-1 block">Отправить за</label>
+                    <label className="text-xs text-gray-500 mb-1 block">
+                      {editModal?.type === 'speakers_day' ? 'Когда отправить' : 'Отправить за'}
+                    </label>
                     <select
-                      value={(form as any).intro_days_before || 1}
+                      value={(form as any).intro_days_before ?? 1}
                       onChange={e => setForm({ ...form, intro_days_before: Number(e.target.value) } as any)}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
                     >
-                      <option value={1}>за 1 день до конференции</option>
-                      <option value={2}>за 2 дня до конференции</option>
-                      <option value={3}>за 3 дня до конференции</option>
-                      <option value={4}>за 4 дня до конференции</option>
-                      <option value={5}>за 5 дней до конференции</option>
-                      <option value={6}>за 6 дней до конференции</option>
-                      <option value={7}>за 7 дней до конференции</option>
+                      {editModal?.type === 'speakers_day' && (
+                        <option value={0}>в день программы</option>
+                      )}
+                      {[1, 2, 3, 4, 5, 6, 7].map(d => (
+                        <option key={d} value={d}>
+                          {editModal?.type === 'speakers_day'
+                            ? `за ${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'} до дня программы`
+                            : `за ${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'} до конференции`}
+                        </option>
+                      ))}
                     </select>
+                    {editModal?.type === 'speakers_day' && (
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        Своя рассылка на каждый день программы. «В день программы» —
+                        утром того же дня, в указанное время.
+                      </p>
+                    )}
                   </div>
 
                   {/* Выбор ролей: для кого формировать знакомство.
-                      null/undefined = все роли (по умолчанию). */}
+                      null/undefined = все роли (по умолчанию).
+                      ⚠️ У «Программы дня» ролей НЕТ: это одно сообщение в чат
+                      спикеров, а не рассылка по людям — выбирать некого. */}
+                  {editModal?.type !== 'speakers_day' && (
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">{editModal?.type === 'expert_day' ? 'Кого анонсировать (роли)' : 'Знакомить с (роли)'}</label>
                     <div className="flex flex-wrap gap-2">
@@ -2256,6 +2291,7 @@ export default function TemplatesPage() {
                       Отмеченные роли попадут в рассылку знакомства при «Сформировать из программы». По умолчанию — все.
                     </p>
                   </div>
+                  )}
                 </div>
               )}
 
