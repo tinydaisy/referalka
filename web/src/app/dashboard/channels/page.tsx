@@ -183,6 +183,8 @@ export default function ChannelsPage() {
   const [importingChannel, setImportingChannel] = useState<Channel | null>(null)
   // Кто держит TG-ботов: мы или сторонний сервис (webhook). channel_id → health
   const [health, setHealth] = useState<Record<number, BotHealth>>({})
+  // WhatsApp-сессия отвалилась — рассылки в чаты WhatsApp не уходят (см. loadWaHealth)
+  const [waNeedsRelink, setWaNeedsRelink] = useState(false)
   // Результат возврата из Facebook (подключение Instagram).
   //
   // ⚠️⚠️ Читается ЗДЕСЬ, на уровне страницы, а не внутри формы «Добавить
@@ -240,7 +242,20 @@ export default function ChannelsPage() {
     } catch { /* Telegram недоступен — просто не показываем диагностику */ }
   }
 
-  useEffect(() => { load(); loadHealth() }, [])
+  // ⚠️ Живость WhatsApp-сессии — отдельным запросом, а не через health (тот про
+  // Telegram-вебхуки). У WhatsApp нет бота с токеном: сообщения шлёт залогиненная
+  // WhatsApp Web-сессия, и она умирает, когда человек снимает привязку в
+  // «Связанных устройствах» телефона. Запись канала в БД при этом остаётся, и
+  // без этой проверки канал выглядит рабочим, пока рассылки молча падают — так
+  // у клиента 1 накопилось 54 упавшие отправки за два месяца.
+  const loadWaHealth = async () => {
+    try {
+      const st: any = await api.channels.whatsappStatus()
+      setWaNeedsRelink(!!st?.connected && st?.needs_relink === true)
+    } catch { setWaNeedsRelink(false) }
+  }
+
+  useEffect(() => { load(); loadHealth(); loadWaHealth() }, [])
 
   if (loading) {
     return <div className="p-6 text-gray-400 text-sm">Загрузка...</div>
@@ -348,6 +363,7 @@ export default function ChannelsPage() {
             onOpenInstagram={() => { setCreatingPlatform('instagram'); setCreating(true) }}
             onImport={ch => setImportingChannel(ch)}
             onRestarted={loadHealth}
+            waNeedsRelink={waNeedsRelink}
           />
         )
       )}
@@ -585,8 +601,42 @@ function PlatformGroup({ title, count, children, defaultOpen = true }: {
   )
 }
 
+/* ─────── WhatsApp отвязался: сессия умерла, рассылки в чаты молча падают ───────
+ *
+ * ⚠️ Почему это отдельная плашка, а не значок на карточке канала. У WhatsApp нет
+ * бота с токеном: сообщения шлёт залогиненная WhatsApp Web-сессия на мосту.
+ * Телефон снимает связанное устройство — сессия умирает, а запись канала в БД
+ * остаётся, и канал выглядит рабочим. У клиента 1 так прошло два месяца и 54
+ * упавшие отправки, прежде чем кто-то заметил. Значок в углу карточки такого
+ * не остановит — нужна заметная плашка с готовым действием.
+ */
+function WhatsAppRelinkBanner() {
+  return (
+    <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-red-800">
+            WhatsApp отвязался — рассылки в чаты WhatsApp не уходят
+          </p>
+          <p className="text-xs text-red-700 mt-1">
+            Привязка аккаунта слетела: так бывает, когда WhatsApp на телефоне убирает
+            связанное устройство. Выбранные группы для рассылок сохранены, заново
+            выбирать их не нужно — достаточно привязать аккаунт заново.
+            На Telegram, VK и MAX это не влияет.
+          </p>
+          <p className="text-xs text-red-700 mt-2">
+            Нажмите <b>«Добавить канал» → WhatsApp → «Подключить»</b> и отсканируйте QR:
+            на телефоне WhatsApp → Настройки → Связанные устройства → «Привязать устройство».
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
-function VipView({ channels, platforms, isSystemService, health, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, hasInstagram, onOpenInstagram, onImport, onRestarted }: {
+function VipView({ channels, platforms, isSystemService, health, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, hasInstagram, onOpenInstagram, onImport, onRestarted, waNeedsRelink }: {
   channels: Channel[]
   platforms: Platform[]
   isSystemService?: boolean
@@ -602,6 +652,8 @@ function VipView({ channels, platforms, isSystemService, health, onEdit, onCreat
   onOpenInstagram: () => void
   onImport: (ch: Channel) => void
   onRestarted: () => void
+  /** WhatsApp-сессия отвалилась — рассылки в его чаты не уходят. */
+  waNeedsRelink?: boolean
 }) {
   /**
    * Свой почтовый домен клиента (`client_domains.kind='mail'`).
@@ -675,6 +727,7 @@ function VipView({ channels, platforms, isSystemService, health, onEdit, onCreat
 
   return (
     <div className="space-y-6">
+      {waNeedsRelink && <WhatsAppRelinkBanner />}
       <PlatformGroup title="Telegram" count={tgCount}>
         {!mainTgChannel ? (
           <ConnectInvite
