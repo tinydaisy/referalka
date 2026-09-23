@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import {
   Plus, X, Trash2, Edit2, Megaphone, Crown, ArrowRight,
-  CheckCircle2, Loader2, Link2, Check, Lock, ChevronDown,
+  CheckCircle2, Loader2, Link2, Check, Lock, ChevronDown, AlertTriangle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -106,6 +106,11 @@ export default function BroadcastChatsTab() {
   // ⚠️ Уровень 'one' (по одному чату на площадку) удалён миграцией 353 — он не
   // срабатывал ни у одного клиента, а в интерфейсе обещал ограничение, которого нет.
   const [accessLevel, setAccessLevel] = useState<'unlimited' | null>(null)
+  // ⚠️ Живость WhatsApp-сессии. Запись канала в БД живёт вечно, а сессия на мосту
+  // умирает, когда человек снимает привязку в «Связанных устройствах» телефона.
+  // Без этой проверки WhatsApp выглядит подключённым, пока рассылки молча падают
+  // (так у клиента 1 накопилось 54 упавшие отправки за два месяца).
+  const [waDead, setWaDead] = useState(false)
 
   // Доступ к разделу — любая из двух фич (по одному / безлимит).
   const hasFeature = (me?.features || []).includes('broadcast_chats')
@@ -116,6 +121,16 @@ export default function BroadcastChatsTab() {
       const r: any = await api.miniApp.broadcastChats.list()
       setChats(r.chats || [])
       setAccessLevel(r.access_level ?? null)
+      // Живость WhatsApp спрашиваем, только если WA-чаты заведены — иначе
+      // незачем дёргать мост на каждом открытии вкладки.
+      if ((r.chats || []).some((c: any) => c.platform === 'whatsapp')) {
+        try {
+          const st: any = await api.channels.whatsappStatus()
+          setWaDead(!!st?.connected && st?.needs_relink === true)
+        } catch { setWaDead(false) }
+      } else {
+        setWaDead(false)
+      }
     } catch (e) {
       console.error(e)
     } finally {
@@ -245,6 +260,31 @@ export default function BroadcastChatsTab() {
         Сюда добавляйте группы и каналы, в которые хотите дополнительно слать рассылки.
         Потом в рассылке поставьте галочку <b>«Отправлять в общие чаты»</b> — и она уйдёт ещё и в них.
       </div>
+
+      {/* WhatsApp отвязался — рассылки в его чаты молча падают, пока не привязать заново */}
+      {waDead && (
+        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-red-800">
+                WhatsApp отвязался — рассылки в чаты WhatsApp не уходят
+              </p>
+              <p className="text-xs text-red-700 mt-1">
+                Привязка аккаунта слетела: так бывает, когда WhatsApp на телефоне убирает
+                связанное устройство. Чаты ниже сохранены, заново выбирать их не нужно —
+                достаточно привязать аккаунт. На Telegram, VK и MAX это не влияет.
+              </p>
+              <a
+                href="/dashboard/channels"
+                className="btn-gold inline-flex items-center gap-2 mt-3 px-4 py-2 rounded-lg text-sm font-semibold"
+              >
+                Привязать WhatsApp заново <ArrowRight size={14} />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
 
 

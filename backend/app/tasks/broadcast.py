@@ -1555,6 +1555,16 @@ async def _send_broadcast_to_client_chats(
                     except Exception as ex:
                         await _log_chat_send(conn, schedule["id"], _ckind, "whatsapp", c, False, str(ex))
                         logger.warning(f"Отправка в WhatsApp-чат клиента {c} упала: {ex}")
+                        # Сессия отвалилась — молча падать нельзя: у WhatsApp нет
+                        # бота с токеном, и о слёте привязки никто не узнает.
+                        try:
+                            from app.services.whatsapp_session_notify import (
+                                is_session_dead_error, notify_wa_session_dead,
+                            )
+                            if is_session_dead_error(str(ex)):
+                                await notify_wa_session_dead(conn, client_id)
+                        except Exception as notify_ex:  # noqa: BLE001
+                            logger.warning(f"Уведомление о слёте WhatsApp не ушло: {notify_ex}")
         except Exception as ex:
             logger.warning(f"WhatsApp-часть чатов клиента упала: {ex}")
 

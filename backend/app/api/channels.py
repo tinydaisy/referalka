@@ -1541,7 +1541,26 @@ async def whatsapp_status(client=Depends(get_current_client), db=Depends(get_db)
         state = await wa.get_status(client_id)
     except Exception:
         state = "unknown"
-    return {"connected": True, "channel_id": channel["id"], "state": state}
+
+    # ⚠️ «Канал заведён» ≠ «сообщения уходят». Запись канала в БД живёт вечно, а
+    # сессия на мосту умирает, когда человек снимает привязку в «Связанных
+    # устройствах». Так у клиента 1 два месяца всё выглядело подключённым, пока
+    # 54 отправки подряд падали. Поэтому отдаём отдельно живость сессии — фронт
+    # рисует по ней предупреждение.
+    alive = state in ("ready", "authenticated")
+    if alive:
+        # Сессия снова жива — снимаем отметку, чтобы о следующем слёте сказали
+        try:
+            from app.services.whatsapp_session_notify import clear_wa_session_notice
+            await clear_wa_session_notice(db, client_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return {
+        "connected": True, "channel_id": channel["id"], "state": state,
+        "session_alive": alive,
+        "needs_relink": state in ("none", "disconnected", "auth_failure"),
+    }
 
 
 @router.get("/whatsapp/qr", summary="QR-код привязки WhatsApp")

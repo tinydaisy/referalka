@@ -1968,6 +1968,21 @@ export default function QueuePage() {
         }
         const chatSent = chats.filter((c: any) => c.status === 'sent').length
         const chatFailed = chats.length - chatSent
+        // ⚠️ Техническую ошибку моста («WA-bridge POST /sessions/1/send error 409:
+        // session not ready») клиенту показывать бессмысленно — по ней не понять
+        // ни причины, ни что делать. Переводим на человеческий.
+        const chatError = (c: any): string => {
+          const e = String(c.error || '')
+          if (/session not ready|session not found/i.test(e)) {
+            return 'WhatsApp отвязался — привяжите заново'
+          }
+          return e
+        }
+        // Слетевшая WhatsApp-сессия — отдельная строка: это чинится в Каналах,
+        // а не «само пройдёт», и молчать об этом нельзя.
+        const waDeadInReport = chats.some(
+          (c: any) => c.chat_platform === 'whatsapp' && /session not ready|session not found/i.test(String(c.error || ''))
+        )
         return (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 max-h-[85vh] flex flex-col">
@@ -2018,10 +2033,21 @@ export default function QueuePage() {
                         {plat && <span className="text-[10px] text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded shrink-0">{plat}</span>}
                         <span className="text-gray-400 truncate">{c.chat_title || c.chat_ref}</span>
                       </div>
-                      {!ok && c.error && <span className="text-red-500 shrink-0 ml-2 truncate max-w-[40%]">{c.error}</span>}
+                      {!ok && c.error && <span className="text-red-500 shrink-0 ml-2 truncate max-w-[40%]">{chatError(c)}</span>}
                     </div>
                   )
                 })}
+                {waDeadInReport && (
+                  <div className="mt-2 pt-2 border-t border-emerald-200">
+                    <p className="text-xs text-red-700">
+                      <b>WhatsApp отвязался.</b> Рассылки в чаты WhatsApp не уходят, пока
+                      аккаунт не привязан заново:{' '}
+                      <a href="/dashboard/channels" className="underline font-semibold">
+                        Каналы → «Добавить канал» → WhatsApp
+                      </a>. Выбранные группы сохранены.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             {/* Статистика по причинам недоставки */}
