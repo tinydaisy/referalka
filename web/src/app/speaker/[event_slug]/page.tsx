@@ -2479,17 +2479,23 @@ function MaterialsTab({
           кабинете — это служебное фото для бота организатора, спикеру нужна
           только индивидуальная афиша «для анонсов» (ниже). */}
 
-      {/* Афиши для анонсов — множественные, отмеченные организатором
-          чек-боксом «Для анонсов» в этой конференции (миграция 122). */}
-      {/* ⚠️ Афиши ЭТОГО события по форматам (миграция 492) — отдельным блоком
-          и ВЫШЕ старой библиотеки: они собраны под эту конференцию, тогда как
-          библиотека общая на все. Подписываем формат словами — спикеру надо
-          выбрать под площадку, куда он публикует. */}
+      {/* ⚠️⚠️ В КАБИНЕТЕ ДВА БЛОКА АФИШ, И ТОЛЬКО ДВА (решение владельца
+          23.09.2026): «Индивидуальные афиши» (слоты этого события, миграция
+          492) и «Общие афиши» (события целиком). Раньше блоков было ТРИ —
+          сверху «Ваши афиши этого события», под ними «Афиши для анонсов» из
+          старой библиотеки `collaborator_posters`, и в них лежала ТА ЖЕ САМАЯ
+          картинка: генератор при сборке писал и в слот, и в библиотеку.
+          Спикер видел один и тот же макет дважды под разными названиями и не
+          понимал, какой из них настоящий. Блок «Афиши для анонсов» убран,
+          `announcement_posters` кабинет больше не рисует.
+
+          ⚠️ Сама библиотека и поле `announcement_poster_ids` НЕ удалены: на
+          них ещё завязана ZIP-выгрузка материалов. Убрана только отрисовка. */}
       {materials.speaker_posters && materials.speaker_posters.length > 0 && (
         <div style={sectionCss}>
-          <div style={titleCss}>Ваши афиши этого события</div>
+          <div style={titleCss}>Индивидуальные афиши</div>
           <div style={subCss}>
-            Организатор подготовил афиши в трёх форматах. Скачайте подходящий и
+            Ваши личные афиши этого события. Скачайте подходящий формат и
             опубликуйте в своих каналах.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
@@ -2532,51 +2538,6 @@ function MaterialsTab({
                 </div>
               )
             })}
-          </div>
-        </div>
-      )}
-
-      {materials.announcement_posters && materials.announcement_posters.length > 0 && (
-        <div style={sectionCss}>
-          <div style={titleCss}>Афиши для анонсов</div>
-          <div style={subCss}>
-            Афиши, которые организатор приготовил для распространения. Скачайте любую и
-            опубликуйте в своих каналах, чтобы пригласить аудиторию.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-            {materials.announcement_posters.map(p => (
-              <div key={p.id} style={{
-                border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
-              }}>
-                <img
-                  src={p.url}
-                  alt={p.label || ''}
-                  onClick={() => setLightbox(p.url)}
-                  style={{
-                    width: '100%', aspectRatio: '1/1',
-                    objectFit: 'cover', cursor: 'zoom-in', display: 'block',
-                  }}
-                />
-                {p.label && (
-                  <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7c8b', borderTop: '1px solid #e6edf3' }}>
-                    {p.label}
-                  </div>
-                )}
-                <a
-                  href={p.url}
-                  download
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{
-                    display: 'block', textAlign: 'center', padding: '6px 8px',
-                    fontSize: 11, color: DARK, textDecoration: 'none',
-                    background: '#fff', borderTop: '1px solid #d4dee5',
-                  }}
-                >
-                  ⬇ Скачать
-                </a>
-              </div>
-            ))}
           </div>
         </div>
       )}

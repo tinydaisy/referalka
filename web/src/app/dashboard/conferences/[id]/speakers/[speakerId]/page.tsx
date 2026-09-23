@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { useRouter, useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Maximize2, Download, Copy, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import { personWording as personWordingDict } from '@/lib/personWording'
@@ -267,10 +267,6 @@ export default function ConferenceSpeakerPage() {
     slot_label: null as string | null,
     slot_has_topic: null as boolean | null,
   })
-  const [posterLibrary, setPosterLibrary] = useState<Array<{ id: number; url: string; label: string | null }>>([])
-  const [uploadingPoster, setUploadingPoster] = useState(false)
-  const [posterUploadError, setPosterUploadError] = useState<string | null>(null)
-  const posterFileRef = useRef<HTMLInputElement | null>(null)
   // ⚠️ Библиотека ФОТО (миграция 472): под конференцию клиент готовит свои
   // варианты — карикатуры, снимки с предметами. Профильное фото при этом
   // остаётся нетронутым: оно показывается в программе, Mini App и на витрине.
@@ -278,8 +274,6 @@ export default function ConferenceSpeakerPage() {
   const [photoLibrary, setPhotoLibrary] = useState<any[]>([])
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null)
-  const [posterLightbox, setPosterLightbox] = useState<string | null>(null)
-  const [posterCopiedId, setPosterCopiedId] = useState<number | null>(null)
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [inviteMsg, setInviteMsg] = useState<string | null>(null)
   const [inviteCopied, setInviteCopied] = useState(false)
@@ -448,10 +442,8 @@ export default function ConferenceSpeakerPage() {
         setProfile(r.collaborator)
         const ach = r.collaborator.achievements
         setAchievementsText(Array.isArray(ach) ? ach.join('\n') : (ach || ''))
-        // Загружаем библиотеку афиш этого коллаба
-        api.collaborators.posters.list(r.collaborator.id)
-          .then((pr: any) => setPosterLibrary(pr.posters || []))
-          .catch(() => setPosterLibrary([]))
+        // ⚠️ Библиотека афиш коллаба здесь БОЛЬШЕ НЕ ГРУЗИТСЯ (23.09.2026):
+        // афиши спикера живут в трёх слотах события, их тянет SpeakerPostersTabs.
         // Библиотека вариантов фото (миграция 472).
         api.collaborators.photos.list(r.collaborator.id)
           .then((pr: any) => setPhotoLibrary(pr.photos || []))
@@ -538,57 +530,6 @@ export default function ConferenceSpeakerPage() {
       setError(err.message)
     } finally {
       setSavingProfile(false)
-    }
-  }
-
-  async function uploadPosterToLibrary(files: FileList | null) {
-    if (!files || files.length === 0 || !profile) return
-    setPosterUploadError(null)
-    setUploadingPoster(true)
-    try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
-      const newPosterIds: number[] = []
-      for (const f of Array.from(files)) {
-        if (f.size > 50 * 1024 * 1024) throw new Error(`«${f.name}» больше 50 МБ`)
-        const fd = new FormData()
-        fd.append('file', f)
-        fd.append('kind', 'speaker_poster')
-        fd.append('collaborator_id', String(profile.id))
-        const r = await fetch(`${API_URL}/api/v1/uploads`, {
-          method: 'POST',
-          body: fd,
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }))
-          throw new Error(err.detail || `HTTP ${r.status}`)
-        }
-        const body = await r.json().catch(() => ({}))
-        if (typeof body.poster_id === 'number') newPosterIds.push(body.poster_id)
-      }
-      // Перезагружаем библиотеку чтобы увидеть новые афиши.
-      const pr: any = await api.collaborators.posters.list(profile.id)
-      setPosterLibrary(pr.posters || [])
-      // По умолчанию: только что загруженная индивидуальная афиша становится
-      // и афишей для рассылок (radio), и попадает в «Афиши для анонсов»
-      // (галочки) в этой конференции. Клиент может переснять выбор вручную.
-      if (newPosterIds.length > 0) {
-        const broadcastId = newPosterIds[newPosterIds.length - 1]
-        setEventForm(f => {
-          const announcement = Array.from(new Set([...f.announcement_poster_ids, ...newPosterIds]))
-          api.conference.speakers.update(confId, speakerEventId, {
-            poster_id: broadcastId,
-            announcement_poster_ids: announcement,
-          } as any).catch(() => {})
-          return { ...f, poster_id: broadcastId, announcement_poster_ids: announcement }
-        })
-      }
-    } catch (e: any) {
-      setPosterUploadError(e.message || 'Ошибка загрузки')
-    } finally {
-      setUploadingPoster(false)
-      if (posterFileRef.current) posterFileRef.current.value = ''
     }
   }
 
@@ -1682,54 +1623,20 @@ export default function ConferenceSpeakerPage() {
           </div>
           )}
 
-          {/* ⚠️⚠️ АФИШИ СОБЫТИЯ — ТРИ СЛОТА (22.09.2026, решение владельца).
-              Новое место хранения: по одной афише на формат, ориентация —
-              поле в базе (миграция 492). Именно отсюда рассылки берут афишу
-              спикера, и сюда же кладёт генератор.
-              Блок «Индивидуальные афиши» ниже — СТАРАЯ библиотека коллаба
-              (общая на все события, ориентация строкой в подписи). Она пока
-              остаётся: на ней висят ZIP-выгрузка старых афиш и кабинет
-              спикера, а у 66 из 96 афиш прода подписи нет вовсе — перенести
-              их автоматически нельзя. */}
-          <SpeakerPostersTabs eventId={confId} ecId={speakerEventId} />
+          {/* ⚠️⚠️ АФИШИ СПИКЕРА — ТОЛЬКО ТРИ СЛОТА (23.09.2026, решение владельца).
+              По одной афише на формат, ориентация — поле в базе (миграция 492).
+              Отсюда их берут рассылки, кабинет спикера и ZIP-выгрузка, сюда же
+              кладёт собранные макеты генератор афиш.
 
+              ⚠️ Здесь же стоял второй блок — «Индивидуальные афиши (старая
+              библиотека)»: куча афиш коллаба со всех конференций сразу, с
+              радио «для рассылок» и галочками «для анонсов». Он УБРАН. Два
+              блока афиш на одном экране означали два разных ответа на вопрос
+              «какая афиша у этого спикера», и клиент правил не тот. Поля
+              `poster_id` и `announcement_poster_ids` в базе остались — на них
+              ещё висит запасной источник ZIP-выгрузки для афиш, которые
+              автоматически не перенести (у 66 из 96 на проде подписи нет). */}
           <div>
-            <div className="flex items-center justify-between mb-1.5 gap-3">
-              <label className="block text-sm font-medium text-gray-700">
-                Индивидуальные афиши <span className="text-xs font-normal text-gray-400">(старая библиотека)</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => posterFileRef.current?.click()}
-                disabled={uploadingPoster}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 disabled:opacity-50"
-              >
-                {uploadingPoster ? '⏳ Загрузка…' : '+ Добавить афишу'}
-              </button>
-              <input
-                ref={posterFileRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={e => uploadPosterToLibrary(e.target.files)}
-              />
-            </div>
-            <p className="text-xs text-gray-400 mb-3">
-              Все афиши коллаба. Под каждой — две настройки <b>для этой конференции</b>:
-              <br />
-              • <b>Для рассылок по чат-боту</b> (радио, одна) — пойдёт в рассылки бота.
-              По умолчанию первая из библиотеки.
-              <br />
-              • <b>Для анонсов</b> (чек-боксы, любое число) — отмеченные увидит {pw.nom} в
-              своём кабинете и скачает для своих каналов.
-              <br />
-              Загруженные здесь афиши попадают в общую библиотеку коллаба — её можно
-              посмотреть и на{' '}
-              <Link href={`/dashboard/collaborations/${profile.id}`} className="text-brand hover:underline">
-                странице коллаба
-              </Link>.
-            </p>
             <label className="flex items-start gap-2 mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer">
               <input
                 type="checkbox"
@@ -1738,7 +1645,7 @@ export default function ConferenceSpeakerPage() {
                 onChange={e => {
                   // ⚠️ Блок афиш физически внутри формы ПРОФИЛЯ (saveProfile →
                   // collaborators), а поле — per-event. Поэтому сохраняем сразу
-                  // по клику, как радио «Для рассылок» ниже, а не по кнопке формы.
+                  // по клику, а не по кнопке формы.
                   const v = e.target.checked
                   setEventForm(f => ({ ...f, use_photo_instead_of_poster: v }))
                   api.conference.speakers
@@ -1753,118 +1660,13 @@ export default function ConferenceSpeakerPage() {
                 <b>Не использовать индивидуальные афиши в этом событии</b>
                 <span className="block text-xs text-gray-500 mt-0.5">
                   Везде — в рассылках бота, на лендинге, в кабинете {pw.gen} и в экспорте
-                  материалов — вместо афиши будет обычное «Фото для сайта». Сами афиши
-                  останутся в библиотеке коллаба и будут работать в других событиях.
+                  материалов — вместо афиши будет обычное «Фото для сайта».
                 </span>
               </span>
             </label>
-            {posterUploadError && (
-              <div className="text-xs text-red-600 mb-2">{posterUploadError}</div>
-            )}
-            {posterLibrary.length === 0 ? (
-              <div className="text-center py-6 text-sm text-gray-400 rounded-xl border border-dashed border-gray-200">
-                Афиш ещё нет. Нажмите «+ Добавить афишу», чтобы загрузить.
-              </div>
-            ) : (
-              <div className={`space-y-3 ${eventForm.use_photo_instead_of_poster ? 'opacity-40 pointer-events-none' : ''}`}>
-                {posterLibrary.map((p, idx) => {
-                  // Если poster_id явно не выбран — первая афиша подсвечена
-                  // как «Для рассылок» (fallback совпадает с показанным выбором).
-                  const isBroadcast = eventForm.poster_id === p.id
-                    || (eventForm.poster_id == null && idx === 0)
-                  const isAnnouncement = eventForm.announcement_poster_ids.includes(p.id)
-                  return (
-                    <div
-                      key={p.id}
-                      className="flex items-stretch gap-3 p-3 rounded-xl border border-gray-200 bg-white"
-                    >
-                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg overflow-hidden bg-gray-100 border border-gray-100 shrink-0">
-                        <img
-                          src={p.url}
-                          alt={p.label || ''}
-                          onClick={() => setPosterLightbox(p.url)}
-                          className="w-full h-full object-cover cursor-zoom-in"
-                        />
-                      </div>
-                      <div className="flex-1 flex flex-col justify-between min-w-0">
-                        <div className="text-xs text-gray-600 truncate">
-                          {p.label || <span className="text-gray-400 italic">без подписи</span>}
-                        </div>
-                        {/* Действия с афишей: раскрыть, скачать, скопировать ссылку */}
-                        <div className="flex flex-wrap gap-1.5 my-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setPosterLightbox(p.url)}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
-                            title="Раскрыть"
-                          >
-                            <Maximize2 size={11} /> Раскрыть
-                          </button>
-                          <a
-                            href={p.url}
-                            download
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
-                            title="Скачать"
-                          >
-                            <Download size={11} /> Скачать
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(p.url)
-                              setPosterCopiedId(p.id)
-                              setTimeout(() => setPosterCopiedId(null), 2000)
-                            }}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
-                            title={p.url}
-                          >
-                            {posterCopiedId === p.id
-                              ? <><Check size={11} className="text-green-600" /> Скопировано</>
-                              : <><Copy size={11} /> Ссылка</>}
-                          </button>
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="broadcast_poster"
-                              checked={isBroadcast}
-                              // Автосейв: меняется радио — сразу PATCH cse.
-                              // Кнопка «Сохранить выступление» внизу формы не
-                              // обязательна для выбора афиш — клиент часто думал,
-                              // что верхняя «Сохранить профиль» сохраняет всё.
-                              onChange={() => {
-                                setEventForm(f => ({ ...f, poster_id: p.id }))
-                                api.conference.speakers.update(confId, speakerEventId, { poster_id: p.id } as any).catch(() => {})
-                              }}
-                              className="accent-brand"
-                            />
-                            Для рассылок по чат-боту
-                          </label>
-                          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={isAnnouncement}
-                              onChange={e => {
-                                const nextIds = e.target.checked
-                                  ? [...eventForm.announcement_poster_ids, p.id]
-                                  : eventForm.announcement_poster_ids.filter(x => x !== p.id)
-                                setEventForm(f => ({ ...f, announcement_poster_ids: nextIds }))
-                                api.conference.speakers.update(confId, speakerEventId, { announcement_poster_ids: nextIds } as any).catch(() => {})
-                              }}
-                              className="accent-brand"
-                            />
-                            Для анонсов
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            <div className={eventForm.use_photo_instead_of_poster ? 'opacity-40 pointer-events-none' : ''}>
+              <SpeakerPostersTabs eventId={confId} ecId={speakerEventId} />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -2083,34 +1885,6 @@ export default function ConferenceSpeakerPage() {
       {/* Статистика кликов по карточке спикера в Mini App (миграция 109) */}
       <SpeakerClickStats confId={confId} speakerEventId={speakerEventId} />
 
-      {/* Lightbox — раскрытие индивидуальной афиши на весь экран */}
-      {posterLightbox && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85"
-          onClick={() => setPosterLightbox(null)}
-        >
-          <div className="relative max-w-5xl max-h-[90vh]" onClick={e => e.stopPropagation()}>
-            <img src={posterLightbox} alt="" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
-            <div className="absolute top-2 right-2 flex gap-2">
-              <a
-                href={posterLightbox}
-                download
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 bg-white/90 text-gray-800 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-white transition-colors"
-              >
-                <Download size={14} /> Скачать
-              </a>
-              <button
-                onClick={() => setPosterLightbox(null)}
-                className="bg-black/50 text-white rounded-full p-1.5 hover:bg-black/80 transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

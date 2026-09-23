@@ -862,6 +862,15 @@ _ORIENTATION_RU = {
     "square":     "Квадратная афиша",
 }
 
+# Короткая форма — для имён файлов вида «Имя_Фамилия_горизонтальная.png».
+# Отдельно от _ORIENTATION_RU: там подписи для папок общих афиш («Квадратная
+# афиша»), а в имени файла слово «афиша» после имени человека уже лишнее.
+_ORIENTATION_SHORT = {
+    "horizontal": "горизонтальная",
+    "vertical":   "вертикальная",
+    "square":     "квадратная",
+}
+
 
 def _is_jury_module(module_slug: Optional[str]) -> bool:
     # «Премии/Турниры» (module_slug='turnir', историч. 'awards') — там роли
@@ -1138,9 +1147,15 @@ async def export_speaker_materials(
                 if data is None:
                     continue
                 ext = _ext_from_url(sr["url"])
-                name_ru = _ORIENTATION_RU.get(sr["orientation"], sr["orientation"])
+                # ⚠️ ИМЯ ЧЕЛОВЕКА В ИМЕНИ ФАЙЛА, а не только в имени папки
+                # (требование владельца 23.09.2026): «Имя_Фамилия_квадратная».
+                # Спикеру файл отправляют по одному — вытащенная из папки
+                # «Квадратная.png» теряет всякую связь с человеком, и в папке
+                # «Загрузки» у организатора их лежит десяток одноимённых,
+                # перезаписывающих друг друга.
+                name_ru = _ORIENTATION_SHORT.get(sr["orientation"], sr["orientation"])
                 zf.writestr(
-                    f"Афиши/Индивидуальные афиши/{safe_dir}/{name_ru}.{ext}", data)
+                    f"Афиши/Индивидуальные афиши/{safe_dir}/{safe_dir}_{name_ru}.{ext}", data)
                 wrote_any = True
 
             # 2) Запасной источник — старая библиотека, только если слотов нет

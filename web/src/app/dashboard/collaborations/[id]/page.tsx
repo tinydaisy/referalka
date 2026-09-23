@@ -14,7 +14,6 @@ import FocalPointPicker from '@/components/FocalPointPicker'
 import { TelegramChannelField } from '@/components/TelegramChannelField'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
 import { validateSocialLinks } from '@/lib/validateSocialLinks'
-import CollaboratorPostersField from '@/components/CollaboratorPostersField'
 
 const IMPORTANT_FIELDS: { key: string; label: string }[] = [
   { key: 'name', label: 'Имя и фамилия' },
@@ -474,10 +473,19 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Афиши (библиотека)</label>
-            <CollaboratorPostersField collaboratorId={collaboratorId} />
-          </div>
+          {/* ⚠️⚠️ АФИШ В ПРОФИЛЕ БОЛЬШЕ НЕТ (решение владельца 23.09.2026).
+              Здесь стояла «Афиши (библиотека)» — общая куча афиш человека со
+              всех конференций сразу. Афиша всегда рисуется под конкретное
+              событие (дата, название, состав спикеров), так что место у неё
+              одно: карточка спикера В СОБЫТИИ, три слота по форматам
+              (`event_speaker_posters`, миграция 492). Библиотека в профиле
+              давала второе место для того же самого — клиент грузил афишу
+              сюда и не понимал, почему в рассылке её нет.
+
+              ⚠️ Таблица `collaborator_posters` НЕ удалена: она ещё запасной
+              источник в ZIP-выгрузке для афиш, которые не перенесены (у 66 из
+              96 на проде подпись пуста — ориентацию не восстановить). Убрано
+              только поле ввода — новые афиши туда больше не попадают. */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Индивидуальное видео</label>
             <p className="text-xs text-gray-400 mb-2">
