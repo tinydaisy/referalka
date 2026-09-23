@@ -38,14 +38,20 @@ const dt = (v?: string | null) =>
 
 // ⚠️ Порядок — это путь клиента: триал → активирован → удержан → оживлён.
 // Отвалившиеся в конце, но не спрятаны: с ними и работают ради оживления.
+// ⚠️⚠️ ПОРЯДОК = ПУТЬ КЛИЕНТА, и «Лиды» стоят ПЕРВЫМИ (23.09.2026):
+// лид → триал → активирован → удержан → оживлён → отвалился.
+// Лид — это начало пути (зашёл в бот ПЛЮСОНа, тариф не брал), и в конце
+// списка он читался как тупик. Тот же порядок задан на сервере в
+// `CRM_STATUSES` — списки обязаны совпадать, иначе колонки и фильтр
+// показывают разную последовательность одного и того же пути.
 const STATUSES: { id: string; label: string }[] = [
   { id: '', label: 'Все' },
+  { id: 'lead', label: 'Лиды' },
   { id: 'trial', label: 'Триал' },
   { id: 'activated', label: 'Активированные' },
   { id: 'retained', label: 'Удержанные' },
   { id: 'revived', label: 'Оживлённые' },
   { id: 'churned', label: 'Отвалившиеся' },
-  { id: 'lead', label: 'Лиды' },
 ]
 
 const CRM_LABEL: Record<string, { label: string; cls: string }> = {
@@ -159,9 +165,12 @@ export default function CrmScreen({ mode }: { mode: 'admin' | 'tech' }) {
       </p>
 
       {/* Сводка по воронке — из чего складывается выбранный срез. */}
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         {[
+          // ⚠️ «Лиды» в сводке ТОЖЕ ПЕРВЫМИ и рядом с «Всего»: их 92, и без
+          // карточки эта ступень воронки была не видна вовсе.
           ['Всего', funnel.total], ['Платят', funnel.paying],
+          ['Лиды', funnel.lead],
           ['Триал', funnel.trial], ['Активированы', funnel.activated],
           ['Удержаны', funnel.retained], ['Оживлены', funnel.revived],
           ['Отвалились', funnel.churned],
