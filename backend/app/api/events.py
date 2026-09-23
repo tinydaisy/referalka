@@ -5,6 +5,7 @@ from app.auth import get_current_client
 from app.database import get_db
 from app.services import collaborator_sort
 from app.services.event_access import is_collab_event
+from app.services.person_name import DISPLAY_NAME_SQL
 from app.services.plusson_match import matched_client_id_sql, plusson_interest_sql
 import asyncpg
 import re
@@ -2263,7 +2264,14 @@ async def list_event_collaborators(
     sql = """
         SELECT ec.id, ec.role, ec.sort_order, ec.is_visible, ec.priority,
                ec.bot_in_channel, ec.exclude_channel_from_subscription,
-               co.id AS collaborator_id, co.name, co.title, co.photo_url,
+               co.id AS collaborator_id,
+               -- ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно
+               -- имя. Этот запрос кормит вкладку «Соорганизаторы», карточку
+               -- спикера и ВЫПАДАШКУ выбора спикера для рассылки — там двух
+               -- Анастасий было не различить вовсе. Потребители только
+               -- показывают имя, в форму правки оно не идёт (проверено).
+               """ + DISPLAY_NAME_SQL("co") + """ AS name,
+               co.title, co.photo_url,
                co.achievements, co.tg_channel_url, co.tg_channel_id,
                pu_tg.platform_user_id AS personal_tg_id,
                pu_tg.username         AS personal_tg_username,

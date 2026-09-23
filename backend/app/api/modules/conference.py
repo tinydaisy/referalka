@@ -1990,7 +1990,9 @@ async def verify_speaker_channel(
         """SELECT c.tg_channel_id,
                   pu_tg.platform_user_id AS personal_tg_id,
                   pu_tg.username         AS personal_tg_username,
-                  c.name
+                  -- ⚠️ Имя + фамилия (23.09.2026): текст ошибки и успеха
+                  -- проверки канала видит клиент («Анастасия НЕ подписана»).
+                  """ + DISPLAY_NAME_SQL("c") + """ AS name
            FROM event_collaborators cse
            JOIN collaborators c ON c.id = cse.speaker_id
            LEFT JOIN platform_users pu_tg

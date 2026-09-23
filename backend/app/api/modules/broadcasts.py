@@ -177,6 +177,7 @@ from app.services.message_builder import (
 )
 from app.services import collaborator_sort
 from app.services.email_body import build_email_body
+from app.services.person_name import DISPLAY_NAME_SQL
 
 RU_MONTHS = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
@@ -1492,9 +1493,13 @@ async def list_schedules(
                -- fallback title слота) — чтобы раскрыть {speaker_topic} в заголовке списка.
                COALESCE(NULLIF(cst.topic,''), cs.title) AS speaker_topic_resolved,
                cs.start_time, cs.end_time,
+               -- ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно
+               -- имя. Очередь рассылок показывала «Анастасия» — из двух разных
+               -- не понять, чью рассылку правишь.
                CASE
-                 WHEN bs.type IN ('speaker_intro', 'expert_day', 'custom') THEN ci.name
-                 ELSE c.name
+                 WHEN bs.type IN ('speaker_intro', 'expert_day', 'custom')
+                   THEN """ + DISPLAY_NAME_SQL("ci") + """
+                 ELSE """ + DISPLAY_NAME_SQL("c") + """
                END as speaker_name,
                bs.session_id,
                bs.day,
@@ -2460,7 +2465,7 @@ async def _shiftable_sessions(db, event_id: int, day_number: int):
                cs.start_time,
                cs.end_time,
                COALESCE(NULLIF(cst.topic,''), cs.title) AS session_title,
-               c.name           AS speaker_name,
+               """ + DISPLAY_NAME_SQL("c") + """ AS speaker_name,  -- имя + фамилия (23.09.2026)
                COUNT(bs.id)     AS schedules_count,
                -- Сколько из них уйдёт В ЧАТ СПИКЕРОВ. Нужно фронту, чтобы
                -- пометить таких спикеров в списке сдвига: клиент правит тайминг
@@ -4315,7 +4320,7 @@ async def test_template(
             sessions = []
         elif intro_roles:
             sessions = await db.fetch(
-                """SELECT cse.id AS session_id, c.name AS speaker_name
+                """SELECT cse.id AS session_id, """ + DISPLAY_NAME_SQL("c") + """ AS speaker_name
                    FROM event_collaborators cse
                    JOIN collaborators c ON c.id = cse.speaker_id
                    WHERE cse.event_id=$1 AND cse.is_visible=true AND cse.role = ANY($2::text[])
@@ -4324,7 +4329,7 @@ async def test_template(
             )
         else:
             sessions = await db.fetch(
-                """SELECT cse.id AS session_id, c.name AS speaker_name
+                """SELECT cse.id AS session_id, """ + DISPLAY_NAME_SQL("c") + """ AS speaker_name
                    FROM event_collaborators cse
                    JOIN collaborators c ON c.id = cse.speaker_id
                    WHERE cse.event_id=$1 AND cse.is_visible=true

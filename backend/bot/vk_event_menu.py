@@ -26,6 +26,7 @@ from app.services.vk_api import (
     vk_call,
 )
 from app.services.client_domains import client_public_link
+from app.services.person_name import DISPLAY_NAME_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,10 @@ async def _gather_event_vk_channels(event_id: int, mode: str, db, client_id: int
     его каналы добавляются отдельно как «каналы основателя»."""
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
     rows = await db.fetch(
-        f"""SELECT sp.id AS speaker_id, sp.name, sp.vk_url, sp.vk_channel_id, cse.role
+        f"""SELECT sp.id AS speaker_id,
+                   -- ⚠️ Имя + фамилия (23.09.2026) — как в TG-гейте.
+                   {DISPLAY_NAME_SQL("sp")} AS name,
+                   sp.vk_url, sp.vk_channel_id, cse.role
               FROM event_collaborators cse
               JOIN collaborators sp ON sp.id = cse.speaker_id
              WHERE cse.event_id = $1

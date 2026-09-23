@@ -13,6 +13,7 @@ from aiogram.filters import CommandStart, CommandObject, Command
 from app.config import settings
 from app.database import get_pool
 from app.services.client_domains import client_public_link, platform_base_url
+from app.services.person_name import DISPLAY_NAME_SQL
 import html as _html
 import json
 import logging
@@ -534,8 +535,15 @@ async def handle_start(message: Message, command: CommandObject):
                     w = wording(ev["person_wording"])
                     uname = (user.username or "").lstrip("@").strip().lower()
                     # 1) Спикер по личному TG (числовой id).
+                    # ⚠️ ДВА поля имени (23.09.2026), и это намеренно:
+                    # `name` — для ОБРАЩЕНИЯ («Здравствуйте, Анастасия!»),
+                    # `full_name` — когда речь о человеке в третьем лице («вы
+                    # менеджер Анастасии Вангуловой», «выберите фамилию»).
+                    # Раньше везде шло голое `c.name`, и текст «выберите
+                    # ФАМИЛИЮ «{sp_name}»» подставлял одно имя.
                     sp = await db.fetchrow(
-                        """SELECT c.name, c.access_code
+                        """SELECT c.name, """ + DISPLAY_NAME_SQL("c") + """ AS full_name,
+                                  c.access_code
                              FROM event_collaborators ec
                              JOIN collaborators c ON c.id = ec.speaker_id
                              JOIN platform_users pu ON pu.contact_id = c.contact_id
@@ -548,7 +556,8 @@ async def handle_start(message: Message, command: CommandObject):
                     # 2) Если не нашли — пробуем как ассистента по нику.
                     if not sp and uname:
                         sp = await db.fetchrow(
-                            """SELECT c.name, c.access_code
+                            """SELECT c.name, """ + DISPLAY_NAME_SQL("c") + """ AS full_name,
+                                      c.access_code
                                  FROM event_collaborators ec
                                  JOIN collaborators c ON c.id = ec.speaker_id
                                 WHERE ec.event_id = $1
@@ -566,7 +575,9 @@ async def handle_start(message: Message, command: CommandObject):
                             f"(поле «Telegram-ник ассистента» в кабинете {w['gen']})."
                         )
                         return
+                    # Обращение — по имени; речь о человеке — с фамилией.
                     sp_name = (sp["name"] or "").strip() or w["nom"]
+                    sp_full = (sp["full_name"] or "").strip() or sp_name
                     access_code = sp["access_code"]
                     # Кабинет спикера — публичная страница клиента: открываем на
                     # его домене, если он подключён.
@@ -575,13 +586,13 @@ async def handle_start(message: Message, command: CommandObject):
                     )
                     if role_label == "assistant":
                         text_lines = [
-                            f"Здравствуйте! Вы менеджер {w['gen']} <b>{sp_name}</b> («{ev['title']}»).",
+                            f"Здравствуйте! Вы менеджер {w['gen']} <b>{sp_full}</b> («{ev['title']}»).",
                             "",
                             f"Ваш код доступа для редактирования карточки {w['gen']}: <code>{access_code}</code>",
                             "",
                             f"Откройте кабинет: <b>{cabinet_url}</b>",
                             "",
-                            f"На странице выберите фамилию «{sp_name}» и введите этот код. Сессия живёт 24 часа.",
+                            f"На странице выберите фамилию «{sp_full}» и введите этот код. Сессия живёт 24 часа.",
                         ]
                     else:
                         text_lines = [
@@ -748,7 +759,11 @@ async def handle_start(message: Message, command: CommandObject):
             try:
                 async with pool.acquire() as db:
                     coll = await db.fetchrow(
-                        """SELECT c.id AS collaborator_id, c.name, c.contact_id,
+                        # ⚠️ full_name — текст «Эта ссылка выдана «…»» говорит о
+                        # человеке в третьем лице, тут нужна фамилия.
+                        """SELECT c.id AS collaborator_id, c.name,
+                                  """ + DISPLAY_NAME_SQL("c") + """ AS full_name,
+                                  c.contact_id,
                                   c.created_by_client_id, c.assistant_tg_username
                              FROM collaborators c
                             WHERE LOWER(c.access_code) = LOWER($1)""",
@@ -794,7 +809,7 @@ async def handle_start(message: Message, command: CommandObject):
                             foreign_owner = True
 
                     if foreign_owner:
-                        sp_name = (coll["name"] or "").strip() or w["nom"]
+                        sp_name = (coll["full_name"] or coll["name"] or "").strip() or w["nom"]
                         await message.answer(
                             f"⚠️ Вы зашли не с того аккаунта.\n\n"
                             f"Эта ссылка выдана {w['dat']} «{sp_name}». Ваш Telegram-аккаунт уже привязан к другому контакту у этого клиента, "

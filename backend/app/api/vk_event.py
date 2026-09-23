@@ -21,6 +21,7 @@ from ..config import settings
 from ..database import get_pool
 from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_code
 from ..services.vk_auth import validate_vk_launch_params
+from ..services.person_name import DISPLAY_NAME_SQL
 from ..services.vk_api import (
     send_message as vk_send_message,
     tg_inline_to_vk_keyboard,
@@ -443,7 +444,11 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
             raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено")
 
         coll = await conn.fetchrow(
-            """SELECT c.id AS collaborator_id, c.name, c.contact_id, c.created_by_client_id
+            # ⚠️ full_name — «Эта ссылка выдана «…»» говорит о человеке в
+            # третьем лице, нужна фамилия (как в TG и MAX).
+            """SELECT c.id AS collaborator_id, c.name,
+                      """ + DISPLAY_NAME_SQL("c") + """ AS full_name,
+                      c.contact_id, c.created_by_client_id
                  FROM collaborators c
                 WHERE LOWER(c.access_code) = LOWER($1)""",
             access_code,
@@ -498,7 +503,7 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
         # Спикер / номинант / участник — по событию, в которое человека позвали.
         from app.services.person_wording import wording
         w = wording(ev["person_wording"] if ev else None)
-        sp_name = (coll["name"] or "").strip() or w["nom"]
+        sp_name = (coll["full_name"] or coll["name"] or "").strip() or w["nom"]
         # Кабинет спикера — публичная страница клиента, который завёл коллаба.
         cabinet_url = await client_public_link(
             conn, coll["created_by_client_id"],

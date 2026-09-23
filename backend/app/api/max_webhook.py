@@ -27,6 +27,7 @@ from fastapi import APIRouter, HTTPException, Request
 from ..config import settings
 from ..database import get_pool
 from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_code
+from ..services.person_name import DISPLAY_NAME_SQL
 # ⚠️ Модуль целиком — часть кода зовёт `max_api.send_message(...)`; без этого
 # импорта такие вызовы падали NameError (в ветке чёрного списка при /start
 # заблокированный получал контент вместо заглушки).
@@ -1573,7 +1574,11 @@ async def _process_start(
                 if pool0:
                     async with pool0.acquire() as conn0:
                         coll = await conn0.fetchrow(
-                            """SELECT c.id AS collaborator_id, c.name, c.contact_id,
+                            # ⚠️ full_name — «Эта ссылка выдана «…»» говорит о
+                            # человеке в третьем лице, нужна фамилия (как в TG).
+                            """SELECT c.id AS collaborator_id, c.name,
+                                      """ + DISPLAY_NAME_SQL("c") + """ AS full_name,
+                                      c.contact_id,
                                       c.created_by_client_id
                                  FROM collaborators c
                                 WHERE LOWER(c.access_code) = LOWER($1)""",
@@ -1609,7 +1614,7 @@ async def _process_start(
                                 logger.warning("MAX spkinv upsert identity failed: %s", e)
 
                         if foreign_owner:
-                            sp_name = (coll["name"] or "").strip() or w["nom"]
+                            sp_name = (coll["full_name"] or coll["name"] or "").strip() or w["nom"]
                             await max_send_message(
                                 chat_id,
                                 (
@@ -2617,7 +2622,10 @@ async def _gather_max_event_collab_channels(
     (clients.self_collaborator_id). Только каналы с числовым max_channel_id."""
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
     rows = await conn.fetch(
-        f"""SELECT sp.id AS speaker_id, sp.name, sp.max_channel_id, sp.max_url, cse.role
+        f"""SELECT sp.id AS speaker_id,
+                   -- ⚠️ Имя + фамилия (23.09.2026) — как в TG-гейте.
+                   {DISPLAY_NAME_SQL("sp")} AS name,
+                   sp.max_channel_id, sp.max_url, cse.role
               FROM event_collaborators cse
               JOIN collaborators sp ON sp.id = cse.speaker_id
              WHERE cse.event_id = $1

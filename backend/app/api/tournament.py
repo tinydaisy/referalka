@@ -36,7 +36,7 @@ from app.database import get_db
 from app.config import settings
 # Имена в турнире — в порядке «Фамилия Имя»: здесь людей ИЩУТ глазами
 # в списках номинаций, распределении жюри и турнирной таблице.
-from app.services.person_name import SEARCH_NAME_SQL, SEARCH_NAME_ORDER_SQL
+from app.services.person_name import SEARCH_NAME_SQL, SEARCH_NAME_ORDER_SQL, DISPLAY_NAME_SQL
 
 router = APIRouter(prefix="/events/{event_id}/tournament", tags=["Турнир — оценки"])
 jury_router = APIRouter(prefix="/api/v1/public/tournament-jury", tags=["Турнир — кабинет жюри"])
@@ -1857,7 +1857,10 @@ async def _ensure_juror(session: dict, db: asyncpg.Connection, *,
     """
     se_id = int(session["se_id"]); event_id = int(session["e_id"])
     row = await db.fetchrow(
-        """SELECT cse.id, cse.event_id, cse.role, c.name
+        # ⚠️ Имя + фамилия (23.09.2026): единственная дыра в файле — остальные
+        # места берут SEARCH_NAME_SQL. Кабинет жюри показывал «Анастасия», и
+        # порядок слов ещё и расходился с соседними экранами.
+        """SELECT cse.id, cse.event_id, cse.role, """ + DISPLAY_NAME_SQL("c") + """ AS name
              FROM event_collaborators cse JOIN collaborators c ON c.id = cse.speaker_id
             WHERE cse.id = $1""", se_id)
     if not row:

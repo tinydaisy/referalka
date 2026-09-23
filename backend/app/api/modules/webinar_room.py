@@ -26,7 +26,7 @@ from app.services import webinar_service as ws
 # ⚠️ Имя человека склеиваем ТОЛЬКО этим хелпером: `name` — это ИМЯ, фамилия
 # лежит отдельно (миграция 302). Здесь список для поиска глазами, поэтому
 # порядок «Фамилия Имя» — правило проекта.
-from app.services.person_name import SEARCH_NAME_SQL
+from app.services.person_name import SEARCH_NAME_SQL, DISPLAY_NAME_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -1038,8 +1038,13 @@ async def create_battle(event_id: int, day_number: int, data: BattleIn, client=D
             rid, data.title, data.reaction_up_label, data.reaction_down_label, data.show_down_reaction)
         players = []
         for idx, ec_id in enumerate(data.speaker_ids):
+            # ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно имя.
+            # Здесь оно ещё и ЗАПИСЫВАЕТСЯ в webinar_battle_players.name —
+            # то есть огрызок оседал в базе и показывался зрителям в эфире.
             nm = await db.fetchrow(
-                "SELECT c.name FROM event_collaborators ec JOIN collaborators c ON c.id=ec.speaker_id WHERE ec.id=$1 AND ec.event_id=$2",
+                "SELECT " + DISPLAY_NAME_SQL("c") + " AS name "
+                "FROM event_collaborators ec JOIN collaborators c ON c.id=ec.speaker_id "
+                "WHERE ec.id=$1 AND ec.event_id=$2",
                 ec_id, event_id)
             p = await db.fetchrow(
                 "INSERT INTO webinar_battle_players (battle_id, speaker_id, name, sort_order) VALUES ($1,$2,$3,$4) RETURNING *",

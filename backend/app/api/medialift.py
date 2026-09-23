@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.database import get_db
 from app.auth import get_current_client
+from app.services.person_name import DISPLAY_NAME_SQL
 import asyncpg
 import httpx
 from typing import Optional
@@ -407,7 +408,9 @@ async def my_medialift_card(
     client_id = int(client["sub"])
     row = await db.fetchrow(
         """SELECT c.id AS collaborator_id, ec.id AS ec_id, ec.event_id,
-                  c.name, c.tg_channel_url, ec.gift_lead_magnet_id
+                  -- ⚠️ Имя + фамилия (23.09.2026): карточка в кабинете.
+                  """ + DISPLAY_NAME_SQL("c") + """ AS name,
+                  c.tg_channel_url, ec.gift_lead_magnet_id
              FROM collaborators c
              JOIN event_collaborators ec ON ec.speaker_id = c.id
              JOIN events e ON e.id = ec.event_id AND e.module_slug = 'medialift'

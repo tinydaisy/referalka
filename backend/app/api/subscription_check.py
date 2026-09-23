@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.config import settings
 from app.database import get_db
+from app.services.person_name import DISPLAY_NAME_SQL
 import asyncpg
 
 router = APIRouter(prefix="/api/v1/public", tags=["Публичные API"])
@@ -263,7 +264,13 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection,
     # Сортировка как у конференций — сначала priority (меньше = выше),
     # потом sort_order, потом id для устойчивости.
     rows = await db.fetch(
-        f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url,
+        f"""SELECT sp.id AS speaker_id,
+                   -- ⚠️ Имя + фамилия (23.09.2026): рядом в этом же файле
+                   -- `_check_collab_owners` уже подписывает человеком «Имя
+                   -- Фамилия», а список спикеров правку не получил — в одном
+                   -- списке оказывались «Анастасия Вангулова» и «Анастасия».
+                   {DISPLAY_NAME_SQL("sp")} AS name,
+                   sp.tg_channel_id, sp.tg_channel_url,
                    pu_tg.platform_user_id AS personal_tg_id,
                    cse.priority, cse.sort_order
            FROM event_collaborators cse
