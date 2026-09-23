@@ -75,6 +75,10 @@ async def list_clients(
     min_subscribers: Optional[int] = None,
     min_events: Optional[int] = None,
     min_channels: Optional[int] = None,
+    # ⚠️ Чьи клиенты (23.09.2026). Тот же список, суженный до одного внедренца —
+    # так из карточки внедренца попадают в его клиентов, не заходя в чужой
+    # кабинет. `0` — особый случай: «ничьи», у кого ответственного нет вовсе.
+    spec_id: Optional[int] = None,
     sort: Optional[str] = None,           # см. SORT_COLUMNS
     sort_dir: Optional[str] = None,       # asc | desc
     limit: int = 50,
@@ -84,6 +88,20 @@ async def list_clients(
 ):
     conditions = ["1=1"]
     params = []
+
+    # Чьи клиенты: закреплённые ЛИБО приведённые этим внедренцем лично —
+    # ему принадлежат обе группы, по одному признаку видна половина работы.
+    if spec_id is not None:
+        if spec_id == 0:
+            conditions.append("c.tech_specialist_id IS NULL")
+        else:
+            params.append(spec_id)
+            n = len(params)
+            conditions.append(
+                f"(c.tech_specialist_id = ${n}"
+                f" OR EXISTS (SELECT 1 FROM tech_specialists ts_r"
+                f"             WHERE ts_r.id = ${n}"
+                f"               AND ts_r.client_id = c.referred_by_client_id))")
 
     # ─── Сегментные фильтры (для рассылок по клиентам платформы) ─────────
     # Подписка активна = есть текущая подписка со status='active' и не истёкшая.
@@ -256,6 +274,14 @@ async def list_clients(
              FROM client_addons ca
              JOIN features f ON f.id = ca.feature_id
             WHERE ca.client_id = c.id) AS addons,
+          -- ⚠️ КТО ВЕДЁТ и КТО ПРИВЁЛ (23.09.2026) — РАЗНЫЕ люди и разные
+          -- деньги: ведущему идёт фикс за обслуживание, приведшему 10 %
+          -- навсегда. В одной колонке их путали бы.
+          c.tech_specialist_id,
+          ownc.name AS tech_owner_name,
+          (SELECT ts_r.id FROM tech_specialists ts_r
+            WHERE ts_r.client_id = c.referred_by_client_id) AS referrer_spec_id,
+          refc.name AS referrer_name,
           (SELECT COUNT(*) FROM events e WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=c.id AND eo.status='accepted')) AS events_count,
           (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id AND ct.is_active = TRUE) AS contacts_count,
           (SELECT COUNT(*) FROM client_channels cc
@@ -295,6 +321,11 @@ async def list_clients(
         FROM clients c
         LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
         LEFT JOIN tariffs t ON t.id = cs.tariff_id
+        -- Имена внедренцев: у роли своего имени нет, оно у клиента под ней.
+        LEFT JOIN tech_specialists own ON own.id = c.tech_specialist_id
+        LEFT JOIN clients ownc ON ownc.id = own.client_id
+        LEFT JOIN tech_specialists refs ON refs.client_id = c.referred_by_client_id
+        LEFT JOIN clients refc ON refc.id = refs.client_id
         WHERE {where}
         ORDER BY {order_by}
         LIMIT ${len(params)-1} OFFSET ${len(params)}
