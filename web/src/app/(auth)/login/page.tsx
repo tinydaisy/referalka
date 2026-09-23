@@ -5,6 +5,13 @@ import { ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
 import AuthAside from '@/components/auth/AuthAside'
 
+/** Роль, в которой человек может войти этой почтой и этим паролём. */
+interface RoleChoice {
+  role: 'client' | 'assistant'
+  title: string
+  hint: string
+}
+
 /** Кабинет, в который помощнику открыт доступ. */
 interface CabinetChoice {
   id: number
@@ -27,6 +34,11 @@ export default function LoginPage() {
   // Помощник кабинета может вести несколько кабинетов (миграция 209): сервер
   // отдаёт список, человек выбирает, куда войти. Один кабинет — заходит сразу.
   const [cabinets, setCabinets] = useState<CabinetChoice[] | null>(null)
+  // ⚠️ Одна почта бывает и клиентом, и помощником в чужом кабинете, и пароль
+  // может совпадать. Тогда сервер спрашивает, куда человек шёл: решать за него
+  // нельзя — ветка клиента молча забирала бы вход, и в чужой кабинет он не
+  // попал бы никогда.
+  const [roles, setRoles] = useState<RoleChoice[] | null>(null)
 
   useEffect(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('pid')
@@ -48,13 +60,20 @@ export default function LoginPage() {
     window.location.href = payload.role === 'admin' ? '/admin' : '/dashboard'
   }
 
-  async function doLogin(clientId?: number) {
+  async function doLogin(clientId?: number, roleChoice?: 'client' | 'assistant') {
     setLoading(true)
     setError('')
     try {
-      const res = await api.auth.login(
-        clientId ? { email, password, client_id: clientId } : { email, password }
-      )
+      const res = await api.auth.login({
+        email, password,
+        ...(clientId ? { client_id: clientId } : {}),
+        ...(roleChoice ? { role_choice: roleChoice } : {}),
+      })
+      // Одна почта в двух ролях — сервер спрашивает, куда человек шёл.
+      if (res.choose_role) {
+        setRoles(res.roles || [])
+        return
+      }
       // Помощник ведёт несколько кабинетов — сервер просит выбрать, куда войти.
       if (res.choose_client) {
         setCabinets(res.clients || [])
@@ -84,7 +103,50 @@ export default function LoginPage() {
             <span className="text-2xl font-bold" style={{ color: '#25455D' }}>iViSiON: ПЛЮСОН</span>
           </div>
 
-          {cabinets ? (
+          {roles ? (
+            <>
+              {/* Одна почта, один пароль — но две роли. Спрашиваем прямо,
+                  вместо того чтобы решать за человека. */}
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Как войти?</h2>
+              <p className="text-gray-500 mb-8">
+                Эта почта заведена и как ваш кабинет, и как помощник в чужом.
+                Выберите, куда вам сейчас.
+              </p>
+
+              {error && (
+                <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  {error}
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {roles.map(r => (
+                  <button
+                    key={r.role}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => { setRoles(null); doLogin(undefined, r.role) }}
+                    className="w-full text-left px-5 py-4 rounded-xl border border-gray-200 hover:border-[#25455D] hover:bg-gray-50 transition-colors disabled:opacity-60"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 truncate">{r.title}</div>
+                        <div className="text-sm text-gray-500 truncate">{r.hint}</div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { setRoles(null); setError('') }}
+                className="mt-6 text-sm text-gray-500 hover:text-gray-800"
+              >
+                ← Войти другой почтой
+              </button>
+            </>
+          ) : cabinets ? (
             <>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Куда войти?</h2>
               <p className="text-gray-500 mb-8">

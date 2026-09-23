@@ -80,6 +80,11 @@ class LoginRequest(BaseModel):
     # Первый вход без client_id: если пропусков больше одного — сервер отдаёт
     # список кабинетов, фронт спрашивает «куда войти» и повторяет запрос с client_id.
     client_id: int | None = None
+    # ⚠️ Одна почта бывает и клиентом, и помощником, и пароль у ролей может
+    # совпадать. Тогда сервер сначала отдаёт `choose_role`, а фронт повторяет
+    # запрос с выбором человека: "client" — свой кабинет, "assistant" — чужой,
+    # где он помощник. None = ещё не спрашивали.
+    role_choice: str | None = None
 
 
 class AdminLoginRequest(BaseModel):
@@ -537,7 +542,42 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
         "SELECT id, name, email, password_hash, is_active FROM clients WHERE LOWER(email) = $1",
         data.email
     )
-    if client and verify_password(data.password, client["password_hash"]):
+    client_ok = bool(client and verify_password(data.password, client["password_hash"]))
+
+    # ⚠️⚠️ ОДНА ПОЧТА В ДВУХ РОЛЯХ — СПРАШИВАЕМ, А НЕ РЕШАЕМ ЗА ЧЕЛОВЕКА
+    # (23.09.2026). Клиент ПЛЮСОНа может быть помощником в чужом кабинете:
+    # запрет на это снят, потому что ровно из-за него людям заводили
+    # почты-алиасы. Но ветка клиента стоит первой и молча забирала бы вход —
+    # в чужой кабинет человек не попал бы никогда.
+    #
+    # ⚠️ Спрашиваем ТОЛЬКО когда пароль подошёл к обеим ролям. Разные пароли
+    # разводят роли сами, и лишний вопрос там был бы шумом.
+    if client_ok and data.role_choice is None and client["is_active"]:
+        asst_same = await db.fetchrow(
+            "SELECT id, password_hash FROM assistants WHERE LOWER(email) = $1",
+            data.email)
+        if asst_same and verify_password(data.password, asst_same["password_hash"]):
+            live_cnt = await db.fetchval(
+                """SELECT COUNT(*) FROM assistant_grants g
+                     JOIN clients c ON c.id = g.client_id
+                    WHERE g.assistant_id = $1 AND c.is_active""",
+                asst_same["id"])
+            if live_cnt:
+                return {
+                    "choose_role": True,
+                    "roles": [
+                        {"role": "client", "title": "Свой кабинет",
+                         "hint": client["name"]},
+                        {"role": "assistant", "title": "Кабинет, где я помощник",
+                         "hint": f"кабинетов: {live_cnt}"},
+                    ],
+                }
+
+    # Человек выбрал «войти помощником» — клиентскую ветку пропускаем.
+    if client_ok and data.role_choice == "assistant":
+        client_ok = False
+
+    if client_ok:
         if not client["is_active"]:
             raise HTTPException(status_code=403, detail="Аккаунт заблокирован. Напишите в поддержку.")
 
