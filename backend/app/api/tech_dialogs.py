@@ -268,10 +268,15 @@ async def start_dialog(
     if existing:
         return {"contact_id": existing, "created": False}
 
+    # ⚠️ `contacts.ref_code` — NOT NULL UNIQUE (миграция 060). Берём ОБЩИЙ
+    # генератор, а не придумываем свой: он один на все точки создания контакта
+    # и умеет разрешать коллизии.
+    from app.services.contact_merge import _generate_unique_ref_code
+    ref_code = await _generate_unique_ref_code(db)
     contact_id = await db.fetchval(
-        """INSERT INTO contacts (client_id, name, phone)
-           VALUES ($1, $2, $3) RETURNING id""",
-        sys_client_id, cl["name"], cl["phone"])
+        """INSERT INTO contacts (client_id, name, phone, ref_code)
+           VALUES ($1, $2, $3, $4) RETURNING id""",
+        sys_client_id, cl["name"], cl["phone"], ref_code)
     await db.execute(
         """INSERT INTO platform_users (contact_id, platform_slug, platform_user_id)
            VALUES ($1, 'email', $2)
@@ -279,12 +284,17 @@ async def start_dialog(
         contact_id, cl["email"])
     # Телеграм — если клиент его указал: это второй канал, по которому можно
     # написать, и без записи он был бы недоступен отправке.
-    if (cl["telegram_username"] or "").strip():
+    # ⚠️ `platform_user_id` — NOT NULL, поэтому кладём туда ник: числового id
+    # телеграма у нас нет (человек в бот не заходил), а ник — единственное,
+    # что клиент указал сам. Тот же приём, что у почты: там в этом поле адрес.
+    tg = (cl["telegram_username"] or "").strip().lstrip("@")
+    if tg:
         await db.execute(
-            """INSERT INTO platform_users (contact_id, platform_slug, username)
-               VALUES ($1, 'telegram', $2)
+            """INSERT INTO platform_users
+                   (contact_id, platform_slug, platform_user_id, username)
+               VALUES ($1, 'telegram', $2, $2)
                ON CONFLICT DO NOTHING""",
-            contact_id, cl["telegram_username"].strip().lstrip("@"))
+            contact_id, tg)
     return {"contact_id": contact_id, "created": True}
 
 
