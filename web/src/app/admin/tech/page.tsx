@@ -658,19 +658,34 @@ function AssignTab({ specs, onChange }: any) {
   // отпуск, клиента забрали, — и передавать надо в любой момент.
   const [scope, setScope] = useState<'free' | 'busy' | 'all'>('free')
   const [q, setQ] = useState('')
+  // ⚠️⚠️ СТРАНИЦЫ ПО 50 (23.09.2026). Раньше сервер отдавал до 500 строк без
+  // смещения: на тысяче клиентов вторая половина была недостижима — ни
+  // прокруткой, ни поиском. `total` нужен, чтобы стрелка «вперёд» знала, где
+  // конец, а человек видел, сколько всего нашлось.
+  const PAGE = 50
+  const [offset, setOffset] = useState(0)
+  const [total, setTotal] = useState(0)
+
+  // ⚠️ Смена поиска или среза возвращает на первую страницу: иначе человек
+  // ищет и попадает в пустоту — на 7-ю страницу списка из трёх строк.
+  useEffect(() => { setOffset(0) }, [scope, q])
 
   // ⚠️ Поиск с задержкой: без неё запрос уходит на каждую букву.
   useEffect(() => {
     let alive = true
     setLoading(true)
     const t = setTimeout(() => {
-      api.adminTech.unassigned({ scope, q })
-        .then((r: any) => { if (alive) setItems(r.clients || []) })
-        .catch(() => { if (alive) setItems([]) })
+      api.adminTech.unassigned({ scope, q, limit: PAGE, offset })
+        .then((r: any) => {
+          if (!alive) return
+          setItems(r.clients || [])
+          setTotal(r.total ?? (r.clients || []).length)
+        })
+        .catch(() => { if (alive) { setItems([]); setTotal(0) } })
         .finally(() => { if (alive) setLoading(false) })
     }, q ? 350 : 0)
     return () => { alive = false; clearTimeout(t) }
-  }, [scope, q])
+  }, [scope, q, offset])
 
   async function assign(clientId: number, specId: number | null) {
     const c = items.find(i => i.id === clientId)
@@ -691,8 +706,9 @@ function AssignTab({ specs, onChange }: any) {
       // перезакреплении клиент из списка не исчезает, у него меняется
       // ответственный. Раньше строку убирали сразу после ответа — и экран
       // показывал успех даже тогда, когда передача падала с 500.
-      const r: any = await api.adminTech.unassigned({ scope, q })
+      const r: any = await api.adminTech.unassigned({ scope, q, limit: PAGE, offset })
       setItems(r.clients || [])
+      setTotal(r.total ?? (r.clients || []).length)
       onChange()
     } catch (e: any) { alert(e?.message || 'Не удалось') }
   }
@@ -804,6 +820,29 @@ function AssignTab({ specs, onChange }: any) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {/* ⚠️ Стрелки показываем, только когда страниц больше одной: на коротком
+          списке они сбивали бы с толку. Номер и общий счёт словами — чтобы
+          было видно, сколько всего нашлось, а не только текущая горстка. */}
+      {total > PAGE && (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button type="button"
+                  disabled={offset === 0 || loading}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE))}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+            ← Назад
+          </button>
+          <span className="text-sm text-gray-500">
+            {offset + 1}–{Math.min(offset + PAGE, total)} из {total}
+          </span>
+          <button type="button"
+                  disabled={offset + PAGE >= total || loading}
+                  onClick={() => setOffset(offset + PAGE)}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+            Вперёд →
+          </button>
+        </div>
       )}
     </div>
   )

@@ -315,6 +315,11 @@ async def unassigned(
     scope: str = "free",
     q: str = "",
     spec_id: Optional[int] = None,
+    # ⚠️ Страницы по 50 (23.09.2026). Раньше стоял глухой `LIMIT 500` без
+    # смещения: на тысяче клиентов вторая половина была недостижима вовсе —
+    # ни поиском, ни прокруткой. Отдаём `total`, чтобы кнопки знали, где конец.
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     _admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db),
 ):
@@ -385,11 +390,18 @@ async def unassigned(
             -- ⚠️ Тестовые кабинеты самих техспецов (миграция 403) в
             -- распределение не идут: их брали в работу как живых лидов и
             -- пытались оживить.
-            WHERE """ + " AND ".join(where) + """
-            ORDER BY c.created_at DESC LIMIT 500""",
-        *args,
+            WHERE """ + " AND ".join(where) + f"""
+            ORDER BY c.created_at DESC
+            LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}""",
+        *args, limit, offset,
     )
-    return {"clients": [dict(r) for r in rows]}
+    # ⚠️ Общее число считаем ТЕМ ЖЕ условием, но без сортировки и джойнов:
+    # они нужны только для показа строк, а на счёт не влияют. Без `total`
+    # кнопка «вперёд» не знает, есть ли следующая страница.
+    total = await db.fetchval(
+        "SELECT COUNT(*) FROM clients c WHERE " + " AND ".join(where), *args)
+    return {"clients": [dict(r) for r in rows], "total": int(total or 0),
+            "limit": limit, "offset": offset}
 
 
 @router.get("/rates", summary="Ставки начислений")

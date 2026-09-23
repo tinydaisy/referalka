@@ -1739,11 +1739,16 @@ export const api = {
     assign: (data: { client_id: number; spec_id: number | null; reason?: string }) =>
       request('/api/v1/admin/tech/assign', { method: 'POST', body: JSON.stringify(data) }),
     // scope: free — без ответственного (умолчание), busy — закреплённые, all — все.
-    unassigned: (p?: { scope?: string; q?: string; spec_id?: number | null }) => {
+    unassigned: (p?: { scope?: string; q?: string; spec_id?: number | null
+                       limit?: number; offset?: number }) => {
       const s = new URLSearchParams()
       if (p?.scope) s.set('scope', p.scope)
       if (p?.q) s.set('q', p.q)
       if (p?.spec_id) s.set('spec_id', String(p.spec_id))
+      // ⚠️ Страницы по 50: `offset` ставим и при нуле — иначе первая страница
+      // уезжала бы на умолчание сервера, а не на явно выбранную.
+      if (p?.limit) s.set('limit', String(p.limit))
+      if (p?.offset !== undefined) s.set('offset', String(p.offset))
       const qs = s.toString()
       return request(`/api/v1/admin/tech/unassigned${qs ? `?${qs}` : ''}`)
     },
