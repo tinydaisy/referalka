@@ -80,22 +80,39 @@ PAID_CNT_SQL = ("(SELECT COUNT(*) FROM subscription_orders so2"
 REVIVED_SQL = ("EXISTS (SELECT 1 FROM tech_accruals ta"
                " WHERE ta.client_id = c.id AND ta.kind = 'revival')")
 
-#   trial      — активная подписка не за деньги, платежей ещё не было;
+#   lead       — заходил в ПЛЮСОН, но ТАРИФ НЕ БРАЛ: подписки не было никогда;
+#   trial      — на триале, и ДЕЙСТВУЮЩЕМ, и ИСТЁКШЕМ: пробовал, не купил;
 #   activated  — заплатил ровно один раз (первая оплата после триала);
 #   retained   — заплатил два и более раз, подписка жива;
 #   revived    — платил, отваливался, снова платит;
-#   churned    — платил раньше, сейчас подписки нет;
-#   lead       — не платил и не на триале.
+#   churned    — ПЛАТИЛ раньше, сейчас подписки нет.
+#
+# ⚠️⚠️ «ЛИД» — ЭТО ТОТ, КТО ТАРИФ НЕ БРАЛ ВОВСЕ (решение владельца 23.09.2026).
+# Раньше `lead` был свалкой «всё остальное», и туда попадали люди с ИСТЁКШИМ
+# триалом: на проде из 125 «лидов» 123 оказались протухшими триалами, причём
+# самый свежий истёк позавчера. Человек, у которого триал кончился вчера, —
+# самый горячий для звонка, а он лежал в конце воронки под чужим ярлыком.
+#
+# ⚠️ Зарегистрировался = УЖЕ ТРИАЛ: промежуточного состояния «завёл кабинет и
+# ничего не начал» в системе нет, триал выдаётся при регистрации. Поэтому
+# `trial` НЕ смотрит на срок — важен сам факт, что тариф брали, а платежей не
+# было. Истёкший триал остаётся триалом: это та же стадия пути.
+#
+# ⚠️ `churned` — только про ТЕХ, КТО ПЛАТИЛ. Не купивший после триала не
+# «отвалился»: он ещё ни разу и не заходил в платящие.
 CRM_CASE_SQL = f"""CASE
     WHEN {REVIVED_SQL} AND {PAYING_SQL} THEN 'revived'
     WHEN {PAYING_SQL} AND {PAID_CNT_SQL} >= 2 THEN 'retained'
     WHEN {PAYING_SQL} AND {PAID_CNT_SQL} = 1 THEN 'activated'
-    WHEN {TRIAL_SQL} AND {PAID_CNT_SQL} = 0 THEN 'trial'
     WHEN {PAID_CNT_SQL} > 0 THEN 'churned'
+    WHEN EXISTS (SELECT 1 FROM client_subscriptions cs3
+                  WHERE cs3.client_id = c.id) THEN 'trial'
     ELSE 'lead'
 END"""
 
-CRM_STATUSES = ("trial", "activated", "retained", "revived", "churned", "lead")
+# ⚠️ Порядок = ПУТЬ КЛИЕНТА, и он же порядок колонок на экране:
+# лид → триал → активирован → удержан → оживлён → отвалился.
+CRM_STATUSES = ("lead", "trial", "activated", "retained", "revived", "churned")
 
 
 async def _setting(db, key: str, default: float) -> float:

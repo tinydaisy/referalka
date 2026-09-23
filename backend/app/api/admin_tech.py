@@ -548,17 +548,78 @@ async def crm(
             ) b WHERE b.rn <= 100""",
         *args)
 
+    # ── Лиды: зашли в бот ПЛЮСОНа, но кабинет не завели ──────────────────
+    # ⚠️⚠️ ЛИД — ЭТО КОНТАКТ, А НЕ КЛИЕНТ (решение владельца 23.09.2026).
+    # Он в базе подписчиков сервисного кабинета (`@pluson_bot` и боты ВК/MAX),
+    # а среди `clients` его нет вовсе — кабинет он и не заводил. Поэтому лиды
+    # собираются ОТДЕЛЬНЫМ запросом: в общий, который идёт по `clients`, они
+    # физически не попадают.
+    #
+    # ⚠️ Отбираем только тех, кто заходил в БОТ (telegram/vk/max): контакт
+    # мог появиться из импорта или формы, и называть такого «зашёл в бот»
+    # неверно.
+    #
+    # ⚠️ «Кабинет не завёл» = нет клиента с той же почтой. Сравниваем
+    # `LOWER(TRIM(...))`, как в `plusson_match`: регистр расходится постоянно.
+    lead_rows = await db.fetch(
+        """SELECT ct.id, ct.name, ct.phone,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = ct.id AND pe.platform_slug = 'email'
+                    LIMIT 1) AS email,
+                  (SELECT array_agg(DISTINCT pb.platform_slug)
+                     FROM platform_users pb
+                    WHERE pb.contact_id = ct.id
+                      AND pb.platform_slug IN ('telegram','vk','max')) AS platforms,
+                  ct.created_at
+             FROM contacts ct
+            WHERE ct.client_id = (SELECT id FROM clients
+                                   WHERE is_system_service LIMIT 1)
+              AND EXISTS (SELECT 1 FROM platform_users pu
+                           WHERE pu.contact_id = ct.id
+                             AND pu.platform_slug IN ('telegram','vk','max'))
+              AND NOT EXISTS (
+                    SELECT 1 FROM clients cl
+                     WHERE LOWER(TRIM(cl.email)) = LOWER(TRIM((
+                           SELECT pe2.platform_user_id FROM platform_users pe2
+                            WHERE pe2.contact_id = ct.id
+                              AND pe2.platform_slug = 'email' LIMIT 1))))
+            ORDER BY ct.created_at DESC
+            LIMIT 100""")
+    leads = [dict(r) for r in lead_rows]
+    leads_total = await db.fetchval(
+        """SELECT COUNT(*) FROM contacts ct
+            WHERE ct.client_id = (SELECT id FROM clients
+                                   WHERE is_system_service LIMIT 1)
+              AND EXISTS (SELECT 1 FROM platform_users pu
+                           WHERE pu.contact_id = ct.id
+                             AND pu.platform_slug IN ('telegram','vk','max'))
+              AND NOT EXISTS (
+                    SELECT 1 FROM clients cl
+                     WHERE LOWER(TRIM(cl.email)) = LOWER(TRIM((
+                           SELECT pe2.platform_user_id FROM platform_users pe2
+                            WHERE pe2.contact_id = ct.id
+                              AND pe2.platform_slug = 'email' LIMIT 1))))""")
+
     board: dict[str, list] = {s: [] for s in CRM_STATUSES}
     for r in board_rows:
         d = dict(r)
         d.pop("rn", None)
         board.setdefault(d["crm_status"], []).append(d)
 
+    # ⚠️ Лиды кладём в ту же доску: на экране это такая же колонка, просто
+    # люди в ней другой природы (контакты, а не клиенты).
+    board["lead"] = leads
+    f = dict(funnel) if funnel else {}
+    f["lead"] = int(leads_total or 0)
+    # ⚠️ «Всего» считаем ВМЕСТЕ с лидами: иначе проценты в колонках врут —
+    # база воронки без её первой ступени.
+    f["total"] = int(f.get("total") or 0) + int(leads_total or 0)
+
     return {
         "clients": [dict(r) for r in rows],
         "total": int(total or 0),
         "limit": limit, "offset": offset,
-        "funnel": dict(funnel) if funnel else {},
+        "funnel": f,
         "board": board,
     }
 
