@@ -685,6 +685,24 @@ Telegram не даёт одному аккаунту держать много �
 **Фронт:** WhatsApp встроен как **обычная площадка** в раздел Каналы (отдельной вкладки НЕТ). (1) Форма «Добавить канал» ([channels/page.tsx](web/src/app/dashboard/channels/page.tsx)): выбираешь платформу WhatsApp → `WhatsAppConnectInline` показывает QR прямо в форме (без Handle/токена). (2) Форма «Добавить чат для рассылок» ([BroadcastChatsTab.tsx](web/src/components/channels/BroadcastChatsTab.tsx)): WhatsApp — 4-я кнопка-площадка рядом с TG/VK/MAX; при выборе вместо «ссылка/ID» грузится список чатов аккаунта с моста (`api.channels.whatsappChats`), отмечаешь конкретные галочками → пишутся в `client_broadcast_chats` platform=whatsapp. ⚠️ ID группы WhatsApp (`...@g.us`) вручную не вписать — только выбор из списка. Рассылка уходит в отмеченные чаты при галочке «слать также в общие чаты».
 
 **⚠️ Прод-требования:** Node 20 + системные libs Chromium (`libnss3` и т.д.) + Chromium из puppeteer (`~/.cache/puppeteer`). swap ≥2G (Chromium прожорлив). Мост — отдельный процесс, основной стек (api/celery/bot/web) не задевает.
+
+#### ⚠️⚠️ Слёт сессии виден клиенту (миграция 502 от 2026-09-23, ПРОД)
+
+**Что случилось.** У клиента 1 сессия умерла 15.07.2026 — в логе моста `[wa] client 1: disconnected LOGOUT` (телефон снял связанное устройство). С 16.07 по 22.09 **54 отправки подряд** упали с `WA-bridge POST /sessions/1/send error 409: session not ready`, успешных за всё время — ноль. Узнали об этом только через два месяца, случайно.
+
+**Почему молчали.** «Канал подключён» считалось по записи в `channels` + `client_channels`, а она живёт вечно. Живое состояние сессии на мосту (`GET /sessions/{id}/status`) спрашивалось **только внутри формы подключения** — на вкладках «Боты» и «Группы/Каналы для рассылок» его не было вовсе. Канал выглядел рабочим, рассылки падали в лог.
+
+⚠️ **Запись канала в БД ≠ рабочая отправка.** У WhatsApp, в отличие от TG/VK/MAX, нет токена: работоспособность держится на живой сессии, а она умирает без единого события в нашу сторону. Любая проверка «подключён ли WhatsApp» обязана спрашивать мост, а не БД.
+
+**Что сделано:**
+- `GET /channels/whatsapp/status` ([channels.py](backend/app/api/channels.py)) отдаёт `session_alive` и `needs_relink` отдельно от `connected` (который по-прежнему про запись в БД);
+- плашка «WhatsApp отвязался» **на обеих вкладках**: «Боты» (`WhatsAppRelinkBanner` в [channels/page.tsx](web/src/app/dashboard/channels/page.tsx), грузится через `loadWaHealth`) и «Группы/Каналы для рассылок» ([BroadcastChatsTab.tsx](web/src/components/channels/BroadcastChatsTab.tsx)). ⚠️ Первая правка поставила плашку только на вторую вкладку — а на WhatsApp смотрят на «Ботах», и баннера никто не увидел;
+- письмо + сообщение в @pluson_bot при первом слёте ([whatsapp_session_notify.py](backend/app/services/whatsapp_session_notify.py)), схема как у `contact_limit_notify`. ⚠️ Идемпотентность через `clients.wa_session_dead_notified_at` (миграция 502): проверка зовётся на КАЖДОЙ упавшей отправке, а чатов в рассылке несколько — без отметки вышел бы спам. Отметка снимается, когда сессия снова `ready`/`authenticated`, чтобы о следующем слёте сказали;
+- в отчёте рассылки ([queue/page.tsx](web/src/app/dashboard/conferences/[id]/broadcasts/queue/page.tsx)) вместо `WA-bridge POST ... error 409` — «WhatsApp отвязался — привяжите заново» + строка с инструкцией.
+
+⚠️ **Лечится только повторным QR.** Файлы мёртвой сессии (`wa-bridge/data/session-<id>`, у клиента 1 — 114 МБ) реанимации не поддаются: мост поднимает их и тут же получает `LOGOUT`. ⚠️ При этом падении **процесс моста валится целиком** (`Failed to add page binding with name onQRChangedEvent: window['onQRChangedEvent'] already exists!` в puppeteer) — спасает только `Restart=always` в юните.
+
+⚠️ **Отдельный баг, пока не исправлен:** в `connect_whatsapp` ([channels.py](backend/app/api/channels.py)) есть обращение к `data.make_primary`, но параметра `data` у функции нет — первое подключение WhatsApp упадёт с `NameError`. Чинить при следующей правке WhatsApp.
 ### «Закрытый чат» Коллабораторной — страница с кнопками TG и MAX (миграция 266 от 2026-08-05, ПРОД)
 
 Чат один по смыслу, но живёт на **двух площадках**: у части участников нет Telegram, у части — MAX. Раньше в `collab_hub_settings` была одна колонка `chat_url` (Telegram), и пункт меню вёл прямой ссылкой в мессенджер — второй площадке места не было.
