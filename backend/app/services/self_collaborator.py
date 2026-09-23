@@ -25,7 +25,11 @@ async def ensure_self_collaborator(db: asyncpg.Connection, client_id: int) -> Op
     Безопасно звать многократно и из любой ветки.
     """
     cl = await db.fetchrow(
-        """SELECT id, name, brand_name, owner_photo_url, profile_photo_url,
+        # ⚠️ `last_name` ОБЯЗАТЕЛЕН (23.09.2026). У `clients` фамилия отдельным
+        # полем, и без неё карточка основателя заводилась с одним именем
+        # («Марго» вместо «Марго Форбс») — при том что у `collaborators` поле
+        # `last_name` тоже есть и просто оставалось пустым.
+        """SELECT id, name, last_name, brand_name, owner_photo_url, profile_photo_url,
                   owner_positioning, positioning, self_collaborator_id
              FROM clients WHERE id = $1""",
         client_id,
@@ -61,22 +65,30 @@ async def ensure_self_collaborator(db: asyncpg.Connection, client_id: int) -> Op
     # а collaborators.achievements = text[] — разные форматы. Клиент при желании
     # заполнит регалии карточки сам. Берём только имя/фото/должность.
     from app.services.contact_merge import _generate_unique_ref_code
+    from app.services.person_name import display_name
     name = (cl["name"] or cl["brand_name"] or "").strip() or "Организатор"
+    # ⚠️ Фамилия ложится в СВОЁ поле `collaborators.last_name`, а не приклеивается
+    # к имени: карточка основателя обязана быть устроена как все остальные —
+    # иначе DISPLAY_NAME_SQL на ней выдаст «Марго Форбс Форбс».
+    last_name = (cl["last_name"] or "").strip() or None
+    # А в `contacts.name` фамилия именно ПРИКЛЕИВАЕТСЯ: у контакта поля фамилии
+    # нет вовсе, имя там живёт целиком одной строкой.
+    contact_name = display_name(name, last_name) if last_name else name
     photo = cl["owner_photo_url"] or cl["profile_photo_url"]
     title = cl["owner_positioning"] or cl["positioning"]
 
     ref_code = await _generate_unique_ref_code(db)
     contact_id = await db.fetchval(
         "INSERT INTO contacts (client_id, name, ref_code) VALUES ($1, $2, $3) RETURNING id",
-        client_id, name, ref_code,
+        client_id, contact_name, ref_code,
     )
 
     access_code = await _generate_unique_access_code(db)
     collab_id = await db.fetchval(
         """INSERT INTO collaborators
-             (contact_id, name, title, photo_url, access_code, created_by_client_id)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
-        contact_id, name, title, photo, access_code, client_id,
+             (contact_id, name, last_name, title, photo_url, access_code, created_by_client_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
+        contact_id, name, last_name, title, photo, access_code, client_id,
     )
     await db.execute(
         "UPDATE clients SET self_collaborator_id = $1 WHERE id = $2",
