@@ -516,11 +516,50 @@ async def crm(
               FROM clients c WHERE {cond}""",
         *args)
 
+    # ── Вид «блоками»: люди, разложенные по этапам воронки ───────────────
+    # ⚠️ ОДНИМ запросом на все этапы, а не шестью по одному: шесть запросов
+    # к одной и той же выборке — это шесть проходов по базе ради разбиения,
+    # которое умеет сделать сам SQL.
+    #
+    # ⚠️ В каждом блоке НЕ БОЛЬШЕ 100 человек (`rn <= 100`): на лидах их
+    # сотни, и полный список превратил бы страницу в мегабайт JSON. Счётчик
+    # блока при этом честный — он из `funnel`, а не из длины списка.
+    board_rows = await db.fetch(
+        f"""SELECT * FROM (
+              SELECT ({CRM_CASE_SQL}) AS crm_status,
+                     c.id, c.name, c.last_name, c.email, c.telegram_username,
+                     t.name AS tariff_name, cs.expires_at,
+                     ownc.name AS owner_name,
+                     refc.name AS referrer_name,
+                     (SELECT COUNT(*) FROM subscription_orders so
+                       WHERE so.client_id = c.id AND so.status='paid'
+                         AND so.amount_paid_card_kopecks > 0) AS payments_count,
+                     ROW_NUMBER() OVER (PARTITION BY ({CRM_CASE_SQL})
+                                        ORDER BY c.created_at DESC) AS rn
+                FROM clients c
+                LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+                LEFT JOIN tariffs t ON t.id = cs.tariff_id
+                LEFT JOIN tech_specialists own ON own.id = c.tech_specialist_id
+                LEFT JOIN clients ownc ON ownc.id = own.client_id
+                LEFT JOIN tech_specialists refs
+                       ON refs.client_id = c.referred_by_client_id
+                LEFT JOIN clients refc ON refc.id = refs.client_id
+               WHERE {cond}
+            ) b WHERE b.rn <= 100""",
+        *args)
+
+    board: dict[str, list] = {s: [] for s in CRM_STATUSES}
+    for r in board_rows:
+        d = dict(r)
+        d.pop("rn", None)
+        board.setdefault(d["crm_status"], []).append(d)
+
     return {
         "clients": [dict(r) for r in rows],
         "total": int(total or 0),
         "limit": limit, "offset": offset,
         "funnel": dict(funnel) if funnel else {},
+        "board": board,
     }
 
 
