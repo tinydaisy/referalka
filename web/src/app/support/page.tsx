@@ -5,6 +5,17 @@
  * мессенджерах, и человек должен выбрать свой. Какие показывать — задаётся в
  * АДМИНКЕ и приходит с бэкенда (lib/support.ts → /api/v1/support-channels),
  * одной общей настройкой с Плюсоновским подарком и партнёркой.
+ *
+ * ⚠️⚠️ ЧАСЫ РАБОТЫ И СРОК ПЕРВОГО ОТВЕТА ОБЯЗАТЕЛЬНЫ (23.09.2026). Их требует
+ * Zoom Marketplace от страницы Support URL: отсутствие часов работы и
+ * максимального срока первого ответа (First Response SLA) — отдельная причина
+ * отказа в публикации приложения.
+ *
+ * ⚠️ Страница ОДНА на оба назначения. Под Zoom заводили вторую, `(legal)/support`,
+ * и обе претендовали на адрес `/support` — Next.js такое не собирает вовсе
+ * («two parallel pages resolve to the same path»), сборка падала и блокировала
+ * выкатку целиком. Вторую удалили, требования Zoom перенесены сюда: каналы
+ * по-прежнему берутся из админки, а не зашиваются в код.
  */
 import type { Metadata } from 'next'
 import Link from 'next/link'
@@ -64,7 +75,30 @@ export default async function PublicSupportPage() {
           ))}
         </div>
 
-        <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        {/* ⚠️ Часы работы и срок первого ответа — обязательны для Zoom
+            Marketplace (см. шапку файла). Текст согласован с владельцем
+            23.09.2026: будни 09:00–18:00 МСК, первый ответ за 1,5 часа. */}
+        <div className="mt-6 grid sm:grid-cols-2 gap-3">
+          <div className="p-4 bg-white rounded-2xl border card-border">
+            <div className="text-sm font-semibold mb-1" style={{ color: BRAND }}>
+              Когда мы на связи
+            </div>
+            <p className="text-sm text-gray-600">
+              Понедельник — пятница, с 09:00 до 18:00 по московскому времени (UTC+3).
+            </p>
+          </div>
+          <div className="p-4 bg-white rounded-2xl border card-border">
+            <div className="text-sm font-semibold mb-1" style={{ color: BRAND }}>
+              Как быстро ответим
+            </div>
+            <p className="text-sm text-gray-600">
+              Первый ответ — <b>в течение 1,5 часов</b> в рабочее время. Написали
+              вечером или в выходной — ответим утром следующего рабочего дня.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
           <div className="text-sm font-semibold text-gray-800 mb-1">
             Может, ответ уже есть
           </div>
