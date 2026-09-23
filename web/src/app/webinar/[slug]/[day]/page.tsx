@@ -500,6 +500,29 @@ export default function WebinarRoomPage() {
   const rm = room.room
   const roomState = rm.room_state || 'created'
   const live = rm.status === 'live' && roomState === 'open'
+
+  // ⚠️⚠️ СТОРОЖ «видео молча не играет» (23.09.2026). Признак `playerStuck`
+  // ставился только при ОШИБКЕ hls.js или провале play(). Но на телефоне
+  // бывает третий случай: ошибки нет, play() формально прошёл, а картинки нет —
+  // браузер поставил видео на паузу сам (autoplay-политика, экономия трафика,
+  // сворачивание вкладки). Кнопки при этом не было вовсе: зритель видел чёрный
+  // прямоугольник и не знал, что делать. Поэтому спрашиваем САМО видео.
+  //
+  // ⚠️ Смотрим `paused` и `readyState`, а не «прошло N секунд»: видео может
+  // законно буферизоваться на медленной сети — это не повод пугать кнопкой.
+  // Проверяем раз в 2 с и только в эфире.
+  useEffect(() => {
+    if (!live) return
+    const t = setInterval(() => {
+      const v = videoRef.current
+      if (!v) return
+      // HAVE_CURRENT_DATA (2) и выше — кадры есть. Меньше + пауза = не играет.
+      if (v.paused || v.readyState < 2) setPlayerStuck(true)
+      else setPlayerStuck(false)
+    }, 2000)
+    return () => clearInterval(t)
+  }, [live])
+
   const ended = rm.status === 'ended'
   const webinarTitle = rm.title || room.event?.title
 
@@ -756,32 +779,40 @@ export default function WebinarRoomPage() {
                 Своя панель ниже: звук и полный экран, паузы и перемотки нет.
                 playsInline + webkit — чтобы на iPhone не открывалось на весь экран. */}
             {live && <video ref={videoRef} autoPlay playsInline
-              onClick={e => e.preventDefault()}
+              // ⚠️⚠️ КЛИК ПО ВИДЕО ЗАПУСКАЕТ ЭФИР (23.09.2026). Здесь стояло
+              // `e.preventDefault()` — клик гасился вовсе, и «тык по экрану»
+              // срабатывал только при случайном попадании МИМО видео. На
+              // телефоне это выглядело как «иногда работает, иногда нет».
+              // Клик по видео — это и есть то действие пользователя, которого
+              // ждёт браузер, чтобы разрешить воспроизведение со звуком.
+              onClick={() => { const v = videoRef.current; if (v) playWithSound(v).then(ok => setPlayerStuck(!ok)) }}
               // @ts-ignore — атрибут для старых iOS
               webkit-playsinline="true"
-              className="w-full h-full" />}
+              className="w-full h-full cursor-pointer" />}
             {live && <LiveControls videoRef={videoRef} needUnmute={needUnmute}
                                    onUnmute={unmute} />}
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
-            {/* Кнопка перезапуска — всегда доступна в эфире (правый верх), на случай
-                «тихого» чёрного экрана без fatal-ошибки (заблокированный autoplay). */}
-            {live && !playerStuck && (
-              <button onClick={reloadPlayer} title="Обновить видео"
-                className="absolute top-3 right-3 bg-black/50 hover:bg-black/70 text-white/90 text-xs px-2.5 py-1 rounded-lg">
-                ↻ Видео
-              </button>
-            )}
-            {/* Плеер завис/чёрный экран → кнопка «Обновить видео» (без F5). */}
+            {/* ⚠️ Мелкой кнопки «↻ Видео» в углу больше НЕТ (23.09.2026).
+                Она работала, но читалась как непонятный значок: надпись
+                «Видео» не объясняла, что будет, и промахнуться по ней на
+                телефоне было легко. Её работу делают два очевидных пути:
+                большая плашка «Смотреть эфир» при любой заминке и клик по
+                самому видео. Лишний элемент в углу только путал. */}
+            {/* ⚠️⚠️ БОЛЬШАЯ КНОПКА ПОВЕРХ ВИДЕО, а не подпись «нажмите на экран»
+                (23.09.2026). На телефоне браузер почти всегда блокирует
+                автозапуск, и зритель видел чёрный прямоугольник: догадаться,
+                что надо ткнуть, было неоткуда — кнопка «↻ Видео» в углу мелкая
+                и читается как «обновить», а не «включить».
+                ⚠️ Кликабельна ВСЯ плашка, не только кружок: промахнуться по
+                кнопке на телефоне слишком легко. */}
             {live && playerStuck && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 text-center px-6">
-                <span className="text-white/80 text-sm">Видео не загрузилось или зависло?</span>
-                <button onClick={reloadPlayer}
-                  className="px-5 py-2.5 rounded-xl font-semibold text-sm"
-                  style={{ background: '#FFCFA4', color: '#0a1520' }}>
-                  ↻ Обновить видео
-                </button>
-                <span className="text-white/40 text-xs">Если не помогло — обновите страницу</span>
-              </div>
+              <button onClick={reloadPlayer}
+                className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-3 bg-black/75 text-center px-6 cursor-pointer">
+                <span className="w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg"
+                  style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</span>
+                <span className="text-white font-semibold">Смотреть эфир</span>
+                <span className="text-white/50 text-xs">Нажмите, чтобы включить видео и звук</span>
+              </button>
             )}
           </div>
 
