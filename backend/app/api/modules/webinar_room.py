@@ -182,6 +182,19 @@ async def list_rooms(event_id: int, client=Depends(get_current_client), db=Depen
     rooms = await db.fetch("SELECT * FROM webinar_rooms WHERE event_id=$1", event_id)
     rooms_by_day = {r["day_number"]: dict(r) for r in rooms}
 
+    # ⚠️⚠️ У комнаты ВСЕГДА должен быть ключ потока — иначе в кабинете нет ни
+    # RTMP-адреса, ни кнопок эфира, а публичная страница падает. Комнаты,
+    # созданные копированием события, оставались без ключа (прод, событие 89,
+    # 23.09.2026). Источник починен, но уже созданные чиним здесь — при первом
+    # открытии вкладки, чтобы человеку не пришлось ничего нажимать.
+    for _d, _r in rooms_by_day.items():
+        if _r.get("stream_type") == "encoder" and not (_r.get("stream_key") or "").strip():
+            _k = ws.make_stream_key()
+            await db.execute(
+                "UPDATE webinar_rooms SET stream_key=$1, hls_url=$2, updated_at=NOW() WHERE id=$3",
+                _k, ws.hls_url(_k), _r["id"])
+            _r["stream_key"], _r["hls_url"] = _k, ws.hls_url(_k)
+
     # Дата события — запасной источник для дней без своей даты (см. ниже).
     start_at = await db.fetchval("SELECT start_at FROM events WHERE id=$1", event_id)
 

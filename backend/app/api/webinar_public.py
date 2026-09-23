@@ -127,6 +127,21 @@ async def _load_room(conn, slug: str, day: int) -> dict:
     if not room:
         raise HTTPException(404, "Вебинарная комната не найдена")
     r = dict(room)
+
+    # ⚠️⚠️ СТРАХОВКА: у комнаты ВСЕГДА должен быть ключ потока. Комнаты,
+    # созданные копированием события, оставались без него — публичная страница
+    # падала с «Application error», а эфир было не запустить (прод, событие 89,
+    # 23.09.2026). Источник починен в events.py, но уже созданные комнаты так
+    # и остались бы битыми: чиним их здесь, при первом же открытии.
+    #
+    # ⚠️ Только для своей комнаты (`encoder`): у сторонней потока нет вовсе.
+    if r.get("stream_type") == "encoder" and not (r.get("stream_key") or "").strip():
+        key = ws.make_stream_key()
+        await conn.execute(
+            "UPDATE webinar_rooms SET stream_key=$1, hls_url=$2, updated_at=NOW() WHERE id=$3",
+            key, ws.hls_url(key), r["id"])
+        r["stream_key"], r["hls_url"] = key, ws.hls_url(key)
+
     r["_event"] = ev
     return r
 

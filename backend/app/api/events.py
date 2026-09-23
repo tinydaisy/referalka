@@ -1329,11 +1329,23 @@ async def copy_event(
                                   'started_at', 'ended_at', 'chat_cleared_at',
                                   'current_session_id', 'manual_speaker_ec_id',
                                   'room_state')]
+            # ⚠️⚠️ НОВЫЙ ключ выдаём СРАЗУ, а не оставляем комнату пустой.
+            # Раньше ключ просто не копировался (это верно — он должен быть
+            # свой), но и новый не создавался: скопированная комната оставалась
+            # без `stream_key` и `hls_url`. Публичная страница такой комнаты
+            # падала с «Application error», а кнопки эфира не работали —
+            # на проде так оказались дни 1 и 2 события 89, включая ближайший
+            # эфир (23.09.2026). Ключ обязан быть у комнаты ВСЕГДА, каким бы
+            # путём она ни появилась.
+            from app.services import webinar_service as _ws
+            _key = _ws.make_stream_key()
+            rcols = rcols + ["stream_key", "hls_url"]
+            _vals = [room[c] for c in rcols[:-2]] + [_key, _ws.hls_url(_key)]
             rph = ",".join(f"${i+2}" for i in range(len(rcols)))
             new_room_id = await db.fetchval(
                 f"INSERT INTO webinar_rooms (event_id, {','.join(rcols)}) "
                 f"VALUES ($1, {rph}) RETURNING id",
-                new_id, *[room[c] for c in rcols],
+                new_id, *_vals,
             )
             for blk in await db.fetch(
                 "SELECT * FROM webinar_blocks WHERE room_id = $1 ORDER BY sort_order, id",
