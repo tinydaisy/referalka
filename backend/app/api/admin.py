@@ -296,6 +296,13 @@ async def list_clients(
           (SELECT COUNT(*) FROM collaborators co
             JOIN contacts ct ON ct.id = co.contact_id
             WHERE ct.client_id = c.id) AS collaborators_count,
+          -- ⚠️ Вебинарные комнаты считаем ЧЕРЕЗ СОБЫТИЯ: своего `client_id` у
+          -- комнаты нет, она принадлежит событию (`webinar_rooms.event_id`).
+          (SELECT COUNT(*) FROM webinar_rooms wr
+            WHERE EXISTS (SELECT 1 FROM event_owners eo
+                           WHERE eo.event_id = wr.event_id
+                             AND eo.client_id = c.id
+                             AND eo.status = 'accepted')) AS webinars_count,
           -- Разбивка подписчиков ПО КАЖДОМУ не-системному каналу клиента
           -- (для тултипа «?»): платформа, ник/название, подписаны, отписались.
           (SELECT json_agg(json_build_object(
