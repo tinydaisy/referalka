@@ -15,11 +15,24 @@
  * восстанавливается обычным способом на /login → «Забыли пароль?». Раньше на
  * этом месте стоял текст «пароль выдаёт владелец» — он больше не верен.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eye, EyeOff, ArrowRight } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export default function TechLoginPage() {
+  /* ⚠️⚠️ ЧУЖОЙ ПРОПУСК ВЫБРАСЫВАЕМ НА ВХОДЕ (23.09.2026).
+   * Токен у всех ролей лежит под одним ключом `plusson_token`. Человек,
+   * заходивший помощником в чей-то кабинет, приходит сюда со старым
+   * ассистентским пропуском — и кабинет внедренца встречал его чужой ошибкой
+   * «У вас доступ только к своим контактам и CRM событий». Раз человек открыл
+   * ФОРМУ входа, прежний пропуск ему больше не нужен ни в каком виде. */
+  useEffect(() => {
+    try {
+      localStorage.removeItem('plusson_token')
+      document.cookie = 'plusson_token=; path=/; max-age=0'
+    } catch { /* приватный режим — не мешаем показать форму */ }
+  }, [])
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)

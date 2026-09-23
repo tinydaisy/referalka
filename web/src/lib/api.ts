@@ -96,8 +96,34 @@ async function request(path: string, options?: RequestInit) {
           localStorage.removeItem('plusson_token')
           document.cookie = 'plusson_token=; path=/; max-age=0'
         } catch { /* приватный режим — не мешаем уходу на вход */ }
-        // Админа возвращаем в админский вход, клиента — в клиентский.
-        window.location.href = path.startsWith('/admin') ? '/admin/login' : '/login'
+        // Каждого — в СВОЙ вход: админа в админский, внедренца в его форму,
+        // остальных в клиентский. ⚠️ Внедренца нельзя уводить на `/login`:
+        // там он войдёт как клиент и в кабинет внедренца так и не попадёт.
+        window.location.href = path.startsWith('/admin') ? '/admin/login'
+          : path.startsWith('/tech') ? '/tech/login'
+          : '/login'
+      }
+    }
+
+    /* ⚠️⚠️ ЧУЖАЯ РОЛЬ В КАБИНЕТЕ ВНЕДРЕНЦА (23.09.2026).
+     * Токен у всех ролей лежит под ОДНИМ ключом `plusson_token`. Человек,
+     * который уже заходил помощником в чей-то кабинет, открывает `/tech` со
+     * старым ассистентским пропуском — бэкенд отвечает 403 «Доступ только для
+     * тех-специалистов», и без этой ветки он застревал бы на форме входа с
+     * чужой ошибкой. Чистим пропуск и отправляем входить как внедренец.
+     *
+     * ⚠️ Только внутри `/tech` и только на этот detail: остальные 403 — это
+     * «нельзя», а не «войди заново», и гасить их выходом нельзя. */
+    if (res.status === 403 && typeof window !== 'undefined'
+        && window.location.pathname.startsWith('/tech')
+        && !window.location.pathname.startsWith('/tech/login')) {
+      const d = (err as any)?.detail
+      if (typeof d === 'string' && d.includes('только для тех-специалистов')) {
+        try {
+          localStorage.removeItem('plusson_token')
+          document.cookie = 'plusson_token=; path=/; max-age=0'
+        } catch { /* приватный режим — не мешаем уходу на вход */ }
+        window.location.href = '/tech/login'
       }
     }
     // Глобальный UX-фоллбек для ассистента: middleware возвращает 403
