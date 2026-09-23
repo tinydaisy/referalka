@@ -4544,7 +4544,13 @@ async def create_report(
     speakers_rows = await db.fetch(
         """SELECT cse.id AS speaker_event_id, cse.speaker_id, c.ref_code,
                   cse.role, cse.is_commercial, cse.sort_order,
-                  col.name,
+                  -- ⚠️ ИМЯ + ФАМИЛИЯ, а не одно `col.name` (23.09.2026).
+                  -- В `collaborators.name` лежит только имя («Анастасия»), а
+                  -- фамилия — в соседнем `col.last_name`. В отчёте две разные
+                  -- Анастасии (Вангулова и Котова) выглядели одинаково, и
+                  -- различить их было нельзя. Склейка — ТОЛЬКО через
+                  -- person_name (правило файла), иначе порядок слов разъедется.
+                  """ + DISPLAY_NAME_SQL("col") + """ AS name,
                   pu_tg.username AS username,
                   COUNT(ep.id) FILTER (WHERE ep.id IS NOT NULL) AS entered,
                   COUNT(ep.id) FILTER (WHERE ep.is_registered = TRUE) AS registered
@@ -4557,7 +4563,8 @@ async def create_report(
                AND ep.referrer_ref_code = c.ref_code
            WHERE cse.event_id = $1
            GROUP BY cse.id, cse.speaker_id, c.ref_code, cse.role,
-                    cse.is_commercial, cse.sort_order, col.name, pu_tg.username
+                    cse.is_commercial, cse.sort_order, col.name, col.last_name,
+                    pu_tg.username
            ORDER BY cse.sort_order, cse.id""",
         event_id
     )
@@ -4932,7 +4939,11 @@ async def conference_click_report(
     """Для отдельной подвкладки в Отчёте: имя спикера + counts по платформам."""
     await check_conference_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
-        """SELECT cse.id AS ec_id, cse.role, c.name AS speaker_name,
+        """SELECT cse.id AS ec_id, cse.role,
+                  -- ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно
+                  -- имя, фамилия в `last_name`. Подвкладка кликов — часть того
+                  -- же отчёта, показывала «Анастасия» без различения.
+                  """ + DISPLAY_NAME_SQL("c") + """ AS speaker_name,
                   SUM(CASE WHEN cl.click_kind = 'tg_channel'     THEN 1 ELSE 0 END) AS tg_channel,
                   SUM(CASE WHEN cl.click_kind = 'vk'             THEN 1 ELSE 0 END) AS vk,
                   SUM(CASE WHEN cl.click_kind = 'max'            THEN 1 ELSE 0 END) AS max_clicks,
@@ -4943,8 +4954,8 @@ async def conference_click_report(
              JOIN collaborators c ON c.id = cse.speaker_id
              LEFT JOIN event_collaborator_clicks cl ON cl.event_collaborator_id = cse.id
             WHERE cse.event_id = $1
-            GROUP BY cse.id, cse.role, c.name, cse.sort_order
-            ORDER BY cse.sort_order, c.name""",
+            GROUP BY cse.id, cse.role, c.name, c.last_name, cse.sort_order
+            ORDER BY cse.sort_order, c.name, c.last_name""",
         event_id,
     )
     return {"rows": [dict(r) for r in rows]}
