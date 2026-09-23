@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone, Wrench, ClipboardList, Gift } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag, Percent, FileText, HardDrive, Sparkles, Megaphone, Wrench, ClipboardList, Gift, Contact } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const adminNav = [
@@ -12,6 +12,11 @@ const adminNav = [
   { href: '/admin/system-channels', label: 'Системные каналы', icon: Radio },
   { href: '/admin/tg-setup', label: 'Автонастройка', icon: Sparkles },
   { href: '/admin/tech', label: 'Тех-специалисты', icon: Wrench },
+  // ⚠️ Отдельным пунктом, а не вкладкой внутри «Тех-специалистов»: это срез по
+  // ВСЕЙ базе клиентов, а не настройка внедренцев. Из карточки внедренца сюда
+  // приходят с фильтром `?spec=<id>` — и видят его клиентов, не заходя в его
+  // кабинет.
+  { href: '/admin/tech/crm', label: 'CRM клиентов', icon: Contact },
   { href: '/admin/partners', label: 'Партнёры', icon: Handshake },
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
   { href: '/admin/promotions', label: 'Акции', icon: Tag },

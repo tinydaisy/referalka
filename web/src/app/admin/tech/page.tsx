@@ -7,6 +7,7 @@
  * владельца. Иначе специалист набирал бы себе платящих и обходил остывших.
  */
 import { useEffect, useState, Suspense } from 'react'
+import Link from 'next/link'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { api } from '@/lib/api'
 import TechFaqScreen from '@/components/TechFaqScreen'
@@ -362,10 +363,25 @@ function SpecsTab({ specs, rates, onChange }: any) {
             {specs.map((s: any) => (
               <tr key={s.id} className="border-b border-gray-50 last:border-0">
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">{s.name || s.email}</div>
+                  {/* ⚠️ Имя — ССЫЛКА в сводную CRM с фильтром по этому
+                      человеку: «зайти во внедренца» значит увидеть его
+                      клиентов, а не открыть окно с настройками. Отдельная
+                      страница, а не модалка: у окна нет адреса, его не дать
+                      ссылкой и из него не вернуться назад. */}
+                  <Link href={`/admin/tech/crm?spec=${s.id}`}
+                        className="font-medium text-gray-900 underline decoration-gray-300 underline-offset-2 hover:decoration-gray-600">
+                    {s.name || s.email}
+                  </Link>
                   <div className="text-xs text-gray-400">{s.email}</div>
                 </td>
-                <td className="px-4 py-3">{s.clients_count}</td>
+                <td className="px-4 py-3">
+                  {/* Число клиентов — тоже вход в его срез: по нему кликают
+                      чаще всего, когда хотят «посмотреть, кого он ведёт». */}
+                  <Link href={`/admin/tech/crm?spec=${s.id}`}
+                        className="underline decoration-gray-300 underline-offset-2 hover:decoration-gray-600">
+                    {s.clients_count}
+                  </Link>
+                </td>
                 <td className="px-4 py-3">{s.paying_count}</td>
                 <td className="px-4 py-3 font-medium">{rub(s.unpaid_kopecks)}</td>
                 <td className="px-4 py-3">

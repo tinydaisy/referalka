@@ -1752,6 +1752,18 @@ export const api = {
       const qs = s.toString()
       return request(`/api/v1/admin/tech/unassigned${qs ? `?${qs}` : ''}`)
     },
+    // Сводная CRM по всем внедренцам; spec_id сужает до одного (23.09.2026).
+    crm: (p?: { spec_id?: number | null; status?: string; q?: string
+                limit?: number; offset?: number }) => {
+      const s = new URLSearchParams()
+      if (p?.spec_id) s.set('spec_id', String(p.spec_id))
+      if (p?.status) s.set('status', p.status)
+      if (p?.q) s.set('q', p.q)
+      if (p?.limit) s.set('limit', String(p.limit))
+      if (p?.offset !== undefined) s.set('offset', String(p.offset))
+      const qs = s.toString()
+      return request(`/api/v1/admin/tech/crm${qs ? `?${qs}` : ''}`)
+    },
     rates: () => request('/api/v1/admin/tech/rates'),
     setRate: (kind: string, data: any) =>
       request(`/api/v1/admin/tech/rates/${kind}`, { method: 'PATCH', body: JSON.stringify(data) }),
