@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from app.database import get_db
 # ⚠️ Имя человека — только общим хелпером (правило проекта, person_name.py).
-from app.services.person_name import display_name
+from app.services.person_name import display_name, DISPLAY_NAME_SQL
 from app.auth import get_current_client as get_current_user, get_current_admin
 from app.services.assistant_access import assistant_is_restricted
 from app.services import tariff_periods
@@ -253,16 +253,18 @@ async def list_all_orders(
                          ORDER BY pu.platform_slug, pu.id
                       ) x) AS identities"""
 
+    # ⚠️ Имя + фамилия (23.09.2026): список заказов у админа — «кто платил» и
+    # «кто привёл». По одному имени плательщика не опознать.
     union_sql = f"""
         SELECT so.id, 'subscription' AS kind, so.status,
                so.amount_total_kopecks, so.amount_paid_card_kopecks, so.amount_paid_bonus_kopecks,
                so.payment_provider, so.prodamus_order_num, so.prodamus_payment_type,
                so.paid_at, so.created_at,
                t.slug AS item_slug, t.name AS item_name,
-               c.id AS client_id, c.name AS client_name, c.email AS client_email,
+               c.id AS client_id, {DISPLAY_NAME_SQL("c")} AS client_name, c.email AS client_email,
                c.telegram_username,
                {IDENTITIES_SUBQ},
-               ref.id AS referrer_id, ref.name AS referrer_name
+               ref.id AS referrer_id, {DISPLAY_NAME_SQL("ref")} AS referrer_name
           FROM subscription_orders so
           JOIN clients c ON c.id = so.client_id
           JOIN tariffs t ON t.id = so.tariff_id
@@ -275,10 +277,10 @@ async def list_all_orders(
                ao.payment_provider, ao.prodamus_order_num, ao.prodamus_payment_type,
                ao.paid_at, ao.created_at,
                f.slug AS item_slug, f.name AS item_name,
-               c.id AS client_id, c.name AS client_name, c.email AS client_email,
+               c.id AS client_id, {DISPLAY_NAME_SQL("c")} AS client_name, c.email AS client_email,
                c.telegram_username,
                {IDENTITIES_SUBQ},
-               ref.id AS referrer_id, ref.name AS referrer_name
+               ref.id AS referrer_id, {DISPLAY_NAME_SQL("ref")} AS referrer_name
           FROM addon_orders ao
           JOIN clients c ON c.id = ao.client_id
           JOIN features f ON f.id = ao.feature_id

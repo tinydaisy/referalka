@@ -351,7 +351,10 @@ async def unassigned(
         args.append(f"%{q.strip()}%")
         n = len(args)
         where.append(
-            f"(c.name ILIKE ${n} OR c.email ILIKE ${n} OR c.telegram_username ILIKE ${n})")
+            # ⚠️ И по ФАМИЛИИ (23.09.2026): у клиента она отдельным полем, и
+            # поиск по ней не находил ничего.
+            f"(c.name ILIKE ${n} OR c.last_name ILIKE ${n}"
+            f" OR c.email ILIKE ${n} OR c.telegram_username ILIKE ${n})")
 
     rows = await db.fetch(
         # ⚠️ «Привёл» отдаём ВМЕСТЕ со списком: при передаче админ должен

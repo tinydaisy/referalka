@@ -73,7 +73,11 @@ async def my_clients(
 
     if search:
         args.append(f"%{search}%")
-        where.append(f"(c.name ILIKE ${len(args)} OR c.email ILIKE ${len(args)}"
+        # ⚠️ И по ФАМИЛИИ тоже (23.09.2026): у клиента фамилия отдельным полем,
+        # и поиск по ней ничего не находил — человека, которого знаешь по
+        # фамилии, было не найти.
+        where.append(f"(c.name ILIKE ${len(args)} OR c.last_name ILIKE ${len(args)}"
+                     f" OR c.email ILIKE ${len(args)}"
                      f" OR c.telegram_username ILIKE ${len(args)})")
 
     # ⚠️ «Платит» — активная подписка с `source='paid'`. Триал и выданное

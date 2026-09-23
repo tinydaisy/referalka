@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.auth import get_current_client, get_current_admin
 from app.services.assistant_access import assistant_is_restricted
+from app.services.person_name import DISPLAY_NAME_SQL
 from app.services.bonuses import (
     get_balance,
     hold_for_withdrawal,
@@ -159,7 +160,8 @@ async def get_my_referral_dashboard(
     tx_rows = await db.fetch(
         """SELECT bt.id, bt.type, bt.amount_kopecks, bt.description, bt.created_at,
                   bt.source_order_id, bt.source_payer_id, bt.withdrawal_id,
-                  c2.name AS source_payer_name
+                  -- ⚠️ Имя + фамилия (23.09.2026): «бонус от <кого>».
+                  """ + DISPLAY_NAME_SQL("c2") + """ AS source_payer_name
              FROM client_bonus_transactions bt
              LEFT JOIN clients c2 ON c2.id = bt.source_payer_id
             WHERE bt.client_id = $1
@@ -184,7 +186,9 @@ async def get_my_referral_dashboard(
         # ⚠️ `referred_source` (миграция 472) — чем привели человека: пусто —
         # обычной реф-ссылкой, `plusson_lm` — Плюсоновским лид-магнитом. Без
         # этого поля два потока в списке неразличимы: реф-код у них один.
-        """SELECT c.id, c.name, c.email, c.created_at, c.referred_source,
+        # ⚠️ Имя + фамилия (23.09.2026): список «мои рефералы» — кого я привёл.
+        """SELECT c.id, """ + DISPLAY_NAME_SQL("c") + """ AS name,
+                  c.email, c.created_at, c.referred_source,
                   cs.source AS sub_source, t.slug AS tariff_slug, t.name AS tariff_name,
                   cs.expires_at, (cs.expires_at > NOW()) AS sub_active,
                   COALESCE(c.referral_rate_percent, 10) AS rate_percent,
@@ -470,7 +474,11 @@ async def list_withdrawals(
     rows = await db.fetch(
         f"""SELECT wr.id, wr.client_id, wr.amount_kopecks, wr.status, wr.payment_details,
                    wr.admin_note, wr.requested_at, wr.completed_at,
-                   c.name AS client_name, c.email AS client_email, c.telegram_username,
+                   -- ⚠️ Имя + фамилия (23.09.2026): это заявка на ВЫПЛАТУ
+                   -- денег («Заявка #12 от Ольга на 15 000 ₽») — по одному
+                   -- имени не сверить человека с реквизитами перевода.
+                   {DISPLAY_NAME_SQL("c")} AS client_name,
+                   c.email AS client_email, c.telegram_username,
                    -- Налоговый статус партнёра (миграция 319): без него выплата
                    -- невозможна — Оферент не может быть налоговым агентом.
                    c.partner_tax_status, c.partner_offer_accepted_at
