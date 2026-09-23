@@ -18,6 +18,7 @@ from typing import Optional, List
 
 from app.auth import get_current_client
 from app.database import get_db
+from app.services.plusson_match import matched_client_id_sql
 
 router = APIRouter(prefix="/contact-assignments", tags=["Закрепление за менеджером"])
 
@@ -172,12 +173,19 @@ async def auto_assign_event(
 
     # Участники события со всем, что нужно для решения.
     rows = await db.fetch(
-        """SELECT c.id AS contact_id,
-                  -- Кабинет ПЛЮСОНА того, кто привёл (если привёл клиент).
-                  rc.linked_client_id AS referrer_client_id,
+        f"""SELECT c.id AS contact_id,
+                  -- ⚠️⚠️ КАБИНЕТ ПЛЮСОНА ИЩЕТСЯ СОПОСТАВЛЕНИЕМ (23.09.2026),
+                  -- а не берётся из `contacts.linked_client_id`. Это поле
+                  -- заполняет только форма `/link-pluson`, и на проде им
+                  -- воспользовались 8 человек из 23016 — то есть правила 1 и 2
+                  -- ниже не срабатывали практически никогда, и ВСЕ участники
+                  -- уходили в «поровну между менеджерами». Приведённые своим
+                  -- внедренцем доставались чужим людям вместе с процентом.
+                  -- Та же починка, что в CRM события (`services/plusson_match`).
+                  {matched_client_id_sql('rc.id')} AS referrer_client_id,
                   -- Свой внедренец у участника, если он сам клиент ПЛЮСОНА.
                   (SELECT pc.tech_specialist_id FROM clients pc
-                    WHERE pc.id = c.linked_client_id) AS own_tech_id,
+                    WHERE pc.id = {matched_client_id_sql('c.id')}) AS own_tech_id,
                   -- Уже закреплён в этом кабинете?
                   (SELECT ca.grant_id FROM contact_assignments ca
                     WHERE ca.client_id = $2 AND ca.contact_id = c.id) AS cur_grant
