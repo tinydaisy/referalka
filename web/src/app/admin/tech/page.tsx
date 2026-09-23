@@ -771,7 +771,12 @@ function AssignTab({ specs, onChange }: any) {
             {items.map(c => (
               <tr key={c.id} className="border-b border-gray-50 last:border-0">
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">{c.name || 'Без имени'}</div>
+                  {/* ⚠️ Имя И ФАМИЛИЯ: у клиента они лежат раздельно, и одного
+                      имени мало — в списке из тысячи человек «Ирина» ничего не
+                      говорит, а искать по фамилии и не видеть её странно. */}
+                  <div className="font-medium text-gray-900">
+                    {[c.name, c.last_name].filter(Boolean).join(' ') || 'Без имени'}
+                  </div>
                   <div className="text-xs text-gray-400">{c.email}</div>
                   {/* ⚠️ Кому идут 10 % — видно ПРЯМО В СТРОКЕ, рядом с выбором
                       нового ответственного: это разные люди и разные деньги. */}

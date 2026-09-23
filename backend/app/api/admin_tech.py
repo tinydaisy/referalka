@@ -370,7 +370,10 @@ async def unassigned(
         # ⚠️ Приведший ищется по КЛИЕНТСКОЙ реф-ссылке, а его имя берётся из
         # клиента: колонка `referred_by_tech_id` дропнута, своего имени у роли
         # внедренца нет (миграции 486–487).
-        """SELECT c.id, c.name, c.email, c.telegram_username, c.created_at,
+        # ⚠️ Фамилия отдаётся ОТДЕЛЬНЫМ полем (23.09.2026): искали по ней уже
+        # давно, а в списке её не было — человека находишь, но проверить, тот
+        # ли это Иванов, нечем. У клиента имя и фамилия лежат раздельно.
+        """SELECT c.id, c.name, c.last_name, c.email, c.telegram_username, c.created_at,
                   t.slug AS tariff_slug, cs.expires_at, cs.source AS sub_source,
                   ref.id AS referred_by_tech_id,
                   refc.name AS referred_by_name,
