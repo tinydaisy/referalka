@@ -7,6 +7,7 @@ import { useMe } from '@/hooks/useMe'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import PublicLinks from '@/components/PublicLinks'
+import SharePreviewField from '@/components/SharePreviewField'
 import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 import SpeakersChatField, { SpeakersChatValue } from '@/components/SpeakersChatField'
@@ -47,6 +48,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     title: event?.title || '',
     description: event?.description || '',
     description_post_register: event?.description_post_register || '',
+    // Подпись карточки события в мессенджере (мигр. 503). Пусто → умолчание.
+    share_preview_text: event?.share_preview_text || '',
     stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
     // Вкладка «Интро» (мигр. 406). Поля нет в старом ответе → «показывать».
@@ -143,6 +146,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       ...f,
       description: event?.description || '',
       description_post_register: event?.description_post_register || '',
+      share_preview_text: event?.share_preview_text || '',
       stream_url: conf?.stream_url || '',
     hide_stream_button: !!conf?.hide_stream_button,
     // Вкладка «Интро» (мигр. 406). Поля нет в старом ответе → «показывать».
@@ -191,7 +195,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     // и после сохранения. Снятая галочка тут же затиралась старым значением,
     // и до сервера правка не доходила. Начальное значение ставится один раз
     // выше — этого достаточно.
-  }, [conf, event?.landing_url, event?.landing_cta_label, event?.description, event?.description_post_register])
+  }, [conf, event?.landing_url, event?.landing_cta_label, event?.description, event?.description_post_register, event?.share_preview_text])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -230,6 +234,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         eventPatch.description = form.description || null
       if (form.description_post_register !== (event?.description_post_register || ''))
         eventPatch.description_post_register = form.description_post_register || null
+      if (form.share_preview_text !== (event?.share_preview_text || ''))
+        eventPatch.share_preview_text = form.share_preview_text.trim() || null
       if (Object.keys(eventPatch).length > 0) {
         await api.events.update(eventId, eventPatch)
         onEventUpdated?.(eventPatch)
@@ -650,6 +656,20 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         onChatLabel={(v) => setForm(f => ({ ...f, chat_button_label: v }))}
         onAccent={(v) => setForm(f => ({ ...f, accent_button: v }))}
       />
+
+      {/* Карточка ссылки в мессенджере (мигр. 503) — ВПЛОТНУЮ к публичным
+          ссылкам: человек копирует ссылку и тут же видит, как она будет
+          выглядеть в чате. */}
+      <div className="bg-white rounded-2xl border card-border shadow-sm p-6">
+        <SharePreviewField
+          value={form.share_preview_text}
+          onChange={(v) => setForm(f => ({ ...f, share_preview_text: v }))}
+          title={form.title || event?.title}
+          startAt={event?.start_at}
+          datesFromProgram={event?.dates_from_program}
+          posterUrl={event?.share_poster_url || event?.poster_url}
+        />
+      </div>
 
       {/* 6) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
       <PublicLinks

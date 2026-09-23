@@ -4,6 +4,7 @@ import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import PublicLinks from '@/components/PublicLinks'
+import SharePreviewField from '@/components/SharePreviewField'
 import LandingSettingsBlock from '@/components/LandingSettingsBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 import MainButtonsBlock, { AccentButton, normalizeAccent } from '@/components/MainButtonsBlock'
@@ -21,6 +22,8 @@ export default function OverviewTab({
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
   const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
+  // Подпись карточки события в мессенджере (мигр. 503). Пусто → умолчание.
+  const [sharePreviewText, setSharePreviewText] = useState(event.share_preview_text || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
   const [hideStreamButton, setHideStreamButton] = useState<boolean>(!!event.hide_stream_button)
   // Вкладка «Интро» (мигр. 406). Старый ответ API поля не содержит —
@@ -114,6 +117,8 @@ export default function OverviewTab({
       if (d !== (event.description || ''))                      payload.description = d || null
       const dpr = descriptionPostRegister.trim()
       if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
+      const spt = sharePreviewText.trim()
+      if (spt !== (event.share_preview_text || ''))             payload.share_preview_text = spt || null
       const lu = landingUrl.trim()
       if (lu !== (event.landing_url || ''))                     payload.landing_url = lu || null
       if (hideStreamButton !== !!event.hide_stream_button)      payload.hide_stream_button = hideStreamButton
@@ -539,6 +544,23 @@ export default function OverviewTab({
         onChatLabel={setChatButtonLabel}
         onAccent={setAccentButton}
       />
+
+      {/* Карточка ссылки в мессенджере (мигр. 503) — вплотную к публичным
+          ссылкам: человек копирует ссылку и тут же видит, как она будет
+          выглядеть в чате.
+          ⚠️ У КОЛЛАБЫ скрыта по той же причине, что и сами ссылки ниже: общей
+          публичной ссылки у неё нет, настраивать карточку не для чего. */}
+      {!event.is_collab && (
+        <div className="bg-white rounded-2xl border card-border p-6">
+          <SharePreviewField
+            value={sharePreviewText}
+            onChange={setSharePreviewText}
+            title={title || event.title}
+            startAt={event.start_at}
+            posterUrl={event?.share_poster_url || event?.poster_url}
+          />
+        </div>
+      )}
 
       {/* 6) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже.
           Баннер «Каналы не подключены» теперь ВНУТРИ PublicLinks (по реальному

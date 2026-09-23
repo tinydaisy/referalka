@@ -200,6 +200,10 @@ class UpdateEventRequest(BaseModel):
     # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).
     skip_contact_form: Optional[bool] = None
+    # Подпись под ссылкой события в мессенджере (миграция 503). Идёт в карточку,
+    # которую Telegram/VK/WhatsApp рисуют под прямой ссылкой `pluson.ru/e/{slug}`.
+    # Плейсхолдеры {дата} и {название}. Пусто → умолчание из кода страницы.
+    share_preview_text: Optional[str] = None
     # Текст кнопки на встроенном лендинге события (миграция 212). Пусто → дефолт:
     # «КАК ГОЛОСОВАТЬ?» у конкурса, «Зарегистрироваться» у остальных типов.
     landing_cta_label: Optional[str] = None
@@ -465,6 +469,28 @@ _POSTER_SUBQ = """(
      LIMIT 1
 ) AS poster_url"""
 
+# Афиша для КАРТОЧКИ ССЫЛКИ в мессенджере (мигр. 503).
+#
+# ⚠️ Порядок ориентаций здесь ДРУГОЙ, чем в `_POSTER_SUBQ` выше, и это
+# намеренно: карточка в чате горизонтальная (примерно 1200×630), и квадратная
+# афиша в ней обрезается сверху и снизу. Кабинету же для плитки события
+# удобнее квадрат — поэтому два подзапроса, а не один.
+#
+# ⚠️ Тот же порядок стоит в публичном API лендинга (event_landing_public.py) —
+# он и отдаёт картинку в саму карточку. Меняешь здесь — меняй там, иначе
+# предпросмотр в кабинете покажет одну афишу, а в чат уйдёт другая.
+_SHARE_POSTER_SUBQ = """(
+    SELECT url FROM event_posters
+     WHERE event_id = e.id AND day IS NULL
+     ORDER BY CASE orientation
+                WHEN 'horizontal' THEN 1
+                WHEN 'square'     THEN 2
+                WHEN 'vertical'   THEN 3
+                ELSE 4
+              END, sort, id
+     LIMIT 1
+) AS share_poster_url"""
+
 
 # Чаты события — читаются через ссылки на client_broadcast_chats (миграция 174).
 # Алиасы сохранены прежние (chat_url / chat_url_tg/vk/max / tg/vk/max_chat_id),
@@ -606,7 +632,7 @@ async def get_event(
     # landing_published — собран ли и опубликован Плюсоновский лендинг
     # (миграция 240). По нему в «Ссылках» показывается ссылка на /e/{slug}.
     event = await db.fetchrow(
-        f"""SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ},
+        f"""SELECT e.*, {_POSTER_SUBQ}, {_SHARE_POSTER_SUBQ}, {_CHAT_SUBQ},
                    COALESCE((SELECT p.is_published FROM event_landing_pages p
                               WHERE p.event_id = e.id AND p.kind = 'main'), FALSE)
                      AS landing_published
@@ -730,7 +756,11 @@ async def update_event(
     # очистка поля, а не «оставить как было»: клиент стирает текст, чтобы
     # вернуть формулировку по умолчанию. Без NULLIF в базе оседала бы пустая
     # строка, и страница показывала бы пустоту вместо дефолта.
-    for _f in ("pre_reg_text", "pre_reg_btn_label", "pre_reg_btn_url", "pre_reg_poster_url"):
+    # ⚠️ `share_preview_text` — сюда же (миграция 503): стёртое клиентом поле
+    # должно вернуть умолчание «Приходи — …», а пустая строка в базе означала бы
+    # карточку вообще без подписи.
+    for _f in ("pre_reg_text", "pre_reg_btn_label", "pre_reg_btn_url", "pre_reg_poster_url",
+               "share_preview_text"):
         if _f in updates and isinstance(updates[_f], str):
             updates[_f] = updates[_f].strip() or None
     # Ссылка кнопки — только внешний адрес или якорь. Схемы javascript:/data:
@@ -838,7 +868,7 @@ async def update_event(
             event_id, bool(updates["is_offline"]),
         )
 
-    updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1", event_id)
+    updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ}, {_SHARE_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1", event_id)
     return {"event": dict(updated)}
 
 

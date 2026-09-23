@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
+import SharePreviewField from '@/components/SharePreviewField'
 
 export default function ContestOverviewTab({
   event, eventId, onReload,
@@ -14,6 +15,8 @@ export default function ContestOverviewTab({
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
   const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
+  // Подпись карточки события в мессенджере (мигр. 503). Пусто → умолчание.
+  const [sharePreviewText, setSharePreviewText] = useState(event.share_preview_text || '')
   // «Ссылка на голосование» сохраняется в events.landing_url — это сторонний
   // лендинг голосования (у конкурса нет вебинарной комнаты). Mini App в режиме
   // контеста показывает её плиткой «Перейти к голосованию».
@@ -48,6 +51,8 @@ export default function ContestOverviewTab({
       if (d !== (event.description || ''))                      payload.description = d || null
       const dpr = descriptionPostRegister.trim()
       if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
+      const spt = sharePreviewText.trim()
+      if (spt !== (event.share_preview_text || ''))             payload.share_preview_text = spt || null
       const v = votingUrl.trim()
       if (v !== (event.landing_url || ''))                      payload.landing_url = v || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
@@ -187,6 +192,19 @@ export default function ContestOverviewTab({
                    className="input" placeholder="https://forbes.ru/vote/..." />
           </Field>
         </div>
+      </div>
+
+      {/* Карточка ссылки в мессенджере (мигр. 503) — вплотную к публичным
+          ссылкам: человек копирует ссылку и тут же видит, как она будет
+          выглядеть в чате. */}
+      <div className="bg-white rounded-2xl border card-border p-6">
+        <SharePreviewField
+          value={sharePreviewText}
+          onChange={setSharePreviewText}
+          title={title || event.title}
+          startAt={event.start_at}
+          posterUrl={event?.share_poster_url || event?.poster_url}
+        />
       </div>
 
       {/* 4) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}

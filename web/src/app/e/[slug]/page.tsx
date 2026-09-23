@@ -37,17 +37,72 @@ async function getLanding(slug: string, kind: 'main' | 'post_pay', preview?: str
   }
 }
 
+/** Дата события для подписи карточки: «26 октября в 10:00 МСК».
+ *
+ * ⚠️ Время ВСЕГДА московское и подписано «МСК». Карточку мессенджер забирает
+ * один раз и показывает её всем одинаково — подставить каждому читателю его
+ * часовой пояс физически некуда, а время без пояса читается как местное и
+ * зовёт людей не в тот час.
+ *
+ * ⚠️ Полночь (00:00) печатаем без времени. У события, которому задали только
+ * дату, время в базе выходит нулевым — и «в 00:00» выглядело бы как ночное
+ * мероприятие.
+ */
+function formatEventDate(startAt?: string | null, datesFromProgram?: boolean): string {
+  if (!startAt) return ''
+  const d = new Date(startAt)
+  if (isNaN(d.getTime())) return ''
+  const TZ = 'Europe/Moscow'
+  const day = d.toLocaleDateString('ru', { day: 'numeric', month: 'long', timeZone: TZ })
+  // Даты собраны из программы → у дня своё расписание по слотам, общего времени
+  // старта у события нет (см. dates_from_program в API лендинга).
+  if (datesFromProgram) return day
+  const hm = d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', timeZone: TZ })
+  return hm === '00:00' ? day : `${day} в ${hm} МСК`
+}
+
+/** Подпись под ссылкой события в мессенджере.
+ *
+ * Клиент задаёт свой текст в настройках события («Как выглядит ссылка в
+ * мессенджере»); пусто — берём это умолчание. Умолчание живёт ЗДЕСЬ, а не в
+ * базе: скопируй мы его в каждое событие при создании, поменять формулировку
+ * разом стало бы нельзя.
+ */
+const SHARE_PREVIEW_DEFAULT = 'Приходи {дата} на «{название}»'
+// ⚠️ Отдельное умолчание для события БЕЗ даты («идёт постоянно»). Вырезать
+// {дата} из общей фразы мало: остаётся «Приходи на «Клуб»» — а предлог там
+// нужен ровно такой же, поэтому фразу проще задать целиком, чем чинить
+// падежи вычитанием.
+const SHARE_PREVIEW_DEFAULT_NO_DATE = 'Приходи на «{название}»'
+
+export function buildSharePreviewText(
+  template: string | null | undefined,
+  { title, date }: { title: string; date: string },
+): string {
+  const tpl = (template || '').trim()
+    || (date ? SHARE_PREVIEW_DEFAULT : SHARE_PREVIEW_DEFAULT_NO_DATE)
+  const out = tpl
+    .replace(/\{дата\}/g, date)
+    .replace(/\{название\}/g, title)
+  // ⚠️ У события может не быть даты вовсе («идёт постоянно»), и тогда на месте
+  // {дата} остаётся пустота с разделителем клиента вокруг неё: «Приходи на  —
+  // «Клуб»» или, если {дата} стояла первой, строка вовсе начиналась с тире.
+  // Поэтому схлопываем двойные пробелы и срезаем осиротевшие разделители по
+  // краям и перед кавычкой — в чат должна уходить целая фраза.
+  return out
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s*[—–-]\s*(?=[«"])/g, ' ')
+    .replace(/^\s*[—–-]\s*/, '')
+    .replace(/\s*[—–-]\s*$/, '')
+    .trim()
+}
+
 export async function generateMetadata(
   { params }: { params: { slug: string } },
 ): Promise<Metadata> {
   const data = await getLanding(params.slug, 'main')
   if (!data) return { title: 'Событие' }
   const { event } = data
-  // ⚠️ Картинка превью и значок вкладки — ВСЕГДА логотип бренда клиента
-  // (clients.brand_logo_url). Не афиша: страница открыта под его брендом, и в
-  // переписке должен узнаваться он. Без этого Telegram брал первую попавшуюся
-  // картинку со страницы — и у клиента показывался логотип ПЛЮСОНа
-  // (прод, 2026-08-18).
   const brandLogo = data.data?.brand?.logo_url || data.data?.organizer?.brand_logo_url
   // ⚠️ ФАВИКОН — ТЁМНАЯ ВЕРСИЯ ЗНАКА («логотип для светлых фонов»). Вкладка
   // браузера белая, и основной логотип — обычно белый — сливается с ней в
@@ -56,16 +111,38 @@ export async function generateMetadata(
   const favicon = data.data?.brand?.logo_light_url
     || data.data?.organizer?.brand_logo_light_url
     || brandLogo
-  const ogImage = brandLogo || event.poster_url
+  // ⚠️ КАРТИНКА КАРТОЧКИ — АФИША СОБЫТИЯ, и только если её нет — логотип
+  // основателя (решение владельца 23.09.2026). Было наоборот: логотип стоял
+  // первым, и в переписке у всех событий клиента шла одна и та же плашка со
+  // знаком вместо афиши конкретного мероприятия. Логотип остаётся запасным —
+  // он лучше, чем пустая карточка или случайная картинка со страницы, из-за
+  // которой в чате однажды показывался логотип ПЛЮСОНа (прод, 2026-08-18).
+  const ogImage = event.poster_url || brandLogo
+  // ⚠️ Подпись — отдельное короткое поле, а НЕ описание лендинга. Описание
+  // написано для открывшего страницу, допускает HTML (`<b>`, `<a href>`) и,
+  // обрезанное по 200 символов, обрывалось посреди слова или тега — а теги в
+  // карточке Telegram показываются как текст.
+  const shareText = buildSharePreviewText(event.share_preview_text, {
+    title: event.title,
+    date: formatEventDate(event.start_at, event.dates_from_program),
+  })
   return {
     title: event.title,
-    description: event.description?.slice(0, 200) || undefined,
+    description: shareText || undefined,
     // Фавикон вкладки — тоже логотип клиента: страница открыта на ЕГО домене
     // и под его брендом, наш значок там выглядит чужим.
     icons: favicon ? { icon: favicon } : undefined,
     openGraph: {
       title: event.title,
-      description: event.description?.slice(0, 200) || undefined,
+      description: shareText || undefined,
+      images: ogImage ? [ogImage] : undefined,
+    },
+    // Без этого X/Twitter рисует маленькую карточку с миниатюрой сбоку —
+    // афиша в ней нечитаема.
+    twitter: {
+      card: 'summary_large_image',
+      title: event.title,
+      description: shareText || undefined,
       images: ogImage ? [ogImage] : undefined,
     },
   }

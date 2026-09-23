@@ -88,6 +88,15 @@ async def get_public_landing(
                   e.seats_total, e.offer_url, e.offer_id,
                   e.seats_label, e.seats_label_position, e.seats_size,
                   e.seats_count_mode, e.seats_base, e.skip_contact_form,
+                  -- Подпись под ссылкой в мессенджере (мигр. 503) — её читает
+                  -- generateMetadata страницы /e/{slug}.
+                  e.share_preview_text,
+                  -- ⚠️ Горизонтальная афиша первой — она же уходит в КАРТОЧКУ
+                  -- ссылки (мигр. 503): карточка в чате широкая, квадрат в ней
+                  -- обрезается. Тот же порядок продублирован в
+                  -- `_SHARE_POSTER_SUBQ` (backend/app/api/events.py) — по нему
+                  -- кабинет рисует предпросмотр. Меняешь здесь — меняй там,
+                  -- иначе в предпросмотре будет одна афиша, а в чате другая.
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id AND day IS NULL
                     ORDER BY CASE orientation
@@ -761,6 +770,9 @@ async def get_public_landing(
             "start_at": ev["start_at"],
             "end_at": ev.get("end_at"),
             "poster_url": ev["poster_url"],
+            # Подпись карточки ссылки в мессенджере (мигр. 503). Пусто →
+            # страница соберёт умолчание «Приходи — {дата} "{название}"».
+            "share_preview_text": ev.get("share_preview_text"),
             "module_slug": ev["module_slug"],
             # ⚠️ Одно поле на всё: сюда клиент пишет либо офлайн-адрес, либо
             # ссылку на эфир. Блок «Место проведения» сам решает, показывать
