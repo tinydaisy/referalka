@@ -1591,6 +1591,16 @@ export const api = {
     client: (id: number) => request(`/api/v1/tech/clients/${id}`),
     // Цифра новых сообщений для пункта меню «Диалоги» (23.09.2026).
     dialogsUnread: () => request('/api/v1/tech/dialogs/unread-count'),
+    // Моя CRM — та же ручка, что у админа, но срез по себе (23.09.2026).
+    crm: (p?: { status?: string; q?: string; limit?: number; offset?: number }) => {
+      const s = new URLSearchParams()
+      if (p?.status) s.set('status', p.status)
+      if (p?.q) s.set('q', p.q)
+      if (p?.limit) s.set('limit', String(p.limit))
+      if (p?.offset !== undefined) s.set('offset', String(p.offset))
+      const qs = s.toString()
+      return request(`/api/v1/tech/crm${qs ? `?${qs}` : ''}`)
+    },
     // Завести разговор с клиентом, которого в боте ещё нет (23.09.2026).
     startDialog: (client_id: number) =>
       request('/api/v1/tech/dialogs/start',

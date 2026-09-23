@@ -15,11 +15,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList, HelpCircle, Bell, Coins } from 'lucide-react'
+import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList, HelpCircle, Bell, Coins, Contact } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const NAV = [
   { href: '/tech', label: 'Мои клиенты', icon: Users, exact: true },
+  // ⚠️ «Мои клиенты» и «CRM» — РАЗНЫЕ разделы: первый отвечает «что у клиента
+  // есть» (события, боты, подписчики), второй — «где он в воронке».
+  { href: '/tech/crm', label: 'CRM', icon: Contact },
   { href: '/tech/kpi', label: 'Показатели', icon: TrendingUp },
   { href: '/tech/dialogs', label: 'Диалоги', icon: MessageCircle },
   // ⚠️ «Мои деньги» — разбор заработка по видам; «Начисления» — список
