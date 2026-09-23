@@ -24,7 +24,9 @@ from app.auth import get_current_tech
 from app.database import get_db
 # ⚠️ Перевод «клиент → его внедренец» берём из единой точки, а не пишем свой
 # подзапрос: своя копия разошлась бы с расчётом начислений, а это деньги.
-from app.services.tech_accruals import REFERRER_SPEC_SQL
+from app.services.tech_accruals import (
+    REFERRER_SPEC_SQL, PAYING_SQL, TRIAL_SQL, CRM_CASE_SQL, CRM_STATUSES,
+)
 
 router = APIRouter(prefix="/tech", tags=["Кабинет тех-специалиста"])
 
@@ -80,40 +82,12 @@ async def my_clients(
                      f" OR c.email ILIKE ${len(args)}"
                      f" OR c.telegram_username ILIKE ${len(args)})")
 
-    # ⚠️ «Платит» — активная подписка с `source='paid'`. Триал и выданное
-    # админом сюда не идут: это не деньги, и фикс за них не начисляется.
-    paying = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
-              " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
-              " AND cs2.expires_at > NOW() AND cs2.source='paid')")
-    trial = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
-             " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
-             " AND cs2.expires_at > NOW() AND cs2.source <> 'paid')")
-    # ⚠️⚠️ CRM-СТАТУС СЧИТАЕТСЯ ТЕМИ ЖЕ ПРАВИЛАМИ, ЧТО И НАЧИСЛЕНИЯ
-    # (services/tech_accruals.py). Своя «примерно такая же» логика разошлась бы
-    # с деньгами: человек видел бы в воронке «удержан», а начисления за
-    # удержание не было бы — и наоборот.
-    #
-    #   trial      — активная подписка НЕ за деньги, платежей ещё не было;
-    #   activated  — заплатил ровно один раз (первая оплата после триала);
-    #   retained   — заплатил два и более раз, подписка жива;
-    #   revived    — платил, отваливался, снова платит (есть начисление revival);
-    #   churned    — платил раньше, сейчас подписки нет.
-    paid_cnt = ("(SELECT COUNT(*) FROM subscription_orders so2"
-                " WHERE so2.client_id = c.id AND so2.status='paid'"
-                " AND so2.amount_paid_card_kopecks > 0)")
-    revived = ("EXISTS (SELECT 1 FROM tech_accruals ta"
-               " WHERE ta.client_id = c.id AND ta.kind = 'revival')")
-
-    crm_case = f"""CASE
-        WHEN {revived} AND {paying} THEN 'revived'
-        WHEN {paying} AND {paid_cnt} >= 2 THEN 'retained'
-        WHEN {paying} AND {paid_cnt} = 1 THEN 'activated'
-        WHEN {trial} AND {paid_cnt} = 0 THEN 'trial'
-        WHEN {paid_cnt} > 0 THEN 'churned'
-        ELSE 'lead'
-    END"""
-
-    CRM = ("trial", "activated", "retained", "revived", "churned", "lead")
+    # ⚠️⚠️ CRM-СТАТУС И «ПЛАТИТ» — ИЗ ОБЩЕГО МОДУЛЯ (`services/tech_accruals`),
+    # а не своей копией здесь. Те же выражения считают деньги и показывают
+    # сводную CRM в админке: расхождение означало бы «удержан» в одном экране,
+    # «активирован» в другом и начисление по третьему правилу.
+    paying, trial, crm_case = PAYING_SQL, TRIAL_SQL, CRM_CASE_SQL
+    CRM = CRM_STATUSES
     if status == "paying":
         where.append(paying)
     elif status == "trial":
@@ -359,17 +333,9 @@ async def my_funnel(
     """
     spec_id = int(user["sub"])
 
-    paying = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
-              " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
-              " AND cs2.expires_at > NOW() AND cs2.source='paid')")
-    trial = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
-             " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
-             " AND cs2.expires_at > NOW() AND cs2.source <> 'paid')")
-    paid_cnt = ("(SELECT COUNT(*) FROM subscription_orders so2"
-                " WHERE so2.client_id = c.id AND so2.status='paid'"
-                " AND so2.amount_paid_card_kopecks > 0)")
-    revived = ("EXISTS (SELECT 1 FROM tech_accruals ta"
-               " WHERE ta.client_id = c.id AND ta.kind = 'revival')")
+    # ⚠️ Те же общие выражения, что и в «Мои клиенты» и в начислениях.
+    paying, trial = PAYING_SQL, TRIAL_SQL
+    paid_cnt, revived = PAID_CNT_SQL, REVIVED_SQL
 
     row = await db.fetchrow(
         f"""SELECT
@@ -523,11 +489,9 @@ async def my_kpi(
     spec_id = int(user["sub"])
 
     # ── Клиенты в работе ─────────────────────────────────────────────────
-    # «Платит» — то же условие, что в `accrue_monthly_fix`: активная подписка
-    # с source='paid'. Триал и выданное админом деньгами не считаются.
-    paying = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
-              " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
-              " AND cs2.expires_at > NOW() AND cs2.source='paid')")
+    # «Платит» — то же условие, что в `accrue_monthly_fix` и во всех экранах:
+    # активная подписка с source='paid'. Триал и выданное админом не деньги.
+    paying = PAYING_SQL
 
     base = await db.fetchrow(
         f"""SELECT COUNT(*) AS total,

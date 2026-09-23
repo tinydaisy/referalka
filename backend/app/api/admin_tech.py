@@ -17,7 +17,10 @@ from pydantic import BaseModel
 
 from app.auth import get_current_admin
 from app.database import get_db
-from app.services.tech_accruals import assign_client
+from app.services.tech_accruals import (
+    assign_client, REFERRER_SPEC_SQL, PAYING_SQL, TRIAL_SQL,
+    CRM_CASE_SQL, CRM_STATUSES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -405,6 +408,120 @@ async def unassigned(
         "SELECT COUNT(*) FROM clients c WHERE " + " AND ".join(where), *args)
     return {"clients": [dict(r) for r in rows], "total": int(total or 0),
             "limit": limit, "offset": offset}
+
+
+@router.get("/crm", summary="Сводная CRM: клиенты всех внедренцев")
+async def crm(
+    spec_id: Optional[int] = None,
+    status: Optional[str] = None,
+    q: str = "",
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Клиенты платформы одним списком — с фильтром по внедренцу (23.09.2026).
+
+    ⚠️ Это ТОТ ЖЕ экран, что «Мои клиенты» в кабинете внедренца, только без
+    ограничения «мои». Владелец смотрит всю базу разом, а `spec_id` сужает её
+    до одного человека — так из карточки внедренца попадают в его срез, не
+    заходя в чужой кабинет.
+
+    ⚠️⚠️ Воронка и «платит» берутся из ОБЩЕГО модуля (`tech_accruals`), а не
+    считаются здесь заново: те же выражения считают деньги и показывают
+    кабинет внедренца. Своя копия разошлась бы с ними молча.
+
+    ⚠️ Без `spec_id` показываем ВСЕХ, включая ничьих: «у кого нет
+    ответственного» — это тоже ответ, и его должно быть видно.
+    """
+    args: list = []
+    where = ["c.is_active", "NOT c.is_system_service", "NOT c.is_tech_test"]
+
+    if spec_id is not None:
+        args.append(spec_id)
+        n = len(args)
+        # ⚠️ И закреплённые, и приведённые ЛИЧНО: внедренцу принадлежат обе
+        # группы, и в его срезе должны быть обе. По одному признаку человек
+        # увидел бы половину своей работы.
+        where.append(f"(c.tech_specialist_id = ${n} OR {REFERRER_SPEC_SQL} = ${n})")
+
+    if (q or "").strip():
+        args.append(f"%{q.strip()}%")
+        n = len(args)
+        where.append(f"(c.name ILIKE ${n} OR c.last_name ILIKE ${n}"
+                     f" OR c.email ILIKE ${n} OR c.telegram_username ILIKE ${n})")
+
+    if status == "paying":
+        where.append(PAYING_SQL)
+    elif status == "trial":
+        where.append(TRIAL_SQL)
+    elif status == "cold":
+        where.append(f"NOT {PAYING_SQL} AND NOT {TRIAL_SQL}")
+    elif status in CRM_STATUSES:
+        args.append(status)
+        where.append(f"({CRM_CASE_SQL}) = ${len(args)}")
+
+    cond = " AND ".join(where)
+
+    rows = await db.fetch(
+        f"""SELECT c.id, c.name, c.last_name, c.email, c.telegram_username,
+                   c.created_at, c.tech_assigned_at,
+                   t.slug AS tariff_slug, t.name AS tariff_name,
+                   cs.expires_at, cs.source AS sub_source,
+                   {PAYING_SQL} AS is_paying,
+                   ({CRM_CASE_SQL}) AS crm_status,
+                   -- Ответственный и приведший — РАЗНЫЕ люди и разные деньги:
+                   -- первому идёт фикс за обслуживание, второму 10 % навсегда.
+                   c.tech_specialist_id,
+                   ownc.name AS owner_name,
+                   {REFERRER_SPEC_SQL} AS referrer_spec_id,
+                   refc.name AS referrer_name,
+                   (SELECT COUNT(*) FROM subscription_orders so
+                     WHERE so.client_id = c.id AND so.status='paid'
+                       AND so.amount_paid_card_kopecks > 0) AS payments_count,
+                   (SELECT COALESCE(SUM(so.amount_paid_card_kopecks),0)
+                      FROM subscription_orders so
+                     WHERE so.client_id = c.id AND so.status='paid')
+                     AS total_paid_kopecks,
+                   (SELECT MAX(so.paid_at) FROM subscription_orders so
+                     WHERE so.client_id = c.id AND so.status='paid') AS last_paid_at
+              FROM clients c
+              LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+              LEFT JOIN tariffs t ON t.id = cs.tariff_id
+              LEFT JOIN tech_specialists own ON own.id = c.tech_specialist_id
+              LEFT JOIN clients ownc ON ownc.id = own.client_id
+              LEFT JOIN tech_specialists refs
+                     ON refs.client_id = c.referred_by_client_id
+              LEFT JOIN clients refc ON refc.id = refs.client_id
+             WHERE {cond}
+             ORDER BY c.created_at DESC
+             LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}""",
+        *args, limit, offset,
+    )
+
+    total = await db.fetchval(
+        f"SELECT COUNT(*) FROM clients c WHERE {cond}", *args)
+
+    # Сводка по воронке — теми же условиями, что и список. Показывает, из чего
+    # складывается выбранный срез, не открывая каждую строку.
+    funnel = await db.fetchrow(
+        f"""SELECT COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE ({CRM_CASE_SQL}) = 'trial') AS trial,
+                   COUNT(*) FILTER (WHERE ({CRM_CASE_SQL}) = 'activated') AS activated,
+                   COUNT(*) FILTER (WHERE ({CRM_CASE_SQL}) = 'retained') AS retained,
+                   COUNT(*) FILTER (WHERE ({CRM_CASE_SQL}) = 'revived') AS revived,
+                   COUNT(*) FILTER (WHERE ({CRM_CASE_SQL}) = 'churned') AS churned,
+                   COUNT(*) FILTER (WHERE ({CRM_CASE_SQL}) = 'lead') AS lead,
+                   COUNT(*) FILTER (WHERE {PAYING_SQL}) AS paying
+              FROM clients c WHERE {cond}""",
+        *args)
+
+    return {
+        "clients": [dict(r) for r in rows],
+        "total": int(total or 0),
+        "limit": limit, "offset": offset,
+        "funnel": dict(funnel) if funnel else {},
+    }
 
 
 @router.get("/rates", summary="Ставки начислений")

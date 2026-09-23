@@ -50,6 +50,54 @@ REFERRER_SPEC_SQL = """(SELECT ts_ref.id FROM tech_specialists ts_ref
                          WHERE ts_ref.client_id = c.referred_by_client_id)"""
 
 
+# ⚠️⚠️ ЕДИНАЯ ТОЧКА CRM-СТАТУСА КЛИЕНТА (23.09.2026).
+#
+# Эти выражения показывают ТУ ЖЕ воронку, по которой начисляются деньги. Своя
+# «примерно такая же» копия в админке разошлась бы с кабинетом внедренца:
+# человек видел бы «удержан» в одном экране и «активирован» в другом, а
+# начисление было бы третьим. Поэтому — одно определение на всех.
+#
+# Все выражения рассчитаны на алиас таблицы клиентов `c`.
+
+# Платит: активная подписка ЗА ДЕНЬГИ. Триал и выданное админом сюда не идут —
+# это не деньги, и фикс за них не начисляется.
+PAYING_SQL = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
+              " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
+              " AND cs2.expires_at > NOW() AND cs2.source='paid')")
+
+# На триале: активная подписка НЕ за деньги.
+TRIAL_SQL = ("EXISTS (SELECT 1 FROM client_subscriptions cs2"
+             " WHERE cs2.id = c.current_subscription_id AND cs2.status='active'"
+             " AND cs2.expires_at > NOW() AND cs2.source <> 'paid')")
+
+# ⚠️ Оплаты считаем по `subscription_orders`, а НЕ по `client_subscriptions`:
+# продление делает UPDATE и затирает ссылку на заказ — «сколько раз продлил»
+# из подписки уже не восстановить.
+PAID_CNT_SQL = ("(SELECT COUNT(*) FROM subscription_orders so2"
+                " WHERE so2.client_id = c.id AND so2.status='paid'"
+                " AND so2.amount_paid_card_kopecks > 0)")
+
+REVIVED_SQL = ("EXISTS (SELECT 1 FROM tech_accruals ta"
+               " WHERE ta.client_id = c.id AND ta.kind = 'revival')")
+
+#   trial      — активная подписка не за деньги, платежей ещё не было;
+#   activated  — заплатил ровно один раз (первая оплата после триала);
+#   retained   — заплатил два и более раз, подписка жива;
+#   revived    — платил, отваливался, снова платит;
+#   churned    — платил раньше, сейчас подписки нет;
+#   lead       — не платил и не на триале.
+CRM_CASE_SQL = f"""CASE
+    WHEN {REVIVED_SQL} AND {PAYING_SQL} THEN 'revived'
+    WHEN {PAYING_SQL} AND {PAID_CNT_SQL} >= 2 THEN 'retained'
+    WHEN {PAYING_SQL} AND {PAID_CNT_SQL} = 1 THEN 'activated'
+    WHEN {TRIAL_SQL} AND {PAID_CNT_SQL} = 0 THEN 'trial'
+    WHEN {PAID_CNT_SQL} > 0 THEN 'churned'
+    ELSE 'lead'
+END"""
+
+CRM_STATUSES = ("trial", "activated", "retained", "revived", "churned", "lead")
+
+
 async def _setting(db, key: str, default: float) -> float:
     """Порог из `tech_settings`. Нет строки → значение по умолчанию."""
     v = await db.fetchval("SELECT value FROM tech_settings WHERE key = $1", key)
