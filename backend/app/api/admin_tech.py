@@ -962,55 +962,28 @@ async def bot_dialogs(
                WHERE {where}
                GROUP BY dm.contact_id
             )
-            -- ⚠️ Имя внедренца — из его клиента (миграция 486).
+            -- ⚠️⚠️ ЧЕЙ РАЗГОВОР — СЧИТАЕТСЯ ПО КЛИЕНТУ (23.09.2026), а не по
+            -- отдельной раздаче. Ручное назначение (`dialog_assignments`)
+            -- удалено вместе с таблицей: диалоги от клиентов неотделимы, и
+            -- второй механизм означал бы два ответа на вопрос «чей это
+            -- разговор». На проде он приводил к пустым «Диалогам» у внедренца
+            -- с шестью клиентами: раздать вручную никто не догадался.
+            --
+            -- ⚠️ Контакт бота и клиент платформы связываются ПО ПОЧТЕ: это
+            -- разные записи, общее у них только она.
             SELECT c.id AS contact_id, c.name, a.last_at, a.unread,
-                   da.spec_id, sc.name AS spec_name
+                   own.id AS spec_id, sc.name AS spec_name
               FROM agg a
               JOIN contacts c ON c.id = a.contact_id
-              LEFT JOIN dialog_assignments da
-                     ON da.client_id = $1 AND da.contact_id = c.id
-              LEFT JOIN tech_specialists ts ON ts.id = da.spec_id
-              LEFT JOIN clients sc ON sc.id = ts.client_id
-             {"WHERE da.spec_id IS NULL" if unassigned_only else ""}
+              LEFT JOIN clients cl
+                     ON LOWER(TRIM(cl.email)) = LOWER(TRIM((
+                          SELECT pe.platform_user_id FROM platform_users pe
+                           WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                           ORDER BY pe.id LIMIT 1)))
+              LEFT JOIN tech_specialists own ON own.id = cl.tech_specialist_id
+              LEFT JOIN clients sc ON sc.id = own.client_id
+             {"WHERE own.id IS NULL" if unassigned_only else ""}
              ORDER BY a.last_at DESC LIMIT 300""",
         client_id,
     )
     return {"dialogs": [dict(r) for r in rows]}
-
-
-class AssignDialogIn(BaseModel):
-    contact_id: int
-    spec_id: Optional[int] = None
-
-
-@router.post("/dialogs/assign", summary="Назначить диалог внедренцу")
-async def assign_dialog(
-    data: AssignDialogIn,
-    _admin=Depends(get_current_admin),
-    db: asyncpg.Connection = Depends(get_db),
-):
-    """⚠️ Назначение на КОНТАКТ, а не на сообщение: разговор ведёт один человек.
-    Пометка на каждом сообщении означала бы, что половину переписки разбирает
-    один внедренец, половину другой."""
-    client_id = await db.fetchval(
-        "SELECT id FROM clients WHERE is_system_service = TRUE LIMIT 1")
-    if not client_id:
-        raise HTTPException(404, "Системный кабинет не найден")
-
-    if data.spec_id is None:
-        await db.execute(
-            "DELETE FROM dialog_assignments WHERE client_id=$1 AND contact_id=$2",
-            client_id, data.contact_id)
-        return {"ok": True, "assigned": False}
-
-    if not await db.fetchval(
-            "SELECT 1 FROM tech_specialists WHERE id=$1 AND is_active", data.spec_id):
-        raise HTTPException(400, "Такого внедренца нет или он отключён")
-
-    await db.execute(
-        """INSERT INTO dialog_assignments (client_id, contact_id, spec_id)
-           VALUES ($1,$2,$3)
-           ON CONFLICT (client_id, contact_id)
-           DO UPDATE SET spec_id = EXCLUDED.spec_id, assigned_at = NOW()""",
-        client_id, data.contact_id, data.spec_id)
-    return {"ok": True, "assigned": True}

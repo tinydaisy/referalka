@@ -40,16 +40,37 @@ async def _system_client_id(db) -> int:
     return cid
 
 
+# ⚠️⚠️ ДИАЛОГ ПРИНАДЛЕЖИТ ТОМУ, ЗА КЕМ ЗАКРЕПЛЁН КЛИЕНТ (23.09.2026).
+#
+# Раньше диалоги раздавались ОТДЕЛЬНО, вручную, через `dialog_assignments` —
+# и это было неверно: клиент закреплён за внедренцем в
+# `clients.tech_specialist_id`, а переписка с ним оставалась ничьей, пока
+# владелец не раздаст её руками. На проде у человека с шестью клиентами раздел
+# «Диалоги» был пуст — назначений не существовало ни одного.
+#
+# Диалоги от клиентов НЕОТДЕЛИМЫ: закрепление клиента — единственное основание.
+# Второй механизм раздачи означал бы два ответа на вопрос «чей это разговор».
+#
+# ⚠️ Человек в системном боте — это КОНТАКТ, а клиент платформы — отдельная
+# запись; общее у них почта. Тот же приём, что в `plusson_match`: сравниваем
+# `LOWER(TRIM(...))`, иначе «Miss-25@» и «miss-25@» разъезжаются.
+MINE_SQL = """EXISTS (
+    SELECT 1 FROM platform_users pe
+      JOIN clients cl
+        ON LOWER(TRIM(cl.email)) = LOWER(TRIM(pe.platform_user_id))
+     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+       AND cl.tech_specialist_id = $2)"""
+
+
 async def _assert_mine(db, spec_id: int, client_id: int, contact_id: int) -> None:
-    """Разговор назначен именно этому внедренцу — иначе 404.
+    """Разговор с МОИМ клиентом — иначе 404.
 
     ⚠️ Именно 404, а не 403: по чужому id не должно быть видно даже того, что
     такой разговор существует.
     """
     ok = await db.fetchval(
-        """SELECT 1 FROM dialog_assignments
-            WHERE client_id = $1 AND contact_id = $2 AND spec_id = $3""",
-        client_id, contact_id, spec_id,
+        "SELECT 1 FROM contacts c WHERE c.id = $3 AND " + MINE_SQL,
+        client_id, spec_id, contact_id,
     )
     if not ok:
         raise HTTPException(404, "Диалог не найден")
@@ -60,7 +81,18 @@ async def my_dialogs(
     user: dict = Depends(get_current_tech),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Назначенные мне разговоры с последним сообщением и счётчиком непрочитанных."""
+    """Мои клиенты и переписка с ними.
+
+    ⚠️⚠️ СПИСОК ИДЁТ ОТ КЛИЕНТОВ, А НЕ ОТ СООБЩЕНИЙ (23.09.2026). Раньше здесь
+    стоял `JOIN` с перепиской, и человек попадал в список, только если уже
+    что-то написал. Выходило бессмысленно: внедренцу нужно НАПИСАТЬ клиенту
+    первым, а в разделе «Диалоги» этого клиента не было вовсе, пока тот не
+    напишет сам. Теперь видно всех своих, а переписка подтягивается, если есть.
+
+    ⚠️ `where_to_write` — по каким каналам человеку МОЖНО написать (telegram,
+    vk, max, email). У кого что есть: без этого внедренец открывает карточку и
+    обнаруживает, что отправить некуда.
+    """
     spec_id = int(user["sub"])
     client_id = await _system_client_id(db)
 
@@ -80,25 +112,47 @@ async def my_dialogs(
               WHERE dm.client_id = $1 AND dm.contact_id IS NOT NULL
               GROUP BY dm.contact_id
            )
-           SELECT c.id AS contact_id, c.name, c.phone,
-                  a.last_at, a.platforms, a.unread,
+           SELECT c.id AS contact_id,
+                  COALESCE(c.name, cl.name) AS name,
+                  COALESCE(c.phone, cl.phone) AS phone,
+                  a.last_at, a.platforms,
+                  COALESCE(a.unread, 0) AS unread,
                   l.text AS last_text, l.media_kind AS last_media_kind,
                   l.direction AS last_direction,
-                  da.assigned_at,
-                  -- Клиент ли платформы этот человек: у внедренца в списке
-                  -- вопрос от клиента и от постороннего выглядят одинаково, а
-                  -- отвечать на них надо по-разному.
-                  (SELECT cl.id FROM clients cl
-                    WHERE LOWER(cl.email) = LOWER((
-                      SELECT pe.platform_user_id FROM platform_users pe
-                       WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
-                       ORDER BY pe.id LIMIT 1)) LIMIT 1) AS platform_client_id
-             FROM dialog_assignments da
-             JOIN contacts c ON c.id = da.contact_id
-             JOIN agg a ON a.contact_id = c.id
+                  -- Куда ему можно написать: у кого телеграм, у кого только
+                  -- почта. Пустой список — писать некуда, и это видно сразу.
+                  --
+                  -- ⚠️ Почта есть ВСЕГДА — это логин клиента платформы,
+                  -- поэтому она в списке даже когда контакта в боте нет вовсе.
+                  (SELECT array_agg(DISTINCT x) FROM unnest(
+                     COALESCE((SELECT array_agg(DISTINCT pu.platform_slug)
+                                 FROM platform_users pu
+                                WHERE pu.contact_id = c.id
+                                  AND pu.platform_slug IN ('telegram','vk','max','email')),
+                              ARRAY[]::text[])
+                     || ARRAY['email']
+                     || CASE WHEN COALESCE(cl.telegram_username,'') <> ''
+                             THEN ARRAY['telegram'] ELSE ARRAY[]::text[] END
+                   ) AS x) AS where_to_write,
+                  cl.id AS platform_client_id,
+                  cl.email AS client_email
+             -- ⚠️⚠️ ИДЁМ ОТ КЛИЕНТОВ, А НЕ ОТ КОНТАКТОВ БОТА (23.09.2026):
+             -- у половины клиентов контакта в боте нет вовсе (они туда не
+             -- заходили), и по контактам они бы в список не попали — а
+             -- написать им нужно в первую очередь.
+             FROM clients cl
+             LEFT JOIN contacts c
+                    ON c.client_id = $1
+                   AND EXISTS (SELECT 1 FROM platform_users pe
+                                WHERE pe.contact_id = c.id
+                                  AND pe.platform_slug = 'email'
+                                  AND LOWER(TRIM(pe.platform_user_id))
+                                    = LOWER(TRIM(cl.email)))
+             LEFT JOIN agg a ON a.contact_id = c.id
              LEFT JOIN last l ON l.contact_id = c.id
-            WHERE da.client_id = $1 AND da.spec_id = $2
-            ORDER BY a.last_at DESC""",
+            WHERE cl.tech_specialist_id = $2
+            -- Сначала те, с кем уже говорили (свежие сверху), затем остальные.
+            ORDER BY a.last_at DESC NULLS LAST, COALESCE(c.name, cl.name)""",
         client_id, spec_id,
     )
     return {"dialogs": [dict(r) for r in rows]}
@@ -125,11 +179,11 @@ async def unread_count(
     n = await db.fetchval(
         """SELECT COUNT(*)
              FROM direct_messages dm
-             JOIN dialog_assignments da ON da.contact_id = dm.contact_id
-                                       AND da.client_id = dm.client_id
-            WHERE dm.client_id = $1 AND da.spec_id = $2
+             JOIN contacts c ON c.id = dm.contact_id
+            WHERE dm.client_id = $1
               AND dm.contact_id IS NOT NULL
-              AND dm.direction = 'in' AND NOT dm.is_read""",
+              AND dm.direction = 'in' AND NOT dm.is_read
+              AND """ + MINE_SQL,
         client_id, spec_id,
     )
     return {"unread": int(n or 0)}
