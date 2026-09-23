@@ -297,14 +297,35 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   async function publish() {
     if (!layout) return
 
-    const had = existing
     let replace = false
-    if (had > 0) {
-      replace = window.confirm(
-        `У события уже есть ${had} ${had === 1 ? 'афиша' : 'афиш'} этого вида.\n\n`
-        + 'ОК — заменить их новыми.\n'
-        + 'Отмена — добавить новые рядом со старыми.',
-      )
+
+    // ⚠️⚠️ ВОПРОС «ЗАМЕНИТЬ ИЛИ ДОБАВИТЬ» — ТОЛЬКО ОБЩИМ И ДНЕВНЫМ АФИШАМ.
+    //
+    // У индивидуальных его нет ВОВСЕ, и это не упрощение: у спикера на формат
+    // ровно один слот (`UNIQUE (ec_id, orientation)`, миграция 492) — новая
+    // афиша заменяет прежнюю по устройству базы, «положить рядом» там некуда.
+    // Спрашивать о выборе, которого не существует, значит врать.
+    //
+    // ⚠️ Раньше вопрос задавался всем подряд и числом со ВСЕГО события:
+    // клиент выбирал «только этого спикера», а его спрашивали «у события уже
+    // есть 15 афиш этого вида» — про событие целиком, хотя трогают одного
+    // человека, и что именно заменится, понять было нельзя.
+    if (kind !== 'individual') {
+      // Число берём ПОД ТЕКУЩИЙ ВЫБОР, а не то, что пришло при открытии
+      // вкладки: охват мог смениться уже после загрузки.
+      let had = existing
+      try {
+        const r: any = await api.posterLayout.existing(eventId, o, kind, null)
+        had = Number(r?.existing) || 0
+      } catch { /* не ответил — спросим по тому, что знаем */ }
+
+      if (had > 0) {
+        replace = window.confirm(
+          `У события уже есть ${had} ${had === 1 ? 'афиша' : 'афиш'} этого вида.\n\n`
+          + 'ОК — заменить их новыми.\n'
+          + 'Отмена — добавить новые рядом со старыми.',
+        )
+      }
     }
 
     setBusy('render')
@@ -787,27 +808,60 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
               </div>
 
               {/* ── Сами действия ──────────────────────────────────────── */}
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                {/* ⚠️ Публикация — главное действие экрана, поэтому золотая
-                    кнопка. Она же собирает афиши, она же кладёт их на место,
-                    она же открывает их спикерам. */}
-                <button onClick={publish} disabled={!!busy} className="btn-gold px-5 py-2.5 text-sm">
+              {/* ⚠️⚠️ ОБЕ КНОПКИ ОДИНАКОВЫЕ (23.09.2026). Были разного цвета
+                  и разной ширины — золотая «Опубликовать» и тёмная «Скачать»,
+                  — отчего читались как «главная и второстепенная». Это два
+                  равных действия над одним и тем же выбором: что публикуют,
+                  то и скачивают. Разный вид только сбивал. */}
+              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <button onClick={publish} disabled={!!busy}
+                        className="btn-gold px-5 py-2.5 text-sm flex-1 whitespace-nowrap">
                   {busy === 'render'
-                    /* ⚠️ Счётчик прямо НА кнопке, а не только строкой ниже:
-                       глаза человека на кнопке, которую он нажал, и
-                       «Собираем…» само по себе не отличает живую сборку от
-                       зависшей. */
+                    /* ⚠️ Счётчик прямо НА кнопке: глаза человека на кнопке,
+                       которую он нажал, и «Собираем…» само по себе не
+                       отличает живую сборку от зависшей. */
                     ? (progress ? `Собираем… ${progress.done + 1} из ${progress.total}` : 'Собираем…')
-                    : 'Опубликовать в карточку и кабинет спикера'}
+                    : 'Опубликовать в кабинет спикера'}
                 </button>
 
                 {/* ⚠️ Оборачиваем в стрелку: `onClick={download}` передал бы в
                     аргумент событие мыши вместо номера дня. */}
                 <button onClick={() => download()} disabled={!!busy}
-                        className="btn-primary px-5 py-2.5 text-sm">
+                        className="btn-gold px-5 py-2.5 text-sm flex-1 whitespace-nowrap">
                   {busy === 'png' ? 'Собираем…' : 'Скачать на компьютер'}
                 </button>
+              </div>
 
+              {/* ⚠️⚠️ ПРОГРЕСС ПРЯМО ПОД КНОПКАМИ (требование владельца
+                  23.09.2026). Стоял под всей карточкой, ниже подписей и
+                  ссылки «скопировать оформление», — и владелец его попросту
+                  не видел: «а то снизу не видно». Смотрят туда, куда нажали. */}
+              {progress && (
+                <div className="p-3 rounded-xl bg-[#25455D]/5 border border-[#25455D]/15">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <span className="text-sm text-[#25455D] truncate">
+                      Собираем афишу: <b>{progress.who}</b>
+                    </span>
+                    <span className="text-sm font-semibold text-[#25455D] shrink-0">
+                      {progress.done + 1} из {progress.total}
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-[#25455D]/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%`,
+                        background: '#FFCFA4',
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1.5">
+                    Не закрывайте страницу — афиши собираются по одной.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3">
                 {layout.published_to_cabinet && (
                   <span className="text-xs text-green-600">Видно спикерам</span>
                 )}
@@ -815,12 +869,24 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
                 {saved && !saving && <span className="text-xs text-green-600">Настройки сохранены</span>}
               </div>
 
+              {/* ⚠️ Подпись повторяет ТЕКУЩИЙ ВЫБОР словами: сколько афиш
+                  соберётся и куда лягут. Человек видит, что именно случится
+                  по нажатию, до того как нажал, — а не узнаёт из вопроса
+                  «заменить или добавить» уже в процессе. */}
               <p className="text-[11px] text-gray-400">
-                {kind === 'common'
-                  ? 'Публикация кладёт афишу в афиши события.'
-                  : kind === 'day'
-                  ? 'Публикация кладёт каждую афишу в афиши своего дня.'
-                  : 'Публикация кладёт каждую афишу в карточку своего спикера — он сразу видит её в кабинете.'}
+                {(() => {
+                  const fmts = allFormats ? 3 : 1
+                  const who = kind === 'individual'
+                    ? (scopeAll ? draggable.length : 1)
+                    : kind === 'day' ? (scopeAll ? days.length : 1) : 1
+                  const n = fmts * who
+                  const place = kind === 'common'
+                    ? 'в афиши события'
+                    : kind === 'day'
+                    ? 'в афиши своего дня'
+                    : 'в карточку своего спикера — он сразу увидит их в кабинете'
+                  return `Соберётся афиш: ${n}. Публикация положит их ${place}.`
+                })()}
                 {' '}Скачивание нескольких афиш приходит одним ZIP-архивом.
               </p>
 
@@ -831,33 +897,6 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
             </div>
           </div>
 
-          {/* ⚠️⚠️ ЧЬЯ АФИША СОБИРАЕТСЯ ПРЯМО СЕЙЧАС. Сборка десятка афиш идёт
-              минуты, и без этой строки экран молчал: непонятно, живой процесс
-              или упал. Здесь же видно, на ком остановилось, если оборвётся. */}
-          {progress && (
-            <div className="mt-3 p-3 rounded-xl bg-[#25455D]/5 border border-[#25455D]/15">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <span className="text-sm text-[#25455D]">
-                  Собираем афишу: <b>{progress.who}</b>
-                </span>
-                <span className="text-sm font-semibold text-[#25455D] shrink-0">
-                  {progress.done + 1} из {progress.total}
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full bg-[#25455D]/10 overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-300"
-                  style={{
-                    width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%`,
-                    background: '#FFCFA4',
-                  }}
-                />
-              </div>
-              <p className="text-[11px] text-gray-500 mt-1.5">
-                Не закрывайте страницу — афиши собираются по одной.
-              </p>
-            </div>
-          )}
 
           {/* ⚠️⚠️ ПРЕВЬЮ ВСЕХ ДНЕЙ ДРУГ ПОД ДРУГОМ (требование владельца):
               настройки общие на все дни, и проверять их надо сразу на всех —

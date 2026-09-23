@@ -1087,12 +1087,17 @@ async def _guard(db: asyncpg.Connection, event_id: int, client_id: int) -> None:
 
 
 async def _existing_count(db: asyncpg.Connection, event_id: int,
-                          orientation: str, kind: str) -> int:
+                          orientation: str, kind: str,
+                          speaker: int | None = None) -> int:
     """Сколько афиш этого вида и ориентации уже собрано.
 
-    ⚠️ Общие и дневные различаются по `day`: у общих он NULL. Индивидуальные
-    лежат не здесь, а в библиотеках спикеров — их считаем по метке, которую
-    ставит render-all.
+    ⚠️ Общие и дневные различаются по `day`: у общих он NULL.
+
+    ⚠️⚠️ `speaker` — СЧИТАТЬ ТОЛЬКО ЕГО (23.09.2026). Число идёт в вопрос
+    «заменить или добавить», и без этого выходило вранье: клиент выбирал
+    «только этого спикера», а его спрашивали «у события уже есть 15 афиш
+    этого вида» — про событие целиком, хотя трогают одного человека.
+    Отвечать на такой вопрос нечем: непонятно, что именно заменится.
     """
     if kind == "common":
         return await db.fetchval(
@@ -1106,11 +1111,24 @@ async def _existing_count(db: asyncpg.Connection, event_id: int,
             " WHERE event_id = $1 AND orientation = $2 AND day IS NOT NULL",
             event_id, orientation,
         ) or 0
+    # ⚠️⚠️ ИНДИВИДУАЛЬНЫЕ СЧИТАЕМ ПО СЛОТАМ (`event_speaker_posters`,
+    # миграция 492), а не по старой библиотеке коллаба. Раньше считали в
+    # `collaborator_posters` по метке вида «Название (square)» — а у 66 из 96
+    # афиш прода метки нет вовсе, и число выходило заниженным или нулевым.
+    # Слот хранит ориентацию ПОЛЕМ, и счёт по нему точный.
+    if speaker is not None:
+        return await db.fetchval(
+            "SELECT COUNT(*) FROM event_speaker_posters esp"
+            "  JOIN event_collaborators ec ON ec.id = esp.ec_id"
+            " WHERE ec.event_id = $1 AND ec.speaker_id = $2"
+            "   AND esp.orientation = $3",
+            event_id, speaker, orientation,
+        ) or 0
     return await db.fetchval(
-        "SELECT COUNT(*) FROM collaborator_posters cp"
-        "  JOIN event_collaborators ec ON ec.speaker_id = cp.collaborator_id"
-        " WHERE ec.event_id = $1 AND cp.label LIKE $2",
-        event_id, f"%({orientation})",
+        "SELECT COUNT(*) FROM event_speaker_posters esp"
+        "  JOIN event_collaborators ec ON ec.id = esp.ec_id"
+        " WHERE ec.event_id = $1 AND esp.orientation = $2",
+        event_id, orientation,
     ) or 0
 
 
@@ -1145,6 +1163,30 @@ async def get_layout(
         # заменять нечего (первая сборка).
         "existing": await _existing_count(db, event_id, orientation, kind),
     }
+
+
+@router.get("/events/{event_id}/poster-layout/{orientation}/existing",
+            summary="Сколько афиш уже собрано под выбранный охват")
+async def poster_existing(
+    event_id: int,
+    orientation: str,
+    kind: str = "common",
+    speaker: int | None = None,
+    user: dict = Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Число для вопроса «заменить или добавить» ПОД ТЕКУЩИЙ ВЫБОР.
+
+    ⚠️ Зачем отдельная ручка: то же число приходит в `GET poster-layout`, но
+    ОДИН РАЗ при открытии вкладки и всегда на всё событие. Клиент переключает
+    «только этого спикера» уже после — и число не менялось, поэтому вопрос
+    врал: «у события уже есть 15 афиш этого вида», хотя трогают одного.
+    """
+    _check_orientation(orientation)
+    if kind not in KINDS:
+        raise HTTPException(404, detail="Неизвестный вид афиши")
+    await _guard(db, event_id, int(user["sub"]))
+    return {"existing": await _existing_count(db, event_id, orientation, kind, speaker)}
 
 
 @router.put("/events/{event_id}/poster-layout/{orientation}",

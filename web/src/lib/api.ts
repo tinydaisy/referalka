@@ -1878,6 +1878,17 @@ export const api = {
         + (kind === 'day' && opts?.day != null ? `&day=${opts.day}` : '')
         + (kind === 'individual' && opts?.speaker != null ? `&speaker=${opts.speaker}` : ''),
         'afisha.png'),
+    /** Сколько афиш уже собрано ПОД ТЕКУЩИЙ ВЫБОР — для вопроса «заменить
+     *  или добавить».
+     *
+     *  ⚠️ То же число приходит в `get`, но один раз при открытии вкладки и
+     *  всегда на всё событие: клиент переключает «только этого спикера»
+     *  позже, и вопрос врал — «у события уже есть 15 афиш», хотя трогают
+     *  одного человека. */
+    existing: (eventId: number, o: 'horizontal' | 'vertical' | 'square',
+               kind: PosterKind = 'common', speaker?: number | null) =>
+      request(`/api/v1/events/${eventId}/poster-layout/${o}/existing?kind=${kind}`
+              + (speaker != null ? `&speaker=${speaker}` : '')),
     /** Пачка афиш одним ZIP-архивом (23.09.2026).
      *
      * ⚠️ Почему архив, а не пятнадцать скачиваний подряд: браузер за раз
