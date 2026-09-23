@@ -40,6 +40,20 @@ export default function TechDialogsPage() {
 
   useEffect(() => { load() }, [])
 
+  /** Открыть разговор. ⚠️ У клиента, который ни разу не писал в бот, контакта
+   *  нет вовсе (`contact_id === null`) — заводим его на лету, иначе строка в
+   *  списке есть, а открыть и написать нечего. */
+  async function openDialog(d: any) {
+    if (d.contact_id) { setOpenId(d.contact_id); return }
+    if (!d.platform_client_id) return
+    try {
+      const r: any = await api.tech.startDialog(d.platform_client_id)
+      if (r?.contact_id) { setOpenId(r.contact_id); load() }
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось открыть разговор')
+    }
+  }
+
   useEffect(() => {
     if (!openId) return
     api.tech.dialogMessages(openId)
@@ -56,7 +70,15 @@ export default function TechDialogsPage() {
     if (!t || !openId) return
     // Площадка — та, на которой человек написал последним: отвечать надо туда,
     // откуда пришёл вопрос.
-    const platform = thread?.messages?.slice(-1)[0]?.platform || 'telegram'
+    //
+    // ⚠️ Переписки может не быть вовсе (пишем первыми). Тогда берём первый
+    // доступный канал этого человека, а НЕ «telegram» по умолчанию: у части
+    // клиентов телеграма нет, и сообщение уходило бы в никуда.
+    const current = list.find((x: any) => x.contact_id === openId)
+    const fallback = (current?.where_to_write || []).find((p: string) =>
+      ['telegram', 'vk', 'max', 'email'].includes(p))
+    const platform = thread?.messages?.slice(-1)[0]?.platform || fallback
+    if (!platform) { alert('Этому человеку некуда написать'); return }
     setSending(true)
     try {
       await api.tech.replyDialog(openId, { platform, text: t })
@@ -83,7 +105,8 @@ export default function TechDialogsPage() {
             За вами пока не закреплён ни один клиент.
           </div>
         ) : list.map(d => (
-          <button key={d.contact_id} onClick={() => setOpenId(d.contact_id)}
+          <button key={d.contact_id ?? `c${d.platform_client_id}`}
+                  onClick={() => openDialog(d)}
                   className={`w-full border-b border-gray-50 px-4 py-3 text-left transition ${
                     openId === d.contact_id ? 'bg-gray-50' : 'hover:bg-gray-50'}`}>
             <div className="flex items-center justify-between gap-2">

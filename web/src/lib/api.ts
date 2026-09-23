@@ -1591,6 +1591,10 @@ export const api = {
     client: (id: number) => request(`/api/v1/tech/clients/${id}`),
     // Цифра новых сообщений для пункта меню «Диалоги» (23.09.2026).
     dialogsUnread: () => request('/api/v1/tech/dialogs/unread-count'),
+    // Завести разговор с клиентом, которого в боте ещё нет (23.09.2026).
+    startDialog: (client_id: number) =>
+      request('/api/v1/tech/dialogs/start',
+              { method: 'POST', body: JSON.stringify({ client_id }) }),
     // Воронка и сводка по базе — цифры над списком клиентов.
     funnel: () => request('/api/v1/tech/funnel'),
     // Деньги за месяц с разбивкой по видам начислений.
