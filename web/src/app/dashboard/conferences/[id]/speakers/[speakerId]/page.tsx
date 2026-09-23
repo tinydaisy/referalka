@@ -1357,6 +1357,62 @@ export default function ConferenceSpeakerPage() {
               ))}
             </div>
 
+          {/* ⚠️⚠️ АФИШИ СПИКЕРА — ВО ВКЛАДКЕ «ВЫСТУПЛЕНИЕ» (23.09.2026,
+              требование владельца). Три слота на формат, ориентация — поле в
+              базе (`event_speaker_posters`, миграция 492). Отсюда их берут
+              рассылки, кабинет спикера и ZIP-выгрузка, сюда же кладёт
+              собранные макеты генератор афиш.
+
+              ⚠️⚠️ ИМЕННО «ВЫСТУПЛЕНИЕ», А НЕ «ПРОФИЛЬ». Блок сначала поставили
+              в профиль — туда, где раньше стояла библиотека афиш коллаба, — и
+              владелец их там не нашёл вовсе. Место не косметическое: афиша
+              привязана к `event_collaborators.id`, то есть к выступлению
+              ЭТОГО события, а профиль общий на все конференции («Изменения
+              применятся ко всем конференциям» — надпись в его шапке). Афиша в
+              профиле означала бы одну картинку на все события сразу.
+
+              ⚠️ Здесь же стоял второй блок — «Индивидуальные афиши (старая
+              библиотека)»: куча афиш коллаба со всех конференций сразу, с
+              радио «для рассылок» и галочками «для анонсов». Он УБРАН. Два
+              блока афиш на одном экране означали два разных ответа на вопрос
+              «какая афиша у этого спикера», и клиент правил не тот. Поля
+              `poster_id` и `announcement_poster_ids` в базе остались — на них
+              ещё висит запасной источник ZIP-выгрузки для афиш, которые
+              автоматически не перенести (у 66 из 96 на проде подписи нет). */}
+          <div>
+            <label className="flex items-start gap-2 mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={eventForm.use_photo_instead_of_poster}
+                onChange={e => {
+                  // Сохраняем сразу по клику, а не по кнопке «Сохранить
+                  // выступление»: тумблер гасит афиши везде разом (рассылки,
+                  // лендинг, кабинет спикера, ZIP), и человек ждёт, что
+                  // галочка подействует в тот же миг.
+                  const v = e.target.checked
+                  setEventForm(f => ({ ...f, use_photo_instead_of_poster: v }))
+                  api.conference.speakers
+                    .update(confId, speakerEventId, { use_photo_instead_of_poster: v } as any)
+                    .catch(() => {
+                      setEventForm(f => ({ ...f, use_photo_instead_of_poster: !v }))
+                      setError('Не удалось сохранить настройку афиш. Попробуйте ещё раз.')
+                    })
+                }}
+              />
+              <span className="text-sm text-gray-800">
+                <b>Не использовать индивидуальные афиши в этом событии</b>
+                <span className="block text-xs text-gray-500 mt-0.5">
+                  Везде — в рассылках бота, на лендинге, в кабинете {pw.gen} и в экспорте
+                  материалов — вместо афиши будет обычное «Фото для сайта».
+                </span>
+              </span>
+            </label>
+            <div className={eventForm.use_photo_instead_of_poster ? 'opacity-40 pointer-events-none' : ''}>
+              <SpeakerPostersTabs eventId={confId} ecId={speakerEventId} />
+            </div>
+          </div>
+
         <div className="flex gap-3 items-center">
           <button type="submit" disabled={savingEvent}
             className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${savingEvent ? 'btn-loading' : ''}`}>
@@ -1623,51 +1679,6 @@ export default function ConferenceSpeakerPage() {
           </div>
           )}
 
-          {/* ⚠️⚠️ АФИШИ СПИКЕРА — ТОЛЬКО ТРИ СЛОТА (23.09.2026, решение владельца).
-              По одной афише на формат, ориентация — поле в базе (миграция 492).
-              Отсюда их берут рассылки, кабинет спикера и ZIP-выгрузка, сюда же
-              кладёт собранные макеты генератор афиш.
-
-              ⚠️ Здесь же стоял второй блок — «Индивидуальные афиши (старая
-              библиотека)»: куча афиш коллаба со всех конференций сразу, с
-              радио «для рассылок» и галочками «для анонсов». Он УБРАН. Два
-              блока афиш на одном экране означали два разных ответа на вопрос
-              «какая афиша у этого спикера», и клиент правил не тот. Поля
-              `poster_id` и `announcement_poster_ids` в базе остались — на них
-              ещё висит запасной источник ZIP-выгрузки для афиш, которые
-              автоматически не перенести (у 66 из 96 на проде подписи нет). */}
-          <div>
-            <label className="flex items-start gap-2 mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={eventForm.use_photo_instead_of_poster}
-                onChange={e => {
-                  // ⚠️ Блок афиш физически внутри формы ПРОФИЛЯ (saveProfile →
-                  // collaborators), а поле — per-event. Поэтому сохраняем сразу
-                  // по клику, а не по кнопке формы.
-                  const v = e.target.checked
-                  setEventForm(f => ({ ...f, use_photo_instead_of_poster: v }))
-                  api.conference.speakers
-                    .update(confId, speakerEventId, { use_photo_instead_of_poster: v } as any)
-                    .catch(() => {
-                      setEventForm(f => ({ ...f, use_photo_instead_of_poster: !v }))
-                      setError('Не удалось сохранить настройку афиш. Попробуйте ещё раз.')
-                    })
-                }}
-              />
-              <span className="text-sm text-gray-800">
-                <b>Не использовать индивидуальные афиши в этом событии</b>
-                <span className="block text-xs text-gray-500 mt-0.5">
-                  Везде — в рассылках бота, на лендинге, в кабинете {pw.gen} и в экспорте
-                  материалов — вместо афиши будет обычное «Фото для сайта».
-                </span>
-              </span>
-            </label>
-            <div className={eventForm.use_photo_instead_of_poster ? 'opacity-40 pointer-events-none' : ''}>
-              <SpeakerPostersTabs eventId={confId} ecId={speakerEventId} />
-            </div>
-          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photoFolder}</label>
