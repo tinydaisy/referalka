@@ -1507,6 +1507,33 @@ async def list_schedules(
                  cs.title
                ) AS speaker_topic_resolved,
                cs.start_time, cs.end_time,
+               -- ⚠️ Дата и время выступления — для раскрытия {speaker_when} в
+               -- карточке очереди (23.09.2026). Слот хранит только "HH:MM", без
+               -- даты «Сегодня/Завтра» не посчитать.
+               --
+               -- ⚠️ Берём ИЗ СЛОТА СПИКЕРА, а не по `bs.day`: у
+               -- speaker_intro/expert_day/custom `cs` не приджойнен вовсе
+               -- (session_id — это ec_id спикера), а `bs.day` у них обычно
+               -- пуст — проверено на проде, там NULL у всех. По дню рассылки
+               -- дата не нашлась бы, и плейсхолдер остался бы пустым.
+               --
+               -- ⚠️ Дата и время — из ОДНОГО слота (общий ORDER BY): у спикера
+               -- бывает несколько выступлений, и «дата от одного, время от
+               -- другого» дали бы несуществующий момент.
+               (SELECT cd.day_date
+                  FROM conf_sessions cs2
+                  JOIN conf_days cd ON cd.event_id = cs2.event_id
+                                   AND cd.day_number = cs2.day
+                 WHERE cs2.speaker_id = bs.session_id
+                   AND cs2.event_id = bs.event_id
+                 ORDER BY cd.day_date, cs2.start_time LIMIT 1) AS day_date_resolved,
+               (SELECT cs2.start_time
+                  FROM conf_sessions cs2
+                  JOIN conf_days cd ON cd.event_id = cs2.event_id
+                                   AND cd.day_number = cs2.day
+                 WHERE cs2.speaker_id = bs.session_id
+                   AND cs2.event_id = bs.event_id
+                 ORDER BY cd.day_date, cs2.start_time LIMIT 1) AS intro_slot_start,
                -- ⚠️ Имя + фамилия (23.09.2026): в `collaborators.name` одно
                -- имя. Очередь рассылок показывала «Анастасия» — из двух разных
                -- не понять, чью рассылку правишь.
@@ -1597,6 +1624,22 @@ async def list_schedules(
     _handles = await _get_handles(db, client_id)
     _any_bot = any(_handles.get(_p) for _p in ("telegram", "vk", "max"))
 
+    def _when_for_card(d: dict) -> str:
+        """«Сегодня/Завтра в HH:MM МСК» для карточки очереди.
+
+        ⚠️ Тем же хелпером, что и отправка (`message_builder.relative_when`):
+        своя копия формата разошлась бы с тем, что реально уйдёт человеку.
+        ⚠️ Точка отсчёта — дата ОТПРАВКИ (`fire_at`, МСК), а не «сейчас»:
+        рассылка, назначенная на завтра, должна говорить «Сегодня» глазами
+        того, кто получит её завтра.
+        ⚠️ Нет даты или времени → пустая строка: плейсхолдер исчезнет, как и
+        при отправке, а не останется сырым.
+        """
+        from app.services.message_builder import relative_when, _msk_ref_date
+        hhmm = d.get("start_time") or d.get("intro_slot_start")
+        return relative_when(d.get("day_date_resolved"), hhmm,
+                             _msk_ref_date(d.get("fire_at"))) or ""
+
     def _empty_placeholder_reason(text, btn, day):
         """Причина, почему рассылку нельзя ставить в очередь (пустой плейсхолдер), или None."""
         blob = f"{text or ''} {btn or ''}"
@@ -1633,6 +1676,8 @@ async def list_schedules(
                 _subj = _subj.replace("{speaker_topic}", (d.get("speaker_topic_resolved") or "").strip() or "тема уточняется")
             if "{speaker_name}" in _subj:
                 _subj = _subj.replace("{speaker_name}", (d.get("speaker_name") or "").strip())
+            if "{speaker_when}" in _subj:
+                _subj = _subj.replace("{speaker_when}", _when_for_card(d))
             d["eff_subject"] = _subj
         # snapshot_buttons приходит из jsonb строкой — парсим в список, чтобы
         # форма правки видела кнопки (Array.isArray на фронте).

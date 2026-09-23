@@ -1499,8 +1499,15 @@ async def connect_whatsapp(client=Depends(get_current_client), db=Depends(get_db
                 """INSERT INTO channels (platform_slug, display_name, handle, is_system, is_test)
                    VALUES ('whatsapp', 'WhatsApp', NULL, FALSE, FALSE) RETURNING id""",
             )
+            # ⚠️ `None` — «клиент не сказал», и хелпер сам решит: главным
+            # становится только ПЕРВЫЙ свой канал площадки.
+            # ⚠️ Здесь было `getattr(data, ...)`, а параметра `data` у функции
+            # нет вовсе (тело запроса не принимается — фронт шлёт пустой POST).
+            # Код скопировали от Telegram, где модель запроса есть. Итог:
+            # NameError на КАЖДОМ первом подключении WhatsApp — вместо QR-кода
+            # человек видел «Что-то пошло не так» (23.09.2026).
             make_primary = await _resolve_make_primary(
-                db, client_id, 'whatsapp', getattr(data, 'make_primary', None))
+                db, client_id, 'whatsapp', None)
             if make_primary:
                 await db.execute(
                     """UPDATE client_channels cc SET is_active = FALSE

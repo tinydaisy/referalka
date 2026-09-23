@@ -1353,9 +1353,13 @@ async def copy_event(
             "SELECT * FROM webinar_rooms WHERE event_id = $1 ORDER BY day_number, id",
             event_id,
         ):
+            # ⚠️ `hls_url` ИСКЛЮЧАЕМ наравне со `stream_key` (23.09.2026): оба
+            # выдаются ниже заново, и без этого колонка попадала в запрос
+            # ДВАЖДЫ — из таблицы и из `rcols + [...]`. Копирование конференции
+            # падало целиком: «column "hls_url" specified more than once».
             rcols = [k for k in dict(room).keys()
                      if k not in ('id', 'event_id', 'created_at', 'updated_at',
-                                  'stream_key', 'status', 'stream_active',
+                                  'stream_key', 'hls_url', 'status', 'stream_active',
                                   'started_at', 'ended_at', 'chat_cleared_at',
                                   'current_session_id', 'manual_speaker_ec_id',
                                   'room_state')]
