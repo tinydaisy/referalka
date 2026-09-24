@@ -290,7 +290,11 @@ async def dialog_card(
                    cl.tech_assigned_at, cl.timezone,
                    t.name AS tariff_name, cs.expires_at, cs.status AS sub_status,
                    cs.source AS sub_source,
-                   ({CRM_CASE_SQL.replace('c.id', 'cl.id')}) AS crm_status,
+                   -- ⚠️ Заменяем АЛИАС целиком (`c.` → `cl.`), а не одно поле:
+                   -- в выражении есть и `c.id`, и `c.current_subscription_id`,
+                   -- и замена по `c.id` оставляла второе висеть на таблице,
+                   -- которой в этом запросе нет.
+                   ({CRM_CASE_SQL.replace('c.', 'cl.')}) AS crm_status,
                    -- Кто привёл В ПЛЮСОН: имя того, по чьей ссылке пришёл.
                    refc.name AS referrer_name,
                    refc.email AS referrer_email,
