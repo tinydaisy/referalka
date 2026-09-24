@@ -287,6 +287,30 @@ export default function WebinarRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.room?.hls_url, room?.room?.stream_type])
 
+  // ⚠️⚠️ СТОРОЖ «видео молча не играет» (23.09.2026). Признак `playerStuck`
+  // ставился только при ОШИБКЕ hls.js или провале play(). Но на телефоне
+  // бывает третий случай: ошибки нет, play() формально прошёл, а картинки нет —
+  // браузер поставил видео на паузу сам (autoplay-политика, экономия трафика,
+  // сворачивание вкладки). Кнопки при этом не было вовсе: зритель видел чёрный
+  // прямоугольник и не знал, что делать. Поэтому спрашиваем САМО видео.
+  //
+  // ⚠️ Смотрим `paused` и `readyState`, а не «прошло N секунд»: видео может
+  // законно буферизоваться на медленной сети — это не повод пугать кнопкой.
+  // Проверяем раз в 2 с и только в эфире.
+  useEffect(() => {
+    // ⚠️ Состояние берём из ref, а не из `live`: хук обязан стоять ВЫШЕ
+    // любых условных return (правило хуков React), а `live` объявляется
+    // ниже по файлу. Нарушение уронило страницу «Application error».
+    if (roomRef.current?.room?.status !== 'live') return
+    const t = setInterval(() => {
+      const v = videoRef.current
+      if (!v) return
+      // HAVE_CURRENT_DATA (2) и выше — кадры есть. Меньше + пауза = не играет.
+      if (v.paused || v.readyState < 2) setPlayerStuck(true)
+      else setPlayerStuck(false)
+    }, 2000)
+    return () => clearInterval(t)
+  }, [room?.room?.status])
   // Ручной перезапуск плеера (кнопка «Обновить видео»): пере-инициализируем hls.js
   // или перезагружаем нативный src. Это то, что раньше делал только F5.
   const reloadPlayer = useCallback(() => {
@@ -501,27 +525,6 @@ export default function WebinarRoomPage() {
   const roomState = rm.room_state || 'created'
   const live = rm.status === 'live' && roomState === 'open'
 
-  // ⚠️⚠️ СТОРОЖ «видео молча не играет» (23.09.2026). Признак `playerStuck`
-  // ставился только при ОШИБКЕ hls.js или провале play(). Но на телефоне
-  // бывает третий случай: ошибки нет, play() формально прошёл, а картинки нет —
-  // браузер поставил видео на паузу сам (autoplay-политика, экономия трафика,
-  // сворачивание вкладки). Кнопки при этом не было вовсе: зритель видел чёрный
-  // прямоугольник и не знал, что делать. Поэтому спрашиваем САМО видео.
-  //
-  // ⚠️ Смотрим `paused` и `readyState`, а не «прошло N секунд»: видео может
-  // законно буферизоваться на медленной сети — это не повод пугать кнопкой.
-  // Проверяем раз в 2 с и только в эфире.
-  useEffect(() => {
-    if (!live) return
-    const t = setInterval(() => {
-      const v = videoRef.current
-      if (!v) return
-      // HAVE_CURRENT_DATA (2) и выше — кадры есть. Меньше + пауза = не играет.
-      if (v.paused || v.readyState < 2) setPlayerStuck(true)
-      else setPlayerStuck(false)
-    }, 2000)
-    return () => clearInterval(t)
-  }, [live])
 
   const ended = rm.status === 'ended'
   const webinarTitle = rm.title || room.event?.title
