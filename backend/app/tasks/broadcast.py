@@ -714,11 +714,41 @@ async def _send_broadcast(schedule_id: int):
                 return txt or ""
             return apply_nav_items(txt, _nav_resolved, platform)
 
+        def _strip_ct(txt: str | None) -> str:
+            """Убирает хвост `?c=__CT__` — для ОБЩИХ ЧАТОВ (24.09.2026).
+
+            ⚠️ В чате сообщение одно на всех, персонального получателя нет —
+            подставлять туда чей-то contact_id нельзя: по ссылке все зрители
+            заходили бы под одним человеком, и статистика зала смешалась бы.
+            Поэтому в чатах хвост просто срезаем, а в ЛИЧКУ он подставляется
+            по-прежнему (там получатель известен).
+
+            ⚠️ Сырой `?c=__CT__` оставлять тоже нельзя: он виден человеку в
+            адресе и выглядит как поломка — именно так и было до этой правки.
+            """
+            return (txt or "").replace("?c=__CT__", "")
+
+        def _chat_url(u: str, platform: str) -> str:
+            """Адрес кнопки ДЛЯ ЧАТА: те же подстановки + срезанный `?c=__CT__`.
+
+            ⚠️ Отдельно от `_clean_url`: та общая и обслуживает ещё и личку,
+            где contact_id подставляется по получателю. Срезать хвост там
+            значило бы потерять опознание человека в комнате.
+            """
+            return _strip_ct(
+                _clean_url(_with_gift_funnel(
+                    _with_support(u, platform, as_url=True), platform, as_url=True)))
+
         def _with_platform_subst(txt: str | None, platform: str) -> str:
             """Все площадко-зависимые подстановки разом: служба заботы, ссылка
             воронки подарка и навигация по чату. Передаётся в хелперы чатов
-            вместо голого _with_support."""
-            return _with_nav(_with_gift_funnel(_with_support(txt, platform), platform), platform)
+            вместо голого _with_support.
+
+            ⚠️ Здесь же срезаем `?c=__CT__`: эта функция обслуживает ИМЕННО
+            чаты, а в чате персонального контакта нет.
+            """
+            return _strip_ct(
+                _with_nav(_with_gift_funnel(_with_support(txt, platform), platform), platform))
 
         def _buttons_for(platform: str, per_recipient: dict | None = None) -> list | None:
             """Кнопки с адресами, раскрытыми ПОД ЭТУ ПЛОЩАДКУ.
@@ -1036,7 +1066,7 @@ async def _send_broadcast(schedule_id: int):
                                 http_extra, default_bot_token, cid,
                                 _with_platform_subst(text, "telegram"),
                                 photo_url, button_text,
-                                _clean_url(_with_gift_funnel(_with_support(button_url, "telegram", as_url=True), "telegram", as_url=True)),
+                                _chat_url(button_url, "telegram"),
                                 buttons=_buttons_for("telegram"),
                                 video_url=video_url if media_type == "video" else None,
                                 on_message_id=lambda mid: _chat_mids.append(mid),
@@ -1067,7 +1097,7 @@ async def _send_broadcast(schedule_id: int):
             vk_sent = await _send_broadcast_vk_part(
                 conn, schedule, event_id,
                 _with_platform_subst(text, "vk"),
-                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "vk", as_url=True), "vk", as_url=True)),
+                photo_url, button_text, _chat_url(button_url, "vk"),
                 buttons=_buttons_for("vk"), target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -1084,7 +1114,7 @@ async def _send_broadcast(schedule_id: int):
             max_sent = await _send_broadcast_max_part(
                 conn, schedule, event_id,
                 _with_platform_subst(text, "max"),
-                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "max", as_url=True), "max", as_url=True)),
+                photo_url, button_text, _chat_url(button_url, "max"),
                 buttons=_buttons_for("max"), target_channel_set=target_channel_set,
                 video_url=video_url, media_type=media_type,
             )
@@ -1133,7 +1163,7 @@ async def _send_broadcast(schedule_id: int):
             email_sent = await _send_broadcast_email_part(
                 conn, schedule, event_id,
                 _with_platform_subst(text_for_email, "email"),
-                photo_url, button_text, _clean_url(_with_gift_funnel(_with_support(button_url, "email", as_url=True), "email", as_url=True)),
+                photo_url, button_text, _chat_url(button_url, "email"),
                 buttons=_email_buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
                 video_url=video_url, media_type=media_type,
@@ -1862,9 +1892,20 @@ async def _send_broadcast_vk_part(
         if "{first_name}" in message_text:
             message_text = _apply_first_name(message_text, r["first_name"])
         # Сквозной contact_id в ссылке эфира — по VK-контакту этого получателя.
+        _ctv = r.get("contact_id")
         if "?c=__CT__" in message_text:
-            _ctv = r.get("contact_id")
             message_text = message_text.replace("?c=__CT__", f"?c={_ctv}" if _ctv else "")
+        # ⚠️⚠️ И В КНОПКЕ ТОЖЕ (24.09.2026). Клавиатура собирается ОДИН РАЗ до
+        # цикла по получателям — значит `__CT__` в её адресе так и уходил сырым:
+        # человек попадал в комнату неопознанным, а в ссылке светилось
+        # «?c=__CT__». В тексте подстановка была, в кнопке — нет.
+        # ⚠️ Пересобираем клавиатуру ТОЛЬКО когда подстановка реально есть:
+        # лишняя сборка на каждого получателя — пустая трата на больших базах.
+        _kb = keyboard
+        if button_url and "?c=__CT__" in button_url:
+            _btn_url_p = button_url.replace("?c=__CT__", f"?c={_ctv}" if _ctv else "")
+            _kb = delivery.vk_keyboard(
+                delivery.button_pairs(buttons, button_text, _btn_url_p))
         attachment = video_attachment if media_type == "video" else photo_attachment
         if media_type == "video" and vk_link_fallback:
             message_text = f"{message_text}\n\n🎬 Видео: {video_url}" if message_text else video_url
@@ -1879,7 +1920,7 @@ async def _send_broadcast_vk_part(
         try:
             res = await delivery.send_vk(
                 vk_id_int, message_text, token=vk_token,
-                keyboard=keyboard, attachment=attachment, return_error=True,
+                keyboard=_kb, attachment=attachment, return_error=True,
             )
             # return_error=True → res = (message_id|None, error_code|None, error_msg)
             mid, vk_err_code, vk_err_msg = res
@@ -2124,9 +2165,17 @@ async def _send_broadcast_max_part(
         if "{first_name}" in message_text:
             message_text = _apply_first_name(message_text, r["first_name"])
         # Сквозной contact_id в ссылке эфира — по MAX-контакту этого получателя.
+        _ctm = r.get("contact_id")
         if "?c=__CT__" in message_text:
-            _ctm = r.get("contact_id")
             message_text = message_text.replace("?c=__CT__", f"?c={_ctm}" if _ctm else "")
+        # ⚠️⚠️ И В КНОПКЕ ТОЖЕ (24.09.2026) — см. пояснение в VK-ветке:
+        # клавиатура собирается один раз до цикла, и `__CT__` в её адресе
+        # уходил сырым. В тексте подстановка была, в кнопке — нет.
+        _mb = max_buttons
+        if button_url and "?c=__CT__" in button_url:
+            _btn_url_m = button_url.replace("?c=__CT__", f"?c={_ctm}" if _ctm else "")
+            _mb = delivery.max_keyboard(
+                delivery.button_pairs(buttons, button_text, _btn_url_m))
         ok = False
         err: str | None = None
         max_message_id: str | None = None
@@ -2134,7 +2183,7 @@ async def _send_broadcast_max_part(
             # Рассылка адресуется по user_id подписчика (platform_users.platform_user_id),
             # а не по id беседы — иначе MAX отвечает chat.not.found и молча не доставляет.
             res = await delivery.send_max(max_id_int, message_text, token=max_token,
-                                          buttons=max_buttons, attachment=photo_attachment)
+                                          buttons=_mb, attachment=photo_attachment)
             ok = bool(res)
             if not ok:
                 err = "MAX send returned None"
