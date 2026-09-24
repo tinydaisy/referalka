@@ -68,9 +68,13 @@ async def _assert_mine(db, spec_id: int, client_id: int, contact_id: int) -> Non
     ⚠️ Именно 404, а не 403: по чужому id не должно быть видно даже того, что
     такой разговор существует.
     """
+    # ⚠️ Параметры ровно те, что В ЗАПРОСЕ. Лишний `client_id` первым
+    # аргументом приводил к IndeterminateDatatypeError: Postgres не может
+    # вывести тип параметра, который нигде не используется, и лента переписки
+    # отвечала 500. `MINE_SQL` ждёт номер внедренца вторым — держим порядок.
     ok = await db.fetchval(
-        "SELECT 1 FROM contacts c WHERE c.id = $3 AND " + MINE_SQL,
-        client_id, spec_id, contact_id,
+        "SELECT 1 FROM contacts c WHERE c.id = $1 AND " + MINE_SQL,
+        contact_id, spec_id,
     )
     if not ok:
         raise HTTPException(404, "Диалог не найден")
