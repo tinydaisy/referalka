@@ -473,6 +473,46 @@ DEFAULT_TEMPLATES = [
         "pin_in_chat": True,
     },
     {
+        # ⚠️ Инструкция по подключению — ОТДЕЛЬНО от программы дня, хотя уходит
+        # следом за ней (23.09.2026). Одним сообщением нельзя: программа нужна
+        # накануне («во сколько я завтра»), а инструкция — в день эфира, и
+        # закреплять надо обе. Слепив их, пришлось бы выбирать одно время.
+        "name": "Спикерам: инструкция по подключению (в чат спикеров)",
+        "type": "speakers_howto",
+        "text": (
+            "<b>ИНСТРУКЦИЯ ПО ПОДКЛЮЧЕНИЮ К ТРАНСЛЯЦИИ</b>\n\n"
+            "Ссылки в закреп в день конференции\n\n"
+            "<b>1) Ссылка на ZOOM:</b>\n"
+            "{speaker_join_url}\n\n"
+            "Сюда заходите за 10 минут до своего выступления и ведёте выступление отсюда — "
+            "будет доступ к демонстрации экрана\n\n"
+            "<b>2) Ссылка на вебинарную комнату:</b>\n"
+            "{stream_url}\n\n"
+            "Заходите сюда с телефона (выключаете звук, чтобы не фонило) и читаете "
+            "комментарии зрителей\n\n"
+            "—\n\n"
+            "Итого: выступление ведёте в зуме со мной\n\n"
+            "Зрители и комментарии — в чате вебинарной комнаты\n\n"
+            "Задержка 10 секунд — поэтому не пугайтесь тишины в ответ, не ждите долго ответов\n\n"
+            "Общайтесь с аудиторией: если им не задавать вопросы, она будет молчать\n\n"
+            "{day_speakers_mentions}"
+        ),
+        "photo_url": None,
+        "button_text": None,
+        "button_url": None,
+        "schedule_mode": "fixed_offset",
+        # ⚠️ Через минуту ПОСЛЕ программы дня: два сообщения подряд в одном
+        # чате, инструкция второй — сначала «во сколько я», потом «куда
+        # заходить». Обратный порядок читается как инструкция в пустоту.
+        "offset_minutes": 1439,            # = 1440 (сутки) − 1 минута
+        "intro_start_time": None,          # своё время задаётся в настройках
+        "audience_include": "all_event",
+        "audience_exclude": "all_event",   # ← участникам не шлём, только в чат
+        "allow_custom_datetime": False,
+        "send_to_speakers_chat": True,
+        "pin_in_chat": True,
+    },
+    {
         "name": "За 30 минут до старта",
         "type": "30min_before",
         "text": (
@@ -755,6 +795,7 @@ _TURNIR_TEMPLATE_NAMES = {
     "speaker_intro": "Знакомство со спикерами и жюри",
     "speakers_call": "Спикеру/номинанту: «вы следующие» (в чат)",
     "speakers_day": "Спикерам/номинантам: программа дня (в чат)",
+    "speakers_howto": "Спикерам/номинантам: инструкция по подключению (в чат)",
     "day_end": "День события (итоги дня + подарки)",
 }
 
@@ -1038,7 +1079,7 @@ def _fallback_flags(t: str, for_presets: bool) -> dict:
         "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
     }
     TURNIR_EXTRA = {"speaker_intro", "5min_before", "day_live",
-                    "speakers_call", "speakers_day"}
+                    "speakers_call", "speakers_day", "speakers_howto"}
     if for_presets:
         TURNIR_EXTRA = TURNIR_EXTRA | {"pre_conf", "gift", "day_end", "expert_day"}
     return {
@@ -1062,6 +1103,8 @@ def _fallback_flags(t: str, for_presets: bool) -> dict:
 _FEATURE_GATED_TYPES = {
     "speakers_call": "speakers_call",   # «вы следующие» за 15 минут
     "speakers_day": "speakers_call",    # программа дня накануне — та же фича
+    # Инструкция уходит следом за программой, в тот же чат — фича та же.
+    "speakers_howto": "speakers_call",
 }
 
 
@@ -1265,7 +1308,10 @@ async def update_template(
     # bulk-правки — и тогда служебное «вы следующие» ушло бы всей базе.
     # Цена ошибки — рассылка на всю аудиторию, поэтому держим на бэке, а не
     # только в UI.
-    if data.type in ("speakers_call", "speakers_day"):
+    # ⚠️ Эти рассылки идут ТОЛЬКО в чат спикеров: выбор аудитории у них
+    # отключён и на бэке, а не только в интерфейсе — цена ошибки тут
+    # рассылка инструкции для спикеров на всю базу участников.
+    if data.type in ("speakers_call", "speakers_day", "speakers_howto"):
         data.send_to_speakers_chat = True
         data.send_to_event_chats = False
         data.send_to_client_chats = False
@@ -2206,6 +2252,9 @@ async def generate_schedules(
         # на каждый день: у трёхдневной конференции три напоминания.
         # ⚠️ Под той же фичей, что и «вы следующие»: обе рассылки служебные,
         # и шаблон мог остаться у события с тех пор, когда фича была включена.
+        # ⚠️ Объявляем ДО блока: на него смотрит инструкция ниже, а шаблона
+        # программы у события может не быть вовсе — иначе NameError.
+        _sp_fire = None
         if "speakers_day" in tmpl_map and first_start_utc and speakers_call_allowed:
             tmpl = tmpl_map["speakers_day"]
             # 1440 минут = сутки. Если клиент задал в шаблоне своё время
@@ -2236,6 +2285,38 @@ async def generate_schedules(
                 _sp_fire = first_start_utc - timedelta(minutes=tmpl["offset_minutes"] or 1440)
             if _sp_fire:
                 await add_schedule(tmpl, _sp_fire, None, "speakers_day", day=day_num)
+
+        # ── Инструкция по подключению — СЛЕДОМ за программой дня ──────────
+        # ⚠️ Через минуту после программы, а не в своё время: два сообщения
+        # подряд в одном чате, инструкция второй. Сначала «во сколько я», потом
+        # «куда заходить» — обратный порядок читается как инструкция в пустоту.
+        # Своё время клиент может задать в настройках шаблона, тогда берём его.
+        if "speakers_howto" in tmpl_map and first_start_utc and speakers_call_allowed:
+            tmpl = tmpl_map["speakers_howto"]
+            _hw_raw = ""
+            try:
+                _hw_raw = (tmpl["intro_start_time"] or "").strip()
+            except (KeyError, TypeError):
+                _hw_raw = ""
+            if _hw_raw:
+                # Клиент задал своё время — считаем как у программы дня.
+                _h, _m = _tmpl_time_msk(tmpl, 0, 0)
+                _prev_date = first_session.get("day_date")
+                _days = tmpl["intro_days_before"] if "intro_days_before" in tmpl else None
+                try:
+                    _days = int(_days) if _days is not None else 1
+                except (TypeError, ValueError):
+                    _days = 1
+                _days = max(0, min(30, _days))
+                _hw_fire = (_msk_str_to_utc(_prev_date, f"{_h:02d}:{_m:02d}") - timedelta(days=_days)
+                            if _prev_date else None)
+            elif _sp_fire:
+                # Времени своего нет → ровно через минуту после программы.
+                _hw_fire = _sp_fire + timedelta(minutes=1)
+            else:
+                _hw_fire = first_start_utc - timedelta(minutes=tmpl["offset_minutes"] or 1439)
+            if _hw_fire:
+                await add_schedule(tmpl, _hw_fire, None, "speakers_howto", day=day_num)
 
         if "day_end" in tmpl_map:
             tmpl = tmpl_map["day_end"]

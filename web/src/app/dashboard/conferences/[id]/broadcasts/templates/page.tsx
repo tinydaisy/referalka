@@ -61,8 +61,14 @@ const TYPE_DEFS_RAW: TypeDef[] = [
   {
     type: 'speakers_day',
     title: 'Спикерам: программа дня (в чат спикеров)',
-    hint: 'Уходит В ЧАТ СПИКЕРОВ (не участникам) за сутки до дня программы — своя рассылка на каждый день. Тайминг выступлений: время, имя, ник в Telegram. Чат спикеров задаётся в «Описании» события.',
-    variables: ['{day_program_speakers}', '{day_date}', '{day_number}', '{day_title}', '{conf_title}'],
+    hint: 'Уходит В ЧАТ СПИКЕРОВ (не участникам) за сутки до дня программы — своя рассылка на каждый день. Тайминг выступлений: время, имя, ник в Telegram. Закрепляется в чате. Время и «за сколько дней» настраиваются. Чат спикеров задаётся в «Описании» события.',
+    variables: ['{day_program_speakers}', '{day_date}', '{day_number}', '{day_title}', '{conf_title}', '{stream_url}', '{speaker_join_url}', '{day_speakers_mentions}'],
+  },
+  {
+    type: 'speakers_howto',
+    title: 'Спикерам: инструкция по подключению (в чат спикеров)',
+    hint: 'Уходит В ЧАТ СПИКЕРОВ следом за программой дня (через минуту) и закрепляется. Куда заходить: зум для выступления и вебинарная комната для чтения комментариев. Время можно задать своё. Чат спикеров задаётся в «Описании» события.',
+    variables: ['{speaker_join_url}', '{stream_url}', '{day_speakers_mentions}', '{day_date}', '{day_number}', '{conf_title}'],
   },
   {
     type: 'event_live',
@@ -626,6 +632,11 @@ export default function TemplatesPage() {
   const [addChoiceModal, setAddChoiceModal] = useState(false)
   const [presets, setPresets] = useState<any[]>([])
   const [presetsLoading, setPresetsLoading] = useState(false)
+  // ⚠️ Две рассылки, которые идут ТОЛЬКО в чат спикеров: у них одна на день
+  // и без выбора людей. Поэтому в настройках расписания им не показываем
+  // ни «Интервал» (разносить во времени нечего), ни «Роли» (это сообщение
+  // в чат, а не рассылка по людям), а отсчёт дней идёт от ДНЯ ПРОГРАММЫ.
+  const _isChatOnly = editModal?.type === 'speakers_day' || editModal?.type === 'speakers_howto'
   const [form, setForm] = useState({ ...emptyForm })
   const [previewModal, setPreviewModal] = useState<{ tpl: any; def: TypeDef } | null>(null)
   const [previewSpeakerId, setPreviewSpeakerId] = useState<number | null>(null)
@@ -2187,21 +2198,22 @@ export default function TemplatesPage() {
                   было нечем. Бэкенд её время читал и раньше, просто отнимал
                   жёстко сутки. */}
               {(editModal?.type === 'speaker_intro' || editModal?.type === 'expert_day'
-                || editModal?.type === 'speakers_day') && (
+                || editModal?.type === 'speakers_day' || editModal?.type === 'speakers_howto') && (
                 <div className="border border-blue-100 rounded-xl p-3 bg-blue-50 space-y-3">
                   <p className="text-xs font-medium text-blue-700">
                     {editModal?.type === 'expert_day' ? '⏰ Расписание Экспертного дня'
                       : editModal?.type === 'speakers_day' ? '⏰ Когда слать программу в чат спикеров'
+                      : editModal?.type === 'speakers_howto' ? '⏰ Когда слать инструкцию в чат спикеров'
                       : '⏰ Расписание знакомств со спикерами'}
                   </p>
                   {/* ⚠️ У «Программы дня» ИНТЕРВАЛА НЕТ: рассылка одна на день,
                       разносить во времени нечего. Показывать поле, которое ни
                       на что не влияет, — обманывать: человек его настроит и
                       будет ждать эффекта. */}
-                  <div className={editModal?.type === 'speakers_day' ? '' : 'grid grid-cols-2 gap-2'}>
+                  <div className={_isChatOnly ? '' : 'grid grid-cols-2 gap-2'}>
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">
-                        {editModal?.type === 'speakers_day' ? 'Во сколько отправить (МСК)' : 'Время старта (МСК)'}
+                        {_isChatOnly ? 'Во сколько отправить (МСК)' : 'Время старта (МСК)'}
                       </label>
                       <input
                         type="time"
@@ -2210,7 +2222,7 @@ export default function TemplatesPage() {
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
                       />
                     </div>
-                    {editModal?.type !== 'speakers_day' && (
+                    {!_isChatOnly && (
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block">Интервал (мин)</label>
                         <input
@@ -2230,25 +2242,25 @@ export default function TemplatesPage() {
                       шлют утром того же дня, а не накануне. */}
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">
-                      {editModal?.type === 'speakers_day' ? 'Когда отправить' : 'Отправить за'}
+                      {_isChatOnly ? 'Когда отправить' : 'Отправить за'}
                     </label>
                     <select
                       value={(form as any).intro_days_before ?? 1}
                       onChange={e => setForm({ ...form, intro_days_before: Number(e.target.value) } as any)}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
                     >
-                      {editModal?.type === 'speakers_day' && (
+                      {_isChatOnly && (
                         <option value={0}>в день программы</option>
                       )}
                       {[1, 2, 3, 4, 5, 6, 7].map(d => (
                         <option key={d} value={d}>
-                          {editModal?.type === 'speakers_day'
+                          {_isChatOnly
                             ? `за ${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'} до дня программы`
                             : `за ${d} ${d === 1 ? 'день' : d < 5 ? 'дня' : 'дней'} до конференции`}
                         </option>
                       ))}
                     </select>
-                    {editModal?.type === 'speakers_day' && (
+                    {_isChatOnly && (
                       <p className="text-[11px] text-gray-500 mt-1">
                         Своя рассылка на каждый день программы. «В день программы» —
                         утром того же дня, в указанное время.
@@ -2260,7 +2272,7 @@ export default function TemplatesPage() {
                       null/undefined = все роли (по умолчанию).
                       ⚠️ У «Программы дня» ролей НЕТ: это одно сообщение в чат
                       спикеров, а не рассылка по людям — выбирать некого. */}
-                  {editModal?.type !== 'speakers_day' && (
+                  {!_isChatOnly && (
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">{editModal?.type === 'expert_day' ? 'Кого анонсировать (роли)' : 'Знакомить с (роли)'}</label>
                     <div className="flex flex-wrap gap-2">

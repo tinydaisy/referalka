@@ -549,6 +549,41 @@ async def _day_program_for_speakers(conn, event_id, day) -> str:
     return "\n".join(lines)
 
 
+async def _day_speakers_mentions(conn, event_id, day) -> str:
+    """@-ники спикеров дня одной строкой: «@ivan @petr @anna».
+
+    ⚠️ Зачем отдельно от {day_program_speakers}: тот показывает тайминг с
+    именами, а тут нужно именно УПОМЯНУТЬ — чтобы у спикера пришло
+    уведомление и инструкция не потерялась в чате.
+
+    ⚠️ Дубли убираем: у спикера бывает несколько выступлений за день, и
+    отмечать его трижды подряд — спамить.
+
+    ⚠️ Без ника — пропускаем молча. Написать «@Иван Петров» нельзя: это не
+    упоминание, а мусор, и Telegram его не подсветит.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT pu_tg.username AS tg_username
+          FROM conf_sessions cs
+          JOIN event_collaborators ec ON ec.id = cs.speaker_id
+          JOIN collaborators c ON c.id = ec.speaker_id
+          JOIN platform_users pu_tg
+            ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
+         WHERE cs.event_id = $1 AND cs.day = $2
+           AND COALESCE(btrim(pu_tg.username), '') <> ''
+        """,
+        event_id, day,
+    )
+    seen, out = set(), []
+    for r in rows:
+        tg = (r["tg_username"] or "").strip().lstrip("@")
+        if tg and tg.lower() not in seen:
+            seen.add(tg.lower())
+            out.append(f"@{tg}")
+    return " ".join(out)
+
+
 # ─── Формирование текста: speaker_intro ─────────────────────────────────────
 
 def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
@@ -1748,6 +1783,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 # Пусто → убираем строку целиком, как это делают остальные
                 # плейсхолдеры: «Зум:» без ссылки хуже, чем ничего.
                 text = re.sub(r"^[^\n]*\{speaker_join_url\}[^\n]*\n?", "",
+                              text or "", flags=re.MULTILINE)
+
+        # {day_speakers_mentions} — «@ivan @petr»: отметить спикеров, чтобы
+        # инструкция не потерялась в чате и пришло уведомление.
+        if "{day_speakers_mentions}" in (text or ""):
+            _ment = await _day_speakers_mentions(conn, event_id, day)
+            if _ment:
+                text = text.replace("{day_speakers_mentions}", _ment)
+            else:
+                text = re.sub(r"^[^\n]*\{day_speakers_mentions\}[^\n]*\n?", "",
                               text or "", flags=re.MULTILINE)
 
         if "{day_program_speakers}" in (text or ""):
