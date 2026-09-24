@@ -426,67 +426,24 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
     contact_id = await resolve_event_contact_id(db, ev["id"], "vk", vk_user_id)
 
     now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
-    live_when = ""
-    live_what = ""
-
-    sessions = await db.fetch(
-        """SELECT cd.day_date, s.start_time, s.title
-             FROM conf_sessions s
-             JOIN conf_days cd ON cd.event_id = s.event_id AND cd.day_number = s.day
-            WHERE s.event_id = $1 AND s.start_time IS NOT NULL
-              AND cd.day_date IS NOT NULL
-            ORDER BY cd.day_date, s.start_time""",
-        event_id,
+    # ⚠️ Текст — ОБЩИЙ на три площадки (webinar_service.build_live_menu_text),
+    # а не свой в каждой (24.09.2026). Раньше он собирался отдельно в TG, VK и
+    # MAX, и правка в одном месте тут же расходилась с двумя другими.
+    # ⚠️ html=False: ВК теги не понимает и показал бы «<b>» текстом.
+    from app.services.webinar_service import (
+        current_event_day, nearest_live_info, build_live_menu_text,
     )
-    chosen = None
-    for r in sessions:
-        try:
-            hh, mm = str(r["start_time"])[:5].split(":")
-            dt = datetime(r["day_date"].year, r["day_date"].month, r["day_date"].day,
-                          int(hh), int(mm), tzinfo=ZoneInfo("Europe/Moscow"))
-        except Exception:
-            continue
-        if dt >= now_msk - timedelta(minutes=90):
-            chosen = (dt, r["title"])
-            break
-    if chosen is None and sessions:
-        r = sessions[-1]
-        try:
-            hh, mm = str(r["start_time"])[:5].split(":")
-            dt = datetime(r["day_date"].year, r["day_date"].month, r["day_date"].day,
-                          int(hh), int(mm), tzinfo=ZoneInfo("Europe/Moscow"))
-            chosen = (dt, r["title"])
-        except Exception:
-            chosen = None
-
-    if chosen:
-        dt, what = chosen
-        live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
-        live_what = what or ""
-    elif ev["start_at"]:
-        dt = ev["start_at"]
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-        dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
-        live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
-        live_what = ev["title"] or ""
-
-    if live_when:
-        text = f"Ближайший эфир — {live_when}"
-        if live_what:
-            text += f"\n{live_what}"
-    else:
-        text = "Ближайший эфир"
-
-    from app.services.webinar_service import current_event_day
     _sd = await current_event_day(db, ev["id"])
     stream_url = (await day_stream_url(db, ev["id"], _sd, contact_id)) if _sd else ""
     hide = bool(ev["hide_stream_button"])
+    _has_stream = bool(stream_url) and not hide
+
+    _info = await nearest_live_info(db, ev["id"])
+    text = build_live_menu_text(_info, ev["title"] or "", _has_stream, html=False)
+
     rows: list[list[dict]] = []
-    if stream_url and not hide:
+    if _has_stream:
         rows.append([{"text": "ВОЙТИ В ЭФИР", "url": stream_url}])
-    else:
-        text += "\n\nКнопка на стрим появится тут перед эфиром."
 
     text += "\n\nЧтобы посмотреть всю программу — нажмите на кнопку 👇"
     cid_q = f"?c={contact_id}" if contact_id else ""

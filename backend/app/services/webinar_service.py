@@ -95,6 +95,137 @@ async def current_event_day(db, event_id: int) -> Optional[int]:
     return d or 1
 
 
+_RU_MON = ["января","февраля","марта","апреля","мая","июня",
+           "июля","августа","сентября","октября","ноября","декабря"]
+
+
+async def nearest_live_info(db, event_id: int) -> dict:
+    """Что писать в меню про ближайший эфир — ОДНА точка на три площадки.
+
+    Возвращает: {is_today, when, day_number, days_total, title}.
+
+    ⚠️ ОДНА функция на TG/VK/MAX (24.09.2026). Раньше текст собирался в трёх
+    местах отдельно, и правка в одном тут же расходилась с двумя другими.
+
+    ⚠️ «Сегодня» = дата дня совпадает с сегодняшней И день ещё не закончился
+    с запасом +1 час: эфир, начавшийся в 19:00, в 19:30 ещё идёт, и писать
+    «ближайший эфир завтра» было бы ложью. Запас берём от ПОСЛЕДНЕГО слота дня.
+
+    ⚠️ `day_number` отдаём только когда дней в программе БОЛЬШЕ ОДНОГО: писать
+    «День 1» у однодневного события — лишний шум.
+    """
+    today = datetime.now(MSK).date()
+    now = datetime.now(MSK)
+
+    days_total = await db.fetchval(
+        "SELECT COUNT(*) FROM conf_days WHERE event_id=$1 AND day_date IS NOT NULL",
+        event_id) or 0
+
+    # Дни с границами: первый слот (начало) и последний (конец дня).
+    rows = await db.fetch(
+        """SELECT cd.day_number, cd.day_date,
+                  MIN(s.start_time) AS first_start,
+                  MAX(COALESCE(s.end_time, s.start_time)) AS last_end
+             FROM conf_days cd
+             LEFT JOIN conf_sessions s
+                    ON s.event_id = cd.event_id AND s.day = cd.day_number
+                   AND s.start_time IS NOT NULL
+            WHERE cd.event_id = $1 AND cd.day_date IS NOT NULL
+            GROUP BY cd.day_number, cd.day_date
+            ORDER BY cd.day_date""",
+        event_id)
+
+    def _hhmm(v):
+        try:
+            hh, mm = str(v)[:5].split(":")
+            return int(hh), int(mm)
+        except Exception:
+            return None
+
+    # 1) Идёт сегодня и ещё не закончился (+1 час запаса)?
+    for r in rows:
+        if r["day_date"] != today:
+            continue
+        end = _hhmm(r["last_end"]) or _hhmm(r["first_start"])
+        if end is None:
+            continue
+        end_dt = datetime(today.year, today.month, today.day,
+                          end[0], end[1], tzinfo=MSK) + timedelta(hours=1)
+        if now <= end_dt:
+            st = _hhmm(r["first_start"]) or (0, 0)
+            return {
+                "is_today": True,
+                "when": f"{r['day_date'].day} {_RU_MON[r['day_date'].month - 1]} "
+                        f"{st[0]:02d}:{st[1]:02d} МСК",
+                "day_number": r["day_number"] if days_total > 1 else None,
+                "days_total": days_total,
+            }
+
+    # 2) Иначе — ближайший будущий день.
+    for r in rows:
+        if r["day_date"] < today:
+            continue
+        st = _hhmm(r["first_start"]) or (0, 0)
+        return {
+            "is_today": False,
+            "when": f"{r['day_date'].day} {_RU_MON[r['day_date'].month - 1]} "
+                    f"{st[0]:02d}:{st[1]:02d} МСК",
+            "day_number": r["day_number"] if days_total > 1 else None,
+            "days_total": days_total,
+        }
+
+    # 3) Программы нет вовсе (мероприятие) → старт самого события.
+    # ⚠️ Без этой ветки у события без conf_days текст остался бы без даты:
+    # раньше её считал каждый бот у себя, при переносе в общую точку её легко
+    # было потерять.
+    st_at = await db.fetchval("SELECT start_at FROM events WHERE id=$1", event_id)
+    if st_at:
+        dt = st_at if st_at.tzinfo else st_at.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(MSK)
+        return {
+            "is_today": dt.date() == today and now <= dt + timedelta(hours=1),
+            "when": f"{dt.day} {_RU_MON[dt.month - 1]} {dt.hour:02d}:{dt.minute:02d} МСК",
+            "day_number": None,
+            "days_total": days_total,
+        }
+
+    return {"is_today": False, "when": "", "day_number": None, "days_total": days_total}
+
+
+def build_live_menu_text(info: dict, event_title: str, has_stream: bool,
+                         *, html: bool = True) -> str:
+    """Текст кнопки «Эфир» в меню события — одинаковый в TG/VK/MAX.
+
+    ⚠️ Формат согласован с владельцем 24.09.2026:
+      идёт сегодня → «Уже сегодня — <дата>» + пустая строка + «<Событие> — День N»
+                     + пустая строка + «Нажмите на кнопку, чтобы войти в эфир:»
+      иначе        → «Ближайший эфир — <дата>» + «<Событие> — День N»
+                     + «Ссылка на эфир покажется в день эфира…»
+
+    ⚠️ «День N» пишем ТОЛЬКО когда дней больше одного (см. nearest_live_info).
+    """
+    # ⚠️ `html=False` — для ВК и MAX: они HTML-теги НЕ понимают и покажут
+    # «<b>» текстом. Экранировать там тоже нечего — разметки нет вовсе.
+    import html as _h
+    _esc = (lambda v: _h.escape(v or "")) if html else (lambda v: v or "")
+    _b = (lambda v: f"<b>{v}</b>") if html else (lambda v: v)
+    title = _esc(event_title)
+    when = _esc(info.get("when"))
+    dn = info.get("day_number")
+    line2 = f"{title} — День {dn}" if dn else title
+
+    if info.get("is_today"):
+        head = f"{_b('Уже сегодня')} — {when}" if when else _b("Уже сегодня")
+        tail = ("Нажмите на кнопку, чтобы войти в эфир 👇" if has_stream
+                else "Ссылка на эфир появится здесь перед началом.")
+        return f"{head}\n\n{line2}\n\n{tail}"
+
+    head = f"{_b('Ближайший эфир')} — {when}" if when else _b("Ближайший эфир")
+    tail = ("Ссылка на эфир покажется в день эфира, "
+            "а пока нажмите на кнопку и изучите программу 👇")
+    return f"{head}\n\n{line2}\n\n{tail}"
+
+
 async def day_stream_url(db, event_id: int, day: Optional[int],
                          contact_id: Optional[int] = None) -> str:
     """Единая ссылка на эфир ДНЯ (после удаления events.stream_url).

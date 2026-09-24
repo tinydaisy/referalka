@@ -2301,49 +2301,6 @@ async def _handle_max_live(
         contact_id=contact_id)
 
     now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
-    live_when = ""
-    live_what = ""
-    sessions = await conn.fetch(
-        """SELECT cd.day_date, s.start_time, s.title
-             FROM conf_sessions s
-             JOIN conf_days cd ON cd.event_id = s.event_id AND cd.day_number = s.day
-            WHERE s.event_id = $1 AND s.start_time IS NOT NULL AND cd.day_date IS NOT NULL
-            ORDER BY cd.day_date, s.start_time""",
-        event_id,
-    )
-    chosen = None
-    for r in sessions:
-        try:
-            hh, mm = str(r["start_time"])[:5].split(":")
-            dt = datetime(r["day_date"].year, r["day_date"].month, r["day_date"].day,
-                          int(hh), int(mm), tzinfo=ZoneInfo("Europe/Moscow"))
-        except Exception:
-            continue
-        if dt >= now_msk - timedelta(minutes=90):
-            chosen = (dt, r["title"]); break
-    if chosen is None and sessions:
-        r = sessions[-1]
-        try:
-            hh, mm = str(r["start_time"])[:5].split(":")
-            chosen = (datetime(r["day_date"].year, r["day_date"].month, r["day_date"].day,
-                               int(hh), int(mm), tzinfo=ZoneInfo("Europe/Moscow")), r["title"])
-        except Exception:
-            chosen = None
-    if chosen:
-        dt, what = chosen
-        live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
-        live_what = what or ""
-    elif ev["start_at"]:
-        dt = ev["start_at"]
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-        dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
-        live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
-        live_what = ev["title"] or ""
-
-    text = "Ближайший эфир" + (f" — {live_when}" if live_when else "")
-    if live_what:
-        text += f"\n{live_what}"
     # Ссылка эфира = вебинарная комната дня.
     # Мероприятие (base) — день 1; конференция/турнир — первый день с комнатой;
     # конкурс — сторонний лендинг голосования (events.landing_url).
@@ -2356,11 +2313,18 @@ async def _handle_max_live(
         _sd = await current_event_day(conn, event_id)
         stream_url = await day_stream_url(conn, event_id, _sd, contact_id=contact_id)
     hide = bool(ev["hide_stream_button"])
+    _has_stream = bool(stream_url) and not hide
+
+    # ⚠️ Текст — ОБЩИЙ на три площадки (webinar_service.build_live_menu_text),
+    # а не свой в каждой (24.09.2026): правка в одном месте расходилась с двумя
+    # другими. ⚠️ html=False: MAX теги не понимает и покажет «<b>» текстом.
+    from ..services.webinar_service import nearest_live_info, build_live_menu_text
+    _info = await nearest_live_info(conn, event_id)
+    text = build_live_menu_text(_info, ev["title"] or "", _has_stream, html=False)
+
     rows = []
-    if stream_url and not hide:
+    if _has_stream:
         rows.append([{"text": "ВОЙТИ В ЭФИР", "url": stream_url}])
-    else:
-        text += "\n\nКнопка на стрим появится тут перед эфиром."
     cid_q = f"?c={contact_id}" if contact_id else ""
     # Страница программы — публичная страница клиента → его домен.
     # ⚠️ КОЛЛАБА: домен ТОГО организатора, в чьей базе контакт человека.

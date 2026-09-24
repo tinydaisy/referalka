@@ -727,76 +727,25 @@ async def run_event_live(message: Message, event_id: int, user_tg_id: int) -> No
             db, client_id=link_client_id, platform="telegram")
 
         now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
-        live_when = ""   # «3 мая 12:00 МСК»
-        live_what = ""   # название сессии / события
-
-        # Ближайшая будущая сессия программы (conf_days.day_date + start_time).
-        sessions = await db.fetch(
-            """SELECT cd.day_date, s.start_time, s.title
-                 FROM conf_sessions s
-                 JOIN conf_days cd ON cd.event_id = s.event_id AND cd.day_number = s.day
-                WHERE s.event_id = $1 AND s.start_time IS NOT NULL
-                  AND cd.day_date IS NOT NULL
-                ORDER BY cd.day_date, s.start_time""",
-            event_id,
-        )
-        chosen = None
-        for r in sessions:
-            try:
-                hh, mm = str(r["start_time"])[:5].split(":")
-                dt = datetime(r["day_date"].year, r["day_date"].month,
-                              r["day_date"].day, int(hh), int(mm),
-                              tzinfo=ZoneInfo("Europe/Moscow"))
-            except Exception:
-                continue
-            if dt >= now_msk - timedelta(minutes=90):  # текущий/будущий эфир
-                chosen = (dt, r["title"])
-                break
-        if chosen is None and sessions:
-            # все прошли — берём последнюю
-            r = sessions[-1]
-            try:
-                hh, mm = str(r["start_time"])[:5].split(":")
-                dt = datetime(r["day_date"].year, r["day_date"].month,
-                              r["day_date"].day, int(hh), int(mm),
-                              tzinfo=ZoneInfo("Europe/Moscow"))
-                chosen = (dt, r["title"])
-            except Exception:
-                chosen = None
-
-        if chosen:
-            dt, what = chosen
-            live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
-            live_what = what or ""
-        elif ev["start_at"]:
-            dt = ev["start_at"]
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-            dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
-            live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
-            live_what = ev["title"] or ""
-
-        # Текст
-        title = _html.escape(ev["title"] or "")
-        if live_when:
-            text = f"<b>Ближайший эфир</b> — {_html.escape(live_when)}"
-            if live_what:
-                text += f"\n{_html.escape(live_what)}"
-        else:
-            text = "<b>Ближайший эфир</b>"
-
         # Кнопка/заглушка стрима — ссылка эфира = комната АКТУАЛЬНОГО дня (+ contact_id).
-        from app.services.webinar_service import day_stream_url as _day_stream_url, current_event_day
+        from app.services.webinar_service import (
+            day_stream_url as _day_stream_url, current_event_day,
+            nearest_live_info, build_live_menu_text,
+        )
         _sd = await current_event_day(db, ev["id"])
         stream_url = await _day_stream_url(db, ev["id"], _sd, contact_id) if _sd else ""
         hide = bool(ev["hide_stream_button"])
-        rows = []
-        if stream_url and not hide:
-            rows.append([InlineKeyboardButton(text="ВОЙТИ В ЭФИР", url=stream_url)])
-        else:
-            text += "\n\nКнопка на стрим появится тут перед эфиром."
+        _has_stream = bool(stream_url) and not hide
 
-        text += "\n\nЧтобы посмотреть всю программу — нажмите на кнопку 👇"
+        # ⚠️ Текст — ОБЩИЙ на три площадки (webinar_service), а не свой в каждой
+        # (24.09.2026). Раньше он собирался отдельно в TG, VK и MAX, и правка в
+        # одном месте тут же расходилась с двумя другими.
+        _info = await nearest_live_info(db, ev["id"])
+        text = build_live_menu_text(_info, ev["title"] or "", _has_stream)
+
+        rows = []
+        if _has_stream:
+            rows.append([InlineKeyboardButton(text="ВОЙТИ В ЭФИР", url=stream_url)])
 
         cid_q = f"?c={contact_id}" if contact_id else ""
         # Кнопка «Программа» — Mini App или веб по глобальной настройке клиента.
