@@ -126,6 +126,10 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','place','order'])
   // ⚠️ Раздел — тоже через useUrlTab: обновил страницу и остался там же, где был.
   const [kind, setKind] = useUrlTab<PosterKind>('pkind', 'common', ['common','day','individual','covers'])
+  // ⚠️ Вид БЕЗ 'covers' — для запросов макета афиши (24.09.2026). У обложек
+  // своего макета нет вовсе: они собираются по шаблону «Спикер». Сужаем тип
+  // один раз здесь, чтобы не приводить его в каждом из семи вызовов.
+  const layoutKind = (kind === 'covers' ? 'common' : kind) as Exclude<PosterKind, 'covers'>
   // Подвкладка редактора афиши спикера — тоже через useUrlTab.
   const [indTab, setIndTab] = useUrlTab<IndTab>(
     'pind', 'bg', ['bg','photo','title','role','name','topic','elements','logos'])
@@ -154,8 +158,12 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   useEffect(() => { ensureBrandFonts() }, [])
 
   useEffect(() => {
+    // ⚠️ У вкладки «Обложки записей» СВОЕГО макета нет: обложки собираются по
+    // шаблону «Спикер», а не конструктором афиш. Поэтому макет не грузим —
+    // иначе запрос ушёл бы с несуществующим видом и сборка падала на типах.
+    if (kind === 'covers') { setLoading(false); return }
     setLoading(true)
-    api.posterLayout.get(eventId, o, kind)
+    api.posterLayout.get(eventId, o, layoutKind)
       .then((r: any) => {
         // ⚠️⚠️ ПОДСТАВЛЯЕМ ПОДСКАЗКИ В САМИ ПОЛЯ, а не только в placeholder.
         // Серая подсказка не является значением: клиент видел название события
@@ -175,7 +183,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         // название уже задано.
         if (Object.keys(filled).length) {
           const { orientation, ...body } = { ...L, ...filled }
-          api.posterLayout.save(eventId, o, body, kind).catch(() => {})
+          api.posterLayout.save(eventId, o, body, layoutKind).catch(() => {})
         }
         setTheme(r.theme || {})
         setPeople(r.people || [])
@@ -216,7 +224,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       setSaving(true)
       try {
         const { orientation, ...body } = cur
-        await api.posterLayout.save(eventId, o, body, kind)
+        await api.posterLayout.save(eventId, o, body, layoutKind)
         setSaved(true)
       } catch (e: any) { setErr(e?.message || 'Не удалось сохранить') }
       finally { setSaving(false) }
@@ -249,7 +257,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     setBusy('png')
     try {
       const { orientation, ...body } = layout
-      await api.posterLayout.save(eventId, o, body, kind)
+      await api.posterLayout.save(eventId, o, body, layoutKind)
 
       // ⚠️⚠️ ОДИН ФАЙЛ ИЛИ АРХИВ — решают переключатели над кнопкой.
       // Пачка (всех спикеров, все дни, три формата) уходит ZIP-архивом:
@@ -261,12 +269,12 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       // его выбор.
       const single = dayNo != null || (!scopeAll && !allFormats)
       if (single) {
-        await api.posterLayout.png(eventId, o, kind, {
+        await api.posterLayout.png(eventId, o, layoutKind, {
           day: kind === 'day' ? (dayNo ?? days[0]?.day ?? null) : null,
           speaker: kind === 'individual' ? indSpeakerId : null,
         })
       } else {
-        await api.posterLayout.zip(eventId, o, kind, {
+        await api.posterLayout.zip(eventId, o, layoutKind, {
           allFormats,
           // Не «все» — значит только то, что открыто на экране.
           day: kind === 'day' && !scopeAll ? (days[0]?.day ?? null) : null,
@@ -320,7 +328,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       // вкладки: охват мог смениться уже после загрузки.
       let had = existing
       try {
-        const r: any = await api.posterLayout.existing(eventId, o, kind, null)
+        const r: any = await api.posterLayout.existing(eventId, o, layoutKind, null)
         had = Number(r?.existing) || 0
       } catch { /* не ответил — спросим по тому, что знаем */ }
 
@@ -338,7 +346,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
       // В макете могут быть правки, которых сервер ещё не видел: автосохранение
       // ждёт полторы секунды, а картинку сервер рисует ПО БАЗЕ, не по экрану.
       const { orientation, ...body } = layout
-      await api.posterLayout.save(eventId, o, body, kind)
+      await api.posterLayout.save(eventId, o, body, layoutKind)
 
       const orients = allFormats ? ORIENTATIONS.map(x => x.key) : [o]
       let total = 0
@@ -348,7 +356,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
           // и виден счётчик «3 из 15».
           total += await renderSpeakersOneByOne(ori, replace)
         } else {
-          const r: any = await api.posterLayout.renderAll(eventId, ori, kind, {
+          const r: any = await api.posterLayout.renderAll(eventId, ori, layoutKind, {
             replace,
             publish: true,
             // Не «всех» — значит того, кто открыт на экране.
@@ -430,8 +438,8 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
     setBusy('render')
     try {
       const { orientation, ...body } = layout
-      await api.posterLayout.save(eventId, o, body, kind)
-      await api.posterLayout.copyBg(eventId, o, kind)
+      await api.posterLayout.save(eventId, o, body, layoutKind)
+      await api.posterLayout.copyBg(eventId, o, layoutKind)
       setErr(null)
       alert('Готово: фон и оформление скопированы')
     } catch (e: any) { setErr(e?.message || 'Не удалось скопировать') }
