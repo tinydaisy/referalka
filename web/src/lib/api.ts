@@ -2650,6 +2650,17 @@ export const api = {
     buildCovers: (eventId: number, day: number, recId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/covers`,
               { method: 'POST' }),
+    // ⚠️ Обложки ПО ПРОГРАММЕ ДНЯ — запись не нужна вовсе (24.09.2026). Спикер,
+    // тема и фото есть в слотах с самого начала, значит обложки готовятся до
+    // эфира. Прежняя сборка по кускам записи осталась выше — для перерисовки
+    // обложки под уже нарезанный кусок.
+    buildDayCovers: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/covers`, { method: 'POST' }),
+    dayCovers: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/covers`),
+    // Спикеры по дням в порядке выступления — для выбора в пульте ведущего.
+    speakersByDay: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/webinar/speakers-by-day`),
     runCut: (eventId: number, day: number, recId: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/recordings/${recId}/cut`, { method: 'POST' }),
     // ⚠️ Скачивание идёт по ПОДПИСАННОЙ ссылке с сервера: прямая ссылка на

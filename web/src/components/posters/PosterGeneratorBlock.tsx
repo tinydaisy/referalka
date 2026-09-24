@@ -1979,25 +1979,29 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   )
 }
 
-/** Обложки нарезок записи эфира.
+/** Обложки выступлений — ПО ПРОГРАММЕ ДНЯ.
  *
  * ⚠️ Отдельный экран внутри генератора афиш (24.09.2026). Раньше кнопка
  * жила в карточке записи, и найти её было почти невозможно: владелец решил,
  * что генератор обложек вообще пропал.
  *
- * ⚠️ Обложки собираются ПО МЕТКАМ записи — без них собирать нечего, поэтому
- * сначала выбираем день и запись, а кнопка объясняет, чего не хватает.
+ * ⚠️⚠️ ЗАПИСЬ ЭФИРА ЗДЕСЬ НИ ПРИ ЧЁМ (24.09.2026). Сначала экран требовал
+ * выбрать запись и собирал обложки по её меткам нарезки. Связь была ложной: в
+ * картинку из записи не попадает ничего — ни кадра, ни секунды, запись лишь
+ * подсказывала, какой спикер выступал. А спикер, тема и фото есть в программе
+ * дня с самого начала — значит обложки готовятся ЗАРАНЕЕ, до эфира.
+ *
+ * Следствие старого порядка: у записи без расставленных меток кусков не было
+ * вовсе, сборка молча возвращала ноль, а экран объяснял это «у спикера нет
+ * карточки» — причина была не та, и человек искал несуществующую поломку.
  */
 function CoversTab({ eventId }: { eventId: number }) {
   const [days, setDays] = useState<any[]>([])
   const [day, setDay] = useState<number | null>(null)
-  const [recs, setRecs] = useState<any[]>([])
-  const [recId, setRecId] = useState<number | null>(null)
   const [covers, setCovers] = useState<any[]>([])
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
 
-  // Дни события — чтобы знать, где искать записи.
   useEffect(() => {
     api.conference.days.list(eventId)
       .then((r: any) => {
@@ -2010,34 +2014,30 @@ function CoversTab({ eventId }: { eventId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId])
 
-  // Записи выбранного дня.
+  // Уже собранные обложки этого дня — чтобы экран не был пустым после F5.
   useEffect(() => {
     if (!day) return
-    setRecs([]); setRecId(null); setCovers([]); setErr('')
-    api.webinar.recordings(eventId, day)
-      .then((r: any) => {
-        const list = (r.recordings || []).filter((x: any) => x.status === 'ready')
-        setRecs(list)
-        if (list.length) setRecId(list[0].id)
-      })
+    setCovers([]); setErr('')
+    api.webinar.dayCovers(eventId, day)
+      .then((r: any) => setCovers(r.covers || []))
       .catch(() => {})
   }, [eventId, day])
 
   const build = async () => {
-    if (!day || !recId) return
-    setBusy('Собираю обложки…'); setErr(''); setCovers([])
+    if (!day) return
+    setBusy('Собираю обложки…'); setErr('')
     try {
-      const r: any = await api.webinar.buildCovers(eventId, day, recId)
-      setCovers(r.cuts || r.covers || [])
-      if (!(r.cuts || r.covers || []).length) {
-        setErr('Обложки не собрались. Обычная причина — у спикера нет карточки: обложке нечего написать.')
+      await api.webinar.buildDayCovers(eventId, day)
+      const r: any = await api.webinar.dayCovers(eventId, day)
+      setCovers(r.covers || [])
+      if (!(r.covers || []).length) {
+        setErr('Обложки не собрались — ни у одного спикера дня не получилось составить надпись. '
+               + 'Проверьте, заполнены ли имена спикеров в программе.')
       }
     } catch (e: any) {
       setErr(e?.message || 'Не получилось собрать обложки')
     } finally { setBusy('') }
   }
-
-  const rec = recs.find(r => r.id === recId)
 
   return (
     <div className="space-y-4">
@@ -2053,35 +2053,18 @@ function CoversTab({ eventId }: { eventId: number }) {
             ))}
           </select>
         </div>
-        <div className="min-w-[220px]">
-          <label className="text-xs text-gray-500 mb-1 block">Запись эфира</label>
-          <select value={recId ?? ''} onChange={e => setRecId(Number(e.target.value))}
-                  disabled={!recs.length}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-gray-50">
-            {!recs.length && <option value="">Записей нет</option>}
-            {recs.map((r: any) => (
-              <option key={r.id} value={r.id}>
-                Запись #{r.id}{r.cuts_count ? ` · меток: ${r.cuts_count}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button onClick={build} disabled={!recId || !!busy}
-                title={!recId ? 'Сначала выберите запись эфира' : 'Собрать обложки по шаблону «Спикер»'}
+        <button onClick={build} disabled={!day || !!busy}
+                title="Собрать обложки всем спикерам этого дня по шаблону «Спикер»"
                 className="btn-gold text-sm disabled:opacity-40">
           {busy || 'Собрать обложки'}
         </button>
       </div>
 
-      {/* ⚠️ Ссылка на нарезку: обложки собираются по меткам, и если их нет —
-          человеку нужно попасть туда, где их ставят. */}
-      {rec && (
-        <p className="text-xs text-gray-500">
-          Обложки собираются по меткам этой записи.{' '}
-          <a href={`/dashboard/conferences/${eventId}/recordings/${rec.id}?day=${day}`}
-             className="text-blue-600 hover:underline">Открыть нарезку</a>
-        </p>
-      )}
+      <p className="text-xs text-gray-500">
+        Обложки собираются по программе дня — на каждого спикера с его темой.
+        Запись эфира для этого не нужна: когда нарезка появится, куски возьмут
+        готовые обложки по спикеру.
+      </p>
 
       {err && (
         <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -2092,11 +2075,11 @@ function CoversTab({ eventId }: { eventId: number }) {
       {covers.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
           {covers.map((c: any, i: number) => (
-            <div key={i} className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+            <div key={c.ec_id ?? i} className="rounded-xl border border-gray-200 overflow-hidden bg-white">
               {c.cover_url
                 ? <img src={c.cover_url} alt="" className="w-full aspect-video object-cover" />
                 : <div className="w-full aspect-video bg-gray-100 flex items-center justify-center text-xs text-gray-400">нет обложки</div>}
-              <div className="px-2 py-1.5 text-xs text-gray-700 truncate">{c.title || '—'}</div>
+              <div className="px-2 py-1.5 text-xs text-gray-700 truncate">{c.speaker_name || '—'}</div>
             </div>
           ))}
         </div>

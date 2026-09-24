@@ -2146,6 +2146,16 @@ function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
   const [mode, setMode] = useState<'auto' | 'manual'>(day.room?.speaker_mode || 'auto')
   const [ecId, setEcId] = useState<number | ''>(day.room?.manual_speaker_ec_id || '')
   const [msg, setMsg] = useState('')
+  // ⚠️ Спикеры по дням, в порядке выступления (24.09.2026). Плоский список по
+  // алфавиту здесь бесполезен: ведущий в эфире ищет не «кого-нибудь по
+  // фамилии», а «кто выступает сейчас» — и смотрит на программу дня.
+  const [groups, setGroups] = useState<any[]>([])
+
+  useEffect(() => {
+    api.webinar.speakersByDay(eventId)
+      .then((r: any) => setGroups(r.groups || []))
+      .catch(() => setGroups([]))
+  }, [eventId])
 
   useEffect(() => {
     setMode(day.room?.speaker_mode || 'auto')
@@ -2163,7 +2173,14 @@ function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
 
   // Кто реально показан в комнате: при manual — выбранный спикер; при auto — по программе.
   const curManual = day.room?.manual_speaker_ec_id
-  const curManualName = curManual ? (speakers.find((s: any) => s.id === curManual)?.name || `#${curManual}`) : null
+  // ⚠️ Имя ищем и в группах по дням, и в общем списке: группы приходят
+  // отдельным запросом и в первый миг пусты, а подпись «кто в комнате» нужна
+  // сразу — иначе вместо имени мелькает «#57».
+  const curManualName = curManual
+    ? (groups.flatMap((g: any) => g.speakers || []).find((s: any) => s.id === curManual)?.name
+       || speakers.find((s: any) => s.id === curManual)?.name
+       || `#${curManual}`)
+    : null
 
   return (
     <div className="border rounded-xl p-4">
@@ -2197,9 +2214,24 @@ function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
       </div>
       {mode === 'manual' && (
         <div className="flex gap-2 items-center">
+          {/* ⚠️ Группы по дням — через <optgroup>, персиковой заливкой шапки
+              (#FFCFA4 на #25455D), как у группировок в проекте. Внутри дня
+              порядок слотов: у времени слота есть смысл, у алфавита нет.
+              Пока список не пришёл — плоский набор, чтобы выбор не пропадал. */}
           <select className="input flex-1" value={ecId} onChange={e => setEcId(Number(e.target.value) || '')}>
             <option value="">— выберите спикера —</option>
-            {speakers.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {groups.length > 0
+              ? groups.map((g: any) => (
+                  <optgroup key={g.label} label={g.label}
+                            style={{ background: '#FFCFA4', color: '#25455D', fontWeight: 700 }}>
+                    {g.speakers.map((s: any) => (
+                      <option key={s.id} value={s.id} style={{ background: '#fff', color: '#1a2a3a', fontWeight: 400 }}>
+                        {s.start_time ? `${s.start_time} · ${s.name}` : s.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              : speakers.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <button onClick={() => ecId && apply('manual', Number(ecId))} disabled={!ecId} className="btn-gold text-sm disabled:opacity-40">
             Поставить

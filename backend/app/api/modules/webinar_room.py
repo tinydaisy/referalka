@@ -1601,6 +1601,94 @@ async def run_cut(event_id: int, day_number: int, recording_id: int,
     return {"ok": True, "queued": pending}
 
 
+@router.post("/{day_number}/covers", summary="Собрать обложки по программе дня")
+async def build_day_covers(event_id: int, day_number: int,
+                           client=Depends(get_current_client), db=Depends(get_db)):
+    """Обложки выступлений этого дня — ПО СЛОТАМ ПРОГРАММЫ, без записи эфира.
+
+    ⚠️⚠️ ЗАПИСЬ ДЛЯ ЭТОГО НЕ НУЖНА (24.09.2026). Раньше обложки собирались
+    только по кускам нарезки, и связь была ложной: из записи в картинку не
+    попадает НИЧЕГО — ни кадра, ни времени. Запись служила лишь способом
+    узнать спикера. А спикер, его тема и фото есть в программе дня с самого
+    начала — значит обложки можно готовить заранее, до всякого эфира.
+
+    Прежний путь (сборка по кускам записи) остался ниже: он нужен, когда
+    нарезка уже сделана и обложку надо перерисовать под конкретный кусок.
+
+    ⚠️ Слот без спикера пропускаем молча — это перерывы и технические блоки
+    («Открытие Дня» со спикером остаётся). Слот, где спикер скрыт из показа
+    (`is_visible = FALSE`), тоже пропускаем: его не показывают публике.
+    """
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+
+    from app.services.cut_cover import render_speaker_cover
+    from app.services.store_file import store_bytes
+
+    # ⚠️ Тема — из `conf_speaker_topics` через `topic_id` слота, как на лендинге
+    # и в программе. `conf_sessions.title` НЕ годится: там у большинства слотов
+    # заглушка «Тема будет уточнена позже».
+    slots = await db.fetch(
+        "SELECT s.id AS slot_id, ec.id AS ec_id, "
+        "       COALESCE("
+        "           NULLIF(btrim(cst.topic), ''),"
+        "           (SELECT NULLIF(btrim(t.topic), '') FROM conf_speaker_topics t"
+        "             WHERE t.cse_id = ec.id ORDER BY t.sort_order, t.id LIMIT 1),"
+        "           NULLIF(btrim(ec.speaker_topic), '')"
+        "       ) AS topic "
+        "  FROM conf_sessions s "
+        "  JOIN event_collaborators ec ON ec.id = s.speaker_id AND ec.is_visible = TRUE "
+        "  LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id "
+        " WHERE s.event_id = $1 AND s.day = $2 "
+        " ORDER BY NULLIF(s.start_time, '') NULLS LAST, s.sort_order, s.id",
+        event_id, day_number)
+    if not slots:
+        raise HTTPException(
+            400, "В программе этого дня нет выступлений со спикерами — "
+                 "заполните программу дня, и обложки соберутся по ней")
+
+    done, failed = 0, 0
+    seen: set[int] = set()
+    for s in slots:
+        # Один спикер может вести несколько слотов — рисуем ему одну обложку.
+        if s["ec_id"] in seen:
+            continue
+        seen.add(s["ec_id"])
+        png = await render_speaker_cover(
+            db, client_id=cid, ec_id=s["ec_id"], topic=s["topic"] or "")
+        if not png:
+            failed += 1
+            continue
+        saved = await store_bytes(
+            db, client_id=cid, data=png,
+            kind="material_media", ext="png", content_type="image/png",
+        )
+        await db.execute(
+            "INSERT INTO event_speaker_covers (event_id, day_number, ec_id, cover_url) "
+            " VALUES ($1,$2,$3,$4) "
+            " ON CONFLICT (event_id, day_number, ec_id) "
+            " DO UPDATE SET cover_url = EXCLUDED.cover_url, updated_at = now()",
+            event_id, day_number, s["ec_id"], saved["url"])
+        done += 1
+
+    return {"ok": True, "done": done, "failed": failed, "total": len(seen)}
+
+
+@router.get("/{day_number}/covers", summary="Обложки выступлений этого дня")
+async def list_day_covers(event_id: int, day_number: int,
+                          client=Depends(get_current_client), db=Depends(get_db)):
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rows = await db.fetch(
+        "SELECT sc.ec_id, sc.cover_url, " + DISPLAY_NAME_SQL("c") + " AS speaker_name "
+        "  FROM event_speaker_covers sc "
+        "  JOIN event_collaborators ec ON ec.id = sc.ec_id "
+        "  LEFT JOIN collaborators c ON c.id = ec.speaker_id "
+        " WHERE sc.event_id = $1 AND sc.day_number = $2 "
+        " ORDER BY sc.updated_at DESC", event_id, day_number)
+    return {"covers": [dict(r) for r in rows]}
+
+
 @router.post("/{day_number}/recordings/{recording_id}/covers",
              summary="Собрать обложки выступлений")
 async def build_covers(event_id: int, day_number: int, recording_id: int,
@@ -2144,6 +2232,66 @@ async def stream_unpublish(path: str = Query(...), x_bridge_token: Optional[str]
     from app.services.webinar_hub import publish
     await publish(room["id"], {"type": "stream_offline"})
     return {"ok": True}
+
+
+@router.get("/speakers-by-day", summary="Спикеры события по дням, в порядке выступления")
+async def speakers_by_day(event_id: int,
+                          client=Depends(get_current_client), db=Depends(get_db)):
+    """Список для выбора спикера в пульте: сгруппирован по дням программы.
+
+    ⚠️ Плоский алфавитный список (общий `speakers.list`) здесь не годится: на
+    конференции два-три дня и два десятка спикеров, и ведущий в эфире ищет не
+    «кого-нибудь по фамилии», а «кто выступает сейчас». Порядок слотов —
+    единственный, который совпадает с тем, что у ведущего перед глазами.
+
+    ⚠️ Порядок внутри дня — ТОТ ЖЕ, что в программе: по времени слота, затем
+    по `sort_order`. Один спикер в нескольких слотах дня показывается один
+    раз — по самому раннему.
+
+    ⚠️ Спикеры, которых нет ни в одном слоте, идут последней группой «Вне
+    программы»: их тоже надо иметь возможность поставить вручную, когда
+    программа поехала — ровно для этого ручной режим и сделан.
+    """
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+
+    rows = await db.fetch(
+        "SELECT DISTINCT ON (ec.id) "
+        "       ec.id, " + DISPLAY_NAME_SQL("c") + " AS name, "
+        "       s.day, NULLIF(s.start_time,'') AS start_time, s.sort_order "
+        "  FROM event_collaborators ec "
+        "  LEFT JOIN collaborators c ON c.id = ec.speaker_id "
+        "  LEFT JOIN conf_sessions s ON s.speaker_id = ec.id AND s.event_id = ec.event_id "
+        " WHERE ec.event_id = $1 AND ec.is_visible = TRUE "
+        " ORDER BY ec.id, s.day NULLS LAST, NULLIF(s.start_time,'') NULLS LAST, s.sort_order",
+        event_id)
+
+    days = await db.fetch(
+        "SELECT day_number, day_date, title FROM conf_days "
+        " WHERE event_id = $1 ORDER BY day_number", event_id)
+    day_title = {int(d["day_number"]): (d["title"] or "") for d in days}
+
+    groups: dict = {}
+    for r in rows:
+        key = int(r["day"]) if r["day"] is not None else 0
+        groups.setdefault(key, []).append({
+            "id": r["id"],
+            "name": (r["name"] or "").strip() or f"#{r['id']}",
+            "start_time": r["start_time"] or "",
+            "sort_order": r["sort_order"] if r["sort_order"] is not None else 0,
+        })
+
+    out = []
+    for key in sorted(groups):
+        items = sorted(groups[key], key=lambda x: (
+            x["start_time"] == "", x["start_time"], x["sort_order"]))
+        out.append({
+            "day": key or None,
+            "label": (f"День {key}" + (f" · {day_title[key]}" if day_title.get(key) else ""))
+                     if key else "Вне программы",
+            "speakers": items,
+        })
+    return {"groups": out}
 
 
 # ─────────────────────────── текущий спикер (пульт ведущего) ───────────────────────────
