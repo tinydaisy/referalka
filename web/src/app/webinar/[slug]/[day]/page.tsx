@@ -94,6 +94,11 @@ export default function WebinarRoomPage() {
   const [needReg, setNeedReg] = useState(false)
   const [regEventRes, setRegEventRes] = useState<any>(null)  // результат кнопки «Регистрация на событие»
   const [playerStuck, setPlayerStuck] = useState(false)      // плеер завис/чёрный экран → показать кнопку «Обновить видео»
+  // ⚠️ «Идёт загрузка» после нажатия (24.09.2026). Видео стартует не
+  // мгновенно, и в эти секунды кнопка «Смотреть эфир» возвращалась —
+  // выглядело, будто нажатие не работает, и человек жал снова и снова.
+  // Теперь на это время показываем крутилку вместо кнопки.
+  const [playerLoading, setPlayerLoading] = useState(false)
   const hlsInstRef = useRef<any>(null)                       // текущий hls.js — для ручного перезапуска кнопкой
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -247,7 +252,11 @@ export default function WebinarRoomPage() {
           h.loadSource(rm.hls_url); h.attachMedia(video)
           h.on(Hls.Events.MANIFEST_PARSED, () =>
             playWithSound(video).then(ok => setPlayerStuck(!ok)))
-          h.on(Hls.Events.FRAG_BUFFERED, () => { netErrCount = 0; setPlayerStuck(false) })
+          // ⚠️ Кадры пошли → снимаем и «зависло», и «идёт загрузка»: это
+          // единственный честный признак, что зритель видит картинку.
+          h.on(Hls.Events.FRAG_BUFFERED, () => {
+            netErrCount = 0; setPlayerStuck(false); setPlayerLoading(false)
+          })
           h.on(Hls.Events.ERROR, (_e: any, data: any) => {
             if (!data?.fatal) return
             if (data.type === 'networkError') {
@@ -269,7 +278,7 @@ export default function WebinarRoomPage() {
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // iOS Safari — нативный HLS
         video.addEventListener('error', nativeError)
-        video.addEventListener('playing', () => setPlayerStuck(false))
+        video.addEventListener('playing', () => { setPlayerStuck(false); setPlayerLoading(false) })
         video.src = rm.hls_url; video.load()
         playWithSound(video).then(ok => setPlayerStuck(!ok))
       }
@@ -287,32 +296,33 @@ export default function WebinarRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.room?.hls_url, room?.room?.stream_type])
 
-  // ⚠️⚠️ СТОРОЖ «видео молча не играет» (23.09.2026). Признак `playerStuck`
-  // ставился только при ОШИБКЕ hls.js или провале play(). Но на телефоне
-  // бывает третий случай: ошибки нет, play() формально прошёл, а картинки нет —
-  // браузер поставил видео на паузу сам (autoplay-политика, экономия трафика,
-  // сворачивание вкладки). Кнопки при этом не было вовсе: зритель видел чёрный
-  // прямоугольник и не знал, что делать. Поэтому спрашиваем САМО видео.
+  // ⚠️⚠️ СТОРОЖА «видео молча не играет» ЗДЕСЬ БОЛЬШЕ НЕТ (24.09.2026).
   //
-  // ⚠️ Смотрим `paused` и `readyState`, а не «прошло N секунд»: видео может
-  // законно буферизоваться на медленной сети — это не повод пугать кнопкой.
-  // Проверяем раз в 2 с и только в эфире.
-  useEffect(() => {
-    // ⚠️ Состояние берём из ref, а не из `live`: хук обязан стоять ВЫШЕ
-    // любых условных return (правило хуков React), а `live` объявляется
-    // ниже по файлу. Нарушение уронило страницу «Application error».
-    if (roomRef.current?.room?.status !== 'live') return
-    const t = setInterval(() => {
-      const v = videoRef.current
-      if (!v) return
-      // HAVE_CURRENT_DATA (2) и выше — кадры есть. Меньше + пауза = не играет.
-      if (v.paused || v.readyState < 2) setPlayerStuck(true)
-      else setPlayerStuck(false)
-    }, 2000)
-    return () => clearInterval(t)
-  }, [room?.room?.status])
+  // Он раз в 2 секунды смотрел `paused`/`readyState` и поднимал кнопку
+  // «Смотреть эфир». На проде это дало БЕСКОНЕЧНУЮ ПЕТЛЮ: зритель жмёт
+  // кнопку → плеер перезапускается → видео на пару секунд уходит в
+  // буферизацию (`readyState < 2`) → сторож снова поднимает кнопку. Нажать
+  // и начать смотреть было невозможно.
+  //
+  // ⚠️ Лечить таймаутом («подождать N секунд после нажатия») — плохо: на
+  // медленной сети буферизация дольше любого разумного N, и петля вернётся.
+  // Правильный признак «не играет» — СОБЫТИЯ плеера (pause/error/stalled),
+  // а не опрос состояния. Они уже обработаны: playWithSound ставит
+  // playerStuck при провале play(), а hls.js — при fatal-ошибке. Этого
+  // достаточно, лишний опрос только мешал.
+
   // Ручной перезапуск плеера (кнопка «Обновить видео»): пере-инициализируем hls.js
   // или перезагружаем нативный src. Это то, что раньше делал только F5.
+  // ⚠️ Страховка: крутилка не должна висеть вечно. Видео не пошло за 12
+  // секунд — возвращаем кнопку, чтобы человек мог попробовать ещё раз.
+  // ⚠️ 12 с, а не 2-3: на медленной сети видео законно грузится долго, и
+  // ранний возврат кнопки вернул бы ту самую карусель.
+  useEffect(() => {
+    if (!playerLoading) return
+    const t = setTimeout(() => setPlayerLoading(false), 12000)
+    return () => clearTimeout(t)
+  }, [playerLoading])
+
   const reloadPlayer = useCallback(() => {
     const rm = roomRef.current?.room
     const video = videoRef.current
@@ -788,7 +798,9 @@ export default function WebinarRoomPage() {
               // телефоне это выглядело как «иногда работает, иногда нет».
               // Клик по видео — это и есть то действие пользователя, которого
               // ждёт браузер, чтобы разрешить воспроизведение со звуком.
-              onClick={() => { const v = videoRef.current; if (v) playWithSound(v).then(ok => setPlayerStuck(!ok)) }}
+              onClick={() => { const v = videoRef.current; if (!v) return
+                setPlayerLoading(true)
+                playWithSound(v).then(ok => { setPlayerStuck(!ok); if (!ok) setPlayerLoading(false) }) }}
               // @ts-ignore — атрибут для старых iOS
               webkit-playsinline="true"
               className="w-full h-full cursor-pointer" />}
@@ -808,8 +820,24 @@ export default function WebinarRoomPage() {
                 и читается как «обновить», а не «включить».
                 ⚠️ Кликабельна ВСЯ плашка, не только кружок: промахнуться по
                 кнопке на телефоне слишком легко. */}
-            {live && playerStuck && (
-              <button onClick={reloadPlayer}
+            {/* ⚠️⚠️ ПОКА ГРУЗИТСЯ — «Видео подгружается…», а не кнопка
+                (24.09.2026). Видео стартует не мгновенно, и если в эти секунды
+                показывать «Смотреть эфир», выглядит, будто нажатие не
+                сработало: человек жмёт снова и снова. Крутилка честно говорит,
+                что всё идёт, и ждать осталось недолго.
+                ⚠️ Плашка загрузки НЕ кликабельна: повторное нажатие рвёт уже
+                идущую загрузку и начинает её заново — именно так и получалась
+                бесконечная карусель. */}
+            {live && playerLoading && (
+              <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-3 bg-black/75 text-center px-6">
+                <span className="w-12 h-12 rounded-full border-2 border-white/25 animate-spin"
+                  style={{ borderTopColor: '#FFCFA4' }} />
+                <span className="text-white font-semibold">Видео подгружается…</span>
+                <span className="text-white/50 text-xs">Это занимает пару секунд</span>
+              </div>
+            )}
+            {live && playerStuck && !playerLoading && (
+              <button onClick={() => { setPlayerLoading(true); reloadPlayer() }}
                 className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-3 bg-black/75 text-center px-6 cursor-pointer">
                 <span className="w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg"
                   style={{ background: '#FFCFA4', color: '#0a1520' }}>▶</span>
