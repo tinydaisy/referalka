@@ -19,6 +19,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import DialogChat from '@/components/DialogChat'
+import DialogClientCard from '@/components/tech/DialogClientCard'
 
 const PLATFORM_RU: Record<string, string> = {
   telegram: 'Telegram', vk: 'ВК', max: 'MAX', email: 'почта',
@@ -126,7 +127,7 @@ export default function TechDialogsPage() {
         ))}
       </div>
 
-      {/* ── Переписка справа ──────────────────────────────────────────── */}
+      {/* ── Переписка в середине ──────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden bg-gray-50">
         {!openId ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-gray-400">
@@ -148,6 +149,17 @@ export default function TechDialogsPage() {
           />
         )}
       </div>
+
+      {/* ── Карточка человека справа ──────────────────────────────────────
+          ⚠️ ТОЛЬКО ЧТЕНИЕ: кто это, как ещё с ним связаться, платит ли,
+          что настроено. Раньше ради этого приходилось уходить из диалога.
+          ⚠️ На узком экране прячем: три колонки туда не помещаются, а
+          переписка важнее справки. */}
+      {openId && (
+        <div className="hidden w-80 shrink-0 overflow-hidden border-l border-gray-200 xl:block">
+          <DialogClientCard key={openId} contactId={openId} />
+        </div>
+      )}
     </div>
   )
 }

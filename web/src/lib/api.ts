@@ -1608,6 +1608,9 @@ export const api = {
       const qs = s.toString()
       return request(`/api/v1/tech/crm${qs ? `?${qs}` : ''}`)
     },
+    // Карточка человека рядом с перепиской — только чтение (24.09.2026).
+    dialogCard: (contactId: number) =>
+      request(`/api/v1/tech/dialogs/card/${contactId}`),
     // Завести разговор с клиентом, которого в боте ещё нет (23.09.2026).
     startDialog: (client_id: number) =>
       request('/api/v1/tech/dialogs/start',
