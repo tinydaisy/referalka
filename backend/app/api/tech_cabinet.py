@@ -152,9 +152,26 @@ async def my_clients(
                                     WHERE eo.event_id = wr.event_id
                                       AND eo.client_id = c.id
                                       AND eo.status = 'accepted')) AS webinars_count,
-                   (SELECT COUNT(*) FROM collaborators co
-                      JOIN contacts ct ON ct.id = co.contact_id
-                     WHERE ct.client_id = c.id) AS collaborators_count,
+                   -- ⚠️⚠️ КОЛЛАБОРАЦИИ — ЭТО СОВМЕСТНЫЕ СОБЫТИЯ (23.09.2026),
+                   -- а не число спикеров в базе. Раньше здесь считались
+                   -- `collaborators` — карточки людей, которых клиент добавил
+                   -- к своим событиям; их бывают десятки и у того, кто ни с
+                   -- кем не сотрудничал. Внедренцу нужен другой факт: с кем-то
+                   -- ли человек ведёт события совместно.
+                   --
+                   -- ⚠️ Считаем `is_collab`-события, где организаторов БОЛЬШЕ
+                   -- ОДНОГО: событие с галочкой «коллаб», но с единственным
+                   -- владельцем — это ещё не сотрудничество.
+                   (SELECT COUNT(*) FROM events e2
+                     WHERE e2.is_collab
+                       AND EXISTS (SELECT 1 FROM event_owners eo2
+                                    WHERE eo2.event_id = e2.id
+                                      AND eo2.client_id = c.id
+                                      AND eo2.status = 'accepted')
+                       AND (SELECT COUNT(*) FROM event_owners eo3
+                             WHERE eo3.event_id = e2.id
+                               AND eo3.status = 'accepted') > 1)
+                     AS collabs_count,
                    ({crm_case}) AS crm_status,
                    -- Свой или из базы ПЛЮСОНА: от этого зависят проценты.
                    ({REFERRER_SPEC_SQL} = $1) AS is_own,
