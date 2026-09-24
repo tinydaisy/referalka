@@ -22,6 +22,8 @@ from pydantic import BaseModel
 
 from app.auth import get_current_tech
 from app.database import get_db
+# ⚠️ Статус воронки — из ОБЩЕГО модуля: теми же выражениями считаются деньги.
+from app.services.tech_accruals import CRM_CASE_SQL
 
 router = APIRouter(prefix="/tech/dialogs", tags=["Внедренец: диалоги"])
 
@@ -253,6 +255,119 @@ async def messages(
         },
         "available_platforms": [r["platform_slug"] for r in accs],
     }
+
+
+@router.get("/card/{contact_id}", summary="Карточка человека рядом с перепиской")
+async def dialog_card(
+    contact_id: int,
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Кто этот человек — всё, что нужно знать перед ответом (24.09.2026).
+
+    ⚠️ ТОЛЬКО ЧТЕНИЕ. Менять отсюда ничего нельзя: тарифы, модули и данные
+    человека — не зона внедренца.
+
+    ⚠️ Объявлен ДО `/{contact_id}`: FastAPI разбирает маршруты по порядку, и
+    после него «card» ушёл бы в динамический путь как номер контакта.
+
+    Состав выбран владельцем: контакты и соцсети, когда создан, кто привёл,
+    деньги и тариф, что у него есть (события/боты/подписчики/вебинары),
+    подключённые модули. Профиль и ниша не выводятся — заполнены редко.
+    """
+    spec_id = int(user["sub"])
+    sys_client_id = await _system_client_id(db)
+    await _assert_mine(db, spec_id, sys_client_id, contact_id)
+
+    # Контакт в боте и клиент платформы — РАЗНЫЕ записи, общее у них почта.
+    row = await db.fetchrow(
+        f"""SELECT ct.id AS contact_id, ct.name AS contact_name, ct.phone,
+                   ct.created_at AS contact_created_at,
+                   cl.id AS client_id, cl.name, cl.last_name, cl.email,
+                   cl.phone AS client_phone, cl.telegram_username,
+                   cl.work_tg_username, cl.work_vk, cl.work_max,
+                   cl.social_links, cl.brand_name, cl.created_at,
+                   cl.tech_assigned_at, cl.timezone,
+                   t.name AS tariff_name, cs.expires_at, cs.status AS sub_status,
+                   cs.source AS sub_source,
+                   ({CRM_CASE_SQL.replace('c.id', 'cl.id')}) AS crm_status,
+                   -- Кто привёл В ПЛЮСОН: имя того, по чьей ссылке пришёл.
+                   refc.name AS referrer_name,
+                   refc.email AS referrer_email,
+                   -- Деньги.
+                   (SELECT COUNT(*) FROM subscription_orders so
+                     WHERE so.client_id = cl.id AND so.status='paid'
+                       AND so.amount_paid_card_kopecks > 0) AS payments_count,
+                   (SELECT COALESCE(SUM(so.amount_paid_card_kopecks),0)
+                      FROM subscription_orders so
+                     WHERE so.client_id = cl.id AND so.status='paid')
+                     AS total_paid_kopecks,
+                   (SELECT MAX(so.paid_at) FROM subscription_orders so
+                     WHERE so.client_id = cl.id AND so.status='paid') AS last_paid_at,
+                   -- Что у него есть.
+                   (SELECT COUNT(*) FROM events e
+                     WHERE EXISTS (SELECT 1 FROM event_owners eo
+                                    WHERE eo.event_id = e.id AND eo.client_id = cl.id
+                                      AND eo.status='accepted')) AS events_count,
+                   (SELECT COUNT(*) FROM client_channels cc
+                      JOIN channels ch ON ch.id = cc.channel_id
+                     WHERE cc.client_id = cl.id AND ch.is_system = FALSE)
+                     AS own_channels_count,
+                   (SELECT COUNT(*) FROM platform_user_channels puc
+                      JOIN client_channels cc ON cc.id = puc.client_channel_id
+                     WHERE cc.client_id = cl.id AND puc.is_unsubscribed = FALSE)
+                     AS subscribers_count,
+                   (SELECT COUNT(*) FROM webinar_rooms wr
+                     WHERE EXISTS (SELECT 1 FROM event_owners eo
+                                    WHERE eo.event_id = wr.event_id
+                                      AND eo.client_id = cl.id
+                                      AND eo.status='accepted')) AS webinars_count,
+                   (SELECT COUNT(*) FROM contacts c2
+                     WHERE c2.client_id = cl.id AND c2.is_active) AS contacts_count,
+                   -- Подключённые модули с датой окончания.
+                   (SELECT json_agg(json_build_object(
+                             'name', f.name,
+                             'expires_at', ca.expires_at,
+                             'is_active', (ca.status='active' AND ca.expires_at > NOW()))
+                           ORDER BY (ca.status='active' AND ca.expires_at > NOW()) DESC,
+                                    ca.expires_at DESC)
+                      FROM client_addons ca
+                      JOIN features f ON f.id = ca.feature_id
+                     WHERE ca.client_id = cl.id) AS addons
+              FROM contacts ct
+              LEFT JOIN clients cl
+                     ON LOWER(TRIM(cl.email)) = LOWER(TRIM((
+                          SELECT pe.platform_user_id FROM platform_users pe
+                           WHERE pe.contact_id = ct.id
+                             AND pe.platform_slug = 'email'
+                           ORDER BY pe.id LIMIT 1)))
+              LEFT JOIN client_subscriptions cs ON cs.id = cl.current_subscription_id
+              LEFT JOIN tariffs t ON t.id = cs.tariff_id
+              LEFT JOIN clients refc ON refc.id = cl.referred_by_client_id
+             WHERE ct.id = $1::int""",
+        contact_id)
+    if not row:
+        raise HTTPException(404, "Не найден")
+
+    d = dict(row)
+    # ⚠️ jsonb из asyncpg приходит СТРОКОЙ — разбираем, иначе фронт получит
+    # текст вместо объекта и упадёт на `.map`.
+    import json as _json
+    for k in ("social_links", "addons"):
+        if isinstance(d.get(k), str):
+            try:
+                d[k] = _json.loads(d[k])
+            except Exception:  # noqa: BLE001
+                d[k] = None
+
+    # Аккаунты человека в мессенджерах — из его контакта в боте.
+    accs = await db.fetch(
+        """SELECT platform_slug, username, platform_user_id
+             FROM platform_users WHERE contact_id = $1::int
+            ORDER BY platform_slug""",
+        contact_id)
+    d["accounts"] = [dict(a) for a in accs]
+    return d
 
 
 class StartIn(BaseModel):
