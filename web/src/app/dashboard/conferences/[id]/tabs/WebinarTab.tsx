@@ -1664,11 +1664,14 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
       {/* Текущий спикер: авто по программе или вручную (если программа поехала) */}
       <CurrentSpeakerControl eventId={eventId} day={day} speakers={speakers} onChanged={onChanged} />
 
+      {/* Зал: сколько зашло и сколько смотрят прямо сейчас + реакции спикеров.
+          ⚠️ МЕЖДУ «Сейчас выступает» и «Показ блоков» — так просил владелец
+          (24.09.2026): цифры зала нужны ведущему рядом с тем, кто выступает. */}
+      <LiveAudienceStats eventId={eventId} day={day} />
+
       {/* Показ блоков вживую + порядок + сетка — менеджер управляет внешним видом */}
       <BlocksLive eventId={eventId} day={day} onSettingsChanged={onChanged} />
 
-      {/* Зал: сколько зашло и сколько смотрят прямо сейчас + реакции спикеров */}
-      <LiveAudienceStats eventId={eventId} day={day} />
 
       {/* Опрос */}
       <div className="border rounded-xl p-4">
