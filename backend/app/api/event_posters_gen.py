@@ -1444,9 +1444,27 @@ async def poster_render(
     except PosterRenderError as e:
         raise HTTPException(503, detail=str(e))
 
+    # ⚠️⚠️ СОБРАННУЮ АФИШУ СЖИМАЕМ, как и загруженную руками (24.09.2026, прод).
+    # Рендер идёт с полуторным увеличением (_SCALE в poster_render.py) — на
+    # выходе 2880×1620 PNG, у реального события вышло 4320×2430 и 4,2 МБ. Файл
+    # уезжал в хранилище как есть: `store_bytes` (в отличие от общей загрузки
+    # через /uploads) `process_image` НЕ вызывает.
+    #
+    # Цена была не только в трафике лендинга и Mini App: карточка ссылки в
+    # мессенджере (мигр. 503) такую афишу не показывала вовсе — у Telegram
+    # предел стороны 1280 px, и тяжёлую картинку он просто отбрасывал, оставляя
+    # карточку с логотипом. `process_image` ужимает до 1920 px по длинной
+    # стороне — как у афиш, загруженных клиентом.
+    #
+    # ⚠️ Тип и расширение берём ИЗ РЕЗУЛЬТАТА: непрозрачный скриншот выходит
+    # JPEG'ом, и сохранив его под именем .png с `image/png`, мы бы отдавали
+    # файл с чужим типом.
+    from app.services.image_processor import process_image
+    data, content_type, ext = process_image(png, "event_poster", "image/png")
+
     saved = await store_bytes(
-        db, client_id=client_id, data=png,
-        kind="event_poster", ext="png", content_type="image/png",
+        db, client_id=client_id, data=data,
+        kind="event_poster", ext=ext, content_type=content_type,
         event_id=event_id, poster_type=orientation,
     )
 
@@ -1654,18 +1672,35 @@ async def poster_render_all(
                 event_id, orientation,
             )
 
-    async def _shot(day: int | None = None, speaker_id: int | None = None) -> bytes:
+    async def _shot(day: int | None = None, speaker_id: int | None = None,
+                    store_kind: str = "event_poster") -> tuple[bytes, str, str]:
+        """Снимок афиши, УЖЕ сжатый под хранение → (байты, content_type, ext).
+
+        ⚠️ Сжатие живёт здесь, а не у каждого `store_bytes` ниже: мест сохранения
+        три (общие, по дням, индивидуальные), и забыть его в одном из них —
+        вопрос времени. Ровно так и вышло: рендер даёт 2880×1620 (полуторное
+        увеличение, `_SCALE` в poster_render.py), у реального события — 4320×2430
+        и 4,2 МБ, и всё это уезжало в хранилище как есть, потому что
+        `store_bytes` (в отличие от загрузки через /uploads) `process_image`
+        не вызывает. Кроме трафика лендинга и Mini App это ломало карточку
+        ссылки в мессенджере (мигр. 503): у Telegram предел стороны 1280 px,
+        тяжёлую картинку он отбрасывал, и в чате оставался логотип вместо афиши.
+        """
         url = _render_url(event_id, orientation, client_id, kind, day, speaker_id)
         try:
-            return await render_poster_png(url, orientation)
+            png = await render_poster_png(url, orientation)
         except PosterRenderError as e:
             raise HTTPException(503, detail=str(e))
+        from app.services.image_processor import process_image
+        # ⚠️ Тип и расширение — ИЗ РЕЗУЛЬТАТА: непрозрачный скриншот выходит
+        # JPEG'ом, и сохранив его как .png мы бы отдавали файл с чужим типом.
+        return process_image(png, store_kind, "image/png")
 
     if kind == "common":
-        png = await _shot()
+        data, ctype, ext = await _shot()
         saved = await store_bytes(
-            db, client_id=client_id, data=png, kind="event_poster",
-            ext="png", content_type="image/png",
+            db, client_id=client_id, data=data, kind="event_poster",
+            ext=ext, content_type=ctype,
             event_id=event_id, poster_type=orientation,
         )
         await db.execute(
@@ -1676,10 +1711,10 @@ async def poster_render_all(
 
     elif kind == "day":
         for d in await _days(db, event_id):
-            png = await _shot(day=d["day"])
+            data, ctype, ext = await _shot(day=d["day"])
             saved = await store_bytes(
-                db, client_id=client_id, data=png, kind="event_poster",
-                ext="png", content_type="image/png",
+                db, client_id=client_id, data=data, kind="event_poster",
+                ext=ext, content_type=ctype,
                 event_id=event_id, poster_type=orientation,
             )
             # ⚠️ В афиши СВОЕГО дня: у `event_posters` для этого есть `day`.
@@ -1703,10 +1738,10 @@ async def poster_render_all(
             if not people:
                 raise HTTPException(404, detail="Спикер не найден среди участников события")
         for p in people:
-            png = await _shot(speaker_id=p["id"])
+            data, ctype, ext = await _shot(speaker_id=p["id"], store_kind="speaker_poster")
             saved = await store_bytes(
-                db, client_id=client_id, data=png, kind="speaker_poster",
-                ext="png", content_type="image/png",
+                db, client_id=client_id, data=data, kind="speaker_poster",
+                ext=ext, content_type=ctype,
                 collaborator_id=p["id"],
             )
             # В библиотеку афиш человека.

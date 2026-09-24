@@ -37,7 +37,8 @@ async function getLanding(slug: string, kind: 'main' | 'post_pay', preview?: str
   }
 }
 
-/** Дата события для подписи карточки: «26 октября в 10:00 МСК».
+/** Дата события для подписи карточки: «26 октября в 10:00 МСК»,
+ *  «с 24 сентября по 1 октября» или «24–30 сентября».
  *
  * ⚠️ Время ВСЕГДА московское и подписано «МСК». Карточку мессенджер забирает
  * один раз и показывает её всем одинаково — подставить каждому читателю его
@@ -47,13 +48,52 @@ async function getLanding(slug: string, kind: 'main' | 'post_pay', preview?: str
  * ⚠️ Полночь (00:00) печатаем без времени. У события, которому задали только
  * дату, время в базе выходит нулевым — и «в 00:00» выглядело бы как ночное
  * мероприятие.
+ *
+ * ⚠️⚠️ МНОГОДНЕВНОЕ СОБЫТИЕ — ПЕРИОД, А НЕ ПЕРВЫЙ ДЕНЬ (24.09.2026, прод).
+ * У конференции/премии даты берутся из ПРОГРАММЫ (`conf_days`): `start_at` —
+ * первый день, `end_at` — последний (см. event_landing_public.py). В подпись
+ * уходил только `start_at`, и конференция длиной в неделю звала «приходи 24
+ * сентября» — человек читал это как однодневное событие и мог решить, что
+ * опоздал, увидев ссылку 26-го.
  */
-function formatEventDate(startAt?: string | null, datesFromProgram?: boolean): string {
+const EVENT_TZ = 'Europe/Moscow'
+
+/** Идёт ли событие больше одного дня. Единая точка правила — от неё зависит и
+ *  формат даты, и выбор умолчания, и они обязаны совпадать. */
+function isDateRange(startAt?: string | null, endAt?: string | null): boolean {
+  if (!startAt || !endAt) return false
+  const d = new Date(startAt), e = new Date(endAt)
+  if (isNaN(d.getTime()) || isNaN(e.getTime())) return false
+  // Сравниваем календарные сутки в МСК, а не метки времени: у однодневного
+  // события `end_at` обычно стоит вечером того же дня.
+  const key = (x: Date) => x.toLocaleDateString('en-CA', { timeZone: EVENT_TZ })
+  return key(e) > key(d)
+}
+
+function formatEventDate(
+  startAt?: string | null,
+  datesFromProgram?: boolean,
+  endAt?: string | null,
+): string {
   if (!startAt) return ''
   const d = new Date(startAt)
   if (isNaN(d.getTime())) return ''
-  const TZ = 'Europe/Moscow'
-  const day = d.toLocaleDateString('ru', { day: 'numeric', month: 'long', timeZone: TZ })
+  const TZ = EVENT_TZ
+  const fmt = (x: Date, withMonth = true) =>
+    x.toLocaleDateString('ru', withMonth
+      ? { day: 'numeric', month: 'long', timeZone: TZ }
+      : { day: 'numeric', timeZone: TZ })
+  const day = fmt(d)
+
+  if (isDateRange(startAt, endAt)) {
+    const e = new Date(endAt as string)
+    const sameMonth = d.toLocaleDateString('en-CA', { timeZone: TZ }).slice(0, 7)
+      === e.toLocaleDateString('en-CA', { timeZone: TZ }).slice(0, 7)
+    // Внутри одного месяца месяц не повторяем: «24–30 сентября», а не
+    // «с 24 сентября по 30 сентября» — в карточке каждый символ на счету.
+    return sameMonth ? `${fmt(d, false)}–${fmt(e)}` : `с ${day} по ${fmt(e)}`
+  }
+
   // Даты собраны из программы → у дня своё расписание по слотам, общего времени
   // старта у события нет (см. dates_from_program в API лендинга).
   if (datesFromProgram) return day
@@ -74,6 +114,10 @@ const SHARE_PREVIEW_DEFAULT = 'Приходи {дата} на «{названи�
 // нужен ровно такой же, поэтому фразу проще задать целиком, чем чинить
 // падежи вычитанием.
 const SHARE_PREVIEW_DEFAULT_NO_DATE = 'Приходи на «{название}»'
+// ⚠️ И отдельное — для МНОГОДНЕВНОГО: в общую фразу период не вставляется без
+// спотыкания, «Приходи с 24 сентября по 1 октября на «…»» — два предлога
+// подряд. Здесь дата идёт после названия, и фраза читается ровно.
+const SHARE_PREVIEW_DEFAULT_RANGE = '«{название}» — {дата}. Приходи!'
 
 // ⚠️ БЕЗ `export`: Next.js разрешает странице экспортировать только свой набор
 // (default, generateMetadata, dynamic и т.п.) и падает на сборке —
@@ -82,10 +126,12 @@ const SHARE_PREVIEW_DEFAULT_NO_DATE = 'Приходи на «{название}�
 // экспортировать из файла страницы.
 function buildSharePreviewText(
   template: string | null | undefined,
-  { title, date }: { title: string; date: string },
+  { title, date, isRange }: { title: string; date: string; isRange?: boolean },
 ): string {
   const tpl = (template || '').trim()
-    || (date ? SHARE_PREVIEW_DEFAULT : SHARE_PREVIEW_DEFAULT_NO_DATE)
+    || (!date ? SHARE_PREVIEW_DEFAULT_NO_DATE
+      : isRange ? SHARE_PREVIEW_DEFAULT_RANGE
+        : SHARE_PREVIEW_DEFAULT)
   const out = tpl
     .replace(/\{дата\}/g, date)
     .replace(/\{название\}/g, title)
@@ -129,7 +175,8 @@ export async function generateMetadata(
   // карточке Telegram показываются как текст.
   const shareText = buildSharePreviewText(event.share_preview_text, {
     title: event.title,
-    date: formatEventDate(event.start_at, event.dates_from_program),
+    date: formatEventDate(event.start_at, event.dates_from_program, event.end_at),
+    isRange: isDateRange(event.start_at, event.end_at),
   })
   return {
     title: event.title,
