@@ -20,6 +20,11 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
   const [loading, setLoading] = useState(true)
   const [viewers, setViewers] = useState<any[]>([])
   const [showViewers, setShowViewers] = useState(false)
+  // ⚠️ Реакции по спикерам — ИТОГ эфира (24.09.2026). Раньше их было не
+  // видно нигде: цифры копились в базе, а экрана не было. В таблице
+  // зрителей есть колонка «реакции», но это «кто сколько ПОСТАВИЛ», а
+  // организатору нужно «кто сколько СОБРАЛ».
+  const [rx, setRx] = useState<any>(null)
   const [sessions, setSessions] = useState<any[]>([])
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [visible, setVisible] = useState<Record<string, boolean>>(
@@ -41,6 +46,11 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
   }, [eventId, day, step, sessionId])
 
   useEffect(() => { load() }, [load])
+  // Реакции спикеров — одним запросом, тем же, что кормит пульт ведущего.
+  // ⚠️ Ошибку глотаем: аналитика не должна падать из-за побочного блока.
+  useEffect(() => {
+    api.webinar.liveStats(eventId, day).then(setRx).catch(() => {})
+  }, [eventId, day])
 
   useEffect(() => {
     setViewers([])
@@ -222,6 +232,40 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
           </table>
         </div>
       )}
+
+      {/* ⚠️ ИТОГ ПО РЕАКЦИЯМ — внизу, после всех графиков: это не метрика
+          эфира, а результат СПИКЕРОВ, за ним приходят отдельно.
+          ⚠️ Не путать с колонкой «реакции» в таблице зрителей выше: там «кто
+          сколько ПОСТАВИЛ», здесь — «кто сколько СОБРАЛ».
+          ⚠️ Раньше показывался только счёт баттла, а баттл бывает редко —
+          обычные реакции спикеров не было видно нигде. */}
+      <div className="border rounded-xl p-4 mt-4">
+        <h4 className="font-semibold mb-3">🔥 Реакции у спикеров</h4>
+        {!rx ? (
+          <p className="text-sm text-gray-400">Загружаем…</p>
+        ) : !rx.reactions_enabled ? (
+          <p className="text-sm text-gray-500">
+            Реакции не считаются — включите их в настройках комнаты.
+          </p>
+        ) : !(rx.reactions || []).length ? (
+          <p className="text-sm text-gray-500">За этот эфир реакций не ставили.</p>
+        ) : (
+          <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
+            {rx.reactions.map((r: any, i: number) => (
+              <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                <span className="text-gray-800 truncate">
+                  <span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>
+                  {r.speaker_name}
+                </span>
+                <span className="shrink-0 flex gap-4 tabular-nums">
+                  {r.up > 0 && <span title={rx.reaction_up_label}>🔥 {r.up}</span>}
+                  {r.down > 0 && <span title={rx.reaction_down_label}>👎 {r.down}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
