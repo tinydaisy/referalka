@@ -353,16 +353,22 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
   async function copySettingsToAllDays() {
     if (daysCount < 2) return
     if (!confirm(
-      `Скопировать настройки этого дня в остальные дни (${daysCount - 1} шт.)?\n\n` +
-      'Перенесутся: чат, реакции, форма входа, экран после эфира, тип трансляции.\n' +
-      'НЕ перенесутся: название дня, афиши, ключ трансляции и RTMP, ссылка входа ' +
-      'в зум и встреча Zoom — они свои у каждого дня.'
+      `Сделать остальные дни (${daysCount - 1} шт.) такими же, как этот?\n\n` +
+      'Перенесутся: блоки комнаты (кнопки, опросы, формы), чат, реакции, ' +
+      'форма входа, экран после эфира, тип трансляции.\n\n' +
+      'НЕ перенесутся: название дня, афиши, ключ трансляции и RTMP, ' +
+      'ссылка входа в зум и сама встреча Zoom — они свои у каждого дня.\n\n' +
+      '⚠️ Блоки в других днях будут ЗАМЕНЕНЫ на блоки этого дня.'
     )) return
     setCopyingAll(true)
     try {
       await api.webinar.upsertRoom(eventId, day.day_number, f)
       const res = await api.webinar.copySettings(eventId, day.day_number)
-      alert(`Готово: настройки скопированы в ${res?.updated ?? 0} дн.`)
+      const blocks = res?.blocks_copied
+        ? ` Блоков перенесено: ${res.blocks_copied}.`
+        : ''
+      alert(`Готово: настройки скопированы в ${res?.updated ?? 0} дн.${blocks}\n\n`
+            + 'Zoom и названия дней остались прежними.')
       onSaved()
     } catch (e: any) {
       alert(e?.message || 'Не получилось скопировать')
@@ -948,8 +954,10 @@ function RoomSettings({ section = 'room', eventId, day, level, eventTitle, slug,
             обычно только афиша и время. Показываем, когда дней больше одного. */}
         {r && daysCount > 1 && (
           <button type="button" onClick={copySettingsToAllDays} disabled={copyingAll || saving}
-            className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-            {copyingAll ? 'Копируем…' : 'Скопировать настройки в другие дни'}
+            title="Перенести блоки и настройки этого дня в остальные дни. Zoom и названия дней не трогаются."
+            className="px-3 py-2 rounded-xl border-2 text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+            style={{ borderColor: '#FFCFA4', background: '#FFF8F1', color: '#25455D' }}>
+            {copyingAll ? 'Копируем…' : '📋 Скопировать во все дни'}
           </button>
         )}
       </div>

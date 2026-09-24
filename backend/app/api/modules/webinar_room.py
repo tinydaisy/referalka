@@ -739,6 +739,10 @@ _COPYABLE_ROOM_FIELDS = (
 class CopySettingsIn(BaseModel):
     # Куда копировать. Пусто/не передано = во ВСЕ остальные дни события.
     target_days: Optional[List[int]] = None
+    # ⚠️ Блоки комнаты (продающие кнопки, опросы, формы) — по умолчанию ДА.
+    # Ради них копирование чаще всего и затевают: настройки чата и реакций
+    # переносились, а пять собранных блоков приходилось делать заново руками.
+    with_blocks: bool = True
 
 
 @router.post("/{day_number}/copy-settings",
@@ -758,6 +762,18 @@ async def copy_room_settings(
     ⚠️ НЕ переносятся: название, ключ трансляции и RTMP/HLS (уникальны у каждого
     дня — на них держится раскладка записей), ссылка входа спикера в зум,
     встреча Zoom, а также текущее состояние эфира. Список — `_COPYABLE_ROOM_FIELDS`.
+
+    ⚠️ ZOOM НЕ ТРОГАЕМ ВОВСЕ (`zoom_meeting_id`, `zoom_start_url`,
+    `zoom_password`, `zoom_livestream_ok`, `speaker_join_url` — ни одного нет в
+    списке копируемых). У каждого дня своя встреча: перезаписать её значило бы
+    увести спикеров второго дня в конференцию первого. Ссылка входа спикера
+    копируется ОТДЕЛЬНОЙ кнопкой — когда зум-конференция и правда одна на всё
+    событие, это осознанный выбор человека.
+
+    ⚠️ БЛОКИ КОМНАТЫ (продающие кнопки, опросы, формы) переносятся тоже —
+    `with_blocks`, по умолчанию включено. Ради них копирование чаще всего и
+    затевают: настройки чата переносились, а собранные блоки приходилось
+    пересобирать в каждом дне руками.
 
     Дни без комнаты тоже получают настройки — комната создаётся со СВОИМ ключом
     потока. Иначе копирование молча пропускало бы ровно те дни, которые ещё не
@@ -807,7 +823,49 @@ async def copy_room_settings(
                 f"ON CONFLICT (event_id, day_number) DO NOTHING",
                 event_id, dn, key, ws.hls_url(key), *vals)
         updated.append(dn)
-    return {"ok": True, "updated": len(updated), "days": updated}
+
+    # ─── Блоки комнаты (продающие кнопки, опросы, формы) ───────────────────
+    # ⚠️ Ради них копирование чаще всего и нужно: настройки чата переносились,
+    # а собранные блоки приходилось пересобирать в каждом дне руками.
+    #
+    # ⚠️ Переносим ЗАМЕНОЙ, а не добавлением: повторное нажатие иначе
+    # задваивало бы кнопки в дне-получателе, и человек получал бы два
+    # одинаковых «Купить» подряд.
+    #
+    # ⚠️ `speaker_id` НЕ копируем — блок «подписаться на спикера» привязан к
+    # тому, кто выступает В ЭТОТ день; в другом дне это был бы чужой человек.
+    blocks_copied = 0
+    if (data is None or data.with_blocks) and updated:
+        src_blocks = await db.fetch(
+            "SELECT kind, title, url, body, form_fields, form_tag, follow_mode, "
+            "       is_pinned, show_at_min, hide_at_min, sort_order, is_active, "
+            "       reg_event_id, tariff_id, product_id "
+            "  FROM webinar_blocks WHERE room_id=$1 ORDER BY sort_order, id",
+            src["id"])
+        if src_blocks:
+            for dn in updated:
+                dst_id = await db.fetchval(
+                    "SELECT id FROM webinar_rooms WHERE event_id=$1 AND day_number=$2",
+                    event_id, dn)
+                if not dst_id:
+                    continue
+                await db.execute("DELETE FROM webinar_blocks WHERE room_id=$1", dst_id)
+                for b in src_blocks:
+                    await db.execute(
+                        "INSERT INTO webinar_blocks "
+                        " (room_id, kind, title, url, body, form_fields, form_tag, "
+                        "  follow_mode, is_pinned, show_at_min, hide_at_min, "
+                        "  sort_order, is_active, reg_event_id, tariff_id, product_id) "
+                        " VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+                        dst_id, b["kind"], b["title"], b["url"], b["body"],
+                        b["form_fields"], b["form_tag"], b["follow_mode"],
+                        b["is_pinned"], b["show_at_min"], b["hide_at_min"],
+                        b["sort_order"], b["is_active"],
+                        b["reg_event_id"], b["tariff_id"], b["product_id"])
+                    blocks_copied += 1
+
+    return {"ok": True, "updated": len(updated), "days": updated,
+            "blocks_copied": blocks_copied}
 
 
 @router.post("/{day_number}/copy-speaker-join-url",
