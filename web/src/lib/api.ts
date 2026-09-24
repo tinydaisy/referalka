@@ -317,11 +317,15 @@ export const api = {
     // ⚠️ `allPlatforms` — для КАБИНЕТА: вернуть и выключенные площадки, чтобы
     // строка осталась со снятой галочкой. Без него площадка пропадала из
     // списка совсем и включить её обратно было нечем.
-    shareLinks: (slug: string, pid?: string, mode?: 'miniapp' | 'bot', allPlatforms?: boolean) => {
+    // ⚠️ withWeb — добавить в набор веб-страницы без мессенджера ('web' —
+    // форма регистрации, 'landing' — Плюсоновский лендинг), обе с реф-кодом.
+    // По умолчанию выключено: ручку зовёт и Mini App, где ждут только площадки.
+    shareLinks: (slug: string, pid?: string, mode?: 'miniapp' | 'bot', allPlatforms?: boolean, withWeb?: boolean) => {
       const p = new URLSearchParams()
       if (pid) p.set('pid', pid)
       if (mode) p.set('mode', mode)
       if (allPlatforms) p.set('all_platforms', 'true')
+      if (withWeb) p.set('with_web', 'true')
       const qs = p.toString() ? `?${p}` : ''
       return request(`/api/v1/events/slug/${encodeURIComponent(slug)}/share-links${qs}`)
     },

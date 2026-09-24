@@ -37,7 +37,7 @@ from app.services.speaker_lead_magnet_stats import speaker_lead_magnet_stats
 from app.services.person_name import (
     display_name, search_name, SEARCH_NAME_ORDER_SQL, SEARCH_NAME_SQL,
 )
-from app.services.share_links import TG_DOMAIN
+from app.services.share_links import TG_DOMAIN, get_event_disabled_platforms
 
 # Лимиты длины полей, которые заполняет сам спикер. Держать в синхроне с
 # фронтом ([event_slug]/page.tsx) — иначе счётчик покажет одно, а сохранение
@@ -1322,7 +1322,6 @@ async def get_me_materials(
         platforms = set(await get_active_platforms(db, client_id_int))
         # Площадки, выключенные у события (миграция 263), спикеру не показываем
         # и в выгрузку материалов не отдаём — сам бот при этом работает.
-        from app.services.share_links import get_event_disabled_platforms
         platforms -= await get_event_disabled_platforms(db, event_id=e_id)
         handles   = await get_client_bot_handles(db, client_id_int)
         vk_app_id = await get_client_vk_app_id(db, client_id_int)
@@ -1357,9 +1356,49 @@ async def get_me_materials(
         se_id, e_id,
     )
 
+    # ── ВЕБ-ССЫЛКИ СПИКЕРА С ЕГО РЕФ-КОДОМ ────────────────────────────────
+    # Две страницы без мессенджера: простая форма регистрации и Плюсоновский
+    # лендинг. Обе подчиняются тем же галочкам события (`disabled_platforms`,
+    # миграция 263), что и TG/VK/MAX: снял галочку — ссылка не отдаётся ни
+    # спикеру в кабинет, ни в выгрузку материалов.
+    #
+    # ⚠️ Реф-код в адресе — `?pid=`. Единая форма регистрации
+    # (`/event/{slug}/register`, бэкенд) его принимает и засчитывает привод;
+    # лендинг `/e/{slug}` принимает и прокидывает дальше во все свои кнопки.
+    # Отдельной формы «для лендинга» нет и заводить её не нужно.
+    _ref_code = base.get("speaker_ref_code")
+    _web_off = await get_event_disabled_platforms(db, event_id=e_id)
+
+    web_reg_link = ""
+    if _ref_code and "web" not in _web_off:
+        web_reg_link = await client_public_link(
+            db, int(base["client_id"]),
+            f"/event/{base['event_slug']}/register?pid={_ref_code}")
+
+    # ⚠️ Лендинг отдаём только когда он РЕАЛЬНО опубликован: у неопубликованного
+    # `/e/{slug}` отвечает «Страница не найдена», и спикер разослал бы битую
+    # ссылку. Галочки мало — она про «хотим ли», а публикация про «есть ли что».
+    landing_ref_link = ""
+    if _ref_code and "landing" not in _web_off:
+        _landing_published = await db.fetchval(
+            "SELECT is_published FROM event_landing_pages"
+            "  WHERE event_id = $1 AND kind = 'main'",
+            e_id,
+        )
+        if _landing_published:
+            landing_ref_link = await client_public_link(
+                db, int(base["client_id"]),
+                f"/e/{base['event_slug']}?pid={_ref_code}")
+
     # Словарь подстановок для плейсхолдеров {link}/{event}/{date}/{brand}.
-    # {link} = ref_links.telegram || .vk || .max (берём первый доступный).
-    link_default = ref_links.get("telegram") or ref_links.get("vk") or ref_links.get("max") or ""
+    # {link} = первая доступная ссылка: мессенджеры, затем веб-страницы.
+    #
+    # ⚠️ Веб-страницы в конце очереди — НЕ УКРАШЕНИЕ (24.09.2026). Клиент может
+    # выключить галочками все мессенджеры и оставить только лендинг: тогда
+    # раньше {link} в анонсах спикера подставлялся ПУСТОЙ СТРОКОЙ, и спикер
+    # рассылал текст без ссылки вовсе, не заметив этого.
+    link_default = (ref_links.get("telegram") or ref_links.get("vk")
+                    or ref_links.get("max") or landing_ref_link or web_reg_link or "")
     placeholders = {
         "link":  link_default,
         "event": base["event_title"] or "",
@@ -1397,12 +1436,17 @@ async def get_me_materials(
         # сидит в ботах, а у части клиентов ботов нет вовсе — тогда остальные
         # ссылки пустые и раздавать нечего. Форма на сайте работает всегда,
         # реф-код в ней теперь засчитывается (раньше `pid` она игнорировала).
-        "web_reg_link": (
-            await client_public_link(
-                db, int(base["client_id"]),
-                f"/event/{base['event_slug']}/register?pid={base['speaker_ref_code']}")
-            if base.get("speaker_ref_code") else ""
-        ),
+        #
+        # ⚠️ ГАЛОЧКА 'web' (24.09.2026) — как у мессенджеров. Раньше строка
+        # показывалась ВСЕГДА, мимо галочек события: клиент снимал её в
+        # «Публичных ссылках», а спикеры продолжали раздавать эту страницу.
+        "web_reg_link": web_reg_link,
+        # ⚠️ ПЛЮСОНОВСКИЙ ЛЕНДИНГ С РЕФ-КОДОМ (24.09.2026). Его не было вовсе:
+        # спикер мог вести людей только в мессенджеры или на простую форму, а
+        # продающую страницу — лишь без реф-кода, то есть терял всех, кого
+        # привёл. Страница `?pid=` понимает и прокидывает дальше во все свои
+        # кнопки, так что реферал засчитывается и при заказе, и при записи.
+        "landing_ref_link": landing_ref_link,
         "partner_link": partner_link,
         "partner_landing_configured": partner_landing_configured,
         # Партнёрский код самого спикера во внешней системе клиента

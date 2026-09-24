@@ -22,21 +22,31 @@ interface Props {
   /** Готовые ссылки {telegram,vk,max}. Если переданы — компонент НЕ фетчит сам.
    *  Нужно для КОЛЛАБ-события: там у каждого организатора СВОЙ бот, и ссылки считает
    *  бэк по client_id каждого (общий /share-links строит только по боту владельца). */
-  links?: { telegram?: string; vk?: string; max?: string }
+  links?: ShareLinks
   /** Заголовок блока (по умолчанию «Партнёрские ссылки»). */
   title?: string
+}
+
+/** ⚠️ 'web' и 'landing' (24.09.2026) — веб-страницы без мессенджера. Приходят
+ *  тем же набором и гасятся теми же галочками события, что TG/VK/MAX. */
+type ShareLinks = {
+  telegram?: string; vk?: string; max?: string
+  web?: string; landing?: string
 }
 
 export default function RefLinkInline({ slug, refCode, compact = false, eventStatus, links: linksProp, title }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const isDraft = eventStatus === 'draft'
-  const [shareLinks, setShareLinks] = useState<{ telegram?: string; vk?: string; max?: string }>(linksProp || {})
+  const [shareLinks, setShareLinks] = useState<ShareLinks>(linksProp || {})
 
   useEffect(() => {
     // Ссылки переданы снаружи (коллаба — бот каждого организатора) → не фетчим.
     if (linksProp) { setShareLinks(linksProp); return }
     if (!slug || !refCode) { setShareLinks({}); return }
-    api.events.shareLinks(slug, refCode)
+    // ⚠️ with_web=true: партнёру здесь показываем ВСЁ, что он может раздать, —
+    // включая лендинг и форму без мессенджера. Раньше их не было вовсе, и
+    // повести людей на продающую страницу со своим кодом было нечем.
+    api.events.shareLinks(slug, refCode, undefined, undefined, true)
       .then((r: any) => setShareLinks(r?.links || {}))
       .catch(() => setShareLinks({}))
   }, [slug, refCode, linksProp])
@@ -53,6 +63,11 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
     { key: 'telegram', badge: 'TG',  label: 'Telegram',   url: shareLinks.telegram || '' },
     { key: 'vk',       badge: 'VK',  label: 'ВКонтакте',  url: shareLinks.vk || '' },
     { key: 'max',      badge: 'MAX', label: 'MAX',        url: shareLinks.max || '' },
+    // ⚠️ Веб-страницы — ПОСЛЕ мессенджеров: это запасной путь для аудитории
+    // без мессенджеров, а не основной. В compact-виде берётся первая строка
+    // (links[0]) — значит там по-прежнему Telegram, если он есть.
+    { key: 'landing',  badge: 'LP',  label: 'Лендинг',    url: shareLinks.landing || '' },
+    { key: 'web',      badge: 'РЕГ', label: 'Без мессенджера', url: shareLinks.web || '' },
   ]
   // Показываем только те платформы, по которым бэк вернул URL (есть свой канал
   // ИЛИ есть боевой системный для этой платформы).

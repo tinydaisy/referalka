@@ -507,6 +507,8 @@ async def build_share_links(
     # True — выдача для КАБИНЕТА: выключенные площадки остаются в списке
     # (со снятой галочкой), иначе строка исчезает и вернуть площадку нечем.
     include_disabled: bool = False,
+    # True — добавить веб-страницы без мессенджера ('web' и 'landing').
+    with_web: bool = False,
 ) -> dict[str, str]:
     """Возвращает {platform → url} ТОЛЬКО для тех платформ, где у клиента
     подключён СВОЙ канал (channels.is_system=FALSE).
@@ -515,6 +517,22 @@ async def build_share_links(
     - Если у клиента подключён свой бот/сообщество на платформе → ссылка на его handle
     - Иначе ссылка НЕ возвращается (системные каналы ПЛЮСОНа больше не используются —
       ни для показа, ни для шеринга).
+
+    ⚠️ `with_web` (24.09.2026) — ДВЕ ВЕБ-СТРАНИЦЫ В ТОТ ЖЕ НАБОР: 'web' (форма
+    регистрации `/event/{slug}/register`) и 'landing' (Плюсоновский лендинг
+    `/e/{slug}`), обе с реф-кодом в `?pid=`. Нужны тем, чья аудитория не в
+    мессенджерах, и когда у клиента ботов нет вовсе — тогда весь остальной
+    набор пуст и партнёру раздавать нечего.
+
+    ⚠️ ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО, и это намеренно. Функцию зовут четырнадцать
+    мест, и части из них веб-страницы противопоказаны: подарки за рефералов и
+    рассылки в мессенджерах ждут РОВНО площадочные ключи и по ним же рисуют
+    кнопки — лишний ключ стал бы там кнопкой «ВКонтакте», ведущей на сайт.
+    Включают флаг те, кто показывает ссылки ЧЕЛОВЕКУ списком.
+
+    ⚠️ Лендинг отдаём только опубликованный: у неопубликованного `/e/{slug}`
+    отвечает «Страница не найдена», и партнёр разослал бы битую ссылку.
+    Галочка — про «хотим ли вести», публикация — про «есть ли куда».
     """
     handles = await get_client_bot_handles(db, client_id)
     vk_app_id = await get_client_vk_app_id(db, client_id)
@@ -547,9 +565,30 @@ async def build_share_links(
     if handles.get("max"):
         result["max"] = max_link(event_slug, bot_handle=handles["max"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=_mode("link_mode_max"))
 
+    # Веб-страницы без мессенджера — тем же набором и с тем же реф-кодом.
+    # ⚠️ Домен берём клиентский (`client_public_link`): у клиента со своим
+    # доменом партнёр иначе раздавал бы наш pluson.ru.
+    if with_web:
+        from app.services.client_domains import client_public_link
+        _pid = f"?pid={partner_id}" if partner_id else ""
+        result["web"] = await client_public_link(
+            db, client_id, f"/event/{event_slug}/register{_pid}")
+        _landing_published = await db.fetchval(
+            """SELECT p.is_published FROM event_landing_pages p
+                 JOIN events e ON e.id = p.event_id
+                WHERE e.slug = $1 AND p.kind = 'main'""",
+            event_slug,
+        )
+        if _landing_published:
+            result["landing"] = await client_public_link(
+                db, client_id, f"/e/{event_slug}{_pid}")
+
     # Площадки, отключённые у ЭТОГО события (миграция 263): ссылку наружу не
     # отдаём — ни спикерам в кабинет/материалы, ни участникам в реф-ссылки.
     # ⚠️ Сам бот площадки продолжает работать: прячем только публичную выдачу.
+    #
+    # ⚠️ Веб-страницы ('web', 'landing') живут в том же списке и гасятся тем же
+    # кодом — галочка у них ровно такая же, как у мессенджеров.
     #
     # ⚠️ include_disabled=True — для КАБИНЕТА: там строка должна остаться со
     # снятой галочкой, иначе площадку не вернуть (строка исчезала целиком).
