@@ -364,6 +364,46 @@ async def my_money(
     }
 
 
+@router.get("/clients-full", summary="Мои клиенты — тот же список, что у админа")
+async def my_clients_full(
+    search: Optional[str] = Query(None),
+    tariff: Optional[str] = Query(None),
+    subscription: Optional[str] = Query(None),
+    has_bot: Optional[str] = Query(None),
+    in_collab: Optional[str] = Query(None),
+    feature: Optional[str] = Query(None),
+    min_contacts: Optional[int] = Query(None),
+    min_subscribers: Optional[int] = Query(None),
+    min_events: Optional[int] = Query(None),
+    min_channels: Optional[int] = Query(None),
+    sort: Optional[str] = Query(None),
+    sort_dir: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️⚠️ ТОТ ЖЕ КОД, ЧТО У АДМИНА (решение владельца 23.09.2026).
+
+    Раздел «Мои клиенты» был отдельным экраном со своим запросом и без
+    фильтров — у владельца в «Клиентах» фильтры по тарифу, подписке, боту,
+    модулю и сортировка, а у внедренца ничего этого не было.
+
+    Зовём общую `build_clients` и жёстко подставляем `spec_id` из токена:
+    параметром он не принимается — иначе внедренец указал бы чужой номер и
+    увидел чужих клиентов. Единственное отличие кабинетов — у владельца есть
+    выбор внедренца, у внедренца он подставлен.
+    """
+    from app.api.admin import build_clients
+    return await build_clients(
+        db, search=search, tariff=tariff, min_contacts=min_contacts,
+        subscription=subscription, has_bot=has_bot, in_collab=in_collab,
+        feature=feature, min_subscribers=min_subscribers,
+        min_events=min_events, min_channels=min_channels, sort=sort,
+        sort_dir=sort_dir, limit=limit, offset=offset,
+        spec_id=int(user["sub"]))
+
+
 @router.get("/crm", summary="Моя CRM — воронка по моим клиентам")
 async def my_crm(
     status: Optional[str] = Query(None),

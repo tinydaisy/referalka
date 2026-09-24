@@ -86,6 +86,38 @@ async def list_clients(
     admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    """Админский вход: весь список (фильтры + `spec_id`)."""
+    return await build_clients(
+        db, search=search, tariff=tariff, min_contacts=min_contacts,
+        subscription=subscription, has_bot=has_bot, in_collab=in_collab,
+        feature=feature, min_subscribers=min_subscribers,
+        min_events=min_events, min_channels=min_channels, sort=sort,
+        sort_dir=sort_dir, limit=limit, offset=offset, spec_id=spec_id)
+
+
+async def build_clients(
+    db: asyncpg.Connection,
+    search: Optional[str] = None,
+    tariff: Optional[str] = None,
+    min_contacts: Optional[int] = None,
+    subscription: Optional[str] = None,   # active | inactive
+    has_bot: Optional[str] = None,        # yes | no
+    in_collab: Optional[str] = None,      # yes | no
+    feature: Optional[str] = None,        # slug фичи/модуля
+    # ⚠️ `feature` — slug ПОДКЛЮЧЁННОГО МОДУЛЯ (`features.is_addon`), а не
+    # любой фичи: фильтр отвечает на вопрос «у кого сейчас подключён модуль».
+    min_subscribers: Optional[int] = None,
+    min_events: Optional[int] = None,
+    min_channels: Optional[int] = None,
+    # ⚠️ Чьи клиенты (23.09.2026). Тот же список, суженный до одного внедренца —
+    # так из карточки внедренца попадают в его клиентов, не заходя в чужой
+    # кабинет. `0` — особый случай: «ничьи», у кого ответственного нет вовсе.
+    spec_id: Optional[int] = None,
+    sort: Optional[str] = None,           # см. SORT_COLUMNS
+    sort_dir: Optional[str] = None,       # asc | desc
+    limit: int = 50,
+    offset: int = 0,
+):
     conditions = ["1=1"]
     params = []
 
@@ -296,6 +328,18 @@ async def list_clients(
           (SELECT COUNT(*) FROM collaborators co
             JOIN contacts ct ON ct.id = co.contact_id
             WHERE ct.client_id = c.id) AS collaborators_count,
+          -- ⚠️ КОЛЛАБОРАЦИИ ≠ СПИКЕРЫ (23.09.2026). Выше — число карточек
+          -- спикеров в базе, здесь — число СОВМЕСТНЫХ событий: `is_collab` и
+          -- организаторов больше одного. Это разные вопросы: спикеров бывают
+          -- десятки и у того, кто ни с кем не сотрудничал.
+          (SELECT COUNT(*) FROM events e2
+            WHERE e2.is_collab
+              AND EXISTS (SELECT 1 FROM event_owners eo2
+                           WHERE eo2.event_id = e2.id AND eo2.client_id = c.id
+                             AND eo2.status = 'accepted')
+              AND (SELECT COUNT(*) FROM event_owners eo3
+                    WHERE eo3.event_id = e2.id
+                      AND eo3.status = 'accepted') > 1) AS collabs_count,
           -- ⚠️ Вебинарные комнаты считаем ЧЕРЕЗ СОБЫТИЯ: своего `client_id` у
           -- комнаты нет, она принадлежит событию (`webinar_rooms.event_id`).
           (SELECT COUNT(*) FROM webinar_rooms wr
