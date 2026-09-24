@@ -199,12 +199,26 @@ async def messages(
     client_id = await _system_client_id(db)
     await _assert_mine(db, spec_id, client_id, contact_id)
 
+    # ⚠️⚠️ НАБОР ПОЛЕЙ — РОВНО КАК У КЛИЕНТСКОЙ ЛЕНТЫ (23.09.2026): экран
+    # переписки теперь ОБЩИЙ (`components/DialogChat`), и он ждёт именно эти
+    # поля. Урезанный список давал пустые вкладки площадок и «сломанные»
+    # сообщения без признака правки.
     rows = await db.fetch(
-        """SELECT id, platform, direction, author_kind, text, media_url,
-                  media_kind, error, sent_at, is_deleted
+        """SELECT id, platform, channel_id, platform_user_id, direction,
+                  author_kind, text, media_url, media_kind,
+                  platform_message_id, is_deleted, error, sent_at, edited_at
              FROM direct_messages
             WHERE client_id = $1 AND contact_id = $2
             ORDER BY sent_at""",
+        client_id, contact_id,
+    )
+    # Площадки этого разговора и непрочитанные по каждой — для вкладок сверху.
+    plats = await db.fetch(
+        """SELECT platform,
+                  COUNT(*) FILTER (WHERE direction='in' AND NOT is_read) AS unread
+             FROM direct_messages
+            WHERE client_id = $1 AND contact_id = $2
+            GROUP BY platform ORDER BY platform""",
         client_id, contact_id,
     )
     # Помечаем прочитанным: человек открыл ленту и увидел сообщения.
@@ -216,8 +230,23 @@ async def messages(
     )
     contact = await db.fetchrow(
         "SELECT id, name, phone FROM contacts WHERE id = $1", contact_id)
-    return {"contact": dict(contact) if contact else None,
-            "messages": [dict(r) for r in rows]}
+    # ⚠️ Площадки, где у человека есть аккаунт — для выбора, КУДА отвечать.
+    # Их может быть больше, чем площадок переписки: писали в телеграм, а почта
+    # у него тоже есть.
+    accs = await db.fetch(
+        """SELECT DISTINCT platform_slug FROM platform_users
+            WHERE contact_id = $1
+              AND platform_slug IN ('telegram','vk','max','email')""",
+        contact_id)
+    return {
+        "contact": dict(contact) if contact else None,
+        "messages": [dict(r) for r in rows],
+        "platforms": [r["platform"] for r in plats],
+        "unread_by_platform": {
+            r["platform"]: int(r["unread"] or 0) for r in plats if r["unread"]
+        },
+        "available_platforms": [r["platform_slug"] for r in accs],
+    }
 
 
 class StartIn(BaseModel):

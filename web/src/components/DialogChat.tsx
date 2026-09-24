@@ -50,11 +50,28 @@ export default function DialogChat({
   contactId,
   contactName,
   availablePlatforms,
+  dialogsApi,
 }: {
   contactId: number
   contactName: string
   availablePlatforms: string[] // платформы, где у контакта есть аккаунт (для отправки)
+  // ⚠️⚠️ НАБОР МЕТОДОВ — ПАРАМЕТРОМ (23.09.2026). Тот же экран переписки
+  // нужен в кабинете ВНЕДРЕНЦА, а клиентские ручки `/dialogs/*` ему закрыты:
+  // у него свои, `/tech/dialogs/*`. Своя копия компонента там выглядела бы
+  // иначе и разъехалась бы по поведению — уже так и вышло, пока копия была.
+  // Не передан — работаем клиентскими, как раньше.
+  dialogsApi?: {
+    messages: (id: number) => Promise<any>
+    reply: (id: number, body: { platform: string; text: string }) => Promise<any>
+    edit?: (id: number, text: string) => Promise<any>
+    remove?: (id: number) => Promise<any>
+  }
 }) {
+  // ⚠️ Правка и удаление есть не везде: у внедренца их нет, и кнопки тогда
+  // прятать — иначе нажатие молча падает.
+  const A = dialogsApi || api.dialogs
+  const canEdit = !!(A as any).edit
+  const canDelete = !!(A as any).remove
   const [messages, setMessages] = useState<Msg[]>([])
   const [chatPlatforms, setChatPlatforms] = useState<string[]>([])
   // Непрочитанные по площадкам на момент ОТКРЫТИЯ диалога: {telegram: 2, max: 1}.
@@ -75,7 +92,7 @@ export default function DialogChat({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await api.dialogs.messages(contactId)
+      const r = await A.messages(contactId)
       setMessages(r.messages || [])
       setChatPlatforms(r.platforms || [])
       setUnreadBy(r.unread_by_platform || {})
@@ -109,7 +126,7 @@ export default function DialogChat({
     if (!t || sending) return
     setSending(true)
     try {
-      await api.dialogs.reply(contactId, { platform: replyPlatform, text: t })
+      await A.reply(contactId, { platform: replyPlatform, text: t })
       setText('')
       await load()
     } catch (e: any) {
@@ -123,7 +140,7 @@ export default function DialogChat({
     const t = editText.trim()
     if (!t) return
     try {
-      await api.dialogs.edit(id, t)
+      await (A as any).edit(id, t)
       setEditingId(null)
       await load()
     } catch (e: any) {
@@ -134,7 +151,7 @@ export default function DialogChat({
   async function remove(id: number) {
     if (!confirm('Удалить это сообщение у получателя?')) return
     try {
-      await api.dialogs.remove(id)
+      await (A as any).remove(id)
       await load()
     } catch (e: any) {
       alert(e?.message || 'Не удалось удалить')
@@ -285,18 +302,25 @@ export default function DialogChat({
                   </div>
 
                   {/* действия над своим сообщением */}
-                  {isOperator && !m.is_deleted && editingId !== m.id && (
+                  {/* ⚠️ Кнопки только там, где методы есть: у внедренца
+                      правки и удаления нет, и нажатие падало бы молча. */}
+                  {isOperator && !m.is_deleted && editingId !== m.id
+                   && (canEdit || canDelete) && (
                     <div className="absolute -top-2 -left-2 hidden group-hover:flex gap-0.5">
+                      {canEdit && (
                       <button
                         onClick={() => { setEditingId(m.id); setEditText(m.text || '') }}
                         className="p-1 rounded-full bg-white border shadow text-gray-500 hover:text-[#25455D]"
                         title="Изменить"
                       ><Pencil size={11} /></button>
+                      )}
+                      {canDelete && (
                       <button
                         onClick={() => remove(m.id)}
                         className="p-1 rounded-full bg-white border shadow text-gray-500 hover:text-red-500"
                         title="Удалить"
                       ><Trash2 size={11} /></button>
+                      )}
                     </div>
                   )}
                 </div>
