@@ -1129,6 +1129,79 @@ async def viewers(event_id: int, day_number: int, session_id: Optional[int] = Qu
     return await viewer_activity(db, rid, session_id=session_id)
 
 
+@router.get("/{day_number}/live-stats", summary="Пульт ведущего: зрители и реакции спикеров")
+async def live_stats(event_id: int, day_number: int,
+                     client=Depends(get_current_client), db=Depends(get_db)):
+    """Две цифры зала + реакции по спикерам — для пульта ведущего.
+
+    ⚠️ Считаем ВСЕГДА, даже когда «Скрывать число зрителей» включено: эта
+    настройка про ЗРИТЕЛЕЙ (пустой зал не должен смущать пришедших), а
+    ведущему цифра нужна именно в эфире. Данные в webinar_presence пишутся
+    независимо от неё — скрывается только показ.
+
+    ⚠️ `online` считаем ТОЛЬКО в идущем эфире. Вне эфира heartbeat никто не
+    шлёт, и «0 смотрят» читалось бы как «все ушли», хотя эфир просто не начат:
+    отдаём None, а фронт рисует прочерк.
+    """
+    await ws.assert_event_owner(db, event_id, _cid(client))
+    rid = await _room_id(db, event_id, day_number)
+
+    room = await db.fetchrow(
+        "SELECT status, show_up_reaction, show_down_reaction, "
+        "       reaction_up_label, reaction_down_label "
+        "  FROM webinar_rooms WHERE id=$1", rid)
+    is_live = bool(room and room["status"] == "live")
+
+    # Всего уникальных за всё время комнаты — по тому же ключу, что и онлайн.
+    total = await db.fetchval(
+        "SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
+        "  FROM webinar_presence WHERE room_id=$1", rid) or 0
+
+    online = None
+    if is_live:
+        online = await db.fetchval(
+            "SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
+            "  FROM webinar_presence "
+            " WHERE room_id=$1 AND bucket_at >= NOW() - INTERVAL '2 minutes'",
+            rid) or 0
+
+    # ⚠️ Реакции — ИМЯ + ФАМИЛИЯ через общий хелпер (правило проекта).
+    rx = await db.fetch(
+        "SELECT " + DISPLAY_NAME_SQL("c") + " AS speaker_name, "
+        "       r.reaction_key, r.count "
+        "  FROM webinar_speaker_reactions r "
+        "  JOIN event_collaborators ec ON ec.id = r.speaker_id "
+        "  JOIN collaborators c ON c.id = ec.speaker_id "
+        " WHERE r.room_id = $1 "
+        " ORDER BY r.count DESC", rid)
+
+    # Схлопываем в строку на спикера: {имя, up, down}.
+    by_speaker: dict = {}
+    for r in rx:
+        nm = (r["speaker_name"] or "").strip() or "—"
+        row = by_speaker.setdefault(nm, {"speaker_name": nm, "up": 0, "down": 0})
+        if r["reaction_key"] == "down":
+            row["down"] += int(r["count"] or 0)
+        else:
+            row["up"] += int(r["count"] or 0)
+    reactions = sorted(by_speaker.values(),
+                       key=lambda x: (x["up"] + x["down"]), reverse=True)
+
+    return {
+        "total_viewers": int(total),
+        "online": online,
+        "is_live": is_live,
+        # Выключены обе → фронт покажет «Реакции не считаются» со ссылкой
+        # на настройки, а не пустой список (пустой читается как «никто не
+        # ставил», хотя ставить было нечем).
+        "reactions_enabled": bool(room and (room["show_up_reaction"] is not False
+                                            or room["show_down_reaction"])),
+        "reaction_up_label": (room["reaction_up_label"] if room else None) or "Огонь",
+        "reaction_down_label": (room["reaction_down_label"] if room else None) or "Слабо",
+        "reactions": reactions,
+    }
+
+
 # ─────────────────────────── записи эфира ───────────────────────────
 @router.get("/{day_number}/recordings", summary="Записи эфира комнаты")
 async def recordings(event_id: int, day_number: int, client=Depends(get_current_client), db=Depends(get_db)):

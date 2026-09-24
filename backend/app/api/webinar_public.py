@@ -687,7 +687,15 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
             "poll": poll_out,
             "battle": battle_out,
             "speaker_reactions": [dict(r) for r in rx],
-            "online": (None if room.get("hide_viewer_count") else await _online_now(conn, rid)),
+            # ⚠️ ОРГАНИЗАТОРУ И ЕГО ПОМОЩНИКУ число зрителей видно ВСЕГДА
+            # (24.09.2026). «Скрывать число зрителей» — настройка про
+            # ЗРИТЕЛЕЙ: пустой зал не должен смущать пришедших. Ведущему же
+            # эта цифра нужна именно в эфире, и прятать её от него — значит
+            # лишать его единственного способа понять, сколько людей в зале.
+            # ⚠️ Считаем ВСЕГДА, независимо от настройки: данные пишутся в
+            # webinar_presence в любом случае, скрывается только показ.
+            "online": (await _online_now(conn, rid)
+                       if (is_mod or not room.get("hide_viewer_count")) else None),
         }
 
 

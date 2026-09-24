@@ -1667,6 +1667,9 @@ function ConsolePanel({ eventId, day, event, slug, onChanged }: any) {
       {/* Показ блоков вживую + порядок + сетка — менеджер управляет внешним видом */}
       <BlocksLive eventId={eventId} day={day} onSettingsChanged={onChanged} />
 
+      {/* Зал: сколько зашло и сколько смотрят прямо сейчас + реакции спикеров */}
+      <LiveAudienceStats eventId={eventId} day={day} />
+
       {/* Опрос */}
       <div className="border rounded-xl p-4">
         <h4 className="font-semibold mb-3">📊 Запустить опрос</h4>
@@ -2033,6 +2036,99 @@ function AudienceTab({ eventId, day }: { eventId: number; day: number }) {
 }
 
 // ─────────────────────────── управление текущим спикером ───────────────────────────
+/** Пульт ведущего: сколько людей в зале + реакции по спикерам.
+ *
+ * ⚠️ Цифры видны ВСЕГДА, даже когда «Скрывать число зрителей» включено: та
+ * настройка про ЗРИТЕЛЕЙ (пустой зал не должен смущать пришедших), а ведущему
+ * зал нужно видеть именно в эфире.
+ *
+ * ⚠️ «Смотрят сейчас» вне эфира — ПРОЧЕРК, а не 0: heartbeat никто не шлёт, и
+ * ноль читался бы как «все ушли», хотя эфир просто не начат.
+ *
+ * ⚠️ Обновляем раз в 15 секунд и только в эфире: чаще — лишняя нагрузка,
+ * реже — цифра врёт. Вне эфира опрашивать нечего.
+ */
+function LiveAudienceStats({ eventId, day }: { eventId: number; day: DayItem }) {
+  const [st, setSt] = useState<any>(null)
+  const [openRx, setOpenRx] = useState(false)
+  const isLive = day.room?.status === 'live'
+
+  const load = useCallback(async () => {
+    try {
+      const r: any = await api.webinar.liveStats(eventId, day.day_number)
+      setSt(r)
+    } catch { /* пульт не должен падать из-за статистики */ }
+  }, [eventId, day.day_number])
+
+  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (!isLive) return
+    const t = setInterval(load, 15000)
+    return () => clearInterval(t)
+  }, [isLive, load])
+
+  const rx: any[] = st?.reactions || []
+
+  return (
+    <div className="border rounded-xl p-4">
+      <h4 className="font-semibold mb-3">👥 Статистика по зрителям</h4>
+
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
+          <div className="text-xs text-gray-500 mb-0.5">Всего зашло в эфир</div>
+          <div className="text-2xl font-bold text-[#25455D]">{st?.total_viewers ?? '—'}</div>
+        </div>
+        <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
+          <div className="text-xs text-gray-500 mb-0.5">Смотрят сейчас</div>
+          <div className="text-2xl font-bold text-[#25455D]">
+            {st?.online ?? '—'}
+          </div>
+          {!isLive && <div className="text-[11px] text-gray-400 mt-0.5">эфир не начат</div>}
+        </div>
+      </div>
+
+      {/* Реакции — под цифрами, свёрнуто: в эфире они нужны не каждую минуту. */}
+      <button onClick={() => setOpenRx(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm hover:border-gray-300">
+        <span className="font-medium text-[#25455D]">
+          🔥 Реакции у спикеров
+          {st?.reactions_enabled && rx.length ? <span className="text-gray-400 font-normal"> · {rx.length}</span> : null}
+        </span>
+        <span className="text-gray-400">{openRx ? '▲' : '▼'}</span>
+      </button>
+
+      {openRx && (
+        <div className="mt-2">
+          {!st?.reactions_enabled ? (
+            // ⚠️ Не пустой список, а объяснение: пустота читается как «никто не
+            // ставил», хотя ставить было нечем — реакции выключены.
+            <p className="text-sm text-gray-500 px-3 py-2">
+              Реакции не считаются — измените настройки во вкладке{' '}
+              <a href={`/dashboard/conferences/${eventId}?tab=webinar`}
+                 className="text-blue-600 hover:underline">«Вебинар»</a>.
+            </p>
+          ) : !rx.length ? (
+            <p className="text-sm text-gray-500 px-3 py-2">Пока никто не ставил реакции.</p>
+          ) : (
+            <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
+              {rx.map((r: any, i: number) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <span className="text-gray-800 truncate">{r.speaker_name}</span>
+                  <span className="shrink-0 flex gap-3 tabular-nums">
+                    {r.up > 0 && <span title={st?.reaction_up_label}>🔥 {r.up}</span>}
+                    {r.down > 0 && <span title={st?.reaction_down_label}>👎 {r.down}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 function CurrentSpeakerControl({ eventId, day, speakers, onChanged }: any) {
   const [mode, setMode] = useState<'auto' | 'manual'>(day.room?.speaker_mode || 'auto')
   const [ecId, setEcId] = useState<number | ''>(day.room?.manual_speaker_ec_id || '')
