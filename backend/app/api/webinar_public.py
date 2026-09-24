@@ -526,7 +526,11 @@ async def room_view(slug: str, day: int, c: Optional[int] = Query(None),
 
         # реакции спикерам (счётчики)
         rx = await conn.fetch(
-            "SELECT speaker_id, reaction_key, count FROM webinar_speaker_reactions WHERE room_id=$1", rid)
+            # ⚠️ Только ТЕКУЩИЙ запуск: иначе зритель видел бы сумму за все
+            # прогоны, а после «Начать заново» счётчик не обнулялся бы.
+            "SELECT speaker_id, reaction_key, count FROM webinar_speaker_reactions "
+            " WHERE room_id=$1 AND session_id IS NOT DISTINCT FROM $2",
+            rid, room.get("current_session_id"))
 
         # ⚠️ HLS отдаём зрителю ТОЛЬКО когда ведущий начал эфир (status='live')
         # И комната открыта. Пока 'ready' — спикер настраивается в Zoom, не показываем.
@@ -895,16 +899,22 @@ async def react(slug: str, day: int, body: ReactIn):
                 # из ответа, и без неё она «прыгнула» бы у нажавшего повторно.
                 cur = await conn.fetchval(
                     "SELECT count FROM webinar_speaker_reactions "
-                    " WHERE room_id=$1 AND speaker_id=$2 AND reaction_key=$3",
-                    rid, body.speaker_id, body.reaction) or 0
+                    " WHERE room_id=$1 AND speaker_id=$2 AND reaction_key=$3 "
+                    "   AND session_id IS NOT DISTINCT FROM $4",
+                    rid, body.speaker_id, body.reaction,
+                    room.get("current_session_id")) or 0
                 return {"ok": False, "already": True, "count": cur,
                         "message": "Вы уже голосовали"}
 
+        # ⚠️ Реакции считаются ПО ЗАПУСКУ (24.09.2026): раньше строка знала
+        # только комнату, и счётчик копил всё за все прогоны — «Начать заново»
+        # его не сбрасывал, а в аналитике каждой записи были одни и те же
+        # суммарные цифры. Так же устроены presence/activity/votes.
         cnt = await conn.fetchval(
-            "INSERT INTO webinar_speaker_reactions (room_id, speaker_id, reaction_key, count) "
-            "VALUES ($1,$2,$3,1) ON CONFLICT (room_id, speaker_id, reaction_key) "
+            "INSERT INTO webinar_speaker_reactions (room_id, speaker_id, reaction_key, count, session_id) "
+            "VALUES ($1,$2,$3,1,$4) ON CONFLICT (room_id, speaker_id, reaction_key, session_id) "
             "DO UPDATE SET count = webinar_speaker_reactions.count + 1 RETURNING count",
-            rid, body.speaker_id, body.reaction,
+            rid, body.speaker_id, body.reaction, room.get("current_session_id"),
         )
         await conn.execute(
             "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, value, session_id) "

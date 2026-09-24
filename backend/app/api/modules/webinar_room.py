@@ -1131,6 +1131,7 @@ async def viewers(event_id: int, day_number: int, session_id: Optional[int] = Qu
 
 @router.get("/{day_number}/live-stats", summary="Пульт ведущего: зрители и реакции спикеров")
 async def live_stats(event_id: int, day_number: int,
+                     session_id: Optional[int] = Query(None),
                      client=Depends(get_current_client), db=Depends(get_db)):
     """Две цифры зала + реакции по спикерам — для пульта ведущего.
 
@@ -1148,14 +1149,22 @@ async def live_stats(event_id: int, day_number: int,
 
     room = await db.fetchrow(
         "SELECT status, show_up_reaction, show_down_reaction, "
-        "       reaction_up_label, reaction_down_label "
+        "       reaction_up_label, reaction_down_label, current_session_id "
         "  FROM webinar_rooms WHERE id=$1", rid)
     is_live = bool(room and room["status"] == "live")
 
     # Всего уникальных за всё время комнаты — по тому же ключу, что и онлайн.
+    # ⚠️ «Всего зашло» — за ТЕКУЩИЙ запуск, а не за всю жизнь комнаты
+    # (24.09.2026): после «Начать заново» цифра обязана начинаться с нуля,
+    # иначе она складывает зрителей всех прогонов и ничего не означает.
+    # ⚠️ `session_id` из запроса — это АНАЛИТИКА конкретной записи; без него
+    # берём текущий запуск (пульт ведущего). Так одна ручка кормит оба
+    # экрана и цифры в них не разъезжаются.
+    _sid = session_id if session_id else (room["current_session_id"] if room else None)
     total = await db.fetchval(
         "SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
-        "  FROM webinar_presence WHERE room_id=$1", rid) or 0
+        "  FROM webinar_presence WHERE room_id=$1 "
+        "   AND ($2::int IS NULL OR session_id = $2)", rid, _sid) or 0
 
     online = None
     if is_live:
@@ -1173,7 +1182,10 @@ async def live_stats(event_id: int, day_number: int,
         "  JOIN event_collaborators ec ON ec.id = r.speaker_id "
         "  JOIN collaborators c ON c.id = ec.speaker_id "
         " WHERE r.room_id = $1 "
-        " ORDER BY r.count DESC", rid)
+        # ⚠️ Реакции ТЕКУЩЕГО запуска: до этого показывалась сумма за все
+        # прогоны, и «Начать заново» её не сбрасывал.
+        "   AND r.session_id IS NOT DISTINCT FROM $2 "
+        " ORDER BY r.count DESC", rid, _sid)
 
     # Схлопываем в строку на спикера: {имя, up, down}.
     by_speaker: dict = {}

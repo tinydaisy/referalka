@@ -49,8 +49,10 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
   // Реакции спикеров — одним запросом, тем же, что кормит пульт ведущего.
   // ⚠️ Ошибку глотаем: аналитика не должна падать из-за побочного блока.
   useEffect(() => {
-    api.webinar.liveStats(eventId, day).then(setRx).catch(() => {})
-  }, [eventId, day])
+    // ⚠️ С sessionId: у каждой записи свои реакции. Без него показывалась
+    // сумма за ВСЕ запуски — одни и те же цифры под каждой записью.
+    api.webinar.liveStats(eventId, day, sessionId).then(setRx).catch(() => {})
+  }, [eventId, day, sessionId])
 
   useEffect(() => {
     setViewers([])

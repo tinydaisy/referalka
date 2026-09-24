@@ -2597,8 +2597,8 @@ export const api = {
     viewers: (eventId: number, day: number, sessionId?: number | null) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/viewers${sessionId ? `?session_id=${sessionId}` : ''}`),
     // Пульт ведущего: сколько в зале сейчас + всего + реакции по спикерам.
-    liveStats: (eventId: number, day: number) =>
-      request(`/api/v1/events/${eventId}/webinar/${day}/live-stats`),
+    liveStats: (eventId: number, day: number, sessionId?: number | null) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/live-stats${sessionId ? `?session_id=${sessionId}` : ''}`),
     // ── автовебинар: та же комната со stream_type='auto' ──
     // ⚠️ Отдельной сущности нет — чат, продающие блоки и аналитика общие.
     autoSchedule: (eventId: number, day: number) =>
