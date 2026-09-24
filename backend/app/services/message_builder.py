@@ -1817,9 +1817,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        COALESCE(cse.priority, 60) AS _prio,
                        btrim(CASE WHEN COALESCE(btrim(c.last_name),'')='' THEN COALESCE(c.name,'') ELSE COALESCE(c.name,'')||' '||COALESCE(c.last_name,'') END) AS speaker_name,
                        pu_tg.username AS personal_tg_username,
-                       """ + gift_title_sql("cse") + """ AS gift_after_speech_title,
-                       """ + gift_url_sql("cse") + """ AS gift_after_speech_url,
                        cse.role, cse.is_commercial,
+                       -- ⚠️ ТОЛЬКО список: одиночные поля «название/ссылка
+                       -- первого подарка» отсюда убраны намеренно (24.09.2026) —
+                       -- именно ветвление по ним и теряло остальные подарки.
                        """ + gift_magnets_sql("cse") + """ AS gift_magnets_json
                 FROM conf_sessions cs
                 JOIN event_collaborators cse ON cse.id = cs.speaker_id
@@ -1842,25 +1843,32 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             # может быть несколько — без дедупа его подарки повторялись столько
             # же раз, сколько у него выступлений.
             for gs in gift_sessions:
-                title = (gs["gift_after_speech_title"] or "").strip()
-                url = (gs["gift_after_speech_url"] or "").strip()
                 tg = (gs["personal_tg_username"] or "").strip()
                 tg_mention = ("@" + tg.lstrip("@")) if tg else ""
-                # Список подарков-лид-магнитов спикера (до 4). Приоритет ручному подарку.
+                # ⚠️⚠️ ВЫВОДЯТСЯ ВСЕ ПОДАРКИ СПИКЕРА — и ручные, и плюсоновские
+                # (24.09.2026). Раньше ветвление шло по одиночному полю
+                # `gift_after_speech_title`, а это НАЗВАНИЕ ПЕРВОГО подарка, и
+                # оно непусто всегда, когда подарки заданы вообще: код уходил в
+                # ветку «title + url» и печатал ОДИН подарок, а остальные молча
+                # терял. Полный список использовался только при пустом названии —
+                # то есть практически никогда. Теперь единственный источник —
+                # список: он и так содержит все подарки любого вида, в порядке
+                # `sort_order`.
                 magnets = _parse_gift_magnets(gs["gift_magnets_json"])
-                # У кого подарка НЕТ вообще (ни ручного, ни лид-магнита) — не показываем
-                # в сводном перечне «Итоги дня» (раньше был мусор «пишите в личку»).
-                if not title and not magnets:
+                # У кого подарка НЕТ вовсе — в сводном перечне не показываем
+                # (раньше был мусор «пишите в личку»).
+                if not magnets:
                     continue
-                if not title and magnets:
-                    # Несколько подарков у спикера → нумеруем «1. …\n2. …»; один — без номера.
-                    body = gifts_block(magnets, numbered=len(magnets) > 1)
-                    block = f"🎁 <b>{gs['speaker_name']}:</b>\n{body}"
-                elif not url:
-                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}" + (f"\nПишите в личку {tg_mention}" if tg_mention else "")
+                # Единственный подарок БЕЗ ссылки — зовём в личку: одно название
+                # не говорит человеку, что с ним делать.
+                if len(magnets) == 1 and not (magnets[0].get("url") or "").strip():
+                    body = (magnets[0].get("title") or "").strip()
+                    if tg_mention:
+                        body += f"\nПишите в личку {tg_mention}"
                 else:
-                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{url}"
-                gift_blocks.append(block)
+                    # Несколько подарков → нумеруем «1. …\n2. …»; один — без номера.
+                    body = gifts_block(magnets, numbered=len(magnets) > 1)
+                gift_blocks.append(f"🎁 <b>{gs['speaker_name']}:</b>\n{body}")
             if gift_blocks:
                 day_speakers_gifts = "\n\n".join(gift_blocks)
 
