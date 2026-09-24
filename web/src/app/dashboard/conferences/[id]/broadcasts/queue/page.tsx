@@ -278,6 +278,9 @@ export default function QueuePage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [runningSelected, setRunningSelected] = useState(false)
+  // Какую рассылку запускаем кнопкой на её карточке (id) — чтобы крутилка
+  // была только у неё, а не у всех сразу.
+  const [runningOne, setRunningOne] = useState<number | null>(null)
 
   // ── Сдвиг тайминга спикерских рассылок («за 5 мин до выступления» + «подарок после эфира») ──
   const [shiftModal, setShiftModal] = useState(false)
@@ -719,6 +722,41 @@ export default function QueuePage() {
     }
     setDeleting(false)
     if (deletedCount > 0) showMsg(`Удалено ${deletedCount} рассылок`)
+  }
+
+  /** Запуск ОДНОЙ рассылки — кнопкой прямо на её карточке.
+   *
+   * ⚠️ Проверки те же, что у массового запуска, но ведут себя иначе: там
+   * негодные молча пропускаются (запускаем остальные), здесь пропускать
+   * нечего — рассылка одна, поэтому объясняем, что именно мешает.
+   */
+  async function runOne(s: any) {
+    if (s.status !== 'draft') return
+    if (!s.fire_at_iso) {
+      alert('У рассылки не задано время отправки. Нажмите «Задать время» — и запускайте.')
+      return
+    }
+    if (new Date(s.fire_at_iso) <= new Date()) {
+      alert('Время отправки уже прошло — планировщик такую задачу не подхватит.\n\nЗадайте время в будущем через «Задать время».')
+      return
+    }
+    if (s.has_empty_placeholder) {
+      alert('В сообщении пустая обязательная подстановка — ссылка на эфир или контакты поддержки.\n\nЗаполните её, иначе люди получат сообщение с дырой вместо ссылки.')
+      return
+    }
+    const label = s.template_name || TYPE_LABELS[s.template_type] || s.type
+    if (!confirm(`Запустить рассылку «${label}»?\n\nОтменить можно значком ✕ справа на задаче.`)) return
+
+    setRunningOne(s.id)
+    try {
+      await api.conference.schedules.runSelected(eventId, [s.id])
+      showMsg(`Рассылка «${label}» поставлена в очередь — уйдёт в назначенное время.`)
+      await load()
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    } finally {
+      setRunningOne(null)
+    }
   }
 
   async function runSelected() {
@@ -1205,6 +1243,25 @@ export default function QueuePage() {
                       title="Превью сообщения">
                       {previewLoading ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
                     </button>
+                    {/* ⚠️ ЗАПУСК ОДНОЙ РАССЫЛКИ — прямо здесь (24.09.2026).
+                        Раньше запустить можно было только через галочку и
+                        кнопку наверху списка: чтобы отправить ОДНУ рассылку,
+                        человек отмечал её, прокручивал вверх, жал «Запустить
+                        выбранные». Массовый запуск галочками остался — он
+                        удобен, когда рассылок много. */}
+                    {s.status === 'draft' && (
+                      <button
+                        onClick={() => runOne(s)}
+                        disabled={runningOne === s.id}
+                        className="px-2 py-1 rounded-lg text-xs font-semibold disabled:opacity-40 flex items-center gap-1"
+                        style={{ background: '#FFCFA4', color: '#25455D' }}
+                        title={!s.fire_at_iso
+                          ? 'Сначала задайте время отправки'
+                          : 'Запустить эту рассылку'}>
+                        <Play size={12} />
+                        {runningOne === s.id ? 'Запускаю…' : 'Запустить'}
+                      </button>
+                    )}
                     {/* Задать время (для draft без fire_at) */}
                     {(s.status === 'draft' || s.status === 'pending') && !s.fire_at && (
                       <button onClick={() => openFireAt(s)}
