@@ -2054,7 +2054,9 @@ function AudienceTab({ eventId, day }: { eventId: number; day: number }) {
 function LiveAudienceStats({ eventId, day }: { eventId: number; day: DayItem }) {
   const [st, setSt] = useState<any>(null)
   const [openRx, setOpenRx] = useState(false)
-  const isLive = day.room?.status === 'live'
+  // ⚠️ Статус — из СВЕЖЕГО ответа сервера, а не из снимка `day`: тот не
+  // обновляется, и подпись «эфир не начат» висела бы даже в эфире.
+  const isLive = st?.is_live ?? (day.room?.status === 'live')
 
   const load = useCallback(async () => {
     try {
@@ -2064,11 +2066,19 @@ function LiveAudienceStats({ eventId, day }: { eventId: number; day: DayItem }) 
   }, [eventId, day.day_number])
 
   useEffect(() => { load() }, [load])
+  // ⚠️⚠️ ОПРАШИВАЕМ ВСЕГДА, а не только когда `day.room.status === 'live'`
+  // (24.09.2026). `day` — СНИМОК, полученный при загрузке страницы, и сам он
+  // не обновляется: открыли пульт до старта эфира — автообновление не
+  // включалось НИКОГДА, и цифры менялись только по F5. Ровно на это и
+  // пожаловался владелец.
+  //
+  // ⚠️ Статус берём из СВЕЖЕГО ответа (`st.is_live`), а не из снимка: пока
+  // эфир идёт — раз в 10 с, вне эфира — раз в 30 с (там меняться почти
+  // нечему, но старт эфира заметить надо).
   useEffect(() => {
-    if (!isLive) return
-    const t = setInterval(load, 15000)
+    const t = setInterval(load, st?.is_live ? 10000 : 30000)
     return () => clearInterval(t)
-  }, [isLive, load])
+  }, [st?.is_live, load])
 
   const rx: any[] = st?.reactions || []
 
