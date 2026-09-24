@@ -161,9 +161,9 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
       {/* метрики */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <Tile label="Всего уникальных" value={m.total_unique} />
-        <Tile label="Пик онлайн" value={m.peak_online} sub={m.peak_at ? new Date(m.peak_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) + ' МСК' : ''} />
         <Tile label="Комментариев" value={m.comments} />
         <Tile label="Кликов" value={m.clicks} sub={`заказы ${m.orders} · оплаты ${m.payments}`} />
+        <Tile label="Пик онлайн" value={m.peak_online} sub={m.peak_at ? new Date(m.peak_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) + ' МСК' : ''} />
       </div>
 
       {/* шаг + вовлечённость */}
