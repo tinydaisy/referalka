@@ -80,7 +80,11 @@ export default function ClientsScreen({ mode }: { mode: 'admin' | 'tech' }) {
       if (mode === 'admin' && specId !== null) sp.set('spec_id', String(specId))
       sp.set('limit', String(PAGE))
       sp.set('offset', String(offset))
-      (mode === 'admin'
+      // ⚠️ Точка с запятой ОБЯЗАТЕЛЬНА: без неё следующая строка, начинающаяся
+      // со скобки, читается как ВЫЗОВ результата `sp.set(...)` — то есть
+      // `undefined(...)`. Сборка падала «This expression is not callable»
+      // и блокировала выкатку всей ветки (24.09.2026).
+      ;(mode === 'admin'
         ? api.admin.clients(sp.toString())
         : api.tech.clientsFull(sp.toString()))
         .then((r: any) => {
