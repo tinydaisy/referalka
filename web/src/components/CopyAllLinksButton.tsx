@@ -18,19 +18,19 @@ import { Copy, Check } from 'lucide-react'
  * (ТГ → MAX → ВК) — он же в подсказке, чтобы человек знал, что скопировал.
  */
 
-export type PlatformLinks = Partial<Record<'telegram' | 'vk' | 'max' | 'web' | 'landing', string>>
+export type PlatformLinks = Partial<Record<'telegram' | 'vk' | 'max' | 'reg' | 'landing', string>>
 
 /** Порядок и подписи — единая точка. Меняется здесь, применяется везде.
  *
- *  ⚠️ 'landing' и 'web' (24.09.2026) — веб-страницы без мессенджера, и они
+ *  ⚠️ 'landing' и 'reg' (24.09.2026) — веб-страницы без мессенджера, и они
  *  идут ПОСЛЕ мессенджеров: это запасной путь для тех, кого нет в ботах.
  *  Ключа нет в наборе — строка просто не попадёт в текст, как и раньше. */
-const ORDER: Array<{ key: 'telegram' | 'max' | 'vk' | 'landing' | 'web'; label: string }> = [
+const ORDER: Array<{ key: 'telegram' | 'max' | 'vk' | 'landing' | 'reg'; label: string }> = [
   { key: 'telegram', label: 'Через ТГ' },
   { key: 'max', label: 'Через MAX' },
   { key: 'vk', label: 'Через ВК' },
   { key: 'landing', label: 'Лендинг' },
-  { key: 'web', label: 'Без мессенджера' },
+  { key: 'reg', label: 'Без мессенджера' },
 ]
 
 /** Собрать текст для буфера. Экспортирую отдельно — Mini App живёт в другом

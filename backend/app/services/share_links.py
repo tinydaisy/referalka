@@ -507,7 +507,7 @@ async def build_share_links(
     # True — выдача для КАБИНЕТА: выключенные площадки остаются в списке
     # (со снятой галочкой), иначе строка исчезает и вернуть площадку нечем.
     include_disabled: bool = False,
-    # True — добавить веб-страницы без мессенджера ('web' и 'landing').
+    # True — добавить веб-страницы без мессенджера ('reg' и 'landing').
     with_web: bool = False,
 ) -> dict[str, str]:
     """Возвращает {platform → url} ТОЛЬКО для тех платформ, где у клиента
@@ -518,7 +518,7 @@ async def build_share_links(
     - Иначе ссылка НЕ возвращается (системные каналы ПЛЮСОНа больше не используются —
       ни для показа, ни для шеринга).
 
-    ⚠️ `with_web` (24.09.2026) — ДВЕ ВЕБ-СТРАНИЦЫ В ТОТ ЖЕ НАБОР: 'web' (форма
+    ⚠️ `with_web` (24.09.2026) — ДВЕ ВЕБ-СТРАНИЦЫ В ТОТ ЖЕ НАБОР: 'reg' (форма
     регистрации `/event/{slug}/register`) и 'landing' (Плюсоновский лендинг
     `/e/{slug}`), обе с реф-кодом в `?pid=`. Нужны тем, чья аудитория не в
     мессенджерах, и когда у клиента ботов нет вовсе — тогда весь остальной
@@ -571,7 +571,9 @@ async def build_share_links(
     if with_web:
         from app.services.client_domains import client_public_link
         _pid = f"?pid={partner_id}" if partner_id else ""
-        result["web"] = await client_public_link(
+        # ⚠️ Ключ 'reg', а не 'web': у формы регистрации СВОЯ галочка. Простая
+        # страница события ('web') — отдельная страница с отдельным выключателем.
+        result["reg"] = await client_public_link(
             db, client_id, f"/event/{event_slug}/register{_pid}")
         _landing_published = await db.fetchval(
             """SELECT p.is_published FROM event_landing_pages p
@@ -587,7 +589,7 @@ async def build_share_links(
     # отдаём — ни спикерам в кабинет/материалы, ни участникам в реф-ссылки.
     # ⚠️ Сам бот площадки продолжает работать: прячем только публичную выдачу.
     #
-    # ⚠️ Веб-страницы ('web', 'landing') живут в том же списке и гасятся тем же
+    # ⚠️ Веб-страницы ('reg', 'landing') живут в том же списке и гасятся тем же
     # кодом — галочка у них ровно такая же, как у мессенджеров.
     #
     # ⚠️ include_disabled=True — для КАБИНЕТА: там строка должна остаться со

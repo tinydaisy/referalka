@@ -27,11 +27,11 @@ interface Props {
   title?: string
 }
 
-/** ⚠️ 'web' и 'landing' (24.09.2026) — веб-страницы без мессенджера. Приходят
+/** ⚠️ 'reg' и 'landing' (24.09.2026) — веб-страницы без мессенджера. Приходят
  *  тем же набором и гасятся теми же галочками события, что TG/VK/MAX. */
 type ShareLinks = {
   telegram?: string; vk?: string; max?: string
-  web?: string; landing?: string
+  reg?: string; landing?: string
 }
 
 export default function RefLinkInline({ slug, refCode, compact = false, eventStatus, links: linksProp, title }: Props) {
@@ -67,7 +67,7 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
     // без мессенджеров, а не основной. В compact-виде берётся первая строка
     // (links[0]) — значит там по-прежнему Telegram, если он есть.
     { key: 'landing',  badge: 'LP',  label: 'Лендинг',    url: shareLinks.landing || '' },
-    { key: 'web',      badge: 'РЕГ', label: 'Без мессенджера', url: shareLinks.web || '' },
+    { key: 'reg',      badge: 'РЕГ', label: 'Без мессенджера', url: shareLinks.reg || '' },
   ]
   // Показываем только те платформы, по которым бэк вернул URL (есть свой канал
   // ИЛИ есть боевой системный для этой платформы).

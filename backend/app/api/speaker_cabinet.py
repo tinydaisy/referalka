@@ -1370,7 +1370,10 @@ async def get_me_materials(
     _web_off = await get_event_disabled_platforms(db, event_id=e_id)
 
     web_reg_link = ""
-    if _ref_code and "web" not in _web_off:
+    # ⚠️ Площадка 'reg' — СВОЯ у формы регистрации (24.09.2026). Раньше она
+    # делила метку 'web' с простой страницей события, и галочка была одна на
+    # две разные страницы: выключаешь витрину — пропадает и форма записи.
+    if _ref_code and "reg" not in _web_off:
         web_reg_link = await client_public_link(
             db, int(base["client_id"]),
             f"/event/{base['event_slug']}/register?pid={_ref_code}")
@@ -1437,7 +1440,7 @@ async def get_me_materials(
         # ссылки пустые и раздавать нечего. Форма на сайте работает всегда,
         # реф-код в ней теперь засчитывается (раньше `pid` она игнорировала).
         #
-        # ⚠️ ГАЛОЧКА 'web' (24.09.2026) — как у мессенджеров. Раньше строка
+        # ⚠️ ГАЛОЧКА 'reg' (24.09.2026) — как у мессенджеров. Раньше строка
         # показывалась ВСЕГДА, мимо галочек события: клиент снимал её в
         # «Публичных ссылках», а спикеры продолжали раздавать эту страницу.
         "web_reg_link": web_reg_link,
