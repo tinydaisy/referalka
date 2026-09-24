@@ -582,7 +582,13 @@ export default function QueuePage() {
       // send_to_event_chats/pin_in_chat от шаблона (broadcast.py:247), и
       // навигация после «Задать время» перестала бы уходить в чат и
       // закрепляться. На бэке то же самое продублировано принудительно.
-      const isChatNav = fireAtModal.type === 'chat_nav'
+      // ⚠️ Рассылки в ЧАТ СПИКЕРОВ — по тому же правилу, что chat_nav
+      // (24.09.2026): у них тоже настраивается только время. Слать
+      // `chats_overridden: true` тут нельзя — флаг отключает наследование
+      // send_to_speakers_chat/pin_in_chat от шаблона, и после «Задать время»
+      // рассылка перестала бы уходить в чат спикеров вовсе.
+      const isChatNav = ['chat_nav', 'speakers_call', 'speakers_day', 'speakers_howto']
+        .includes(fireAtModal.type)
       await api.conference.schedules.setFireAt(eventId, fireAtModal.id, isChatNav ? {
         fire_at: fireAtValue,
         is_test: false,
@@ -1323,7 +1329,19 @@ export default function QueuePage() {
           НЕ трогаем: бэк рабочий, вызвать его при надобности можно снова. */}
 
       {/* ── Модалка: установить время отправки ── */}
-      {fireAtModal && (() => { const isChatNav = fireAtModal.type === 'chat_nav'; return (
+      {/* ⚠️⚠️ РАССЫЛКИ В ЧАТ СПИКЕРОВ — ВЫБОРА ПЛОЩАДКИ НЕТ (24.09.2026).
+          `speakers_call` / `speakers_day` / `speakers_howto` уходят РОВНО в чат
+          спикеров события, а не по базе: доставка идёт по `send_to_speakers_chat`,
+          который бэк для этих типов проставляет принудительно, и
+          `target_channel_ids` в этой ветке не читается вовсе. Выбор площадки,
+          аудитории и галочки «общие чаты / личные каналы» были настройками,
+          которые ни на что не влияют, — а снятая галочка вместе с
+          `chats_overridden=TRUE` ещё и отключала наследование от шаблона, и
+          рассылка не уходила никуда. Та же логика, что у `chat_nav` выше. */}
+      {fireAtModal && (() => {
+        const isSpeakersChat = ['speakers_call', 'speakers_day', 'speakers_howto']
+          .includes(fireAtModal.type)
+        const isChatNav = fireAtModal.type === 'chat_nav' || isSpeakersChat; return (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 max-h-[90vh] overflow-y-auto scroll-visible">
             <div className="flex justify-between items-center mb-4">
@@ -1357,9 +1375,15 @@ export default function QueuePage() {
                 <div className="flex items-start gap-1.5 bg-[#FFCFA4]/20 border border-[#FFCFA4] rounded-xl px-3 py-2.5">
                   <span className="text-sm mt-0.5">💬</span>
                   <p className="text-xs text-[#25455D]">
-                    <b>Уходит в чаты события</b> — Telegram, ВК и MAX, где чат указан
-                    в настройках события. В личку участникам не приходит.
-                    Настраивать тут больше нечего — только время.
+                    {isSpeakersChat ? (<>
+                      <b>Уходит в чат спикеров</b> — тот, что указан в настройках
+                      события. Участникам не приходит.
+                      Настраивать тут больше нечего — только время.
+                    </>) : (<>
+                      <b>Уходит в чаты события</b> — Telegram, ВК и MAX, где чат указан
+                      в настройках события. В личку участникам не приходит.
+                      Настраивать тут больше нечего — только время.
+                    </>)}
                   </p>
                 </div>
               ) : (<>

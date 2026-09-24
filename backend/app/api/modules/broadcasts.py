@@ -2841,7 +2841,14 @@ async def set_schedule_fire_at(
         "SELECT type FROM broadcast_schedules WHERE id=$1 AND event_id=$2",
         schedule_id, event_id,
     )
-    if sch_type == "chat_nav":
+    # ⚠️⚠️ РАССЫЛКИ В ЧАТ СПИКЕРОВ — то же правило (24.09.2026). Они уходят
+    # РОВНО в чат спикеров события: доставка идёт по `send_to_speakers_chat`,
+    # который для этих типов проставляется принудительно (см. update_template),
+    # а `target_channel_ids` в этой ветке движка не читается вовсе. Выбор
+    # площадки здесь ничего не менял, зато `chats_overridden = TRUE` отключал
+    # наследование от шаблона — и после обычного «Задать время» рассылка
+    # перестала бы уходить в чат и закрепляться.
+    if sch_type in ("chat_nav", "speakers_call", "speakers_day", "speakers_howto"):
         data.is_test = False
         data.audience_include = None
         data.audience_exclude = None

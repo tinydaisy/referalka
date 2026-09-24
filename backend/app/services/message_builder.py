@@ -121,7 +121,13 @@ DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "da
              "event_live",
              # Программа дня В ЧАТ СПИКЕРОВ (миграция 442): та же механика дня
              # (номер дня, дата, заголовок), но свой формат тайминга.
-             "speakers_day")
+             "speakers_day",
+             # ⚠️ Инструкция по подключению В ЧАТ СПИКЕРОВ (24.09.2026) — тоже
+             # ДНЕВНОЙ тип: рассылка на день целиком, конкретного спикера в ней
+             # нет. Без этой строки шаблон не попадал ни в одну ветку сборки, и
+             # {speaker_join_url} / {stream_url} / {day_speakers_mentions}
+             # уходили бы в чат сырыми — шаблон был заведён, но не работал.
+             "speakers_howto")
 SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before", "expert_day", "speakers_call")
 
 # Плейсхолдеры, которые можно заполнить ТОЛЬКО когда выбран конкретный спикер
@@ -383,6 +389,35 @@ def gifts_block(gifts: list, *, numbered: bool = False) -> str:
         head = f"{i}. {t}" if numbered else t
         parts.append(f"{head}\n{u}" if u else head)
     return "\n\n".join(parts)
+
+
+def _drop_placeholder_with_caption(text: str, name: str) -> str:
+    """Убрать строку с плейсхолдером `{name}` — ВМЕСТЕ С ПОДПИСЬЮ над ней.
+
+    ⚠️ Ссылка часто стоит НА ОТДЕЛЬНОЙ СТРОКЕ под подписью («Ссылка на ZOOM:»,
+    «2) Ссылка на вебинарную комнату:»). Обычное правило «убрать строку с
+    плейсхолдером» оставило бы висеть саму подпись — заголовок без адреса.
+
+    ⚠️⚠️ Подпись может быть ЖИРНОЙ: «<b>1) Ссылка на ZOOM:</b>» кончается не на
+    двоеточие, а на закрывающий тег (24.09.2026). Прежняя регулярка искала «:» в
+    самом конце строки, на жирной подписи не срабатывала — и в чат спикеров
+    уходил заголовок «1) Ссылка на ZOOM:» без единого адреса под ним.
+
+    ⚠️ Строка НЕ похожа на подпись (не кончается двоеточием) — убираем только
+    саму строку с плейсхолдером: обычный текст вокруг сносить нельзя.
+
+    ⚠️ ОДНА точка на весь файл: правило нужно и «вы следующие», и дневным
+    рассылкам («Программа дня», «Инструкция по подключению»).
+    """
+    ph = r"\{" + re.escape(name) + r"\}"
+    text = re.sub(r"^[^\n]*:(?:</[a-z]+>)*[ \t]*\n[^\n]*" + ph + r"[^\n]*\n?",
+                  "", text or "", flags=re.MULTILINE)
+    return re.sub(r"^[^\n]*" + ph + r"[^\n]*\n?", "", text, flags=re.MULTILINE)
+
+
+def _drop_join_url_line(text: str) -> str:
+    """Убрать строку с {speaker_join_url} вместе с подписью. Тонкая обёртка."""
+    return _drop_placeholder_with_caption(text, "speaker_join_url")
 
 
 def _parse_gift_magnets(raw) -> list[dict]:
@@ -943,10 +978,7 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
     # сносим и строку-подпись, если она заканчивается двоеточием.
     _join_v = (speaker_join_url or "").strip()
     if not _join_v:
-        # подпись-строка «…:» непосредственно перед строкой с плейсхолдером
-        text = re.sub(r"^[^\n]*:[ \t]*\n[^\n]*\{speaker_join_url\}[^\n]*\n?",
-                      "", text, flags=re.MULTILINE)
-        text = re.sub(r"^[^\n]*\{speaker_join_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        text = _drop_join_url_line(text)
     text = text.replace("{speaker_join_url}", _join_v)
     # {speaker_time} — «14:30–15:00 МСК». Раньше раскрывался только в
     # speaker_intro, хотя фронт предлагал его и здесь — плейсхолдер уходил сырым.
@@ -1050,6 +1082,13 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
     # .replace("{day_program}") затронет подстроку внутри _with_links.
     text = text.replace("{day_program_with_links}", day_program_with_links or day_program or "")
     text = text.replace("{day_program}", day_program or "")
+    # ⚠️ Комната не задана → убираем строку ВМЕСТЕ С ПОДПИСЬЮ над ней
+    # (24.09.2026). Раньше подставлялась пустая строка, и в «Инструкции по
+    # подключению» у спикеров оставалась висеть жирная подпись «2) Ссылка на
+    # вебинарную комнату:» без единого адреса под ней. Правило то же, что у
+    # {speaker_join_url}, и функция общая.
+    if not (stream_url_val or "").strip():
+        text = _drop_placeholder_with_caption(text, "stream_url")
     text = text.replace("{stream_url}", stream_url_val or "")
     text = text.replace("{landing_url}", registration_url_val or "")
     text = text.replace("{registration_url}", registration_url_val or "")
@@ -1713,7 +1752,12 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         #   2) афиша ЭТОГО дня программы (event_posters.day = day);
         #   3) общая афиша события (event_posters.day IS NULL).
         # Внутри каждой группы: квадрат > горизонтальная > вертикальная.
-        if not photo:
+        #
+        # ⚠️ Инструкция в чат спикеров (`speakers_howto`) афишу НЕ подставляет:
+        # это служебное сообщение, которое спикер открывает ради двух ссылок, а
+        # картинка отодвинула бы их под кат. Клиент может задать своё фото в
+        # шаблоне — тогда оно и уйдёт (`photo` уже заполнен выше).
+        if not photo and tpl_type != "speakers_howto":
             photo = await get_day_event_photo(conn, event_id, day if is_program_event else None)
 
         # Программа дня — у событий с программой (конференция/турнир). У мероприятий conf_sessions пуст.
@@ -1780,10 +1824,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             if _day_join.strip():
                 text = text.replace("{speaker_join_url}", _day_join.strip())
             else:
-                # Пусто → убираем строку целиком, как это делают остальные
-                # плейсхолдеры: «Зум:» без ссылки хуже, чем ничего.
-                text = re.sub(r"^[^\n]*\{speaker_join_url\}[^\n]*\n?", "",
-                              text or "", flags=re.MULTILINE)
+                # Пусто → убираем строку целиком ВМЕСТЕ С ПОДПИСЬЮ над ней
+                # (общая `_drop_join_url_line`): «Ссылка на ZOOM:» без адреса
+                # хуже, чем ничего.
+                text = _drop_join_url_line(text)
 
         # {day_speakers_mentions} — «@ivan @petr»: отметить спикеров, чтобы
         # инструкция не потерялась в чате и пришло уведомление.

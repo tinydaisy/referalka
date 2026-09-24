@@ -1446,17 +1446,10 @@ export default function TemplatesPage() {
         if (!tgUrl) out = out.replace(/ \(\{speaker_tg_username\}\)/g, '')
         out = out.replace(/\{speaker_tg_username\}/g, tgUrl)
 
-        // Вход спикера в зум — поле ДНЯ этого слота (webinar_rooms.speaker_join_url).
-        const joinDay = day
-        const joinUrl = String(
-          confDaysData.find((x: any) => x.day_number === joinDay)?.speaker_join_url || ''
-        ).trim()
-        out = joinUrl
-          ? out.replace(/\{speaker_join_url\}/g, joinUrl)
-          // Ссылка на отдельной строке под подписью «Ссылка для входа (Zoom):» —
-          // убираем и подпись, иначе останется заголовок без ссылки.
-          : out.replace(/^[^\n]*:[ \t]*\n[^\n]*\{speaker_join_url\}[^\n]*\n?/gm, '')
-               .replace(/^[^\n]*\{speaker_join_url\}[^\n]*\n?/gm, '')
+        // ⚠️ {speaker_join_url} здесь БОЛЬШЕ НЕ ПОДСТАВЛЯЕТСЯ: он раскрывается
+        // ниже, в общем блоке дневных плейсхолдеров (24.09.2026). Своя копия
+        // здесь работала только для «вы следующие», а в «Программе дня» и
+        // «Инструкции по подключению» плейсхолдер оставался в превью сырым.
 
         // ⚠️ У спикера слоты бывают в НЕСКОЛЬКИХ днях (Марго — в четырёх), а
         // общий `slot` выше берёт первый по всей программе. Для «вы следующие»
@@ -1522,6 +1515,14 @@ export default function TemplatesPage() {
     // больше нет — дневные шаблоны («за 30 минут», «старт дня», «за 2 часа»)
     // показывали заглушку «[ссылка на эфир]», хотя комната задана.
     const realStreamUrl = getStreamUrl(d)
+    // {speaker_join_url} — вход СПИКЕРА в Zoom ЭТОГО дня (webinar_rooms).
+    // ⚠️ Раньше подставлялся ТОЛЬКО в ветке «вы следующие» (speakers_call), где
+    // известен слот спикера. В «Программе дня» и «Инструкции по подключению»
+    // слота нет — рассылка на день целиком, — и плейсхолдер оставался сырым в
+    // превью. У каждого дня своя зум-конференция, поэтому берём по дню.
+    const realJoinUrl = String(
+      confDaysData.find((x: any) => x.day_number === d)?.speaker_join_url || ''
+    ).trim()
     // Ссылка регистрации приходит с бэка уже готовой (registration_link): она
     // учитывает способ регистрации события и НЕ бывает пустой. Сторонний
     // landing_url — фолбэк для старых ответов API.
@@ -1573,6 +1574,24 @@ export default function TemplatesPage() {
         })
         .filter(Boolean)
       return lines.length ? lines.join('\n') : '[тайминг выступлений]'
+    })()
+
+    // {day_speakers_mentions} — «@ivan @petr»: упомянуть спикеров дня, чтобы у
+    // них пришло уведомление и инструкция не потерялась в чате.
+    // ⚠️ ЗЕРКАЛО бэковой `_day_speakers_mentions`: дубли убираем (у спикера
+    // бывает несколько выступлений за день), спикера без ника пропускаем молча —
+    // «@Иван Петров» не упоминание, а мусор, и Telegram его не подсветит.
+    const daySpeakersMentions = (() => {
+      const seen = new Set<string>()
+      const out: string[] = []
+      for (const s of daySessions) {
+        const sp = speakers.find((x: any) => x.id === s.speaker_id)
+        const tg = (sp?.personal_tg_username || '').trim().replace(/^@+/, '')
+        if (!tg || seen.has(tg.toLowerCase())) continue
+        seen.add(tg.toLowerCase())
+        out.push('@' + tg)
+      }
+      return out.join(' ')
     })()
 
     const ORDINALS: Record<number, string> = { 1: 'первом', 2: 'втором', 3: 'третьем', 4: 'четвёртом', 5: 'пятом' }
@@ -1689,8 +1708,26 @@ export default function TemplatesPage() {
       firstStart || (eventData?.start_at ? String(eventData.start_at).slice(11, 16) : ''),
     )
 
+    // Пустые дневные плейсхолдеры убирают строку ЦЕЛИКОМ — как на бэке: «Зум:»
+    // без ссылки хуже, чем ничего. Делаем это ДО общей подстановки ниже, иначе
+    // от плейсхолдера осталась бы висячая подпись.
+    if (!realJoinUrl) {
+      // Ссылка стоит на отдельной строке под подписью «Ссылка на ZOOM:» — тогда
+      // убираем и подпись (зеркало `_drop_join_url_line` в message_builder).
+      // ⚠️ Подпись бывает ЖИРНОЙ: «<b>1) Ссылка на ZOOM:</b>» кончается не
+      // двоеточием, а закрывающим тегом — без `(?:<\/[a-z]+>)*` заголовок
+      // оставался висеть без адреса под ним.
+      out = out.replace(/^[^\n]*:(?:<\/[a-z]+>)*[ \t]*\n[^\n]*\{speaker_join_url\}[^\n]*\n?/gm, '')
+               .replace(/^[^\n]*\{speaker_join_url\}[^\n]*\n?/gm, '')
+    }
+    if (!daySpeakersMentions) {
+      out = out.replace(/^[^\n]*\{day_speakers_mentions\}[^\n]*\n?/gm, '')
+    }
+
     out = out
       .replace(/\{event_when\}/g, realEventWhen || '[дата и время события]')
+      .replace(/\{speaker_join_url\}/g, realJoinUrl)
+      .replace(/\{day_speakers_mentions\}/g, daySpeakersMentions)
       .replace(/\{conf_title\}/g, realConfTitle)
       .replace(/\{conf_date\}/g, confDay1Date || '[дата конференции]')
       .replace(/\{conf_description\}/g, realConfDesc || '[описание конференции]')
