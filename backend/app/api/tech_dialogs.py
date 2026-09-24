@@ -233,9 +233,11 @@ async def messages(
     # ⚠️ Площадки, где у человека есть аккаунт — для выбора, КУДА отвечать.
     # Их может быть больше, чем площадок переписки: писали в телеграм, а почта
     # у него тоже есть.
+    # ⚠️ `$1::int` — приведение обязательно: без него Postgres не может вывести
+    # тип параметра в этом запросе и падает с IndeterminateDatatypeError.
     accs = await db.fetch(
         """SELECT DISTINCT platform_slug FROM platform_users
-            WHERE contact_id = $1
+            WHERE contact_id = $1::int
               AND platform_slug IN ('telegram','vk','max','email')""",
         contact_id)
     return {
