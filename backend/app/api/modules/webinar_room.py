@@ -1161,18 +1161,28 @@ async def live_stats(event_id: int, day_number: int,
     # берём текущий запуск (пульт ведущего). Так одна ручка кормит оба
     # экрана и цифры в них не разъезжаются.
     _sid = session_id if session_id else (room["current_session_id"] if room else None)
-    total = await db.fetchval(
-        "SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
-        "  FROM webinar_presence WHERE room_id=$1 "
-        "   AND ($2::int IS NULL OR session_id = $2)", rid, _sid) or 0
+    # ⚠️⚠️ НЕТ СЕССИИ → НОЛЬ, а не «всё подряд» (24.09.2026). Здесь стояло
+    # «$2 IS NULL OR session_id = $2» — то есть после «Начать заново», когда
+    # current_session_id обнуляется, фильтр отключался и показывались зрители
+    # ВСЕХ прошлых запусков: цифра не сбрасывалась, ради чего всё и делалось.
+    # Новый запуск ещё не начался — значит в нём никого нет, это честный ноль.
+    total = 0
+    if _sid:
+        total = await db.fetchval(
+            "SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
+            "  FROM webinar_presence WHERE room_id=$1 AND session_id = $2",
+            rid, _sid) or 0
 
     online = None
     if is_live:
+        # ⚠️ «Смотрят сейчас» — тоже в рамках запуска: иначе после «Начать
+        # заново» сюда попали бы висящие heartbeat прошлого прогона.
         online = await db.fetchval(
             "SELECT COUNT(DISTINCT COALESCE(contact_id::text, session_key)) "
             "  FROM webinar_presence "
-            " WHERE room_id=$1 AND bucket_at >= NOW() - INTERVAL '2 minutes'",
-            rid) or 0
+            " WHERE room_id=$1 AND bucket_at >= NOW() - INTERVAL '2 minutes' "
+            "   AND ($2::int IS NULL OR session_id = $2)",
+            rid, _sid) or 0
 
     # ⚠️ Реакции — ИМЯ + ФАМИЛИЯ через общий хелпер (правило проекта).
     rx = await db.fetch(
@@ -1184,8 +1194,12 @@ async def live_stats(event_id: int, day_number: int,
         " WHERE r.room_id = $1 "
         # ⚠️ Реакции ТЕКУЩЕГО запуска: до этого показывалась сумма за все
         # прогоны, и «Начать заново» её не сбрасывал.
-        "   AND r.session_id IS NOT DISTINCT FROM $2 "
-        " ORDER BY r.count DESC", rid, _sid)
+        # ⚠️ Та же логика, что у зрителей: нет сессии → пусто. `IS NOT
+        # DISTINCT FROM` здесь сработало бы иначе — подтянуло бы СТАРЫЕ строки
+        # с session_id = NULL (собранные до перехода на посессионный счёт).
+        "   AND r.session_id = $2 "
+        " ORDER BY r.count DESC", rid, _sid) if _sid else []
+
 
     # Схлопываем в строку на спикера: {имя, up, down}.
     by_speaker: dict = {}
