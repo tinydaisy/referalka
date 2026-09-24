@@ -147,7 +147,7 @@ export const ru = {
       program: 'Программа',
       participants: 'Участники',
       raffle: 'Розыгрыш',
-      posters: 'Афиши',
+      posters: 'Афиши/Обложки',
     },
 
     header: {

@@ -25,11 +25,16 @@ import { applyManualOrder, applyManualRows, splitIntoRows, ORGANIZER_ROLES, subs
  *  ⚠️ У каждого вида СВОИ настройки (миграция 459): на общей четырнадцать лиц
  *  сеткой, на индивидуальной одно крупное фото — общий макет пришлось бы
  *  перекраивать при каждом переключении. */
-type PosterKind = 'common' | 'day' | 'individual'
+// ⚠️ `covers` — не афиша события, а ОБЛОЖКИ НАРЕЗОК ЗАПИСИ (24.09.2026).
+// Собираются по меткам конкретной записи эфира, поэтому у вкладки свой
+// выбор дня и записи. Раньше кнопка жила в карточке записи, и найти её
+// было негде — перенесли сюда, к остальным макетам.
+type PosterKind = 'common' | 'day' | 'individual' | 'covers'
 const KIND_TABS: { key: PosterKind; label: string; hint: string }[] = [
   { key: 'common',     label: 'Общие афиши',        hint: 'Все спикеры события на одной афише' },
   { key: 'day',        label: 'Афиши по дням',      hint: 'На каждый день — свои спикеры, без повторов' },
   { key: 'individual', label: 'Индивидуальные',     hint: 'Отдельная афиша каждому спикеру: тема и время' },
+  { key: 'covers',     label: 'Обложки записей',    hint: 'Обложки нарезок эфира — по меткам записи' },
 ]
 
 /** День события со спикерами — приходит с бэкенда уже без дублей. */
@@ -120,7 +125,7 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
   const [dragLogo, setDragLogo] = useState<string | null>(null)
   const [tab, setTab] = useUrlTab<SetTab>('pset', 'bg', ['bg','speakers','text','logos','place','order'])
   // ⚠️ Раздел — тоже через useUrlTab: обновил страницу и остался там же, где был.
-  const [kind, setKind] = useUrlTab<PosterKind>('pkind', 'common', ['common','day','individual'])
+  const [kind, setKind] = useUrlTab<PosterKind>('pkind', 'common', ['common','day','individual','covers'])
   // Подвкладка редактора афиши спикера — тоже через useUrlTab.
   const [indTab, setIndTab] = useUrlTab<IndTab>(
     'pind', 'bg', ['bg','photo','title','role','name','topic','elements','logos'])
@@ -670,6 +675,14 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
         {KIND_TABS.find(k => k.key === kind)?.hint}
       </p>
 
+      {/* ⚠️ Обложки записей — СВОЙ экран, а не общий конструктор афиш
+          (24.09.2026). Ориентация, фон, положение блоков тут ни при чём:
+          обложка собирается по шаблону «Спикер» из меток конкретной записи.
+          Поэтому ранний выход — остальная разметка вкладке не нужна. */}
+      {kind === 'covers' && <CoversTab eventId={eventId} />}
+
+      {kind !== 'covers' && (
+      <>
       {/* Выбор ориентации. */}
       <div className="flex flex-wrap gap-2">
         {ORIENTATIONS.map(x => (
@@ -1950,6 +1963,134 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
               ✕
             </button>
           </div>
+        </div>
+      )}
+      </>
+      )}
+    </div>
+  )
+}
+
+/** Обложки нарезок записи эфира.
+ *
+ * ⚠️ Отдельный экран внутри генератора афиш (24.09.2026). Раньше кнопка
+ * жила в карточке записи, и найти её было почти невозможно: владелец решил,
+ * что генератор обложек вообще пропал.
+ *
+ * ⚠️ Обложки собираются ПО МЕТКАМ записи — без них собирать нечего, поэтому
+ * сначала выбираем день и запись, а кнопка объясняет, чего не хватает.
+ */
+function CoversTab({ eventId }: { eventId: number }) {
+  const [days, setDays] = useState<any[]>([])
+  const [day, setDay] = useState<number | null>(null)
+  const [recs, setRecs] = useState<any[]>([])
+  const [recId, setRecId] = useState<number | null>(null)
+  const [covers, setCovers] = useState<any[]>([])
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+
+  // Дни события — чтобы знать, где искать записи.
+  useEffect(() => {
+    api.conference.days.list(eventId)
+      .then((r: any) => {
+        const list = r.days || []
+        setDays(list)
+        // ⚠️ Поле называется `day_number`, а не `day` — так отдаёт API дней.
+        if (list.length && day === null) setDay(list[0].day_number)
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId])
+
+  // Записи выбранного дня.
+  useEffect(() => {
+    if (!day) return
+    setRecs([]); setRecId(null); setCovers([]); setErr('')
+    api.webinar.recordings(eventId, day)
+      .then((r: any) => {
+        const list = (r.recordings || []).filter((x: any) => x.status === 'ready')
+        setRecs(list)
+        if (list.length) setRecId(list[0].id)
+      })
+      .catch(() => {})
+  }, [eventId, day])
+
+  const build = async () => {
+    if (!day || !recId) return
+    setBusy('Собираю обложки…'); setErr(''); setCovers([])
+    try {
+      const r: any = await api.webinar.buildCovers(eventId, day, recId)
+      setCovers(r.cuts || r.covers || [])
+      if (!(r.cuts || r.covers || []).length) {
+        setErr('Обложки не собрались. Обычная причина — у спикера нет карточки: обложке нечего написать.')
+      }
+    } catch (e: any) {
+      setErr(e?.message || 'Не получилось собрать обложки')
+    } finally { setBusy('') }
+  }
+
+  const rec = recs.find(r => r.id === recId)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3 items-end">
+        <div>
+          <label className="text-xs text-gray-500 mb-1 block">День</label>
+          <select value={day ?? ''} onChange={e => setDay(Number(e.target.value))}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+            {days.map((d: any) => (
+              <option key={d.day_number} value={d.day_number}>
+                День {d.day_number}{d.day_date ? ` · ${d.day_date}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="min-w-[220px]">
+          <label className="text-xs text-gray-500 mb-1 block">Запись эфира</label>
+          <select value={recId ?? ''} onChange={e => setRecId(Number(e.target.value))}
+                  disabled={!recs.length}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-gray-50">
+            {!recs.length && <option value="">Записей нет</option>}
+            {recs.map((r: any) => (
+              <option key={r.id} value={r.id}>
+                Запись #{r.id}{r.cuts_count ? ` · меток: ${r.cuts_count}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button onClick={build} disabled={!recId || !!busy}
+                title={!recId ? 'Сначала выберите запись эфира' : 'Собрать обложки по шаблону «Спикер»'}
+                className="btn-gold text-sm disabled:opacity-40">
+          {busy || 'Собрать обложки'}
+        </button>
+      </div>
+
+      {/* ⚠️ Ссылка на нарезку: обложки собираются по меткам, и если их нет —
+          человеку нужно попасть туда, где их ставят. */}
+      {rec && (
+        <p className="text-xs text-gray-500">
+          Обложки собираются по меткам этой записи.{' '}
+          <a href={`/dashboard/conferences/${eventId}/recordings/${rec.id}?day=${day}`}
+             className="text-blue-600 hover:underline">Открыть нарезку</a>
+        </p>
+      )}
+
+      {err && (
+        <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          {err}
+        </div>
+      )}
+
+      {covers.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+          {covers.map((c: any, i: number) => (
+            <div key={i} className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+              {c.cover_url
+                ? <img src={c.cover_url} alt="" className="w-full aspect-video object-cover" />
+                : <div className="w-full aspect-video bg-gray-100 flex items-center justify-center text-xs text-gray-400">нет обложки</div>}
+              <div className="px-2 py-1.5 text-xs text-gray-700 truncate">{c.title || '—'}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>

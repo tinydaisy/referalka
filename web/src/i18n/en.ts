@@ -147,7 +147,7 @@ export const en = {
       program: 'Program',
       participants: 'Participants',
       raffle: 'Raffle',
-      posters: 'Posters',
+      posters: 'Posters/Covers',
     },
 
     header: {
