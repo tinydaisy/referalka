@@ -162,7 +162,10 @@ export default function WebinarAnalytics({ eventId, day }: { eventId: number; da
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <Tile label="Всего уникальных" value={m.total_unique} />
         <Tile label="Комментариев" value={m.comments} />
-        <Tile label="Кликов" value={m.clicks} sub={`заказы ${m.orders} · оплаты ${m.payments}`} />
+        {/* ⚠️ Без подписи «заказы · оплаты» (24.09.2026): на вебинаре они
+            почти всегда нули и только зашумляют плитку. Понадобятся — место
+            для них найдётся отдельно, рядом с продажами. */}
+        <Tile label="Кликов" value={m.clicks} />
         <Tile label="Пик онлайн" value={m.peak_online} sub={m.peak_at ? new Date(m.peak_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }) + ' МСК' : ''} />
       </div>
 

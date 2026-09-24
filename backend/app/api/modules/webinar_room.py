@@ -1213,9 +1213,50 @@ async def live_stats(event_id: int, day_number: int,
     reactions = sorted(by_speaker.values(),
                        key=lambda x: (x["up"] + x["down"]), reverse=True)
 
+    # ⚠️ КЛИКИ ПО КНОПКАМ — с разбивкой (24.09.2026). Общая цифра «Кликов»
+    # не отвечала на главный вопрос: ЧТО нажимали. Группируем по блоку и
+    # отдаём вместе со спикером, к которому блок привязан.
+    #
+    # ⚠️ Блок мог быть удалён после эфира — берём клики LEFT JOIN'ом от
+    # активности, иначе статистика по удалённым кнопкам пропала бы совсем.
+    clicks_rows = await db.fetch(
+        "SELECT a.target_id AS block_id, "
+        "       COALESCE(NULLIF(btrim(b.title), ''), 'Кнопка #' || a.target_id::text, "
+        "                'Без названия') AS button_title, "
+        "       b.speaker_id, "
+        "       " + DISPLAY_NAME_SQL("c") + " AS speaker_name, "
+        "       COUNT(*) AS clicks, "
+        "       COUNT(DISTINCT COALESCE(a.contact_id::text, a.session_key)) AS people "
+        "  FROM webinar_activity a "
+        "  LEFT JOIN webinar_blocks b ON b.id = a.target_id "
+        "  LEFT JOIN event_collaborators ec ON ec.id = b.speaker_id "
+        "  LEFT JOIN collaborators c ON c.id = ec.speaker_id "
+        " WHERE a.room_id = $1 AND a.kind = 'click' "
+        "   AND ($2::int IS NULL OR a.session_id = $2) "
+        " GROUP BY a.target_id, b.title, b.speaker_id, c.name, c.last_name "
+        " ORDER BY COUNT(*) DESC", rid, _sid)
+
+    # Делим на две группы: кнопки конференции (без спикера) и кнопки спикеров.
+    clicks_event: list = []
+    clicks_by_speaker: dict = {}
+    for r in clicks_rows:
+        item = {"title": r["button_title"], "clicks": int(r["clicks"]),
+                "people": int(r["people"])}
+        nm = (r["speaker_name"] or "").strip()
+        if nm:
+            clicks_by_speaker.setdefault(nm, {"speaker_name": nm, "clicks": 0,
+                                              "buttons": []})
+            clicks_by_speaker[nm]["clicks"] += item["clicks"]
+            clicks_by_speaker[nm]["buttons"].append(item)
+        else:
+            clicks_event.append(item)
+
     return {
         "total_viewers": int(total),
         "online": online,
+        "clicks_event": clicks_event,
+        "clicks_speakers": sorted(clicks_by_speaker.values(),
+                                  key=lambda x: x["clicks"], reverse=True),
         "is_live": is_live,
         # Выключены обе → фронт покажет «Реакции не считаются» со ссылкой
         # на настройки, а не пустой список (пустой читается как «никто не

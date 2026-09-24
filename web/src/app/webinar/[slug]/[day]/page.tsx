@@ -247,7 +247,30 @@ export default function WebinarRoomPage() {
       if (destroyed) return
       if (Hls.isSupported()) {
         const mk = () => {
-          const h = new Hls({ liveDurationInfinity: true, lowLatencyMode: false })
+          // ⚠️⚠️ НАСТРОЙКИ ЖИВОГО ЭФИРА (24.09.2026). Плеер создавался почти
+          // без них, и у части зрителей ЗВУК ШЁЛ, А КАРТИНКА ЗАМИРАЛА: при
+          // отставании от прямого эфира hls.js сам не догонял поток —
+          // аудиодорожка продолжала играть, видео вставало. Сам поток при
+          // этом исправен: запись эфира 24.09 — 720p, 30 к/с, ключевой кадр
+          // каждые 2 с, дорожки обе на месте (проверено ffprobe).
+          const h = new Hls({
+            liveDurationInfinity: true,
+            lowLatencyMode: false,
+            // Догонять эфир, если отстали: без этого зритель «залипает» в
+            // прошлом и видео стоит, пока звук идёт.
+            liveSyncDurationCount: 3,        // держимся в 3 сегментах от края
+            liveMaxLatencyDurationCount: 10, // отстали больше — прыгаем к краю
+            // ⚠️ Повторы при обрыве сети: по умолчанию hls.js сдаётся быстро,
+            // а на мобильном интернете обрывы — норма. Молчаливая сдача и
+            // выглядела как «видео пропало».
+            manifestLoadingMaxRetry: 6,
+            levelLoadingMaxRetry: 6,
+            fragLoadingMaxRetry: 8,
+            fragLoadingRetryDelay: 1000,
+            // Буфер: больше запас — меньше рывков на нестабильной сети.
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+          })
           hlsInstRef.current = h
           h.loadSource(rm.hls_url); h.attachMedia(video)
           h.on(Hls.Events.MANIFEST_PARSED, () =>
@@ -256,6 +279,16 @@ export default function WebinarRoomPage() {
           // единственный честный признак, что зритель видит картинку.
           h.on(Hls.Events.FRAG_BUFFERED, () => {
             netErrCount = 0; setPlayerStuck(false); setPlayerLoading(false)
+          })
+          // ⚠️ Картинка замерла, а звук идёт → ДОГОНЯЕМ эфир (24.09.2026).
+          // Самая частая жалоба зрителей. hls.js шлёт это событие, когда
+          // буфер встал: прыгаем к живому краю вместо того, чтобы ждать.
+          h.on(Hls.Events.BUFFER_STALLED_ERROR ?? 'hlsBufferStalledError', () => {
+            try {
+              const edge = h.liveSyncPosition
+              if (edge && video.currentTime < edge - 5) video.currentTime = edge
+              video.play().catch(() => {})
+            } catch {}
           })
           h.on(Hls.Events.ERROR, (_e: any, data: any) => {
             if (!data?.fatal) return
@@ -420,6 +453,13 @@ export default function WebinarRoomPage() {
         case 'battle_end': setBattle(null); break
         // живой счётчик онлайн (обновляется на каждый heartbeat зрителей)
         case 'online': setOnline(msg.count); break
+        // ⚠️ Счётчик ТОЛЬКО для организатора (24.09.2026): комната с
+        // «Скрывать число зрителей» шлёт его отдельным типом, чтобы
+        // зритель цифры не увидел, а ведущий видел зал вживую — раньше
+        // ему приходилось обновлять страницу.
+        case 'online_private':
+          if (roomRef.current?.room?.is_moderator) setOnline(msg.count)
+          break
         // менеджер показал/убрал продающий блок вживую — перечитываем список
         case 'block_pin': load(); break
         // ведущий сменил текущего спикера (авто/вручную) — перечитать

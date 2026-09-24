@@ -739,9 +739,16 @@ async def heartbeat(slug: str, day: int, body: Heartbeat):
                 rid, body.contact_id, body.session_key, now, body.device, room.get("current_session_id"),
             )
         online = await _online_now(conn, rid)
-    # живой счётчик всем в комнате (если не скрыт)
-    if not room.get("hide_viewer_count"):
-        await hub.publish(rid, {"type": "online", "count": online})
+    # ⚠️ Живой счётчик рассылаем ВСЕГДА (24.09.2026). Раньше при «Скрывать
+    # число зрителей» рассылка отключалась целиком — и организатор, которому
+    # цифру видно по праву, получал её только при перезагрузке страницы.
+    # ⚠️ Тип события РАЗНЫЙ: 'online' видят все, 'online_private' фронт
+    # показывает только организатору. Так зритель по-прежнему ничего не
+    # узнаёт, а ведущий видит зал вживую.
+    await hub.publish(rid, {
+        "type": "online_private" if room.get("hide_viewer_count") else "online",
+        "count": online,
+    })
     return {"ok": True, "online": online}
 
 
@@ -1014,6 +1021,11 @@ class TrackIn(BaseModel):
     session_key: Optional[str] = None
     block_id: Optional[int] = None
     kind: str = "click"                  # click | order | payment
+    # ⚠️ Что именно нажали, когда блока нет (24.09.2026). Клики по ПОДАРКАМ
+    # спикера шли без block_id вовсе — 152 клика слились в безымянную кучу,
+    # и понять, какой подарок брали, было нельзя. Пишем название в `value`.
+    label: Optional[str] = None
+    target_kind: Optional[str] = None    # block | gift
 
 
 @router.post("/{slug}/{day}/track", summary="Клик/заказ/оплата по продающему блоку")
@@ -1024,9 +1036,14 @@ async def track(slug: str, day: int, body: TrackIn):
     async with pool.acquire() as conn:
         room = await _load_room(conn, slug, day)
         await conn.execute(
-            "INSERT INTO webinar_activity (room_id, contact_id, session_key, kind, target_kind, target_id, session_id) "
-            "VALUES ($1,$2,$3,$4,'block',$5,$6)",
-            room["id"], body.contact_id, body.session_key, body.kind, body.block_id, room.get("current_session_id"),
+            "INSERT INTO webinar_activity "
+            " (room_id, contact_id, session_key, kind, target_kind, target_id, value, session_id) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+            room["id"], body.contact_id, body.session_key, body.kind,
+            # ⚠️ 'block' по умолчанию — как было: старые клиенты поля не шлют.
+            (body.target_kind or "block"), body.block_id,
+            (body.label or "").strip()[:200] or None,
+            room.get("current_session_id"),
         )
     return {"ok": True}
 
