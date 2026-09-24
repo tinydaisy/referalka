@@ -280,17 +280,22 @@ export default function WebinarRoomPage() {
           h.on(Hls.Events.FRAG_BUFFERED, () => {
             netErrCount = 0; setPlayerStuck(false); setPlayerLoading(false)
           })
-          // ⚠️ Картинка замерла, а звук идёт → ДОГОНЯЕМ эфир (24.09.2026).
-          // Самая частая жалоба зрителей. hls.js шлёт это событие, когда
-          // буфер встал: прыгаем к живому краю вместо того, чтобы ждать.
-          h.on(Hls.Events.BUFFER_STALLED_ERROR ?? 'hlsBufferStalledError', () => {
-            try {
-              const edge = h.liveSyncPosition
-              if (edge && video.currentTime < edge - 5) video.currentTime = edge
-              video.play().catch(() => {})
-            } catch {}
-          })
           h.on(Hls.Events.ERROR, (_e: any, data: any) => {
+            // ⚠️⚠️ КАРТИНКА ЗАМЕРЛА, А ЗВУК ИДЁТ → ДОГОНЯЕМ ЭФИР (24.09.2026).
+            // Главная жалоба зрителей. hls.js сообщает о вставшем буфере
+            // НЕФАТАЛЬНОЙ ошибкой bufferStalledError — а нефатальные мы ниже
+            // просто игнорируем, поэтому зритель залипал в прошлом: аудио
+            // играет, видео стоит. Прыгаем к живому краю, а не ждём.
+            // ⚠️ Проверяем по ИМЕНИ (`data.details`), отдельного события
+            // BUFFER_STALLED_ERROR в hls.js нет — на этом упала сборка.
+            if (data?.details === 'bufferStalledError') {
+              try {
+                const edge = h.liveSyncPosition
+                if (edge && video.currentTime < edge - 5) video.currentTime = edge
+                video.play().catch(() => {})
+              } catch {}
+              return
+            }
             if (!data?.fatal) return
             if (data.type === 'networkError') {
               netErrCount++
