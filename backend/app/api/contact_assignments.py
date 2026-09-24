@@ -106,7 +106,59 @@ async def assign_contacts(
                          note = EXCLUDED.note""",
         [(client_id, cid, int(body.grant_id), body.note) for cid in ids],
     )
-    return {"ok": True, "assigned": len(set(ids)), "removed": 0}
+    # ⚠️ Проброс на уровень ПЛЮСОНа: менеджер, который ещё и внедренец,
+    # получает и кабинеты этих людей — без второй ручной операции.
+    tech_linked = await propagate_to_tech(db, client_id, list(ids))
+    return {"ok": True, "assigned": len(set(ids)), "removed": 0,
+            "tech_linked": tech_linked}
+
+
+async def propagate_to_tech(db, client_id: int, contact_ids: list[int]) -> int:
+    """Закрепили контакт за менеджером-внедренцем → клиент уходит ему же.
+
+    ⚠️⚠️ ЗАЧЕМ (решение владельца 24.09.2026). Один человек бывает и менеджером
+    лидов в кабинете, и внедренцем на платформе. Раньше это были две НЕ
+    связанные привязки: контакт закреплён за менеджером, а его кабинет ПЛЮСОНа
+    висел ничьим — и владельцу приходилось руками повторять то же самое во
+    вкладке «Клиенты». Двойная ручная работа, которую все забывают сделать.
+
+    Теперь связь автоматическая: закрепление контакта за менеджером, который
+    ещё и внедренец, само закрепляет его клиента за этим внедренцем.
+
+    ⚠️ ЧУЖИХ НЕ ОТБИРАЕМ: если у клиента уже есть внедренец, не трогаем —
+    это чужая работа и чужие деньги (то же правило, что в автораздаче).
+
+    ⚠️ Менеджер и внедренец связываются ПО ПОЧТЕ: помощник живёт в
+    `assistants`, внедренец — роль над `clients`, прямой связи в базе нет.
+
+    Возвращает, скольким клиентам проставили внедренца.
+    """
+    if not contact_ids:
+        return 0
+    rows = await db.fetch(
+        """WITH pairs AS (
+             SELECT ca.contact_id, ts.id AS spec_id
+               FROM contact_assignments ca
+               JOIN assistant_grants g ON g.id = ca.grant_id
+               JOIN assistants a ON a.id = g.assistant_id
+               JOIN clients tc ON LOWER(TRIM(tc.email)) = LOWER(TRIM(a.email))
+               JOIN tech_specialists ts ON ts.client_id = tc.id AND ts.is_active
+              WHERE ca.client_id = $1 AND ca.contact_id = ANY($2::int[])
+           )
+           UPDATE clients cl
+              SET tech_specialist_id = p.spec_id,
+                  tech_assigned_at = NOW()
+             FROM pairs p
+            WHERE cl.tech_specialist_id IS NULL
+              AND LOWER(TRIM(cl.email)) = LOWER(TRIM((
+                    SELECT pe.platform_user_id FROM platform_users pe
+                     WHERE pe.contact_id = p.contact_id
+                       AND pe.platform_slug = 'email'
+                     ORDER BY pe.id LIMIT 1)))
+          RETURNING cl.id""",
+        client_id, list({int(c) for c in contact_ids}),
+    )
+    return len(rows)
 
 
 class AutoAssignBody(BaseModel):
@@ -277,6 +329,9 @@ async def auto_assign_event(
                          note = EXCLUDED.note""",
         [(client_id, cid, gid) for cid, gid in plan.items()],
     )
+    # ⚠️ Тот же проброс, что и при ручном закреплении: менеджер-внедренец
+    # получает и кабинеты этих людей, без второй ручной операции.
+    result["tech_linked"] = await propagate_to_tech(db, client_id, list(plan.keys()))
     return result
 
 
