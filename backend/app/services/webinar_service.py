@@ -182,6 +182,13 @@ async def nearest_live_info(db, event_id: int) -> dict:
     if st_at:
         dt = st_at if st_at.tzinfo else st_at.replace(tzinfo=timezone.utc)
         dt = dt.astimezone(MSK)
+        # ⚠️ ТОЛЬКО если старт ещё не прошёл (с тем же запасом +1 час). У
+        # завершившегося события `start_at` остаётся в прошлом, и без этой
+        # проверки меню писало «Ближайший эфир — 15 июня», хотя июнь давно
+        # позади (проверено на событии 24: все 24 дня в прошлом).
+        if now > dt + timedelta(hours=1):
+            return {"is_today": False, "when": "", "day_number": None,
+                    "days_total": days_total}
         return {
             "is_today": dt.date() == today and now <= dt + timedelta(hours=1),
             "when": f"{dt.day} {_RU_MON[dt.month - 1]} {dt.hour:02d}:{dt.minute:02d} МСК",
