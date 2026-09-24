@@ -1591,6 +1591,9 @@ export const api = {
     client: (id: number) => request(`/api/v1/tech/clients/${id}`),
     // Цифра новых сообщений для пункта меню «Диалоги» (23.09.2026).
     dialogsUnread: () => request('/api/v1/tech/dialogs/unread-count'),
+    // Мои клиенты — та же ручка, что у админа, срез по себе (23.09.2026).
+    clientsFull: (params?: string) =>
+      request(`/api/v1/tech/clients-full${params ? '?' + params : ''}`),
     // Моя CRM — та же ручка, что у админа, но срез по себе (23.09.2026).
     crm: (p?: { status?: string; q?: string; limit?: number; offset?: number }) => {
       const s = new URLSearchParams()
@@ -2593,6 +2596,9 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/analytics?step=${step}${sessionId ? `&session_id=${sessionId}` : ''}`),
     viewers: (eventId: number, day: number, sessionId?: number | null) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/viewers${sessionId ? `?session_id=${sessionId}` : ''}`),
+    // Пульт ведущего: сколько в зале сейчас + всего + реакции по спикерам.
+    liveStats: (eventId: number, day: number) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/live-stats`),
     // ── автовебинар: та же комната со stream_type='auto' ──
     // ⚠️ Отдельной сущности нет — чат, продающие блоки и аналитика общие.
     autoSchedule: (eventId: number, day: number) =>

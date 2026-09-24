@@ -400,7 +400,14 @@ async def build_clients(
             raw = d.get(_f)
             d[_f] = json.loads(raw) if isinstance(raw, str) else (raw or [])
         result.append(d)
-    return {"clients": result, "total": total}
+    # ⚠️ Справочник тарифов отдаём ВМЕСТЕ со списком (23.09.2026): выпадашка
+    # фильтра нужна и внедренцу, а админская ручка `/admin/tariffs` ему закрыта
+    # — заводить ради одного списка отдельный публичный эндпоинт избыточно.
+    # ⚠️ Сортировка по `id`: колонки `sort_order` у тарифов НЕТ (проверено по
+    # схеме) — запрос с ней падал бы на каждом открытии списка клиентов.
+    tariffs = await db.fetch("SELECT slug, name FROM tariffs ORDER BY id")
+    return {"clients": result, "total": total,
+            "tariffs": [dict(t) for t in tariffs]}
 
 
 # Сегменты клиентов платформы → теги в базе получателя.
