@@ -122,6 +122,27 @@ function sectionFromPath(pathname: string | null): string {
   return KNOWN_SECTIONS.includes(seg) ? seg : 'events'
 }
 
+/** Пояснение: здесь ТОЛЬКО зрители, остальные — в другом отчёте.
+ *
+ * ⚠️ Без этой подписи отчёт читался бы как «все, кто привёл», и пропажа
+ * спикеров выглядела бы потерей данных: у события 89 из 28 строк 16 были
+ * коллабораторы. Сразу даём ссылку туда, где их привлечение и считается.
+ */
+function OnlyViewersNotice({ eventId }: { eventId: number }) {
+  const section = sectionFromPath(usePathname())
+  return (
+    <div className="mb-4 rounded-xl border p-3 text-sm leading-relaxed"
+         style={{ borderColor: '#FFCFA4', background: '#FFF8F1', color: '#25455D' }}>
+      Здесь показывается отчёт по привлечению <b>только от зрителей</b>.
+      {' '}Отчёт по привлечению спикеров, партнёров и организаторов смотрите в разделе{' '}
+      <a href={`/dashboard/${section}/${eventId}?tab=report`}
+         className="font-semibold underline hover:opacity-80">
+        Отслеживания → Отчёт по привлечению
+      </a>.
+    </div>
+  )
+}
+
 export default function ReferralReportSection({ eventId, moduleSlug }: {
   eventId: number
   moduleSlug?: string
@@ -222,18 +243,22 @@ export default function ReferralReportSection({ eventId, moduleSlug }: {
 
   if (all.length === 0) {
     return (
-      <div className="bg-white rounded-2xl border card-border shadow-sm p-8 text-center">
-        <Users size={28} className="mx-auto text-gray-300 mb-3" />
-        <p className="font-medium text-gray-700">Пока никто никого не привёл</p>
-        <p className="text-sm text-gray-500 mt-1">
-          Как только человек придёт по чьей-то реферальной ссылке, здесь появится тот, кто его привёл.
-        </p>
+      <div>
+        <OnlyViewersNotice eventId={eventId} />
+        <div className="bg-white rounded-2xl border card-border shadow-sm p-8 text-center">
+          <Users size={28} className="mx-auto text-gray-300 mb-3" />
+          <p className="font-medium text-gray-700">Пока никто из зрителей никого не привёл</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Как только человек придёт по реферальной ссылке зрителя, здесь появится тот, кто его привёл.
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
     <div>
+      <OnlyViewersNotice eventId={eventId} />
       <div className="grid gap-3 mb-5 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Users} label="Рефоводов" value={String(totals.referrers ?? 0)}
                   hint="у кого есть приведённые" />
