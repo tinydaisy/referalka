@@ -63,6 +63,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     geo_lon: conf?.geo_lon ?? null,
     thanks_destination: conf?.thanks_destination === 'chats' ? 'chats' : 'bots',
     registration_mode: conf?.registration_mode || null,
+    // Что открывается сразу после регистрации (миграция 514).
+    after_register_screen: conf?.after_register_screen || 'platforms',
     // landing_url — единое поле для всех событий (events.landing_url),
     // после миграции 057. Старое conf_conferences.registration_url удалено.
     landing_url: event?.landing_url || '',
@@ -255,6 +257,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         confPatch.thanks_destination = form.thanks_destination
       if (form.registration_mode !== (conf?.registration_mode || null))
         confPatch.registration_mode = form.registration_mode
+      if (form.after_register_screen !== (conf?.after_register_screen || 'platforms'))
+        confPatch.after_register_screen = form.after_register_screen
       if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null
       if (form.vip_button_label !== (conf?.vip_button_label || ''))    confPatch.vip_button_label = form.vip_button_label || null
       if (form.chat_button_label !== (conf?.chat_button_label || ''))  confPatch.chat_button_label = form.chat_button_label || null
@@ -470,6 +474,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         landingUrlInternal={event?.slug ? `https://${publicHost}/e/${event.slug}` : ''}
         regMode={form.registration_mode}
         onRegMode={(v) => setForm(f => ({ ...f, registration_mode: v }))}
+        afterScreen={form.after_register_screen}
+        onAfterScreen={(v) => setForm(f => ({ ...f, after_register_screen: v }))}
       />
 
       {/* 5) ССЫЛКИ — всё остальное, что раньше лежало в «Описании» */}

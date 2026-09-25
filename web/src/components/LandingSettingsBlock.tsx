@@ -39,6 +39,8 @@ export default function LandingSettingsBlock({
   landingUrlInternal,
   regMode,
   onRegMode,
+  afterScreen,
+  onAfterScreen,
   onValidity,
   showDescription = true,
 }: {
@@ -79,6 +81,10 @@ export default function LandingSettingsBlock({
   /** Способ регистрации: form | landing | external (миграция 262). */
   regMode?: string | null
   onRegMode?: (v: RegMode) => void
+  /** Что открывается сразу после регистрации (миграция 514):
+   *  'platforms' — экран с кнопками ботов; 'cabinet' — кабинет участника. */
+  afterScreen?: string | null
+  onAfterScreen?: (v: 'platforms' | 'cabinet') => void
   /** Сообщает наверх текст ошибки ('' = всё в порядке). Страница по нему
       блокирует сохранение: ссылка регистрации не может быть пустой. */
   onValidity?: (error: string) => void
@@ -375,6 +381,45 @@ export default function LandingSettingsBlock({
           <p className="text-xs text-gray-500 mt-2 leading-relaxed">
             Mini App будет открывать вашу страницу вместо встроенной. Чтобы вернуться к странице
             от ПЛЮСОНа — выберите «Внутренний лендинг» (адрес очистится).
+          </p>
+        </div>
+      )}
+
+      {/* ⚠️ ЧТО ОТКРЫВАЕТСЯ СРАЗУ ПОСЛЕ РЕГИСТРАЦИИ (25.09.2026).
+          Раньше вело по-разному и без настройки: новичку — экран с кнопками
+          ботов, а уже зарегистрированному сразу кабинет, мимо ботов. Из-за
+          этого человек, пришедший по ссылке спикера во второй раз, в бота не
+          попадал вовсе — и не получал ни напоминаний, ни подарков. */}
+      {onAfterScreen && (
+        <div className="mt-5 rounded-xl border border-gray-200 p-3">
+          <div className="mb-1 text-sm font-medium text-gray-700">
+            Куда вести сразу после регистрации
+          </div>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {([
+              ['platforms', 'Выбор площадки'],
+              ['cabinet', 'Сразу кабинет участника'],
+            ] as const).map(([val, label]) => {
+              const active = (afterScreen || 'platforms') === val
+              return (
+                <button key={val} type="button" onClick={() => onAfterScreen(val)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border-2 ${
+                    active ? 'text-[#25455D]' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                  style={active ? { borderColor: '#FFCFA4', background: '#FFF8F1' } : undefined}>
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-gray-500 leading-relaxed">
+            {(afterScreen || 'platforms') === 'platforms'
+              ? 'Человек увидит отметку «вы зарегистрированы» и кнопки ваших ботов — '
+                + 'Telegram, MAX, ВКонтакте. Оттуда он попадёт в меню события. '
+                + 'Кабинет участника — ссылкой ниже. Так человек заходит в бота, '
+                + 'а значит получит напоминания об эфире, подарки и реферальную ссылку.'
+              : 'Человек сразу попадёт в кабинет участника, минуя кнопки ботов. '
+                + 'Подойдёт, если вы ведёте людей в мессенджеры отдельно — '
+                + 'иначе без перехода в бота напоминания и подарки до него не дойдут.'}
           </p>
         </div>
       )}

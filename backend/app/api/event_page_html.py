@@ -61,6 +61,9 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "pre_reg_btn_url, pre_reg_poster_url, "
             # Галочки площадок (миграция 263) — куда организаторы ведут зрителей.
             "disabled_platforms, "
+            # Что открывается сразу после регистрации (миграция 514):
+            # 'platforms' — экран с кнопками ботов, 'cabinet' — сразу кабинет.
+            "after_register_screen, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = CASE events.primary_chat_platform "
             "WHEN 'vk' THEN events.vk_chat_ref WHEN 'max' THEN events.max_chat_ref ELSE events.tg_chat_ref END) AS chat_url, "
             "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg, "
@@ -3299,13 +3302,19 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
       <!-- ШАГ 3: зарегистрирован — письмо и переход в бота -->
       <div class="step3" id="step3">
         <div class="done-tick">&#127881;</div>
-        <p class="done-h">Вы зарегистрированы!</p>
+        <!-- ⚠️ Заголовок задаётся с сервера: вернувшемуся по ссылке человеку
+             «Вы зарегистрированы!» читается как новая запись, хотя он записан
+             давно. Ему показываем «Вы уже зарегистрированы». -->
+        <p class="done-h" id="done-h">Вы зарегистрированы!</p>
         <div class="mail-note" id="mail-note"></div>
         <div id="bots-block" style="display:none">
           <p class="bots-note" id="bots-note"></p>
           <div id="bots-list"></div>
         </div>
-        <button class="btn-ghost" id="btn-continue" type="button">Продолжить на сайте</button>
+        <!-- ⚠️ «Кабинет участника», а не «Продолжить на сайте»: рядом стоят
+             кнопки ботов, и человек должен видеть, чем этот переход от них
+             отличается. Кнопка второстепенная — главное здесь боты. -->
+        <button class="btn-ghost" id="btn-continue" type="button">Открыть кабинет участника</button>
       </div>
     </div>
     {support_block}
@@ -3419,10 +3428,14 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
       btnCheck.disabled = true; btnCheck.textContent = 'Проверяем...';
       try {{
         var res = await post({{ email: email, step: 'check' }});
-        if (res.found && res.registered && res.redirect) {{
-          // контакт найден И уже зарегистрирован на событие → сразу в кабинет
-          location.href = res.redirect;
-          return;
+        if (res.found && res.registered) {{
+          // ⚠️ Уже зарегистрирован: по настройке события показываем ЭКРАН
+          // ПЛОЩАДОК (кнопки ботов + отметка «вы зарегистрированы») или,
+          // если выбран режим «сразу кабинет», уходим по redirect.
+          // Раньше здесь всегда был редирект, и вернувшийся по ссылке спикера
+          // человек не видел кнопок ботов вовсе.
+          if (res.thanks) {{ showThanks(res); return; }}
+          if (res.redirect) {{ location.href = res.redirect; return; }}
         }}
         // не нашли ИЛИ нашли но НЕ зарегистрирован → шаг 2 (дозаполнение)
         if (res.found) {{
@@ -3523,6 +3536,7 @@ def render_register_page(event, client, poster_url, prefill=None, pid="") -> str
   // ── Экран «спасибо»: письмо + переход в бота ──
   function showThanks(res) {{
     var t = res.thanks || {{}};
+    if (t.title) document.getElementById('done-h').textContent = t.title;
     document.getElementById('mail-note').textContent = t.email_notice || '';
     var bots = t.bots || [];
     if (bots.length) {{
@@ -3817,8 +3831,14 @@ async def _bot_owner_ids(db, *, is_collab: bool, event_id: int, client_id: int,
 
 async def _build_after_register(db, *, is_collab: bool, event_id: int,
                                 client_id: int, contact_id: int,
-                                ref_contact_id=None) -> dict:
+                                ref_contact_id=None, already: bool = False) -> dict:
     """Экран «спасибо» после веб-регистрации: письмо + переход в бота.
+
+    ⚠️ `already=True` — человек УЖЕ был зарегистрирован (пришёл по ссылке
+    второй раз). Текст другой: «вы зарегистрированы» вместо «приглашение
+    отправлено» — обещать письмо, которое сейчас не уходит, нельзя, он будет
+    ждать его и искать в «Спаме». Кнопки ботов при этом те же и нужны ему
+    ровно так же: в бота он мог и не заходить.
 
     ⚠️ ТЕКСТ ПРО ПИСЬМО ПОКАЗЫВАЕМ ВСЕГДА, даже когда боты есть (решение
     владельца 2026-08-28). Письмо со ссылкой на кабинет уходит в любом случае,
@@ -3844,7 +3864,15 @@ async def _build_after_register(db, *, is_collab: bool, event_id: int,
 
     return {
         "thanks": {
+            "already": already,
+            "title": "Вы уже зарегистрированы" if already else "Вы зарегистрированы",
             "email_notice": (
+                # ⚠️ Вернувшемуся письмо СЕЙЧАС не уходит — обещать его нельзя:
+                # он будет ждать и искать в «Спаме» то, чего нет.
+                "Вы записаны на событие — регистрироваться заново не нужно. "
+                "Ссылка на кабинет участника есть в письме, которое мы "
+                "отправляли при записи."
+                if already else
                 "Приглашение и ссылка на ваш кабинет участника отправлены "
                 "на почту. Письмо могло попасть в «Спам» — если оно там, "
                 "откройте его и нажмите «Не спам»."
@@ -4028,10 +4056,25 @@ async def event_register_submit(slug: str, request: Request,
             event_id, found_cid,
         )
         if already:
-            return JSONResponse({
+            # ⚠️⚠️ УЖЕ ЗАРЕГИСТРИРОВАННОГО ТОЖЕ ВЕДЁМ НА ЭКРАН ПЛОЩАДОК
+            # (25.09.2026). Раньше его безусловно бросало в кабинет, и кнопки
+            # ботов он не видел вовсе — а это главное, ради чего человека
+            # приводят: без перехода в бота до него не дойдут ни напоминания об
+            # эфире, ни подарки, ни реферальная механика. Пришедший по ссылке
+            # спикера во второй раз просто оказывался в кабинете.
+            #
+            # Настройка события решает, что показать. 'cabinet' — прежнее
+            # поведение, для тех, кому экран площадок не нужен.
+            resp = {
                 "found": True, "registered": True, "contact_id": found_cid,
                 "redirect": f"/event/{real_slug}?c={found_cid}",
-            })
+            }
+            if (event.get("after_register_screen") or "platforms") == "platforms":
+                resp.update(await _build_after_register(
+                    db, is_collab=bool(event["is_collab"]), event_id=event_id,
+                    client_id=client_id, contact_id=found_cid,
+                    ref_contact_id=ref_contact_id, already=True))
+            return JSONResponse(resp)
         # Найден, не зареган → отдаём данные для автозаполнения формы.
         info = await db.fetchrow(
             """SELECT
@@ -4211,15 +4254,20 @@ async def event_register_submit(slug: str, request: Request,
             logger.exception("web-register: referrer_ref_code failed")
 
     # Экран «спасибо»: письмо + кнопки ботов. Собирает общий хелпер.
-    thanks = await _build_after_register(
-        db, is_collab=bool(event["is_collab"]), event_id=event_id,
-        client_id=client_id, contact_id=target_cid,
-        ref_contact_id=ref_contact_id)
-    return JSONResponse({
+    #
+    # ⚠️ Настройка события (миграция 514) может отправить человека сразу в
+    # кабинет, минуя экран площадок — тогда `thanks` не отдаём вовсе, и фронт
+    # уходит по `redirect`.
+    out = {
         "registered": True, "contact_id": target_cid,
         "redirect": f"/event/{real_slug}?c={target_cid}",
-        **thanks,
-    })
+    }
+    if (event.get("after_register_screen") or "platforms") == "platforms":
+        out.update(await _build_after_register(
+            db, is_collab=bool(event["is_collab"]), event_id=event_id,
+            client_id=client_id, contact_id=target_cid,
+            ref_contact_id=ref_contact_id))
+    return JSONResponse(out)
 
 
 # ════════════════ Публичная турнирная таблица: /t/{slug}/{stage_id} ════════════════

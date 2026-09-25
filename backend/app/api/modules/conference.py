@@ -344,6 +344,8 @@ class ConferenceUpdate(BaseModel):
     # базы не доходило.
     thanks_destination: Optional[str] = None       # куда вести после оплаты (261)
     registration_mode: Optional[str] = None        # форма | наш лендинг | чужой сайт (262)
+    # Что открывается сразу после регистрации (514): platforms | cabinet
+    after_register_screen: Optional[str] = None
     end_action: Optional[str] = None               # 'next_event' | 'gift' (миграция 195)
     end_gift_lead_magnet_id: Optional[int] = None
     end_gift_package_id: Optional[int] = None
@@ -417,6 +419,7 @@ async def get_conference(
                e.tg_speakers_chat_url, e.vk_speakers_chat_url, e.max_speakers_chat_url,
                e.thanks_destination AS event_thanks_destination,
                e.registration_mode AS event_registration_mode,
+               e.after_register_screen AS event_after_register_screen,
                e.skip_contact_form AS event_skip_contact_form,
                e.end_action AS event_end_action,
                e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
@@ -450,6 +453,7 @@ async def get_conference(
     # читает их отсюда — без распаковки выбор в списке всегда сбрасывался.
     d["thanks_destination"] = d.pop("event_thanks_destination", None) or "bots"
     d["registration_mode"] = d.pop("event_registration_mode", None)
+    d["after_register_screen"] = d.pop("event_after_register_screen", None) or "platforms"
     d["skip_contact_form"] = bool(d.pop("event_skip_contact_form", None))
     d["disabled_platforms"] = list(d.pop("event_disabled_platforms", None) or [])
     d["end_action"] = d.pop("event_end_action", None) or "next_event"
@@ -524,6 +528,8 @@ async def update_conference(
         "thanks_destination",
         # Способ регистрации и галочка регистрации на нашем лендинге (262)
         "registration_mode",
+        # Что открывается сразу после регистрации (514)
+        "after_register_screen",
         # Что показывать на «Итогах» при завершении (миграция 195)
         "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)

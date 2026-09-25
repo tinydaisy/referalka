@@ -251,6 +251,9 @@ class UpdateEventRequest(BaseModel):
     thanks_destination: Optional[str] = None
     # Как идёт регистрация: 'form' | 'landing' | 'external' (миграция 262).
     registration_mode: Optional[str] = None
+    # Что открывается сразу после регистрации (миграция 514):
+    # 'platforms' — экран с кнопками ботов организатора; 'cabinet' — кабинет.
+    after_register_screen: Optional[str] = None
     # Что показывать на вкладке «Итоги» при завершении события (миграция 195):
     # 'next_event' (default) — следующее незавершённое событие; 'gift' — подарок.
     end_action: Optional[str] = None
