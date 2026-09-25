@@ -270,6 +270,20 @@ export default function WebinarRoomPage() {
             // Буфер: больше запас — меньше рывков на нестабильной сети.
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
+            // ⚠️⚠️ COOKIE ОБЯЗАТЕЛЬНА (25.09.2026, чёрный экран на Android).
+            // MediaMTX v1.19 выдаёт зрителю HLS-сессию кукой: на мастер-плейлист
+            // отвечает 302 с `Set-Cookie: hlsSession=...`, а дочерний плейлист и
+            // сегменты БЕЗ этой куки отдаёт 401. hls.js грузит их через XHR, а
+            // XHR по умолчанию куки НЕ посылает — поэтому мастер-плейлист
+            // разбирался, плеер стартовал, и на первом же дочернем запросе
+            // приходил 401: ни видео, ни звука, чёрный прямоугольник.
+            // Проверено на проде: /index.m3u8 → 200, /main_stream.m3u8 → 401.
+            // ⚠️ Одного этого флага мало: с куками браузер запрещает
+            // `Access-Control-Allow-Origin: *`, а nginx дописывал его ВТОРЫМ
+            // заголовком поверх ответа MediaMTX — ответ отбрасывался целиком.
+            // Тот add_header убран из `location /live/` и `/hls/`; вернуть его
+            // обратно = снова чёрный экран, даже с этим флагом.
+            xhrSetup: (xhr: XMLHttpRequest) => { xhr.withCredentials = true },
           })
           hlsInstRef.current = h
           h.loadSource(rm.hls_url); h.attachMedia(video)
