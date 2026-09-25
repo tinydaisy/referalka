@@ -19,6 +19,8 @@
  * подключённое.
  */
 
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
 
 export type CoverTemplate = {
@@ -32,9 +34,20 @@ export type CoverTemplate = {
   photo_scale?: number
   photo_x?: number
   photo_y?: number
+  /** Форма кадра. `cutout` — фото во всю высоту (верно для вырезок). */
+  photo_shape?: 'cutout' | 'portrait' | 'square' | 'circle' | 'oval'
+  /** Ширина фигуры, % полотна. Для `cutout` не применяется. */
+  photo_w?: number
+  photo_radius?: number
+  /** Растушёвка края в сторону текста, % ширины фигуры. */
+  photo_fade?: number
   text_x?: number
   text_y?: number
   text_w?: number
+  /** Высота области текста, % полотна. 0 — не ограничивать. */
+  text_h?: number
+  /** Ужимать содержимое, если не помещается в область. */
+  text_fit?: boolean
   text_align?: 'left' | 'center' | 'right'
   /** Подложка под текстом. Пусто — текста лежит прямо на фоне. */
   text_bg_color?: string | null
@@ -46,6 +59,10 @@ export type CoverTemplate = {
   text_border_color?: string | null
   text_border_width?: number
   title_size?: number
+  /** Кегль темы выступления, % высоты полотна (4.2% ≈ 30px при 720px). */
+  subtitle_size?: number
+  /** Сколько строк темы показывать; дальше многоточие. 0 — без предела. */
+  subtitle_lines?: number
   title_color?: string | null
   text_color?: string | null
   show_brand?: boolean
@@ -125,6 +142,50 @@ export default function CoverCanvas({
 }) {
   const hasPhoto = !!photoUrl && t.photo_side !== 'none'
 
+  // ── Автоподгон под область ────────────────────────────────────────────────
+  // ⚠️⚠️ ИЗМЕРЯЕМ ГОТОВУЮ ВЁРСТКУ, а не считаем длину строки в символах.
+  // Посчитать «влезет ли» арифметикой нельзя: перенос по словам, кернинг и
+  // ширина глифов у фирменного шрифта известны только браузеру. Поэтому
+  // рисуем как есть, меряем и ужимаем, если вылезло.
+  //
+  // ⚠️ `useLayoutEffect` — до отрисовки на экран: с обычным `useEffect`
+  // Chromium успел бы снять кадр с ещё неподогнанным текстом.
+  const boxRef = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
+  const [fit, setFit] = useState(1)
+  const wantFit = !!t.text_fit && (t.text_h ?? 0) > 0
+
+  // Сбрасываем подгон, когда меняется то, от чего она зависит: иначе при
+  // правке ползунка коэффициент остался бы от прошлого текста.
+  useEffect(() => { setFit(1) }, [
+    title, subtitle, overline, t.text_h, t.text_w, t.title_size,
+    t.subtitle_size, t.subtitle_lines, t.text_bg_pad, wantFit,
+  ])
+
+  useLayoutEffect(() => {
+    if (!wantFit) { if (fit !== 1) setFit(1); return }
+    const box = boxRef.current, inner = innerRef.current
+    if (!box || !inner) return
+    const avail = box.clientHeight
+    const need = inner.scrollHeight
+    if (!avail || !need) return
+    // ⚠️ Шаг подгона делаем ОДИН за проход и через состояние: подгонять в
+    // цикле внутри эффекта нельзя — браузер не пересчитает раскладку, пока не
+    // отдаст кадр, и все замеры вернут одно и то же число.
+    if (need > avail + 1 && fit > 0.45) {
+      // ⚠️ Запас 0.98: ужимаем чуть сильнее, чем «впритык». Ровно в размер
+      // текст упирается в кромку области, и это читается как обрезка.
+      setFit(f => Math.max(0.45, f * Math.min(0.98, (avail / need) * 0.98)))
+    }
+  })
+
+  // ⚠️ Шрифты приезжают ПОСЛЕ первой отрисовки, и с запасным шрифтом замер
+  // врёт: подогнали бы под Arial, а сняли кадр с Bebas Neue.
+  useEffect(() => {
+    if (!wantFit || typeof document === 'undefined' || !document.fonts) return
+    document.fonts.ready.then(() => setFit(1)).catch(() => {})
+  }, [wantFit])
+
   // ⚠️ Две ОТДЕЛЬНЫЕ строки, а не одна склеенная: клиент выбирает галочками,
   // что показать — имя, бренд, обе или ничего. Союз «и» между ними не ставим,
   // это подписи, а не перечисление.
@@ -202,9 +263,17 @@ export default function CoverCanvas({
         </div>
       )}
 
-      {/* Фото на прозрачном фоне. Прижато к низу — человек «стоит» на обложке,
-          а не висит в воздухе. */}
-      {hasPhoto && (
+      {/* Фото.
+          ⚠️ `cutout` — прежнее поведение: снимок во всю высоту, прижат к низу,
+          человек «стоит» на обложке. Верно для вырезки на прозрачном фоне.
+
+          ⚠️⚠️ ОСТАЛЬНЫЕ ФОРМЫ — ДЛЯ ОБЫЧНЫХ СНИМКОВ (25.09.2026). Вырезка есть
+          хорошо если у половины спикеров (на событии 89 — у 9 из 18). У
+          прямоугольного фото прозрачного фона нет, и во всю высоту оно
+          закрывает свою половину полотна целиком — текст ложится прямо на
+          фотографию. В фигуре снимок занимает ровно отведённое место, и
+          область текста остаётся свободной. Тот же приём, что в афишах. */}
+      {hasPhoto && (t.photo_shape ?? 'cutout') === 'cutout' && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={photoUrl!}
@@ -218,6 +287,58 @@ export default function CoverCanvas({
           } as React.CSSProperties}
         />
       )}
+
+      {hasPhoto && (t.photo_shape ?? 'cutout') !== 'cutout' && (() => {
+        const shape = t.photo_shape!
+        const w = t.photo_w ?? 38
+        // Пропорции те же, что у масок афиш: портрет выше ширины, квадрат
+        // ровный, круг ровный, овал слегка вытянут.
+        const ratio = shape === 'portrait' ? 1.35 : shape === 'oval' ? 1.25 : 1
+        const h = w * COVER_W / COVER_H * ratio
+        const radius = shape === 'circle' || shape === 'oval'
+          ? '50%'
+          : `${t.photo_radius ?? 0}%`
+        const fade = t.photo_fade ?? 0
+        // ⚠️ Растушёвка идёт В СТОРОНУ ТЕКСТА: фото справа — гаснет левый край,
+        // и наоборот. Гасить не с той стороны значит стереть край у рамки
+        // полотна, где и так ничего нет.
+        const fadeSide = t.photo_side === 'right' ? 'to left' : 'to right'
+        const maskImage = fade > 0
+          ? `linear-gradient(${fadeSide}, #000 ${100 - fade}%, transparent 100%)`
+          : undefined
+        return (
+          <div style={{
+            position: 'absolute',
+            [t.photo_side === 'right' ? 'right' : 'left']: `${t.photo_x ?? 0}%`,
+            top: '50%',
+            width: `${w}%`,
+            height: `${h}%`,
+            transform: `translateY(calc(-50% - ${t.photo_y ?? 0}%))`,
+            borderRadius: radius,
+            overflow: 'hidden',
+            ...(maskImage ? {
+              maskImage, WebkitMaskImage: maskImage,
+            } : {}),
+          } as React.CSSProperties}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoUrl!}
+              alt=""
+              style={{
+                width: '100%', height: '100%',
+                // ⚠️ `cover`, а не `contain`: снимки приходят разной пропорции,
+                // и `contain` оставлял бы в фигуре пустые поля по бокам.
+                objectFit: 'cover',
+                // Кадр по верху: у портретов лицо сверху, и центрирование
+                // срезало бы его на узкой фигуре.
+                objectPosition: 'center top',
+                // Увеличение внутри фигуры — тем же ползунком «Размер».
+                transform: `scale(${(t.photo_scale ?? 100) / 100})`,
+              }}
+            />
+          </div>
+        )
+      })()}
 
       {/* Логотип бренда. ⚠️ Положение задаёт клиент: фон у каждого свой, и в
           жёстком углу логотип наезжал бы на рисунок или на лицо человека.
@@ -243,7 +364,7 @@ export default function CoverCanvas({
           слоем под ним: отдельный слой пришлось бы держать одного размера с
           текстом вручную, и он разъезжался бы на длинных названиях, которые
           переносятся на лишнюю строку. */}
-      <div style={{
+      <div ref={boxRef} style={{
         position: 'absolute',
         left: `${tx}%`,
         width: `${tw}%`,
@@ -251,6 +372,23 @@ export default function CoverCanvas({
         transform: 'translateY(-50%)',
         textAlign: align,
         fontFamily: bodyFont,
+        // ⚠️⚠️ ОБЛАСТЬ ОГРАНИЧИВАЛА ТОЛЬКО ШИРИНУ (25.09.2026). По высоте блок
+        // центрировался по `text_y` и рос в обе стороны без предела — поэтому
+        // на длинной теме «заданная область» переставала что-либо задавать, и
+        // текст уезжал на фото. `text_h = 0` — прежнее поведение: у уже
+        // сохранённых шаблонов вид не меняется.
+        ...((t.text_h ?? 0) > 0 ? {
+          height: `${t.text_h}%`,
+          // ⚠️ `hidden`, а не `visible`: иначе ограничение чисто декоративное —
+          // содержимое просто вылезет за рамку, как и раньше.
+          overflow: 'hidden' as const,
+          display: 'flex',
+          flexDirection: 'column' as const,
+          // Содержимое прижато к центру области — так надпись не липнет к
+          // верхней кромке, когда текста меньше, чем места.
+          justifyContent: 'center' as const,
+          boxSizing: 'border-box' as const,
+        } : {}),
         // Подложка: один цвет или градиент двумя. Пусто — ничего не рисуем.
         ...(t.text_bg_color ? {
           background: t.text_bg_color_2
@@ -295,7 +433,7 @@ export default function CoverCanvas({
             pointerEvents: 'none',
           }} />
         )}
-        <div style={{ position: 'relative' }}>
+        <div ref={innerRef} style={{ position: 'relative' }}>
         {t.brand_position === 'above' && brandBlock}
 
         {!!overline && (
@@ -315,7 +453,7 @@ export default function CoverCanvas({
           fontFamily: titleFont,
           // Кегль в процентах ВЫСОТЫ полотна: на широком и узком тексте
           // заголовок остаётся одного размера, как задумано в шаблоне.
-          fontSize: `${(t.title_size ?? 8) * COVER_H / 100}px`,
+          fontSize: `${(t.title_size ?? 8) * COVER_H / 100 * fit}px`,
           lineHeight: 1.05,
           // Длинное слово (ссылка, составной термин) иначе вылезает за край.
           overflowWrap: 'anywhere',
@@ -324,10 +462,27 @@ export default function CoverCanvas({
             : { color: t.title_color || th.lp_color_heading || '#FFCFA4' }),
         }}>{title}</div>
 
+        {/* Тема выступления.
+            ⚠️⚠️ КЕГЛЬ ИЗ ШАБЛОНА, а не число в коде (25.09.2026). Здесь стояло
+            `fontSize: 30`, и поправить размер темы было нечем: в конструкторе
+            настраивался только заголовок. Тема у спикера длинная — в отличие
+            от образца «спикер» в предпросмотре, — поэтому на реальных данных
+            она вылезала за область и ложилась на фото.
+            ⚠️ Предел по строкам обрезает многоточием: тема бывает на три
+            предложения, и без предела она растянет блок на всю обложку. */}
         {!!subtitle && (
           <div style={{
-            marginTop: 18, fontSize: 30,
+            marginTop: 18 * fit,
+            fontSize: `${(t.subtitle_size ?? 4.2) * COVER_H / 100 * fit}px`,
+            lineHeight: 1.25,
             color: t.text_color || th.lp_color_body || '#FFFFFF',
+            overflowWrap: 'anywhere',
+            ...((t.subtitle_lines ?? 0) > 0 ? {
+              display: '-webkit-box',
+              WebkitLineClamp: t.subtitle_lines,
+              WebkitBoxOrient: 'vertical' as const,
+              overflow: 'hidden',
+            } : {}),
           }}>{subtitle}</div>
         )}
 

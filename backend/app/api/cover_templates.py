@@ -31,7 +31,13 @@ KINDS = ("material", "speaker")
 _FIELDS = (
     "bg_url", "bg_dim", "logo_variant", "logo_size", "logo_x", "logo_y",
     "photo_side", "photo_scale", "photo_x", "photo_y",
+    # Форма кадра фото (миграция 515): половина спикеров без вырезки, и
+    # прямоугольный снимок закрывал половину полотна, куда ложится текст.
+    "photo_shape", "photo_w", "photo_radius", "photo_fade",
     "text_x", "text_y", "text_w", "text_align", "title_size",
+    # Тема выступления и высота области (миграция 515): раньше кегль темы
+    # стоял числом в коде, и длинная тема вылезала за область и на фото.
+    "subtitle_size", "subtitle_lines", "text_h", "text_fit",
     # Оформление области текста (миграция 395): подложка и рамка.
     "text_bg_color", "text_bg_color_2", "text_bg_angle", "text_bg_opacity",
     "text_bg_radius", "text_bg_pad", "text_border_color", "text_border_width",
@@ -74,6 +80,10 @@ class TemplateIn(BaseModel):
     photo_scale: Optional[int] = None
     photo_x: Optional[int] = None
     photo_y: Optional[int] = None
+    photo_shape: Optional[str] = None
+    photo_w: Optional[int] = None
+    photo_radius: Optional[int] = None
+    photo_fade: Optional[int] = None
     text_x: Optional[int] = None
     text_y: Optional[int] = None
     text_w: Optional[int] = None
@@ -88,6 +98,13 @@ class TemplateIn(BaseModel):
     text_border_color: Optional[str] = None
     text_border_width: Optional[int] = None
     title_size: Optional[int] = None
+    # Тема выступления: свой кегль и предел по строкам (миграция 515).
+    # ⚠️ `float`, а не `int`: на полотне 720 px шаг в целый процент — это сразу
+    # 7 px кегля, слишком грубо, чтобы подогнать длинную тему под область.
+    subtitle_size: Optional[float] = None
+    subtitle_lines: Optional[int] = None
+    text_h: Optional[int] = None
+    text_fit: Optional[bool] = None
     title_color: Optional[str] = None
     text_color: Optional[str] = None
     show_brand: Optional[bool] = None
@@ -118,6 +135,15 @@ def _norm(data: dict, kind: str) -> dict:
             d[f] = _clamp(d[f], 0, 100, dflt)
     if "photo_scale" in d:
         d["photo_scale"] = _clamp(d["photo_scale"], 30, 200, 100)
+    for f, lo, hi, dflt in (("photo_w", 10, 90, 38), ("photo_radius", 0, 50, 0),
+                            ("photo_fade", 0, 60, 0)):
+        if f in d and d[f] is not None:
+            d[f] = _clamp(d[f], lo, hi, dflt)
+    # ⚠️ Список форм тот же, что в CHECK миграции 515: разойдутся — сохранение
+    # упадёт на ограничении БД уже после того, как клиент нажал «Сохранить».
+    if "photo_shape" in d and d["photo_shape"] not in (
+            "cutout", "portrait", "square", "circle", "oval"):
+        d["photo_shape"] = "cutout"
     # ⚠️ Границы те же, что в CHECK миграции 395: значение из браузера может
     # прийти любым, а падать на ограничении БД посреди сохранения нельзя.
     for key, lo, hi, default in (
@@ -133,9 +159,18 @@ def _norm(data: dict, kind: str) -> dict:
         if f in d:
             d[f] = _clamp(d[f], -100, 100, 0)
     for f, lo, hi, dflt in (("text_x", 0, 100, 50), ("text_y", 0, 100, 50),
-                            ("text_w", 10, 100, 45), ("title_size", 3, 20, 8)):
+                            ("text_w", 10, 100, 45), ("title_size", 3, 20, 8),
+                            # 0 = без ограничения по строкам / по высоте.
+                            ("subtitle_lines", 0, 10, 0), ("text_h", 0, 100, 0)):
         if f in d:
             d[f] = _clamp(d[f], lo, hi, dflt)
+    # ⚠️ Кегль темы — дробный, поэтому своим проходом, а не общим `_clamp`:
+    # тот приводит к `int` и 4.2 % превратились бы в 4 %.
+    if "subtitle_size" in d and d["subtitle_size"] is not None:
+        try:
+            d["subtitle_size"] = round(max(1.0, min(12.0, float(d["subtitle_size"]))), 1)
+        except (TypeError, ValueError):
+            d["subtitle_size"] = 4.2
     if "logo_variant" in d and d["logo_variant"] not in ("light", "dark", "none"):
         d["logo_variant"] = "light"
     if "photo_side" in d and d["photo_side"] not in ("left", "right", "none"):
@@ -159,10 +194,19 @@ async def _row(db, client_id: int, kind: str) -> dict:
         client_id, kind,
     )
     if row:
-        return dict(row)
+        d = dict(row)
+        # ⚠️ `numeric` приезжает из asyncpg как `Decimal`, а JSON отдаёт его
+        # СТРОКОЙ ("4.2"). На фронте это молча ломает арифметику ползунка:
+        # `"4.2" * 720 / 100` даёт NaN, и кегль темы схлопывается в ноль.
+        if d.get("subtitle_size") is not None:
+            d["subtitle_size"] = float(d["subtitle_size"])
+        return d
     return {"client_id": client_id, "kind": kind, "bg_dim": 0,
             "photo_scale": 100, "photo_x": 0, "photo_y": 0,
-            "show_brand": True, **_DEFAULTS[kind]}
+            "show_brand": True, "subtitle_size": 4.2, "subtitle_lines": 0,
+            "text_h": 0, "text_fit": False, "photo_shape": "cutout",
+            "photo_w": 38, "photo_radius": 0, "photo_fade": 0,
+            **_DEFAULTS[kind]}
 
 
 @router.get("/{kind}", summary="Шаблон обложки + тема бренда")

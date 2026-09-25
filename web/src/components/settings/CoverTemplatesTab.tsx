@@ -20,9 +20,19 @@ import { ensureBrandFonts } from '@/lib/brandStyle'
 type Kind = 'material' | 'speaker'
 
 // Что показываем в предпросмотре вместо настоящих данных.
+// ⚠️⚠️ ОБРАЗЕЦ ДОЛЖЕН БЫТЬ ДЛИННЫМ, КАК В ЖИЗНИ (25.09.2026). Здесь стояло
+// коротенькое `subtitle: 'спикер'` — на нём раскладка выглядела идеально, а
+// настоящая тема выступления длинная и на реальных данных вылезала за область
+// и ложилась на фото. Предпросмотр, который не показывает проблему, хуже, чем
+// никакого: клиент настраивает шаблон и узнаёт о налезании уже на готовых
+// обложках, разосланных спикерам.
 const SAMPLE: Record<Kind, { title: string; subtitle?: string; overline?: string }> = {
   material: { title: 'ЗДЕСЬ БУДЕТ НАЗВАНИЕ ВАШЕГО МАТЕРИАЛА' },
-  speaker: { title: 'ИМЯ ФАМИЛИЯ', subtitle: 'спикер', overline: 'Название конференции' },
+  speaker: {
+    title: 'ИМЯ ФАМИЛИЯ',
+    subtitle: 'Здесь будет тема выступления — она бывает длинной, в две-три строки',
+    overline: 'Название конференции',
+  },
 }
 
 export default function CoverTemplatesTab() {
@@ -196,15 +206,41 @@ export default function CoverTemplatesTab() {
         </Card>
 
         {/* ── Фото ── */}
-        <Card title="Фото на прозрачном фоне">
+        <Card title="Фото спикера">
           <Choice
             value={tpl.photo_side || 'left'}
             onChange={v => patch({ photo_side: v as any })}
             options={[['left', 'Слева'], ['right', 'Справа'], ['none', 'Не показывать']]}
           />
           {tpl.photo_side !== 'none' && (<>
+            <div className="mt-3">
+              <div className="mb-1 text-xs font-medium text-gray-600">Форма кадра</div>
+              <Choice
+                value={tpl.photo_shape || 'cutout'}
+                onChange={v => patch({ photo_shape: v as any })}
+                options={[['cutout', 'Во всю высоту'], ['portrait', 'Портрет'],
+                          ['square', 'Квадрат'], ['circle', 'Круг'], ['oval', 'Овал']]}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                «Во всю высоту» — для фото с вырезанным фоном. У обычного
+                снимка фон не прозрачный, и во всю высоту он закроет половину
+                обложки: текст ляжет прямо на фотографию. Тогда берите фигуру.
+              </p>
+            </div>
             <Range label="Размер" value={tpl.photo_scale ?? 100} min={30} max={200}
                    onChange={v => patch({ photo_scale: v })} />
+            {(tpl.photo_shape || 'cutout') !== 'cutout' && (<>
+              <Range label="Ширина кадра" value={tpl.photo_w ?? 38} min={10} max={90}
+                     hint="сколько места на обложке занимает фото"
+                     onChange={v => patch({ photo_w: v })} />
+              {tpl.photo_shape !== 'circle' && tpl.photo_shape !== 'oval' && (
+                <Range label="Скругление углов" value={tpl.photo_radius ?? 0} min={0} max={50}
+                       onChange={v => patch({ photo_radius: v })} />
+              )}
+              <Range label="Растушевать край" value={tpl.photo_fade ?? 0} min={0} max={60}
+                     hint="плавный переход со стороны текста — фото не выглядит наклейкой"
+                     onChange={v => patch({ photo_fade: v })} />
+            </>)}
             <Range label="Сдвиг вбок" value={tpl.photo_x ?? 0} min={-100} max={100}
                    onChange={v => patch({ photo_x: v })} />
             <Range label="Сдвиг вверх" value={tpl.photo_y ?? 0} min={-100} max={100}
@@ -216,15 +252,25 @@ export default function CoverTemplatesTab() {
         </Card>
 
         {/* ── Текст ── */}
-        <Card title="Заголовок">
+        <Card title="Область текста">
           <Range label="Отступ слева" value={tpl.text_x ?? 50} min={0} max={100}
                  onChange={v => patch({ text_x: v })} />
           <Range label="Положение по высоте" value={tpl.text_y ?? 50} min={0} max={100}
                  onChange={v => patch({ text_y: v })} />
           <Range label="Ширина области" value={tpl.text_w ?? 45} min={10} max={100}
                  onChange={v => patch({ text_w: v })} />
-          <Range label="Размер шрифта" value={tpl.title_size ?? 8} min={3} max={20}
-                 onChange={v => patch({ title_size: v })} />
+          {/* ⚠️ Раньше область ограничивала только ШИРИНУ: по высоте блок рос
+              в обе стороны без предела, и длинная тема уезжала на фото. */}
+          <Range label="Высота области" value={tpl.text_h ?? 0} min={0} max={100}
+                 hint="0 — без ограничения; текст выше этой рамки будет обрезан"
+                 onChange={v => patch({ text_h: v })} />
+          {(tpl.text_h ?? 0) > 0 && (
+            <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={!!tpl.text_fit}
+                     onChange={e => patch({ text_fit: e.target.checked })} />
+              Ужимать текст, если не помещается
+            </label>
+          )}
           <div className="mt-3">
             <Choice
               value={tpl.text_align || 'left'}
@@ -232,6 +278,22 @@ export default function CoverTemplatesTab() {
               options={[['left', 'Слева'], ['center', 'По центру'], ['right', 'Справа']]}
             />
           </div>
+        </Card>
+
+        {/* ── Размеры надписей ── */}
+        <Card title="Заголовок и тема">
+          <Range label="Размер заголовка" value={tpl.title_size ?? 8} min={3} max={20}
+                 hint="имя спикера или название материала"
+                 onChange={v => patch({ title_size: v })} />
+          {/* ⚠️ Кегль темы раньше был прибит числом в коде (30px), и поправить
+              его было нечем — отсюда и налезание на длинных темах. */}
+          <Range label="Размер темы" value={tpl.subtitle_size ?? 4.2} min={1} max={12}
+                 step={0.1}
+                 hint="тема выступления под именем спикера"
+                 onChange={v => patch({ subtitle_size: v })} />
+          <Range label="Строк темы" value={tpl.subtitle_lines ?? 0} min={0} max={6}
+                 hint="0 — сколько получится; иначе лишнее скроется многоточием"
+                 onChange={v => patch({ subtitle_lines: v })} />
         </Card>
 
         {/* ── Оформление области текста ── */}
@@ -368,8 +430,11 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
-function Range({ label, value, min, max, hint, onChange }: {
+function Range({ label, value, min, max, hint, step, onChange }: {
   label: string; value: number; min: number; max: number; hint?: string
+  /** ⚠️ Дробный шаг нужен кеглю темы: на полотне 720 px целый процент — это
+   *  сразу 7 px, слишком грубо, чтобы подогнать длинную тему под область. */
+  step?: number
   onChange: (v: number) => void
 }) {
   return (
@@ -377,7 +442,8 @@ function Range({ label, value, min, max, hint, onChange }: {
       <div className="mb-1 flex items-center justify-between text-xs text-gray-600">
         <span>{label}</span><span className="text-gray-400">{value}</span>
       </div>
-      <input type="range" min={min} max={max} value={value} className="w-full"
+      <input type="range" min={min} max={max} step={step ?? 1} value={value}
+             className="w-full"
              onChange={e => onChange(Number(e.target.value))} />
       {hint && <div className="mt-0.5 text-xs text-gray-400">{hint}</div>}
     </div>
