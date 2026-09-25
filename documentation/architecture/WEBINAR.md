@@ -45,6 +45,10 @@
 
 ### ⚠️⚠️ ДЕЙСТВУЮЩЕЕ РЕШЕНИЕ: nginx ПРОКСИРУЕТ в MediaMTX + клиент посылает cookie
 
+> 📋 **Полный журнал разбора 25.09.2026** — что меняли, что проверили, какой был
+> ответ, какие гипотезы опровергнуты и что осталось сделать:
+> [WEBINAR-HLS-TESTS-2026-09-25.md](WEBINAR-HLS-TESTS-2026-09-25.md)
+
 **`location /live/` проксирует в `127.0.0.1:8888`** ([nginx-hls.conf](media-server/nginx-hls.conf)) — как и было. Лечение cookie-проблемы двумя правками:
 
 1. **`xhrSetup: xhr.withCredentials = true`** в конфиге hls.js ([page.tsx](web/src/app/webinar/%5Bslug%5D/%5Bday%5D/page.tsx)) — чтобы XHR посылал куку.
