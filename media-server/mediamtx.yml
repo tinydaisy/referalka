@@ -37,6 +37,21 @@ hlsVariant: mpegts            # стабильный HLS (вместо lowLatenc
 #   grep '/live/' /var/log/nginx/access.log | grep '\.ts' | grep -c ' 404 '
 hlsSegmentCount: 30
 hlsSegmentDuration: 2s
+
+# ⚠️⚠️ ВРЕМЯ ЖИЗНИ HLS-СЕССИИ (25.09.2026). Дефолт readTimeout = 10 секунд:
+# зритель отвернулся, свернул вкладку или подвисла сеть на 10 с — MediaMTX
+# закрывает сессию («closed: inactive» в логе), cookie hlsSession становится
+# недействительной → 401 ПОСРЕДИ просмотра, и плеер больше не пытается.
+#
+# Так умирало видео на Android MI Browser: 06:14:30 последний сегмент 200,
+# 06:15:06 «session closed: inactive», дальше НОЛЬ запросов к /live/ — при живой
+# странице (чат опрашивался каждые 4 с). То же у iOS Яндекса и Android Chrome.
+#
+# ⚠️ Диагностика: journalctl -u plusson-mediamtx | grep -c 'closed: inactive'
+readTimeout: 300s
+# Не гасить муксер сразу после ухода последнего зрителя — вернувшийся иначе
+# получает пересозданный поток с новыми именами сегментов.
+hlsMuxerCloseAfter: 300s
 hlsAllowOrigin: "*"
 
 # ── Отключаем то, что не нужно ───────────────────────────────────────────────
