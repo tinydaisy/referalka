@@ -235,11 +235,36 @@ export default function WebinarRoomPage() {
     let retryTimer: any
     let destroyed = false
 
-    // ⚠️ ПРИОРИТЕТ hls.js. Android-браузеры (MI Browser, встроенный WebView) на
-    // canPlayType('vnd.apple.mpegurl') возвращают "maybe", но нативно HLS НЕ играют
-    // → чёрный экран. Поэтому: если hls.js поддерживается — используем ЕГО (он умеет
-    // везде, кроме iOS Safari). Нативный video.src — только там, где hls.js не работает
-    // (iOS Safari/WebKit), там HLS реально играет нативно.
+    // ⚠️⚠️ ВЫБОР СПОСОБА ПО УСТРОЙСТВУ, А НЕ «ВСЕГДА hls.js» (25.09.2026).
+    //
+    // Раньше приоритет был всегда у hls.js, и нативный путь получал только тот,
+    // где hls.js не поддерживается вовсе. Из-за этого на iOS через hls.js шли
+    // ВСЕ браузеры — и упирались в cookie-сессию MediaMTX (hls.js грузит
+    // плейлисты через XHR, а MediaMTX отдаёт куку с атрибутом `Partitioned`,
+    // которую XHR не подставляет). Итог на живом эфире: Safari играл, а Chrome
+    // и Яндекс на том же телефоне — чёрный экран.
+    //
+    // ⚠️ Ключевой факт: на iOS ВСЕ браузеры обязаны использовать WebKit —
+    // Chrome и Яндекс на iPhone это Safari внутри. Значит нативный HLS там
+    // работает точно так же, и cookie уходит сама, потому что запрос делает
+    // сам <video>, а не XHR. Поэтому на iOS выбираем НАТИВНЫЙ путь для всех
+    // браузеров, а не только для Safari.
+    //
+    // ⚠️ На Android наоборот: MI Browser и встроенный WebView на
+    // canPlayType('vnd.apple.mpegurl') возвращают "maybe", но нативно HLS НЕ
+    // играют → чёрный экран. Там нужен hls.js.
+    //
+    // ⚠️ Определяем по платформе (iOS/iPadOS), а НЕ по названию браузера:
+    // названий много (Safari, CriOS, YaBrowser, FxiOS, EdgiOS…), список
+    // пришлось бы вечно дополнять, и каждый забытый молча уходил бы не туда.
+    // Платформа одна, и именно она определяет движок.
+    // iPadOS 13+ подделывается под Mac, поэтому дополнительно проверяем
+    // touch-точки: Mac без тача останется на hls.js, планшет уйдёт в нативный.
+    const ua = navigator.userAgent
+    const isIOS = /iPad|iPhone|iPod/.test(ua)
+      || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1)
+    const canNative = video.canPlayType('application/vnd.apple.mpegurl') !== ''
+
     const nativeError = () => {
       if (destroyed) return
       clearTimeout(retryTimer)
@@ -247,6 +272,21 @@ export default function WebinarRoomPage() {
         if (destroyed) return
         video.src = rm.hls_url; video.load(); video.play().catch(() => {})
       }, 3000)
+    }
+
+    // ── iOS (любой браузер): НАТИВНЫЙ HLS, без hls.js и без XHR ──
+    // Запрос делает сам <video>, поэтому cookie-сессия MediaMTX уходит
+    // автоматически — той болезни, что ломает Chrome/Яндекс на iOS, здесь нет.
+    if (isIOS && canNative) {
+      video.addEventListener('error', nativeError)
+      video.addEventListener('playing', () => { setPlayerStuck(false); setPlayerLoading(false) })
+      video.src = rm.hls_url; video.load()
+      playWithSound(video).then(ok => setPlayerStuck(!ok))
+      return () => {
+        destroyed = true
+        clearTimeout(retryTimer)
+        video.removeEventListener('error', nativeError)
+      }
     }
 
     let netErrCount = 0
@@ -335,7 +375,8 @@ export default function WebinarRoomPage() {
         hls = { destroy: () => { try { hlsInstRef.current?.destroy() } catch {} } } as any
         mk()
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // iOS Safari — нативный HLS
+        // Запасной нативный путь для НЕ-iOS, где hls.js не поддерживается вовсе
+        // (iOS ушёл в нативный путь выше, до загрузки hls.js).
         video.addEventListener('error', nativeError)
         video.addEventListener('playing', () => { setPlayerStuck(false); setPlayerLoading(false) })
         video.src = rm.hls_url; video.load()
