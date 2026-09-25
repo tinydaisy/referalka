@@ -1708,13 +1708,17 @@ async def build_day_covers(event_id: int, day_number: int,
 
     done, failed = 0, 0
     seen: set[int] = set()
+    # ⚠️ Причины сбоев уходят клиенту (25.09.2026): раньше кабинет получал
+    # только счётчик и писал выдуманную причину про незаполненные имена.
+    errors: list[str] = []
     for s in slots:
         # Один спикер может вести несколько слотов — рисуем ему одну обложку.
         if s["ec_id"] in seen:
             continue
         seen.add(s["ec_id"])
         png = await render_speaker_cover(
-            db, client_id=cid, ec_id=s["ec_id"], topic=s["topic"] or "")
+            db, client_id=cid, ec_id=s["ec_id"], topic=s["topic"] or "",
+            errors=errors)
         if not png:
             failed += 1
             continue
@@ -1730,7 +1734,8 @@ async def build_day_covers(event_id: int, day_number: int,
             event_id, day_number, s["ec_id"], saved["url"])
         done += 1
 
-    return {"ok": True, "done": done, "failed": failed, "total": len(seen)}
+    return {"ok": True, "done": done, "failed": failed, "total": len(seen),
+            "errors": errors[:10]}
 
 
 @router.get("/{day_number}/covers", summary="Обложки выступлений этого дня")

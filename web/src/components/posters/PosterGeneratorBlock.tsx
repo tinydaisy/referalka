@@ -1997,8 +1997,17 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
  */
 function CoversTab({ eventId }: { eventId: number }) {
   const [days, setDays] = useState<any[]>([])
-  const [day, setDay] = useState<number | null>(null)
+  // ⚠️ День — ВКЛАДКОЙ и через URL (25.09.2026). Был выпадающий список: дни
+  // прятались под ним, и было не видно, у каких из них обложки уже собраны, —
+  // приходилось открывать список и перебирать по одному. Через URL (`cday`),
+  // а не useState: правило проекта — F5 не должен сбрасывать на первый день.
+  const [dayStr, setDayStr] = useUrlTab<string>('cday', '')
+  const day = dayStr ? Number(dayStr) : null
+  const setDay = (d: number) => setDayStr(String(d))
   const [covers, setCovers] = useState<any[]>([])
+  // Сколько обложек уже собрано у каждого дня — счётчик прямо на вкладке,
+  // чтобы не открывать каждый день ради проверки.
+  const [counts, setCounts] = useState<Record<number, number>>({})
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
 
@@ -2009,6 +2018,12 @@ function CoversTab({ eventId }: { eventId: number }) {
         setDays(list)
         // ⚠️ Поле называется `day_number`, а не `day` — так отдаёт API дней.
         if (list.length && day === null) setDay(list[0].day_number)
+        // Счётчики по всем дням разом — вкладки сразу показывают, где пусто.
+        list.forEach((d: any) => {
+          api.webinar.dayCovers(eventId, d.day_number)
+            .then((c: any) => setCounts(p => ({ ...p, [d.day_number]: (c.covers || []).length })))
+            .catch(() => {})
+        })
       })
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2027,12 +2042,24 @@ function CoversTab({ eventId }: { eventId: number }) {
     if (!day) return
     setBusy('Собираю обложки…'); setErr('')
     try {
-      await api.webinar.buildDayCovers(eventId, day)
+      // ⚠️⚠️ ПРИЧИНУ СБОЯ БЕРЁМ ИЗ ОТВЕТА, А НЕ ПРИДУМЫВАЕМ (25.09.2026).
+      // Здесь стояло «проверьте, заполнены ли имена спикеров» — единственная
+      // догадка на все случаи. Имена были заполнены, а падал SQL в бэкенде, и
+      // владелец искал поломку там, где её нет. Врать про причину хуже, чем
+      // сказать «не получилось»: выдуманная причина уводит от настоящей.
+      const res: any = await api.webinar.buildDayCovers(eventId, day)
       const r: any = await api.webinar.dayCovers(eventId, day)
-      setCovers(r.covers || [])
-      if (!(r.covers || []).length) {
-        setErr('Обложки не собрались — ни у одного спикера дня не получилось составить надпись. '
-               + 'Проверьте, заполнены ли имена спикеров в программе.')
+      const list = r.covers || []
+      setCovers(list)
+      setCounts(p => ({ ...p, [day]: list.length }))
+      const reasons: string[] = res?.errors || []
+      if (!list.length) {
+        setErr(reasons.length
+          ? 'Обложки не собрались. Причина: ' + reasons.join('; ')
+          : 'Обложки не собрались, причину бэкенд не назвал.')
+      } else if (res?.failed) {
+        setErr(`Собрано ${res.done} из ${res.total}, не вышло у ${res.failed}.`
+               + (reasons.length ? ' Причина: ' + reasons.join('; ') : ''))
       }
     } catch (e: any) {
       setErr(e?.message || 'Не получилось собрать обложки')
@@ -2041,18 +2068,26 @@ function CoversTab({ eventId }: { eventId: number }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="text-xs text-gray-500 mb-1 block">День</label>
-          <select value={day ?? ''} onChange={e => setDay(Number(e.target.value))}
-                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-            {days.map((d: any) => (
-              <option key={d.day_number} value={d.day_number}>
-                День {d.day_number}{d.day_date ? ` · ${d.day_date}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* ⚠️ Дни — вкладками, а не выпадающим списком: видно сразу все дни и
+          сколько обложек у каждого уже собрано. */}
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+        {days.map((d: any) => (
+          <button key={d.day_number} type="button" onClick={() => setDay(d.day_number)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                    day === d.day_number
+                      ? 'border-[#25455D] text-[#25455D]'
+                      : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+            День {d.day_number}{d.day_date ? ` · ${d.day_date}` : ''}
+            {counts[d.day_number] ? (
+              <span className="ml-2 text-xs bg-[#FFCFA4] text-[#25455D] rounded-full px-2 py-0.5">
+                {counts[d.day_number]}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      <div>
         <button onClick={build} disabled={!day || !!busy}
                 title="Собрать обложки всем спикерам этого дня по шаблону «Спикер»"
                 className="btn-gold text-sm disabled:opacity-40">

@@ -42,10 +42,13 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
     «Имя Фамилия» задан одним правилом на весь проект, и своя склейка тут
     разошлась бы с карточками и лендингом.
     """
+    from app.services.event_photo import photo_columns, photo_join, resolve_photo_url
+
     row = await conn.fetchrow(
-        """SELECT rc.title AS cut_title,
+        f"""SELECT rc.title AS cut_title,
                   c.name AS first_name, c.last_name,
-                  c.photo_url, c.cutout_url,
+                  c.photo_url, c.cutout_photo_url,
+                  {photo_columns()},
                   COALESCE(
                       NULLIF(btrim(cst.topic), ''),
                       (SELECT NULLIF(btrim(t.topic), '') FROM conf_speaker_topics t
@@ -56,6 +59,7 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
              FROM webinar_recording_cuts rc
              LEFT JOIN event_collaborators ec ON ec.id = rc.speaker_ec_id
              LEFT JOIN collaborators c ON c.id = ec.speaker_id
+             {photo_join()}
              LEFT JOIN webinar_recordings wr ON wr.id = rc.recording_id
              LEFT JOIN webinar_rooms wrm ON wrm.id = wr.room_id
              LEFT JOIN events e ON e.id = wrm.event_id
@@ -80,7 +84,10 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
 
     # ⚠️ Фото на ПРОЗРАЧНОМ фоне (cutout) в приоритете: шаблон кладёт человека
     # поверх фона, и прямоугольное фото выглядело бы наклейкой.
-    photo = row["cutout_url"] or row["photo_url"] or ""
+    # ⚠️ Через `resolve_photo_url`, а не своим выбором: фото спикера для этого
+    # события может быть выбрано отдельно (`event_collaborators.photo_id`), и
+    # обложка обязана показывать то же лицо, что афиша и программа.
+    photo = resolve_photo_url(dict(row), cutout=True) or ""
 
     return {
         "title": title,
@@ -92,6 +99,7 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
 
 async def render_speaker_cover(
     conn: asyncpg.Connection, *, client_id: int, ec_id: int, topic: str = "",
+    errors: Optional[list[str]] = None,
 ) -> Optional[bytes]:
     """PNG обложки выступления — по спикеру и теме из программы, БЕЗ записи.
 
@@ -99,35 +107,55 @@ async def render_speaker_cover(
     ДО эфира, когда никакой записи ещё нет. Рисует тем же `render_cover_png` и
     тем же шаблоном `speaker`, что и обложка нарезки, — иначе картинки,
     собранные двумя путями, выглядели бы по-разному.
+
+    ⚠️⚠️ ПРИЧИНА СБОЯ КОПИТСЯ В `errors` И УХОДИТ КЛИЕНТУ (25.09.2026). Раньше
+    сбой глушился в лог, наружу шло голое «не собралось», а кабинет подставлял
+    ЕДИНСТВЕННУЮ догадку — «проверьте, заполнены ли имена спикеров». Имена были
+    заполнены, падал SQL (`c.cutout_url` — такой колонки нет, она называется
+    `cutout_photo_url`), и человек чинил то, что не ломалось. Выдуманная
+    причина хуже, чем никакой: она уводит от настоящей.
     """
+    from app.services.event_photo import photo_columns, photo_join, resolve_photo_url
+
     try:
         row = await conn.fetchrow(
-            """SELECT c.name AS first_name, c.last_name,
-                      c.photo_url, c.cutout_url,
+            f"""SELECT c.name AS first_name, c.last_name,
+                      c.photo_url, c.cutout_photo_url,
+                      {photo_columns()},
                       e.title AS event_title
                  FROM event_collaborators ec
                  LEFT JOIN collaborators c ON c.id = ec.speaker_id
+                 {photo_join()}
                  LEFT JOIN events e ON e.id = ec.event_id
                 WHERE ec.id = $1""",
             ec_id,
         )
         if not row:
+            if errors is not None:
+                errors.append(f"спикер #{ec_id}: карточка не найдена")
             return None
 
         from app.services.person_name import display_name
 
         title = display_name(row["first_name"], row["last_name"]) if row["first_name"] else ""
         if not title:
+            if errors is not None:
+                errors.append(f"спикер #{ec_id}: не заполнено имя в карточке")
             return None
 
-        return await _render_fields(client_id, {
+        png = await _render_fields(client_id, {
             "title": title,
             "subtitle": topic or "",
             "overline": row["event_title"] or "",
-            "photo": row["cutout_url"] or row["photo_url"] or "",
+            "photo": resolve_photo_url(dict(row), cutout=True) or "",
         })
+        if not png and errors is not None:
+            errors.append(f"{title}: рисовальщик картинки не ответил")
+        return png
     except Exception as e:                                      # noqa: BLE001
         _log.warning("обложка спикера %s не собралась: %s", ec_id, e)
+        if errors is not None:
+            errors.append(f"спикер #{ec_id}: {e}")
         return None
 
 
