@@ -263,31 +263,6 @@ export default function WebinarRoomPage() {
     const ua = navigator.userAgent
     const isIOS = /iPad|iPhone|iPod/.test(ua)
       || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1)
-
-    // ⚠️⚠️ РАЗНЫЕ СПОСОБЫ РАЗНЫМ БРАУЗЕРАМ — ПО ФАКТУ ПРОВЕРОК НА ЖИВОМ ЭФИРЕ
-    // 25.09.2026 (правило владельца). Один способ на всех не подошёл: каждая
-    // попытка «унифицировать» лечила одни браузеры и ломала другие.
-    //
-    // Что проверено НА ЭКРАНЕ (не по логам — байты приходили и там, где видео
-    // не играло):
-    //
-    //   iOS Яндекс      — нативный <video>  → РАБОТАЕТ, hls.js → нет
-    //   iOS Safari      — hls.js            → РАБОТАЛ,  нативный → сломался
-    //   iOS Chrome      — hls.js            → РАБОТАЛ,  нативный → сломался
-    //   Android MI      — hls.js            → РАБОТАЕТ
-    //   Android Chrome  — не работает ни так, ни так (ищем отдельно)
-    //
-    // ⚠️ Отсюда: на iOS нативный путь получает ТОЛЬКО Яндекс, остальные — hls.js.
-    // Выглядит нелогично (движок-то один, WebKit), но это факт с устройств, а не
-    // теория: у Яндекса своя обёртка над плеером, и она ведёт себя иначе.
-    //
-    // ⚠️ Здесь имя браузера — ЕДИНСТВЕННЫЙ доступный признак. По возможностям
-    // (`canPlayType`) их не разделить: на iOS все отвечают одинаково, а на
-    // Яндексе эта проверка вообще возвращала пустую строку и роняла плеер.
-    // Поэтому ловим `YaBrowser` по User-Agent — узко и явно, чтобы случайно не
-    // задеть Safari и Chrome, которым нужен hls.js.
-    const isYandex = /YaBrowser/i.test(ua)
-    const useNative = isIOS && isYandex
     // ⚠️⚠️ НА iOS НЕ СПРАШИВАЕМ canPlayType (25.09.2026). Здесь стояло
     // `isIOS && canPlayType(...) !== ''`, и на Яндекс-браузере плеер не
     // стартовал ВООБЩЕ: в логах ноль запросов к /live/ за 26 минут — ни
@@ -306,11 +281,41 @@ export default function WebinarRoomPage() {
       }, 3000)
     }
 
-    // ── iOS + Яндекс: НАТИВНЫЙ HLS, без hls.js и без XHR ──
-    // Запрос делает сам <video>, поэтому cookie-сессия MediaMTX уходит
-    // автоматически. Только для Яндекса: Safari и Chrome на iOS этот путь
-    // сломал (ноль запросов к /live/ в логах), им ниже идёт hls.js.
-    if (useNative) {
+    // ⚠️⚠️ НАБОРЫ НАСТРОЕК ПО БРАУЗЕРАМ (25.09.2026, правило владельца).
+    //
+    // Один способ на всех НЕ РАБОТАЕТ: каждая попытка унифицировать лечила одни
+    // браузеры и ломала другие. Поэтому каждому браузеру — тот набор, при
+    // котором он ФАКТИЧЕСКИ игрался на устройстве (не «по логам»: байты
+    // приходили и туда, где картинки не было).
+    //
+    //   НАБОР «Н-НАТИВ»  — нативный <video>, без hls.js и XHR.
+    //                      Cookie MediaMTX уходит сама, потому что запрос
+    //                      делает сам <video>. Кому: iOS Яндекс.
+    //
+    //   НАБОР «Н-HLSJS» — hls.js + xhrSetup withCredentials + настройки
+    //                      живого эфира (догон края, повторы, буферы).
+    //                      Кому: iOS Safari, iOS Chrome, Android MI,
+    //                      Android Chrome и всё остальное.
+    //
+    // Проверено на живом эфире 25.09.2026:
+    //   iOS Яндекс     — Н-НАТИВ работает; Н-HLSJS нет
+    //   iOS Safari     — Н-HLSJS работал; Н-НАТИВ сломал (0 запросов к /live/)
+    //   iOS Chrome     — Н-HLSJS работал; Н-НАТИВ сломал
+    //   Android MI     — Н-HLSJS работает
+    //   Android Chrome — Н-HLSJS: сегменты шли 200 в 04:56–04:57
+    //
+    // ⚠️ Нативный путь получает ТОЛЬКО Яндекс на iOS. Выглядит нелогично —
+    // движок на iOS у всех один, WebKit — но это факт с устройств, а не теория:
+    // у Яндекса своя обёртка над плеером и своё поведение.
+    //
+    // ⚠️ Имя браузера здесь — ЕДИНСТВЕННЫЙ доступный признак. По возможностям
+    // не развести: на iOS все отвечают на canPlayType одинаково, а у Яндекса
+    // эта проверка возвращала пустую строку и роняла плеер вовсе. Ловим
+    // YaBrowser узко, чтобы не задеть Safari и Chrome, которым нужен hls.js.
+    const isYandex = /YaBrowser/i.test(ua)
+
+    // ── НАБОР «Н-НАТИВ»: только iOS Яндекс ──
+    if (isIOS && isYandex) {
       video.addEventListener('error', nativeError)
       video.addEventListener('playing', () => { setPlayerStuck(false); setPlayerLoading(false) })
       video.src = rm.hls_url; video.load()
@@ -322,6 +327,10 @@ export default function WebinarRoomPage() {
       }
     }
 
+    // ── НАБОР «Н-HLSJS»: iOS Safari, iOS Chrome, Android MI, Android Chrome ──
+    // Сюда попадает всё, кроме iOS Яндекса. Настройки ниже — из сборки, где эти
+    // браузеры играли: withCredentials (иначе 401 на дочернем плейлисте) +
+    // догон живого края + повторы при обрыве мобильной сети + буферы.
     let netErrCount = 0
     import('hls.js').then(({ default: Hls }) => {
       if (destroyed) return
@@ -408,9 +417,8 @@ export default function WebinarRoomPage() {
         hls = { destroy: () => { try { hlsInstRef.current?.destroy() } catch {} } } as any
         mk()
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Запасной нативный путь: сюда попадает тот, где hls.js не поддержан
-        // вовсе (Яндекс на iOS ушёл в нативный путь выше и здесь не окажется).
-        // Нативный HLS лучше чёрного экрана, даже если он ненадёжен.
+        // Запасной нативный путь для НЕ-iOS, где hls.js не поддерживается вовсе
+        // (iOS ушёл в нативный путь выше, до загрузки hls.js).
         video.addEventListener('error', nativeError)
         video.addEventListener('playing', () => { setPlayerStuck(false); setPlayerLoading(false) })
         video.src = rm.hls_url; video.load()
