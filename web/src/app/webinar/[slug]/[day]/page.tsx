@@ -263,7 +263,14 @@ export default function WebinarRoomPage() {
     const ua = navigator.userAgent
     const isIOS = /iPad|iPhone|iPod/.test(ua)
       || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1)
-    const canNative = video.canPlayType('application/vnd.apple.mpegurl') !== ''
+    // ⚠️⚠️ НА iOS НЕ СПРАШИВАЕМ canPlayType (25.09.2026). Здесь стояло
+    // `isIOS && canPlayType(...) !== ''`, и на Яндекс-браузере плеер не
+    // стартовал ВООБЩЕ: в логах ноль запросов к /live/ за 26 минут — ни
+    // плейлиста, ни сегментов. canPlayType отвечает пустой строкой в части
+    // WebKit-сборок (в том числе внутри сторонних браузеров на iOS), и условие
+    // молча проваливалось. На iOS нативный HLS есть ВСЕГДА — там весь браузер
+    // обязан быть WebKit, спрашивать не о чем. Ошибку загрузки всё равно
+    // поймает обработчик 'error' → nativeError и перезапустит.
 
     const nativeError = () => {
       if (destroyed) return
@@ -277,7 +284,7 @@ export default function WebinarRoomPage() {
     // ── iOS (любой браузер): НАТИВНЫЙ HLS, без hls.js и без XHR ──
     // Запрос делает сам <video>, поэтому cookie-сессия MediaMTX уходит
     // автоматически — той болезни, что ломает Chrome/Яндекс на iOS, здесь нет.
-    if (isIOS && canNative) {
+    if (isIOS) {
       video.addEventListener('error', nativeError)
       video.addEventListener('playing', () => { setPlayerStuck(false); setPlayerLoading(false) })
       video.src = rm.hls_url; video.load()
