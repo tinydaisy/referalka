@@ -16,6 +16,7 @@ from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
 from app.services.features import client_has_feature
+from app.services.subscriptions import get_subscription
 # ⚠️ Импорт НА УРОВНЕ МОДУЛЯ. Раньше он делался внутри функций, и в
 # каталоге его просто забыли — NameError глотался except, каталог молча
 # показывал подписчиков без каналов.
@@ -547,10 +548,16 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
 # сопоставляем: привязка ПЛЮСОН Коннект (contacts.linked_client_id), почта
 # (идентичность platform_users 'email' = clients.email) или рабочий Telegram
 # (clients.work_tg_id). Когда появится настройка «кому открыт чат» — заменить.
+# ⚠️ Плюс все на ТРИАЛЕ: Коллабораторная входит в триал целиком, и чат —
+# её часть. Проверка по тарифу, а не по фиче: отдельной фичи «чат» нет, а
+# collab_hub есть и у тех, кому чат закрыт (Профи, VIP без заказа).
 _COLLAB_CHAT_TARIFF_ID = 19
 
 
 async def _has_collab_chat_access(db, client_id: int) -> bool:
+    sub = await get_subscription(db, client_id)
+    if (sub and sub.get("tariff_slug") == "trial" and sub.get("status") == "active"):
+        return True
     return bool(await db.fetchval(
         """WITH buyers AS (
                SELECT DISTINCT contact_id FROM event_participant_tariffs

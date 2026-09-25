@@ -46,7 +46,7 @@ export default function CollabChatPage() {
           <div className="text-sm text-gray-400">Загружаем…</div>
         ) : !hasAccess ? (
           <div className="text-sm text-gray-500">
-            Чат открыт участникам с тарифом «VIP с Коллабораторной».
+            Чат открыт участникам с тарифом «VIP с Коллабораторной» и тем, кто на пробном периоде.
           </div>
         ) : platforms.length === 0 ? (
           <div className="text-sm text-gray-500">
