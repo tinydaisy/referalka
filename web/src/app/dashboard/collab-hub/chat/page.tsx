@@ -13,10 +13,12 @@ export default function CollabChatPage() {
   const [loading, setLoading] = useState(true)
   const [tg, setTg] = useState('')
   const [max, setMax] = useState('')
+  // false → сервер не отдал ссылки: чат только для оплативших VIP (collab_hub.py)
+  const [hasAccess, setHasAccess] = useState(true)
 
   useEffect(() => {
     api.collabHub.settings()
-      .then((r: any) => { setTg(r?.chat_url || ''); setMax(r?.chat_url_max || '') })
+      .then((r: any) => { setTg(r?.chat_url || ''); setMax(r?.chat_url_max || ''); setHasAccess(r?.has_access !== false) })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -42,6 +44,10 @@ export default function CollabChatPage() {
 
         {loading ? (
           <div className="text-sm text-gray-400">Загружаем…</div>
+        ) : !hasAccess ? (
+          <div className="text-sm text-gray-500">
+            Чат открыт участникам с тарифом «VIP с Коллабораторной».
+          </div>
         ) : platforms.length === 0 ? (
           <div className="text-sm text-gray-500">
             Ссылки на чат пока не заданы. Загляните сюда позже.

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Users, Star, Send, MapPin, ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
-import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox, BioBlock, useNicheTitles } from '../../_components/shared'
+import { PEACH, DARK, MediaTierBadge, CATEGORIES, Lightbox, BioBlock, useNicheTitles, RequestModal } from '../../_components/shared'
 import SafeHtml from '@/components/SafeHtml'
 import { focalCss } from '@/lib/photoFocal'
 
@@ -36,8 +36,6 @@ export default function OrgProfilePage() {
   if (!data) return <div className="p-8 text-gray-400 text-center">Загрузка…</div>
   const c = data.card
   const achievements: any[] = Array.isArray(c.achievements) ? c.achievements : []
-  const social = c.social_links || {}
-  const tg = social.telegram_channels?.[0]?.url || social.telegram
   const hadCollabs = (data.rating.collabs_count || 0) > 0
   // Win-Win коэффициент (миграция 268): 1.00 = сработал вровень с партнёрами.
   // Не процент: старая метрика наказывала за размер команды.
@@ -118,12 +116,13 @@ export default function OrgProfilePage() {
           </div>
         </div>
 
-        {/* контакты */}
-        {(tg || c.telegram_username) && (
-          <div className="flex flex-wrap gap-2 mt-5">
-            {c.telegram_username && <a href={`https://telegram.me/${c.telegram_username.replace('@', '')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-sm px-4 py-2 rounded-xl text-white inline-flex items-center gap-1.5" style={{ background: DARK }}><Send className="w-4 h-4" />Написать в Telegram</a>}
-            {tg && <a href={tg} target="_blank" rel="noreferrer" className="text-sm px-4 py-2 rounded-xl border inline-flex items-center gap-1.5">Канал</a>}
-          </div>
+        {/* ⚠️ Контактов партнёра (Telegram, каналы) здесь НЕТ — решение
+            владельца 25.09.2026: связаться можно только через запрос.
+            Сервер их чужому и не отдаёт (collab_hub.py, _client_card). */}
+        {!data.is_me && (
+          <button onClick={() => setReqOpen(true)} className="btn-gold mt-5 px-5 py-2.5 text-sm">
+            <Send className="w-4 h-4" />Отправить запрос
+          </button>
         )}
       </div>
 
@@ -156,6 +155,7 @@ export default function OrgProfilePage() {
           ))}</div>}
       </div>
 
+      {reqOpen && <RequestModal target={{ client_id: c.client_id, name: c.name }} onClose={() => setReqOpen(false)} />}
       {lightbox && c.photo_url && <Lightbox src={c.photo_url} onClose={() => setLightbox(false)} />}
     </div>
   )

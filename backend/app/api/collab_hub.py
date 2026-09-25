@@ -228,7 +228,10 @@ def _client_card(row, public: bool = False, channel_counts: dict | None = None) 
         'bio': d.get('bio'),
         'positioning': d.get('owner_positioning') or d.get('positioning'),
         'achievements': _parse_json(d.get('owner_achievements'), []),
-        'social_links': _parse_json(d.get('social_links'), {}),
+        # ⚠️ Контакты (Telegram, каналы, ВК, MAX) ЧУЖОМУ не отдаём (решение
+        # владельца 25.09.2026): связаться можно только через «Отправить запрос».
+        # Охват по каналам считается из строки clients, а не из этого поля.
+        'social_links': {} if public else _parse_json(d.get('social_links'), {}),
         'media_assets': ma or [],
         'reach_breakdown': _reach_breakdown(ma, _auto),
         'media_tier': _media_tier(_sum_subscribers(ma, _auto)),
@@ -522,7 +525,8 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
                   round(avg(win_win_coefficient) FILTER (WHERE win_win_coefficient IS NOT NULL), 2) AS win_win
              FROM hub_collab_history WHERE client_id=$1""", client_id)
     card = _client_card(row, public=(me != client_id), channel_counts=prof_ch)  # свой профиль — поля видны всегда
-    card['telegram_username'] = row.get('telegram_username')
+    # Ник — только своему профилю: чужим связь только через запрос (25.09.2026).
+    card['telegram_username'] = row.get('telegram_username') if me == client_id else None
     return {
         "card": card,
         "rating": {"collabs_count": rating["collabs"],
@@ -537,17 +541,50 @@ async def hub_profile(client_id: int, client=Depends(get_current_client), db: as
 # ─────────────────────────────────────────────────────────────────────────────
 # Закрытый чат Коллабораторной (миграция 264)
 # ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ ХАРДКОД (решение владельца 25.09.2026): чат открыт только тем, кто
+# ОПЛАТИЛ средний тариф события 89 — «VIP С КОЛЛАБОРАТОРНОЙ» (event_tariffs.id=19).
+# Покупатель — контакт в базе организатора, а смотрит клиент кабинета, поэтому
+# сопоставляем: привязка ПЛЮСОН Коннект (contacts.linked_client_id), почта
+# (идентичность platform_users 'email' = clients.email) или рабочий Telegram
+# (clients.work_tg_id). Когда появится настройка «кому открыт чат» — заменить.
+_COLLAB_CHAT_TARIFF_ID = 19
+
+
+async def _has_collab_chat_access(db, client_id: int) -> bool:
+    return bool(await db.fetchval(
+        """WITH buyers AS (
+               SELECT DISTINCT contact_id FROM event_participant_tariffs
+                WHERE tariff_id = $2 AND status = 'paid' AND contact_id IS NOT NULL)
+           SELECT EXISTS (
+               SELECT 1 FROM clients cl
+                WHERE cl.id = $1 AND (
+                      EXISTS (SELECT 1 FROM contacts c JOIN buyers b ON b.contact_id = c.id
+                               WHERE c.linked_client_id = cl.id)
+                   OR EXISTS (SELECT 1 FROM platform_users pu JOIN buyers b ON b.contact_id = pu.contact_id
+                               WHERE pu.platform_slug = 'email'
+                                 AND lower(trim(pu.platform_user_id)) = lower(trim(cl.email)))
+                   OR EXISTS (SELECT 1 FROM platform_users pu JOIN buyers b ON b.contact_id = pu.contact_id
+                               WHERE pu.platform_slug = 'telegram'
+                                 AND cl.work_tg_id IS NOT NULL
+                                 AND pu.platform_user_id = cl.work_tg_id::text)))""",
+        client_id, _COLLAB_CHAT_TARIFF_ID))
+
+
 @router.get("/settings", summary="Настройки Коллабораторной (ссылка на чат)")
-async def get_collab_hub_settings(db=Depends(get_db)):
+async def get_collab_hub_settings(client=Depends(get_current_client), db=Depends(get_db)):
     """Ссылки на закрытый чат участников — Telegram и MAX (миграция 266).
 
     Одни на всю Коллабораторную (таблица-одиночка, id=1). Обе пусты → в кабинете
     пункт «Закрытый чат» просто не показывается, а не ведёт в никуда.
+    Нет доступа (см. _has_collab_chat_access) → ссылки отдаются пустыми:
+    прятать надо на сервере, иначе адрес чата виден в ответе API.
     """
     row = await db.fetchrow(
         "SELECT chat_url, chat_url_max, chat_title FROM collab_hub_settings WHERE id = 1")
+    allowed = await _has_collab_chat_access(db, int(client["sub"]))
     return {
-        "chat_url": (row["chat_url"] if row else None) or "",
-        "chat_url_max": (row["chat_url_max"] if row else None) or "",
+        "chat_url": ((row["chat_url"] if row else None) or "") if allowed else "",
+        "chat_url_max": ((row["chat_url_max"] if row else None) or "") if allowed else "",
         "chat_title": (row["chat_title"] if row else None) or "Закрытый чат",
+        "has_access": allowed,
     }

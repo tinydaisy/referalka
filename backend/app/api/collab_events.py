@@ -95,12 +95,14 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
     описание и список организаторов, которые уже в ней (collab_organizers).
     """
     me = int(client["sub"])
+    # ⚠️ other_tg (ник для «Написать в Telegram») — только после ПРИНЯТИЯ
+    # запроса (25.09.2026): до ответа связь с партнёром — только сам запрос.
     if direction == "outgoing":
         rows = await db.fetch(
             f"""SELECT r.id, r.to_client_id AS other_client_id, COALESCE(tc.brand_name,tc.name) AS other_name,
                       COALESCE(tc.owner_photo_url,tc.profile_photo_url) AS other_photo,
                       tc.is_published_in_hub AS other_published,
-                      tc.telegram_username AS other_tg, r.event_id,
+                      CASE WHEN r.status='accepted' THEN tc.telegram_username END AS other_tg, r.event_id,
                       e.title AS event_title, e.description AS event_description,
                       {_COLLAB_INFO_SUBQ},
                       r.status, r.message, r.created_at, r.responded_at, r.decline_reason
@@ -113,7 +115,7 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
             f"""SELECT r.id, r.from_client_id AS other_client_id, COALESCE(fc.brand_name,fc.name) AS other_name,
                       COALESCE(fc.owner_photo_url,fc.profile_photo_url) AS other_photo,
                       fc.is_published_in_hub AS other_published,
-                      fc.telegram_username AS other_tg, r.event_id,
+                      CASE WHEN r.status='accepted' THEN fc.telegram_username END AS other_tg, r.event_id,
                       e.title AS event_title, e.description AS event_description,
                       {_COLLAB_INFO_SUBQ},
                       r.status, r.message, r.created_at, r.responded_at, r.decline_reason

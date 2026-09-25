@@ -129,10 +129,17 @@ export default function Sidebar() {
   }, [eventIdInPath])
   const inCollabEvent = eventIdInPath ? collabEventIds[eventIdInPath] === true : false
 
-  // ⚠️ Здесь грузились настройки Коллабораторной ради пункта «Закрытый чат»
-  // (есть ли адрес чата в TG/MAX, миграции 264 и 266). Пункт убран из меню
-  // 16.09.2026 — запрос убран вместе с ним, чтобы сайдбар не ходил в API за
-  // тем, что больше не показывает. Вернуть пункт = вернуть и эти строки.
+  // Пункт «Закрытый чат» Коллабораторной (миграции 264 и 266). С 25.09.2026
+  // виден НЕ всем: сервер отдаёт ссылки только оплатившим VIP события 89
+  // (хардкод в collab_hub.py, _has_collab_chat_access). Пустые ссылки → пункта нет.
+  // Ошибку глотаем — ломать сайдбар из-за этого нельзя.
+  const [hasCollabChat, setHasCollabChat] = useState(false)
+  useEffect(() => {
+    if (!hasCollabHub) return
+    api.collabHub.settings()
+      .then((r: any) => setHasCollabChat(!!(r?.chat_url || r?.chat_url_max)))
+      .catch(() => {})
+  }, [hasCollabHub])
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -275,10 +282,10 @@ export default function Sidebar() {
         // авторизован, и право смотреть даёт сам модуль. Второй вход по коду
         // на почту тут был бы лишним шагом к данным, доступ к которым есть.
         { href: '/dashboard/collab-hub/materials', label: 'База материалов', icon: BookOpen },
-        // ⚠️ ПУНКТ «ЗАКРЫТЫЙ ЧАТ» УБРАН ИЗ МЕНЮ (решение владельца 16.09.2026).
-        // Сама страница `/dashboard/collab-hub/chat` и её настройки остаются:
-        // по прямой ссылке она работает, и вернуть пункт — это одна строка.
-        // Раньше здесь был `...(hasCollabChat ? [{…}] : [])`.
+        // Закрытый чат — только оплатившим VIP события 89 (см. hasCollabChat выше).
+        ...(hasCollabChat
+          ? [{ href: '/dashboard/collab-hub/chat', label: 'Закрытый чат', icon: MessageCircle }]
+          : []),
         { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },
       ],
     }] : []),
