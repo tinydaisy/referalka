@@ -729,7 +729,9 @@ export default function TemplatesPage() {
         // так возвращаются к расчёту «через 30 минут после конца программы».
         intro_start_time: (form as any).intro_start_time ?? '',
         intro_interval_min: (form as any).intro_interval_min || 15,
-        intro_days_before: (form as any).intro_days_before || 1,
+        // ⚠️ `??`, а не `||`: 0 = «в день программы» у рассылок в чат спикеров,
+        // а `|| 1` молча превращал его в «за 1 день».
+        intro_days_before: (form as any).intro_days_before ?? 1,
         // Общие/личные чаты — только с фичей broadcast_chats. Без неё принудительно false,
         // чтобы старое включённое значение не «прилипло» при сохранении.
         send_to_client_chats: hasChatsFeature ? !!(form as any).send_to_client_chats : false,
@@ -908,7 +910,7 @@ export default function TemplatesPage() {
         || (t.type === 'pre_conf' ? '10:43'
           : String(t.type || '').startsWith('day_before_09_12') ? '09:12' : '11:00'),
       intro_interval_min: t.intro_interval_min || 15,
-      intro_days_before: t.intro_days_before || 1,
+      intro_days_before: t.intro_days_before ?? 1,
       intro_roles: Array.isArray(t.intro_roles) ? t.intro_roles : null,
       send_to_event_chats: !!t.send_to_event_chats,
       send_to_client_chats: !!t.send_to_client_chats,
