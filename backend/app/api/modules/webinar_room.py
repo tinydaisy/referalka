@@ -1681,7 +1681,7 @@ async def build_day_covers(event_id: int, day_number: int,
     await ws.assert_event_owner(db, event_id, cid)
     await _assert_webinar_feature(db, cid, need_room=True)
 
-    from app.services.cut_cover import render_speaker_cover
+    from app.services.cut_cover import cover_format, render_speaker_cover
     from app.services.store_file import store_bytes
 
     # ⚠️ Тема — из `conf_speaker_topics` через `topic_id` слота, как на лендинге
@@ -1722,9 +1722,10 @@ async def build_day_covers(event_id: int, day_number: int,
         if not png:
             failed += 1
             continue
+        ext, ctype = cover_format(png)
         saved = await store_bytes(
             db, client_id=cid, data=png,
-            kind="material_media", ext="png", content_type="image/png",
+            kind="material_media", ext=ext, content_type=ctype,
         )
         await db.execute(
             "INSERT INTO event_speaker_covers (event_id, day_number, ec_id, cover_url) "
@@ -1771,7 +1772,7 @@ async def build_covers(event_id: int, day_number: int, recording_id: int,
     await _assert_webinar_feature(db, cid, need_room=True)
     await _recording_or_404(db, event_id, day_number, recording_id)
 
-    from app.services.cut_cover import render_cut_cover
+    from app.services.cut_cover import cover_format, render_cut_cover
     from app.services.store_file import store_bytes
 
     cuts = await db.fetch(
@@ -1784,9 +1785,10 @@ async def build_covers(event_id: int, day_number: int, recording_id: int,
         if not png:
             failed += 1
             continue
+        ext, ctype = cover_format(png)
         saved = await store_bytes(
             db, client_id=cid, data=png,
-            kind="material_media", ext="png", content_type="image/png",
+            kind="material_media", ext=ext, content_type=ctype,
         )
         await db.execute(
             "UPDATE webinar_recording_cuts SET cover_url=$2, updated_at=now() "

@@ -171,7 +171,57 @@ async def _render_fields(client_id: int, fields: dict) -> Optional[bytes]:
         **fields,
     })
     url = f"{platform_base_url().rstrip('/')}/cover?{qs}"
-    return await render_cover_png(url)
+    png = await render_cover_png(url)
+    return _shrink(png) if png else png
+
+
+def cover_format(data: bytes) -> tuple[str, str]:
+    """(расширение, content_type) готовой обложки — по самим байтам.
+
+    ⚠️ Формат определяем по сигнатуре файла, а не пишем «png» на месте: после
+    `_shrink` обложка почти всегда JPEG, и сохранить её под именем `.png` с
+    типом `image/png` значило бы отдавать браузеру заведомо неверный тип.
+    """
+    return ("png", "image/png") if data[:8] == b"\x89PNG\r\n\x1a\n" else ("jpg", "image/jpeg")
+
+
+def _shrink(png: bytes) -> bytes:
+    """Ужать обложку до веса, который принимают там, куда её несут.
+
+    ⚠️⚠️ БЕЗ ЭТОГО ОБЛОЖКА ВЕСИТ ~4.7 МБ (25.09.2026, проверено на проде).
+    Headless Chrome отдаёт PNG без сжатия, а `store_bytes` картинки НЕ жмёт —
+    жмётся только то, что идёт через `/uploads`. Ровно на этом уже обожглись
+    афиши: уезжали по 4 МБ, и мессенджер молча не показывал их при верном
+    og:image. У обложки цена ошибки та же: YouTube не принимает превью тяжелее
+    2 МБ, и человек узнал бы об этом уже при заливке ролика.
+
+    ⚠️ Размер кадра НЕ трогаем — только вес: обложка видео должна остаться
+    1280×720, ужатая до 1200 px по стороне она перестала бы годиться.
+    Поэтому не `process_image` (там `material_media` режет до 1200), а JPEG
+    того же кадра: прозрачность обложке не нужна — она непрозрачна по всей
+    площади, фон шаблона закрывает кадр целиком.
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        from app.services.image_processor import JPEG_QUALITY
+
+        with Image.open(io.BytesIO(png)) as im:
+            out = io.BytesIO()
+            im.convert("RGB").save(out, format="JPEG", quality=JPEG_QUALITY,
+                                   optimize=True, progressive=True)
+        small = out.getvalue()
+        # ⚠️ Отдаём меньшее из двух: если JPEG вдруг вышел тяжелее исходника,
+        # менять формат незачем.
+        return small if len(small) < len(png) else png
+    except Exception as e:                                      # noqa: BLE001
+        # ⚠️ Сбой сжатия не должен ронять сборку: тяжёлая обложка лучше, чем
+        # никакой. Но в лог — громко, иначе вес снова вырастет незаметно.
+        _log.warning("обложку не удалось ужать (%s) — отдаю как есть, %d байт",
+                     e, len(png))
+        return png
 
 
 async def render_cut_cover(

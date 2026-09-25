@@ -266,10 +266,14 @@ async def _cut_one(conn, rec, cut, src_path, offset, client, bucket, public_base
         # Сбой обложки нарезку не роняет — видео важнее картинки.
         tmp_cover = None
         try:
-            from app.services.cut_cover import render_cut_cover
+            from app.services.cut_cover import cover_format, render_cut_cover
             png = await render_cut_cover(conn, client_id=rec["client_id"], cut_id=cut["id"])
             if png:
-                tmp_cover = tempfile.mktemp(suffix="_cover.png")
+                # ⚠️ Суффикс по факту содержимого: после сжатия обложка обычно
+                # JPEG. ffmpeg читает формат из самих байтов, но файл с именем
+                # `.png` и JPEG внутри сбивает с толку при разборе сбоев.
+                _cext, _ = cover_format(png)
+                tmp_cover = tempfile.mktemp(suffix=f"_cover.{_cext}")
                 with open(tmp_cover, "wb") as f:
                     f.write(png)
                 if _prepend_cover(tmp_out, tmp_cover):
@@ -278,9 +282,10 @@ async def _cut_one(conn, rec, cut, src_path, offset, client, bucket, public_base
                 # площадки (VK, YouTube) обложку принимают только так, вшитый
                 # кадр они игнорируют.
                 from app.services.store_file import store_bytes
+                _ext, _ctype = cover_format(png)
                 saved = await store_bytes(
                     conn, client_id=rec["client_id"], data=png,
-                    kind="material_media", ext="png", content_type="image/png")
+                    kind="material_media", ext=_ext, content_type=_ctype)
                 await conn.execute(
                     "UPDATE webinar_recording_cuts SET cover_url=$2 WHERE id=$1",
                     cut["id"], saved["url"])
