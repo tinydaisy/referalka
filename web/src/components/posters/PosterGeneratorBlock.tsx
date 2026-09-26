@@ -1995,6 +1995,15 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
  * вовсе, сборка молча возвращала ноль, а экран объяснял это «у спикера нет
  * карточки» — причина была не та, и человек искал несуществующую поломку.
  */
+/** Что брать как фото на обложках. ⚠️ Названия — ТЕ ЖЕ, что в карточке
+ *  спикера, буква в букву: человек настраивает фото там и ищет здесь знакомое
+ *  слово. */
+const PHOTO_SOURCES: [string, string][] = [
+  ['cutout', 'Фото на прозрачном фоне'],
+  ['profile', 'Фото для сайта'],
+  ['event', 'Фото, выбранное для события'],
+]
+
 function CoversTab({ eventId }: { eventId: number }) {
   const [days, setDays] = useState<any[]>([])
   // ⚠️ День — ВКЛАДКОЙ и через URL (25.09.2026). Был выпадающий список: дни
@@ -2141,11 +2150,11 @@ function CoversTab({ eventId }: { eventId: number }) {
       <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
         <div className="mb-1.5 text-xs font-medium text-gray-600">Какое фото брать</div>
         <div className="flex flex-wrap gap-2">
-          {([
-            ['cutout', 'Фото на прозрачном фоне'],
-            ['profile', 'Фото для сайта'],
-            ['event', 'Фото, выбранное для события'],
-          ] as [string, string][]).map(([v, lbl]) => (
+          {/* ⚠️ Список объявлен ВЫШЕ, вне JSX (`PHOTO_SOURCES`): приведение
+              типа прямо здесь (`as [string, string][]`) роняло сборку ВСЕЙ
+              ветки — парсер JSX спотыкается об угловые скобки дженерика
+              внутри разметки. */}
+          {PHOTO_SOURCES.map(([v, lbl]) => (
             <button key={v} type="button" onClick={() => saveSource(v)}
                     className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                       source === v ? 'bg-[#25455D] text-white'
