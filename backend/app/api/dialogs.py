@@ -322,7 +322,7 @@ async def contact_messages(
     await assert_leads_access(db, contact_id, client)
     rows = await db.fetch(
         """SELECT id, platform, channel_id, platform_user_id, direction, author_kind,
-                  text, media_url, media_kind, platform_message_id,
+                  text, media_url, media_kind, platform_message_id, email_subject,
                   is_deleted, error, sent_at, edited_at
              FROM direct_messages
             WHERE client_id = $1 AND contact_id = $2
@@ -387,11 +387,13 @@ async def reply_to_contact(
     await assert_leads_access(db, contact_id, client)
     client_id = int(client["sub"])
     platform = body.platform.strip().lower()
-    if platform not in ("telegram", "vk", "max", "instagram"):
+    if platform not in ("telegram", "vk", "max", "instagram", "email"):
         raise HTTPException(400, "Неизвестная платформа")
     text = (body.text or "").strip()
     if not text:
         raise HTTPException(400, "Пустое сообщение")
+    if platform == "email":
+        return await _reply_by_email(db, client_id, contact_id, text)
 
     # platform_user_id собеседника по контакту на этой платформе
     pu = await db.fetchval(
@@ -423,6 +425,80 @@ async def reply_to_contact(
     )
     if err:
         # Сообщение записали с пометкой ошибки, но честно сообщаем клиенту.
+        raise HTTPException(502, f"Не доставлено: {err}")
+    return {"ok": True, "id": row_id, "platform_message_id": mid}
+
+
+async def _reply_by_email(db, client_id: int, contact_id: int, text: str) -> dict:
+    """Ответ письмом от support@pluson.ru (миграция 521).
+
+    ⚠️⚠️ ТОЛЬКО В СЕРВИСНОМ КАБИНЕТЕ. Входящие принимаются лишь на
+    support@pluson.ru, значит и отвечать почтой имеет смысл только оттуда: у
+    обычного клиента ответ его участника ушёл бы на noreply@ и пропал —
+    переписка выглядела бы живой, а была бы односторонней.
+    """
+    import asyncio
+
+    from app.services.email_sender import (
+        EmailSender, EmailSendError, PLUSON_SUPPORT_EMAIL,
+    )
+
+    if not await db.fetchval(
+            "SELECT is_system_service FROM clients WHERE id = $1", client_id):
+        raise HTTPException(400, "Ответ письмом есть только в переписке ПЛЮСОНа")
+
+    to_email = await db.fetchval(
+        """SELECT pu.platform_user_id FROM platform_users pu
+             JOIN contacts c_own ON c_own.id = pu.contact_id
+            WHERE pu.contact_id = $1 AND c_own.client_id = $2
+              AND pu.platform_slug = 'email'
+            ORDER BY pu.id LIMIT 1""", contact_id, client_id)
+    if not to_email:
+        raise HTTPException(404, "У контакта нет почты")
+
+    ch = await db.fetchrow(
+        """SELECT ch.id, ch.email_from_local, ch.email_subdomain, ch.email_from_name
+             FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND ch.platform_slug = 'email'
+            ORDER BY cc.is_active DESC, cc.id LIMIT 1""", client_id)
+    channel = dict(ch) if ch else {}
+    channel["email_from_name"] = "iViSiON: ПЛЮСОН"
+
+    # Отвечаем в ту же цепочку писем: тема «Re: …» и ссылка на последнее
+    # входящее письмо этого человека.
+    last = await db.fetchrow(
+        """SELECT email_subject, platform_message_id FROM direct_messages
+            WHERE client_id = $1 AND contact_id = $2 AND platform = 'email'
+              AND direction = 'in' AND COALESCE(platform_message_id, '') NOT LIKE '%#att%'
+            ORDER BY sent_at DESC LIMIT 1""", client_id, contact_id)
+    subj = (last["email_subject"] if last else None) or ""
+    if subj and not subj.lower().startswith("re:"):
+        subj = f"Re: {subj}"
+    subj = subj or "Сообщение от ПЛЮСОНа"
+
+    mid = err = None
+    try:
+        mid = await asyncio.to_thread(
+            EmailSender().send,
+            channel=channel, client_brand_name="iViSiON: ПЛЮСОН",
+            to_email=to_email, subject=subj, body_text=text,
+            unsubscribe_token="",  # личное письмо, не рассылка — без подвала отписки
+            from_address_override=PLUSON_SUPPORT_EMAIL,
+            reply_to=PLUSON_SUPPORT_EMAIL,
+            in_reply_to=(last["platform_message_id"] if last else None),
+        )
+    except EmailSendError as e:
+        err = str(e)[:300]
+
+    row_id = await archive_direct_message(
+        client_id=client_id, platform="email", channel_id=channel.get("id"),
+        platform_user_id=str(to_email), direction="out", author_kind="operator",
+        text=text, platform_message_id=mid, contact_id=contact_id, error=err,
+    )
+    if row_id:
+        await db.execute("UPDATE direct_messages SET email_subject = $1 WHERE id = $2",
+                         subj, row_id)
+    if err:
         raise HTTPException(502, f"Не доставлено: {err}")
     return {"ok": True, "id": row_id, "platform_message_id": mid}
 

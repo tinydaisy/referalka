@@ -14,6 +14,8 @@ type Msg = {
   text: string | null
   media_url: string | null
   media_kind: string | null
+  // Тема письма — только у почты (миграция 521).
+  email_subject?: string | null
   platform_message_id: string | null
   is_deleted: boolean
   error: string | null
@@ -26,9 +28,10 @@ const PLATFORM_LABEL: Record<string, string> = {
   vk: 'ВКонтакте',
   max: 'MAX',
   instagram: 'Instagram',
+  email: 'Почта',
 }
 const PLATFORM_SHORT: Record<string, string> = {
-  telegram: 'TG', vk: 'VK', max: 'MAX', instagram: 'IG',
+  telegram: 'TG', vk: 'VK', max: 'MAX', instagram: 'IG', email: 'почта',
 }
 
 function fmtTime(iso: string): string {
@@ -230,6 +233,11 @@ export default function DialogChat({
                     {out ? (isOperator ? 'Вы' : 'Бот (авто)') : 'Клиент'}
                     {' · '}{PLATFORM_SHORT[m.platform] || m.platform}
                   </div>
+                  {m.email_subject && (
+                    <div className={`mb-0.5 text-xs font-semibold ${isOperator ? 'text-white/90' : 'text-gray-600'}`}>
+                      {m.email_subject}
+                    </div>
+                  )}
 
                   {m.is_deleted ? (
                     <span className="italic opacity-60">сообщение удалено</span>

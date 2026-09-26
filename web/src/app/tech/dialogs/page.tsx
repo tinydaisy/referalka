@@ -44,7 +44,6 @@ function OurChannels({ channels }: { channels: any[] }) {
             {c.url
               ? <a href={c.url} target="_blank" rel="noreferrer" className="font-medium underline">{c.label}</a>
               : <span className="font-medium">{c.label}</span>}
-            {c.outgoing_only && <span className="text-[#25455D]/60"> — только отправка, ответы на почту не приходят</span>}
           </div>
         ))}
       </div>

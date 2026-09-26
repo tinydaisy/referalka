@@ -63,6 +63,26 @@ SMTP_TIMEOUT_SEC = 30
 # и приходят сюда полем channel['email_domain'].
 PLATFORM_MAIL_DOMAIN = "pluson.ru"
 
+# ⚠️⚠️ Адрес, на который ПРИХОДЯТ ответы клиентов ПЛЮСОНа (миграция 521,
+# 26.09.2026). Postfix принимает на него почту снаружи и передаёт в API →
+# письмо попадает в «Диалоги» сервисного кабинета, к внедренцу клиента.
+PLUSON_SUPPORT_EMAIL = f"support@{PLATFORM_MAIL_DOMAIN}"
+
+
+def _is_pluson_own_letter(channel: dict, client_brand_name: Optional[str]) -> bool:
+    """Письмо от ИМЕНИ САМОГО ПЛЮСОНа, а не клиента платформы.
+
+    ⚠️⚠️ С noreply@pluson.ru шлют И обычные клиенты — под своим брендом (у кого
+    нет своего почтового канала, системный канал общий). Ставить им
+    Reply-To на support@ нельзя: ответы участников ЧУЖИХ событий посыпались бы
+    внедренцам ПЛЮСОНа. Поэтому признак двойной: адрес ровно @pluson.ru (не
+    поддомен клиента и не его домен) И имя отправителя — ПЛЮСОН.
+    """
+    if _build_from_address(channel).split("@", 1)[1] != PLATFORM_MAIL_DOMAIN:
+        return False
+    name = ((channel.get("email_from_name") or "") + " " + (client_brand_name or "")).lower()
+    return "плюсон" in name or "pluson" in name
+
 
 class EmailSendError(Exception):
     """Любая ошибка отправки email — SMTPException / socket / etc."""
@@ -238,6 +258,9 @@ class EmailSender:
         inline_images: Optional[list] = None,
         footer_brand_label: Optional[str] = None,
         public_base_url: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        from_address_override: Optional[str] = None,
     ) -> str:
         """
         Отправляет одно письмо. Возвращает Message-ID при успехе.
@@ -264,6 +287,17 @@ class EmailSender:
 
         from_address = _build_from_address(channel)
         from_header = _build_from_header(channel, client_brand_name)
+        # ⚠️ Ответ из «Диалогов» уходит ОТ support@ (миграция 521): так клиент
+        # видит живой адрес, а его ответ вернётся в ту же переписку.
+        if from_address_override:
+            name = (channel.get("email_from_name") or client_brand_name or "").strip()
+            from_address = from_address_override
+            from_header = formataddr((name.replace(":", " —").replace(";", ","), from_address)) \
+                if name else from_address
+        # Куда уйдёт ответ человека. Письма самого ПЛЮСОНа — на support@, чтобы
+        # ответ попал в «Диалоги», а не в discard у noreply@.
+        if not reply_to and _is_pluson_own_letter(channel, client_brand_name):
+            reply_to = PLUSON_SUPPORT_EMAIL
         # ⚠️ Токена нет → подвал отписки НЕ добавляем вовсе. Раньше сюда
         # прилетала строка "test" из тестовой отправки, ссылка собиралась
         # заведомо битой, и человек упирался в «Ссылка недействительна»
@@ -360,6 +394,13 @@ class EmailSender:
         msg["Subject"] = subject
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = msg_id
+        if reply_to and reply_to != from_address:
+            msg["Reply-To"] = reply_to
+        # Связка с письмом, на которое отвечаем: почтовые программы кладут
+        # ответ в ту же цепочку, а не отдельным письмом.
+        if in_reply_to:
+            msg["In-Reply-To"] = in_reply_to
+            msg["References"] = in_reply_to
         # Gmail one-click отписка (RFC 8058)
         # ⚠️ Без рабочей ссылки заголовки не ставим: иначе кнопка «Отписаться»
         # в самом Gmail дёрнула бы битый URL и человек решил бы, что отписка

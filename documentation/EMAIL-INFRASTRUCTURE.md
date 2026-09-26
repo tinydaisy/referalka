@@ -59,7 +59,9 @@
 
 ### 1.3 Что НЕ делаем
 
-- НЕ ставим Dovecot/IMAP/POP3 — входящие не нужны
+- НЕ ставим Dovecot/IMAP/POP3 — почтовых ящиков нет. ⚠️ С 26.09.2026 входящие
+  ПРИНИМАЮТСЯ, но только на `support@pluson.ru` и сразу уходят в «Диалоги»
+  (pipe в API), см. [TECH-CABINET.md](architecture/TECH-CABINET.md) → «Почта в «Диалогах»»
 - НЕ ставим webmail (Roundcube)
 - НЕ делаем алиасы и forwarding
 - НЕ делаем bounce-handling в MVP (только логируем) — Этап 2

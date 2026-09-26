@@ -15,6 +15,7 @@ from app.api import client_offers, client_testimonials, client_payment_settings,
 from app.api import client_call_settings, call_campaigns, client_zoom_settings
 from app.api import tg_autosetup, admin_tg_setup, support_onboarding
 from app.api import speaker_posters
+from app.api import email_inbound
 from app.api import admin_plusson_lm
 from app.api import support_public
 from app.api import partner_program, partner_public
@@ -351,6 +352,7 @@ app.include_router(collab_hub.router,            prefix="/api/v1")              
 app.include_router(collab_events.router,         prefix="/api/v1")              # /api/v1/collab — запросы, co-ownership, сват, отзывы (миграция 134)
 app.include_router(webinar_room.router,          prefix="/api/v1")              # /api/v1/events/{id}/webinar — вебинарная комната: CRUD, блоки, опросы/батлы, аналитика (миграция 221)
 app.include_router(webinar_room.internal_router, prefix="/api/v1")              # /api/v1/internal/webinar/stream — хук MediaMTX (X-Bridge-Token)
+app.include_router(email_inbound.router)                                        # /api/v1/internal/inbound-email — входящие письма от Postfix (миграция 521)
 app.include_router(webinar_public.router)                                       # /api/v1/public/webinar/{slug}/{day} — зритель: heartbeat, чат, реакции, формы, опросы
 app.include_router(webinar_public.ws_router)                                    # /ws/webinar/{slug}/{day} — WebSocket realtime
 

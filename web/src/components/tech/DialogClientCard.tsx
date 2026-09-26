@@ -134,7 +134,7 @@ export default function DialogClientCard({ contactId, ourChannels = [] }:
           <Block title="Переписка с ним через ПЛЮСОН">
             {rows.map((c: any) => (
               <Line key={c.platform} label={RU[c.platform] || c.platform}
-                    value={c.outgoing_only ? `${c.label} (только отправка)` : c.label}
+                    value={c.label}
                     href={c.url} />
             ))}
           </Block>

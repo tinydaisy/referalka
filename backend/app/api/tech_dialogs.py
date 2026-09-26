@@ -110,13 +110,14 @@ async def _our_channels(db) -> list[dict]:
         elif p == "vk":
             label, url = r["display_name"], (f"https://vk.com/{h}" if h else None)
         elif p == "email":
-            # ⚠️ Почтовый сервер ПЛЮСОНа только ОТПРАВЛЯЕТ (решение 04.05.2026):
-            # ответ клиента на это письмо никуда не придёт — пишем об этом прямо.
-            label, url = (h or r["display_name"]), None
+            # ⚠️ Показываем support@, а не адрес канала (noreply@): письма
+            # ПЛЮСОНа идут с Reply-To на support@, и ответы клиентов приходят
+            # сюда же, в «Диалоги» (миграция 521).
+            from app.services.email_sender import PLUSON_SUPPORT_EMAIL
+            label, url = PLUSON_SUPPORT_EMAIL, f"mailto:{PLUSON_SUPPORT_EMAIL}"
         else:
             continue
-        out.append({"platform": p, "label": label, "url": url,
-                    "outgoing_only": p == "email"})
+        out.append({"platform": p, "label": label, "url": url})
     out.sort(key=lambda x: _PLATFORM_ORDER.get(x["platform"], 9))
     return out
 
@@ -258,7 +259,7 @@ async def messages(
     # сообщения без признака правки.
     rows = await db.fetch(
         """SELECT id, platform, channel_id, platform_user_id, direction,
-                  author_kind, text, media_url, media_kind,
+                  author_kind, text, media_url, media_kind, email_subject,
                   platform_message_id, is_deleted, error, sent_at, edited_at
              FROM direct_messages
             WHERE client_id = $1 AND contact_id = $2
