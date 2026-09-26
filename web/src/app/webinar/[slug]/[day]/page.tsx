@@ -113,6 +113,9 @@ export default function WebinarRoomPage() {
   const playedRef = useRef(0)              // сколько секунд видео реально шло
   const playerModeRef = useRef<string | null>(null)  // 'native' | 'hlsjs'
   const playerErrRef = useRef<string | null>(null)   // последняя ошибка плеера
+  // ⚠️ Актуальный playerLoading для сторожа «картинка висит»: он живёт в
+  // интервале с пустыми зависимостями и через замыкание видел бы старое значение.
+  const loadingRef = useRef(true)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const chatBoxRef = useRef<HTMLDivElement | null>(null)
@@ -526,6 +529,10 @@ export default function WebinarRoomPage() {
   // ⚠️ Страховка на случай, если видео не пошло вовсе: крутилка не должна
   // висеть вечно. 12 с — на медленной сети видео законно грузится долго,
   // ранний возврат кнопки вернул бы карусель нажатий.
+  // ⚠️ Держим ref в согласии с состоянием: по нему сторож «картинка висит»
+  // понимает, что сейчас идёт загрузка, и не поднимает кнопку (иначе петля).
+  useEffect(() => { loadingRef.current = playerLoading }, [playerLoading])
+
   useEffect(() => {
     if (!playerLoading) return
     const t = setTimeout(() => setPlayerLoading(false), 12000)
@@ -575,10 +582,28 @@ export default function WebinarRoomPage() {
       if (!v || document.hidden || !v.src && !hlsInstRef.current) return
       const cur = v.currentTime || 0
       if (cur > prev + 0.05) { stalls = 0; prev = cur; setPlayerStuck(false); return }
+      // ⚠️⚠️ ПОКА ИДЁТ ЗАГРУЗКА — СТОРОЖ МОЛЧИТ (26.09.2026).
+      //
+      // Без этой проверки получалась ПЕТЛЯ, и зритель не мог начать смотреть:
+      // кнопка → нажатие → reloadPlayer → видео уходит в буферизацию →
+      // currentTime не растёт → сторож снова поднимает кнопку. Со слов
+      // владельца: «нажала — грузится — и снова плей, и так вечно» (Android MI,
+      // Android Яндекс). Это та же петля, которую убирали 24.09; я вернул её
+      // другим способом, пока не поставил этот выход.
+      //
+      // ⚠️ Лечить таймаутом «подождать N секунд после нажатия» нельзя: на
+      // медленной сети буферизация дольше любого разумного N. Правильно —
+      // смотреть на ФЛАГ загрузки, он снимается по событиям самого <video>.
+      // ⚠️ Через ref, а НЕ через playerLoading напрямую: хук с пустыми
+      // зависимостями замкнул бы первое значение (всегда true) и сторож не
+      // сработал бы никогда. Добавить playerLoading в зависимости тоже нельзя —
+      // интервал пересоздавался бы на каждое изменение флага и сбрасывал счёт.
+      if (loadingRef.current) { stalls = 0; prev = cur; return }
       prev = cur
       stalls++
-      // 3 проверки по 2 секунды = 6 секунд без движения
-      if (stalls >= 3) setPlayerStuck(true)
+      // ⚠️ 5 проверок по 2 с = 10 секунд без движения, а не 6. При 6 кнопка
+      // выскакивала на обычной паузе мобильной сети и мешала смотреть.
+      if (stalls >= 5) setPlayerStuck(true)
     }, 2000)
     return () => clearInterval(t)
   }, [])
