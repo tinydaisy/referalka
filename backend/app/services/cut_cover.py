@@ -101,7 +101,8 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
 
 async def render_speaker_cover(
     conn: asyncpg.Connection, *, client_id: int, ec_id: int, topic: str = "",
-    errors: Optional[list[str]] = None,
+    errors: Optional[list[str]] = None, source: str = "cutout",
+    dx: int = 0, dy: int = 0, zoom: float = 1.0,
 ) -> Optional[bytes]:
     """PNG обложки выступления — по спикеру и теме из программы, БЕЗ записи.
 
@@ -145,7 +146,7 @@ async def render_speaker_cover(
                 errors.append(f"спикер #{ec_id}: не заполнено имя в карточке")
             return None
 
-        photo, crop = cover_photo(dict(row))
+        photo, crop = cover_photo(dict(row), source)
         png = await _render_fields(client_id, {
             "title": title,
             "subtitle": topic or "",
@@ -161,6 +162,13 @@ async def render_speaker_cover(
             # этот признак подставит фигуру — так люди с вырезкой и без неё
             # выглядят одинаково опрятно.
             "has_cutout": "1" if _real_cutout(photo) else "0",
+            # Источник — странице он нужен, чтобы не кадрировать готовую афишу.
+            "src": source,
+            # ⚠️ Правка кадра ЭТОЙ обложки (миграция 522): сдвиг и размер,
+            # заданные клиентом у конкретной карточки. Общих настроек шаблона
+            # не хватает — снимки сняты по-разному: одного обрезает по шее,
+            # другой уходит вбок.
+            "dx": str(dx), "dy": str(dy), "zoom": str(zoom),
         })
         if not png and errors is not None:
             errors.append(f"{title}: рисовальщик картинки не ответил")
@@ -213,8 +221,20 @@ def _crop_params(crop: dict) -> dict:
     return out
 
 
-def cover_photo(row: dict) -> tuple[str, dict]:
+def cover_photo(row: dict, source: str = "cutout") -> tuple[str, dict]:
     """Фото для обложки и КАДР к нему: (адрес, поля кадра).
+
+    ⚠️⚠️ ИСТОЧНИК ВЫБИРАЕТ КЛИЕНТ (миграция 522, 26.09.2026) — над списком
+    обложек в кабинете. До этого он был зашит в код («вырезка, иначе фото»), и
+    выбрать другое было нельзя вовсе. Названия — ТЕ ЖЕ, что в карточке
+    спикера, буква в букву:
+      'cutout'  — «Фото на прозрачном фоне» (вырезка);
+      'profile' — «Фото для сайта» из карточки спикера;
+      'event'   — фото, выбранное ДЛЯ ЭТОГО СОБЫТИЯ (`ec.photo_id`).
+
+    ⚠️ Выбранного может не оказаться у конкретного человека — тогда откат на
+    то, что есть: пустая обложка хуже обложки с обычным фото. Порядок отката
+    описан у каждой ветки ниже.
 
     ⚠️⚠️ ВЫРЕЗКА ИЗ ПРОФИЛЯ БЕРЁТСЯ, ДАЖЕ ЕСЛИ ДЛЯ СОБЫТИЯ ВЫБРАНО ДРУГОЕ ФОТО
     (26.09.2026). Здесь стоял `resolve_photo_url(cutout=True)`, и на проде он
@@ -245,12 +265,33 @@ def cover_photo(row: dict) -> tuple[str, dict]:
 
     ep_url = row.get("ep_url")
     ep_cutout = _real_cutout(row.get("ep_cutout_url"))
+    prof_cutout = _real_cutout(row.get("cutout_photo_url"))
 
+    # ── Фото, выбранное ДЛЯ ЭТОГО СОБЫТИЯ (`ec.photo_id`) ───────────────
+    if source == "event":
+        if ep_url:
+            return ep_url, crop("ep_")
+        # Для события фото не выбирали — откатываемся на профильное, иначе
+        # обложка вышла бы без фото вовсе.
+        if row.get("photo_url"):
+            return row["photo_url"], crop("")
+
+    # ── «Фото для сайта» из карточки спикера ────────────────────────────
+    # ⚠️ Именно ПРОФИЛЬНОЕ, а не выбранное для события: это два разных снимка,
+    # и человек, выбравший здесь «фото для сайта», ждёт то, что видит в
+    # карточке, а не подстановку.
+    if source == "profile":
+        if row.get("photo_url"):
+            return row["photo_url"], crop("")
+        if ep_url:
+            return ep_url, crop("ep_")
+        # Обычного фото нет — пусть будет вырезка, чем ничего.
+
+    # ── Вырезанное фото (по умолчанию) и откат для остальных веток ──────
     # 1. У выбранного фото есть своя вырезка — лучший случай.
     if ep_cutout:
         return ep_cutout, crop("ep_")
     # 2. Вырезка из профиля — со своим кадром.
-    prof_cutout = _real_cutout(row.get("cutout_photo_url"))
     if prof_cutout:
         return prof_cutout, crop("")
     # 3-4. Вырезки нет вовсе — обычное фото, выбранное или профильное.

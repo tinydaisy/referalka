@@ -2690,6 +2690,15 @@ export const api = {
       request(`/api/v1/events/${eventId}/webinar/${day}/covers`, { method: 'POST' }),
     dayCovers: (eventId: number, day: number) =>
       request(`/api/v1/events/${eventId}/webinar/${day}/covers`),
+    // Правка кадра ОДНОЙ обложки — пересобирает только её.
+    tweakCover: (eventId: number, day: number, ecId: number,
+                 data: { photo_dx: number; photo_dy: number; photo_zoom: number }) =>
+      request(`/api/v1/events/${eventId}/webinar/${day}/covers/${ecId}`,
+              { method: 'PATCH', body: JSON.stringify(data) }),
+    // Какое фото брать на обложки — свойство события, одно на все дни.
+    setCoverSource: (eventId: number, source: string) =>
+      request(`/api/v1/events/${eventId}/webinar/covers/source`,
+              { method: 'PUT', body: JSON.stringify({ source }) }),
     // Спикеры по дням в порядке выступления — для выбора в пульте ведущего.
     speakersByDay: (eventId: number) =>
       request(`/api/v1/events/${eventId}/webinar/speakers-by-day`),

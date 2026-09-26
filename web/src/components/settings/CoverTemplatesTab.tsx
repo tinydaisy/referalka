@@ -280,21 +280,72 @@ export default function CoverTemplatesTab() {
           </div>
         </Card>
 
-        {/* ── Размеры надписей ── */}
-        <Card title="Заголовок и тема">
-          <Range label="Размер заголовка" value={tpl.title_size ?? 8} min={3} max={20}
-                 hint="имя спикера или название материала"
+        {/* ── Имя спикера ── */}
+        <Card title={kind === 'speaker' ? 'Имя спикера' : 'Название материала'}>
+          <Range label="Размер" value={tpl.title_size ?? 8} min={3} max={20}
                  onChange={v => patch({ title_size: v })} />
-          {/* ⚠️ Кегль темы раньше был прибит числом в коде (30px), и поправить
-              его было нечем — отсюда и налезание на длинных темах. */}
-          <Range label="Размер темы" value={tpl.subtitle_size ?? 4.2} min={1} max={12}
-                 step={0.1}
-                 hint="тема выступления под именем спикера"
-                 onChange={v => patch({ subtitle_size: v })} />
-          <Range label="Строк темы" value={tpl.subtitle_lines ?? 0} min={0} max={6}
-                 hint="0 — сколько получится; иначе лишнее скроется многоточием"
-                 onChange={v => patch({ subtitle_lines: v })} />
+          <ColorPick label="Цвет" value={tpl.title_color}
+                     fallbackHint="цвет заголовков из стилей"
+                     onChange={v => patch({ title_color: v })} />
+          <FontPick label="Шрифт" value={tpl.title_font} fonts={theme.fonts}
+                    onChange={v => patch({ title_font: v })} />
+          <div className="mt-3">
+            <div className="mb-1 text-xs text-gray-600">Выравнивание</div>
+            <Choice
+              value={tpl.title_align || ''}
+              onChange={v => patch({ title_align: (v || null) as any })}
+              options={[['', 'Как у блока'], ['left', 'Слева'],
+                        ['center', 'По центру'], ['right', 'Справа']]}
+            />
+          </div>
+          <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={!!tpl.title_upper}
+                   onChange={e => patch({ title_upper: e.target.checked })} />
+            ЗАГЛАВНЫМИ буквами
+          </label>
         </Card>
+
+        {/* ── Название конференции ── */}
+        {kind === 'speaker' && (
+          <Card title="Название конференции">
+            <p className="mb-1 text-xs text-gray-500">
+              Строка над именем спикера.
+            </p>
+            {/* ⚠️ Кегль раньше стоял числом в коде (22px) — настроить было нечем. */}
+            <Range label="Размер" value={tpl.overline_size ?? 3.1} min={1} max={10}
+                   step={0.1}
+                   onChange={v => patch({ overline_size: v })} />
+            <ColorPick label="Цвет" value={tpl.overline_color}
+                       fallbackHint="цвет текста из стилей"
+                       onChange={v => patch({ overline_color: v })} />
+            <FontPick label="Шрифт" value={tpl.overline_font} fonts={theme.fonts}
+                      onChange={v => patch({ overline_font: v })} />
+            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={tpl.overline_upper !== false}
+                     onChange={e => patch({ overline_upper: e.target.checked })} />
+              ЗАГЛАВНЫМИ буквами
+            </label>
+          </Card>
+        )}
+
+        {/* ── Тема выступления ── */}
+        {kind === 'speaker' && (
+          <Card title="Тема выступления">
+            {/* ⚠️ Кегль темы раньше был прибит числом в коде (30px), и поправить
+                его было нечем — отсюда и налезание на длинных темах. */}
+            <Range label="Размер" value={tpl.subtitle_size ?? 4.2} min={1} max={12}
+                   step={0.1}
+                   onChange={v => patch({ subtitle_size: v })} />
+            <Range label="Сколько строк" value={tpl.subtitle_lines ?? 0} min={0} max={6}
+                   hint="0 — сколько получится; иначе лишнее скроется многоточием"
+                   onChange={v => patch({ subtitle_lines: v })} />
+            <ColorPick label="Цвет" value={tpl.subtitle_color}
+                       fallbackHint="цвет текста из стилей"
+                       onChange={v => patch({ subtitle_color: v })} />
+            <FontPick label="Шрифт" value={tpl.subtitle_font} fonts={theme.fonts}
+                      onChange={v => patch({ subtitle_font: v })} />
+          </Card>
+        )}
 
         {/* ── Оформление области текста ── */}
         <Card title="Подложка под текстом">
@@ -446,6 +497,63 @@ function Range({ label, value, min, max, hint, step, onChange }: {
              className="w-full"
              onChange={e => onChange(Number(e.target.value))} />
       {hint && <div className="mt-0.5 text-xs text-gray-400">{hint}</div>}
+    </div>
+  )
+}
+
+/** Выбор шрифта из справочника темы. Пусто — «как в теме бренда».
+ *
+ * ⚠️ Показываем ЧЕЛОВЕЧЕСКОЕ название («Bebas Neue»), а храним ключ
+ * («BebasNeue»): в теме лежит ключ, а семейство в CSS называется иначе —
+ * подставив ключ как есть, браузер молча нарисует запасным шрифтом. */
+function FontPick({ label: lbl, value, fonts, onChange }: {
+  label: string
+  value?: string | null
+  fonts?: { key: string; label: string }[]
+  onChange: (v: string | null) => void
+}) {
+  return (
+    <div className="mt-3">
+      <div className="mb-1 text-xs text-gray-600">{lbl}</div>
+      <select
+        value={value || ''}
+        onChange={e => onChange(e.target.value || null)}
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+      >
+        <option value="">Как в стилях бренда</option>
+        {(fonts || []).map(f => (
+          <option key={f.key} value={f.key}>{f.label}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+/** Цвет с кнопкой «как в теме»: поле выбора цвета пустого значения не отдаёт,
+ *  и без отдельной кнопки вернуться к цвету темы было бы нечем. */
+function ColorPick({ label: lbl, value, fallbackHint, onChange }: {
+  label: string
+  value?: string | null
+  fallbackHint?: string
+  onChange: (v: string | null) => void
+}) {
+  return (
+    <div className="mt-3 flex items-center gap-3">
+      <label className="flex items-center gap-2 text-xs text-gray-600">
+        <input
+          type="color"
+          value={value || '#FFFFFF'}
+          onChange={e => onChange(e.target.value)}
+          className="h-8 w-12 cursor-pointer rounded border border-gray-200"
+        />
+        {lbl}
+      </label>
+      {value
+        ? <button onClick={() => onChange(null)}
+                  className="text-xs text-gray-500 underline hover:text-gray-700">
+            как в теме
+          </button>
+        : <span className="text-xs text-gray-400">{fallbackHint || 'как в теме'}</span>}
     </div>
   )
 }

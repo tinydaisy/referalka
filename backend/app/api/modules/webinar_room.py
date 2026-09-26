@@ -1706,6 +1706,19 @@ async def build_day_covers(event_id: int, day_number: int,
             400, "В программе этого дня нет выступлений со спикерами — "
                  "заполните программу дня, и обложки соберутся по ней")
 
+    # Источник фото — свойство события, один на все обложки (миграция 522).
+    source = await db.fetchval(
+        "SELECT COALESCE(cover_photo_source, 'cutout') FROM events WHERE id = $1",
+        event_id) or "cutout"
+    # ⚠️ Правки кадра КАЖДОЙ обложки читаем заранее одним запросом: иначе на
+    # два десятка спикеров вышло бы два десятка обращений к базе.
+    tweaks = {
+        r["ec_id"]: r for r in await db.fetch(
+            "SELECT ec_id, photo_dx, photo_dy, photo_zoom "
+            "  FROM event_speaker_covers WHERE event_id = $1 AND day_number = $2",
+            event_id, day_number)
+    }
+
     done, failed = 0, 0
     seen: set[int] = set()
     # ⚠️ Причины сбоев уходят клиенту (25.09.2026): раньше кабинет получал
@@ -1716,9 +1729,13 @@ async def build_day_covers(event_id: int, day_number: int,
         if s["ec_id"] in seen:
             continue
         seen.add(s["ec_id"])
+        tw = tweaks.get(s["ec_id"])
         png = await render_speaker_cover(
             db, client_id=cid, ec_id=s["ec_id"], topic=s["topic"] or "",
-            errors=errors)
+            errors=errors, source=source,
+            dx=int(tw["photo_dx"]) if tw else 0,
+            dy=int(tw["photo_dy"]) if tw else 0,
+            zoom=float(tw["photo_zoom"]) if tw else 1.0)
         if not png:
             failed += 1
             continue
@@ -1736,7 +1753,104 @@ async def build_day_covers(event_id: int, day_number: int,
         done += 1
 
     return {"ok": True, "done": done, "failed": failed, "total": len(seen),
-            "errors": errors[:10]}
+            "errors": errors[:10], "source": source}
+
+
+class CoverTweak(BaseModel):
+    """Правка кадра ОДНОЙ обложки: сдвиг и размер фото."""
+    photo_dx: Optional[int] = None
+    photo_dy: Optional[int] = None
+    photo_zoom: Optional[float] = None
+
+
+@router.patch("/{day_number}/covers/{ec_id}", summary="Поправить кадр обложки")
+async def tweak_cover(event_id: int, day_number: int, ec_id: int,
+                      data: CoverTweak,
+                      client=Depends(get_current_client), db=Depends(get_db)):
+    """Сдвиг и размер фото у КОНКРЕТНОЙ обложки + пересборка её одной.
+
+    ⚠️ Правка живёт здесь, а не в карточке спикера: карточка общая для афиш,
+    программы и лендинга — поправив кадр ради обложки, человек сдвинул бы себе
+    всё остальное.
+
+    ⚠️ Пересобираем СРАЗУ и только эту обложку: иначе клиент подвинул ползунок
+    и не понимает, почему картинка прежняя, — а собирать весь день заново ради
+    одного человека это минуты ожидания.
+    """
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    await _assert_webinar_feature(db, cid, need_room=True)
+
+    from app.services.cut_cover import cover_format, render_speaker_cover
+    from app.services.store_file import store_bytes
+
+    # ⚠️ Границы те же, что в форме: значение приходит из браузера и может быть
+    # любым, а падать на ограничении БД посреди сохранения нельзя.
+    dx = max(-50, min(50, data.photo_dx or 0))
+    dy = max(-50, min(50, data.photo_dy or 0))
+    zoom = max(0.3, min(3.0, data.photo_zoom if data.photo_zoom is not None else 1.0))
+
+    await db.execute(
+        "INSERT INTO event_speaker_covers (event_id, day_number, ec_id, cover_url,"
+        "                                  photo_dx, photo_dy, photo_zoom) "
+        " VALUES ($1,$2,$3,'',$4,$5,$6) "
+        " ON CONFLICT (event_id, day_number, ec_id) DO UPDATE SET "
+        "   photo_dx = EXCLUDED.photo_dx, photo_dy = EXCLUDED.photo_dy, "
+        "   photo_zoom = EXCLUDED.photo_zoom, updated_at = now()",
+        event_id, day_number, ec_id, dx, dy, zoom)
+
+    # Тема берётся из программы — тем же порядком, что при общей сборке.
+    topic = await db.fetchval(
+        "SELECT COALESCE("
+        "         NULLIF(btrim(cst.topic), ''),"
+        "         (SELECT NULLIF(btrim(t.topic), '') FROM conf_speaker_topics t"
+        "           WHERE t.cse_id = ec.id ORDER BY t.sort_order, t.id LIMIT 1),"
+        "         NULLIF(btrim(ec.speaker_topic), ''))"
+        "  FROM conf_sessions s"
+        "  JOIN event_collaborators ec ON ec.id = s.speaker_id"
+        "  LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id"
+        " WHERE s.event_id = $1 AND s.day = $2 AND s.speaker_id = $3"
+        " ORDER BY NULLIF(s.start_time, '') NULLS LAST, s.sort_order LIMIT 1",
+        event_id, day_number, ec_id)
+
+    source = await db.fetchval(
+        "SELECT COALESCE(cover_photo_source, 'cutout') FROM events WHERE id = $1",
+        event_id) or "cutout"
+
+    errors: list[str] = []
+    png = await render_speaker_cover(db, client_id=cid, ec_id=ec_id,
+                                     topic=topic or "", errors=errors,
+                                     source=source, dx=dx, dy=dy, zoom=zoom)
+    if not png:
+        raise HTTPException(400, "; ".join(errors) or "Обложка не собралась")
+
+    ext, ctype = cover_format(png)
+    saved = await store_bytes(db, client_id=cid, data=png, kind="material_media",
+                              ext=ext, content_type=ctype)
+    await db.execute(
+        "UPDATE event_speaker_covers SET cover_url = $4, updated_at = now() "
+        " WHERE event_id = $1 AND day_number = $2 AND ec_id = $3",
+        event_id, day_number, ec_id, saved["url"])
+    return {"ok": True, "cover_url": saved["url"],
+            "photo_dx": dx, "photo_dy": dy, "photo_zoom": zoom}
+
+
+class CoverSource(BaseModel):
+    """Что брать как фото на обложках — одно на все обложки события."""
+    source: str
+
+
+@router.put("/covers/source", summary="Источник фото для обложек")
+async def set_cover_source(event_id: int, data: CoverSource,
+                           client=Depends(get_current_client), db=Depends(get_db)):
+    cid = _cid(client)
+    await ws.assert_event_owner(db, event_id, cid)
+    # ⚠️ Список тот же, что в CHECK миграции 522.
+    if data.source not in ("cutout", "profile", "event"):
+        raise HTTPException(400, "Неизвестный источник фото")
+    await db.execute("UPDATE events SET cover_photo_source = $2 WHERE id = $1",
+                     event_id, data.source)
+    return {"ok": True, "source": data.source}
 
 
 @router.get("/{day_number}/covers", summary="Обложки выступлений этого дня")
@@ -1744,13 +1858,27 @@ async def list_day_covers(event_id: int, day_number: int,
                           client=Depends(get_current_client), db=Depends(get_db)):
     await ws.assert_event_owner(db, event_id, _cid(client))
     rows = await db.fetch(
-        "SELECT sc.ec_id, sc.cover_url, " + DISPLAY_NAME_SQL("c") + " AS speaker_name "
+        "SELECT sc.ec_id, sc.cover_url, sc.photo_dx, sc.photo_dy, sc.photo_zoom, "
+        + DISPLAY_NAME_SQL("c") + " AS speaker_name "
         "  FROM event_speaker_covers sc "
         "  JOIN event_collaborators ec ON ec.id = sc.ec_id "
         "  LEFT JOIN collaborators c ON c.id = ec.speaker_id "
         " WHERE sc.event_id = $1 AND sc.day_number = $2 "
-        " ORDER BY sc.updated_at DESC", event_id, day_number)
-    return {"covers": [dict(r) for r in rows]}
+        # ⚠️ По имени, а не по времени обновления: правка одной обложки
+        # переставляла бы её в начало списка, и человек терял бы место.
+        " ORDER BY speaker_name", event_id, day_number)
+    source = await db.fetchval(
+        "SELECT COALESCE(cover_photo_source, 'cutout') FROM events WHERE id = $1",
+        event_id) or "cutout"
+    out = []
+    for r in rows:
+        d = dict(r)
+        # `numeric` приезжает Decimal — JSON отдал бы его строкой, и ползунок
+        # на фронте молча перестал бы считать.
+        if d.get("photo_zoom") is not None:
+            d["photo_zoom"] = float(d["photo_zoom"])
+        out.append(d)
+    return {"covers": out, "source": source}
 
 
 @router.post("/{day_number}/recordings/{recording_id}/covers",

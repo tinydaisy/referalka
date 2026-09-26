@@ -60,10 +60,22 @@ export type CoverTemplate = {
   text_border_color?: string | null
   text_border_width?: number
   title_size?: number
+  /** Шрифт имени. Пусто — шрифт заголовков темы бренда. */
+  title_font?: string | null
+  /** Выравнивание имени. Пусто — как у всего блока. */
+  title_align?: 'left' | 'center' | 'right' | null
+  title_upper?: boolean
   /** Кегль темы выступления, % высоты полотна (4.2% ≈ 30px при 720px). */
   subtitle_size?: number
   /** Сколько строк темы показывать; дальше многоточие. 0 — без предела. */
   subtitle_lines?: number
+  subtitle_color?: string | null
+  subtitle_font?: string | null
+  /** Название конференции: кегль % высоты (3.1% ≈ 22px), цвет, шрифт. */
+  overline_size?: number
+  overline_color?: string | null
+  overline_font?: string | null
+  overline_upper?: boolean
   title_color?: string | null
   text_color?: string | null
   show_brand?: boolean
@@ -475,11 +487,20 @@ export default function CoverCanvas({
         <div ref={innerRef} style={{ position: 'relative' }}>
         {t.brand_position === 'above' && brandBlock}
 
+        {/* Название конференции.
+            ⚠️⚠️ КЕГЛЬ, ЦВЕТ И ШРИФТ — ИЗ ШАБЛОНА (26.09.2026). Здесь стояли
+            числа прямо в коде (`fontSize: 22`), а цвет тянулся общий с темой:
+            настроить название конференции отдельно было нечем вовсе. */}
         {!!overline && (
           <div style={{
-            fontSize: 22, letterSpacing: 1.5, textTransform: 'uppercase',
-            color: t.text_color || th.lp_color_body || '#FFFFFF',
-            opacity: 0.85, marginBottom: 14,
+            fontSize: `${(t.overline_size ?? 3.1) * COVER_H / 100 * fit}px`,
+            letterSpacing: 1.5,
+            ...(t.overline_upper !== false ? { textTransform: 'uppercase' as const } : {}),
+            fontFamily: t.overline_font
+              ? brandFontCss(t.overline_font, label(t.overline_font))
+              : bodyFont,
+            color: t.overline_color || t.text_color || th.lp_color_body || '#FFFFFF',
+            opacity: 0.85, marginBottom: 14 * fit,
           }}>{overline}</div>
         )}
 
@@ -489,7 +510,15 @@ export default function CoverCanvas({
             разъехались бы. Свой цвет заголовка металл не отменяет — перелив
             строится из него же. */}
         <div style={{
-          fontFamily: titleFont,
+          // ⚠️ Свой шрифт имени (26.09.2026) — пусто берём шрифт заголовков
+          // темы, как было: обложку несут на YouTube отдельно от лендинга, и
+          // подобрать ей шрифт под фон должно быть можно, не меняя фирменные
+          // стили всего кабинета.
+          fontFamily: t.title_font
+            ? brandFontCss(t.title_font, label(t.title_font))
+            : titleFont,
+          ...(t.title_align ? { textAlign: t.title_align } : {}),
+          ...(t.title_upper ? { textTransform: 'uppercase' as const } : {}),
           // Кегль в процентах ВЫСОТЫ полотна: на широком и узком тексте
           // заголовок остаётся одного размера, как задумано в шаблоне.
           fontSize: `${(t.title_size ?? 8) * COVER_H / 100 * fit}px`,
@@ -514,7 +543,10 @@ export default function CoverCanvas({
             marginTop: 18 * fit,
             fontSize: `${(t.subtitle_size ?? 4.2) * COVER_H / 100 * fit}px`,
             lineHeight: 1.25,
-            color: t.text_color || th.lp_color_body || '#FFFFFF',
+            fontFamily: t.subtitle_font
+              ? brandFontCss(t.subtitle_font, label(t.subtitle_font))
+              : bodyFont,
+            color: t.subtitle_color || t.text_color || th.lp_color_body || '#FFFFFF',
             overflowWrap: 'anywhere',
             ...((t.subtitle_lines ?? 0) > 0 ? {
               display: '-webkit-box',

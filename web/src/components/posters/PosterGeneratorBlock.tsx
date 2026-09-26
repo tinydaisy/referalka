@@ -2012,6 +2012,13 @@ function CoversTab({ eventId }: { eventId: number }) {
   const [err, setErr] = useState('')
   // Какую обложку показываем крупно. null — просмотр закрыт.
   const [big, setBig] = useState<any>(null)
+  // У какой обложки открыты ползунки правки кадра.
+  const [tweak, setTweak] = useState<number | null>(null)
+  // Чью обложку сейчас пересобираем — чтобы показать «пересобираю…».
+  const [saving, setSaving] = useState<number | null>(null)
+  // Какое фото брать: cutout / profile / event. Приходит с сервера вместе
+  // со списком обложек — свойство события, одно на все дни.
+  const [source, setSource] = useState('cutout')
 
   useEffect(() => {
     api.conference.days.list(eventId)
@@ -2036,9 +2043,46 @@ function CoversTab({ eventId }: { eventId: number }) {
     if (!day) return
     setCovers([]); setErr('')
     api.webinar.dayCovers(eventId, day)
-      .then((r: any) => setCovers(r.covers || []))
+      .then((r: any) => {
+        setCovers(r.covers || [])
+        if (r.source) setSource(r.source)
+      })
       .catch(() => {})
   }, [eventId, day])
+
+  // Сменить источник фото. ⚠️ Сохраняем сразу, но НЕ пересобираем сам:
+  // сборка двух десятков обложек это минуты, и запускать её от случайного
+  // клика нельзя — человек нажмёт «Собрать обложки», когда будет готов.
+  const saveSource = async (v: string) => {
+    const prev = source
+    setSource(v)
+    try {
+      await api.webinar.setCoverSource(eventId, v)
+    } catch (e: any) {
+      setSource(prev)
+      setErr(e?.message || 'Не получилось сохранить выбор')
+    }
+  }
+
+  // Поправить кадр одной обложки. ⚠️ Пересобирается ТОЛЬКО она: иначе правка
+  // одного человека ждала бы пересборки всего дня.
+  const saveTweak = async (c: any, patch: Record<string, number>) => {
+    if (!day) return
+    const next = { ...c, ...patch }
+    setCovers(list => list.map(x => (x.ec_id === c.ec_id ? next : x)))
+    setSaving(c.ec_id); setErr('')
+    try {
+      const r: any = await api.webinar.tweakCover(eventId, day, c.ec_id, {
+        photo_dx: next.photo_dx ?? 0,
+        photo_dy: next.photo_dy ?? 0,
+        photo_zoom: next.photo_zoom ?? 1,
+      })
+      setCovers(list => list.map(x =>
+        x.ec_id === c.ec_id ? { ...x, ...patch, cover_url: r.cover_url } : x))
+    } catch (e: any) {
+      setErr(e?.message || 'Не получилось пересобрать обложку')
+    } finally { setSaving(null) }
+  }
 
   const build = async () => {
     if (!day) return
@@ -2089,6 +2133,33 @@ function CoversTab({ eventId }: { eventId: number }) {
         ))}
       </div>
 
+      {/* ⚠️⚠️ ВЫБОР ИСТОЧНИКА — НАД ВСЕМИ ОБЛОЖКАМИ (26.09.2026, требование
+          владельца). Раньше источник был зашит в код («вырезка, иначе фото»),
+          и взять другое фото было нельзя вовсе.
+          ⚠️ Названия — ТЕ ЖЕ, что в карточке спикера, буква в букву: человек
+          настраивает фото там и ищет здесь знакомое слово. */}
+      <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+        <div className="mb-1.5 text-xs font-medium text-gray-600">Какое фото брать</div>
+        <div className="flex flex-wrap gap-2">
+          {([
+            ['cutout', 'Фото на прозрачном фоне'],
+            ['profile', 'Фото для сайта'],
+            ['event', 'Фото, выбранное для события'],
+          ] as [string, string][]).map(([v, lbl]) => (
+            <button key={v} type="button" onClick={() => saveSource(v)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                      source === v ? 'bg-[#25455D] text-white'
+                                   : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-gray-500">
+          Нет выбранного у кого-то из спикеров — для него возьмётся то, что есть.
+          После смены нажмите «Собрать обложки».
+        </p>
+      </div>
+
       <div>
         <button onClick={build} disabled={!day || !!busy}
                 title="Собрать обложки всем спикерам этого дня по шаблону «Спикер»"
@@ -2114,7 +2185,12 @@ function CoversTab({ eventId }: { eventId: number }) {
           ли текст на фото, было невозможно — а проверяют их именно ради этого.
           Клик открывает просмотр в полэкрана. */}
       {covers.length > 0 && (
-        <div className="space-y-4 max-w-3xl">
+        {/* ⚠️ Ширина ограничена, а не «во всю страницу» (26.09.2026). Сначала
+            я поставил столбик без предела, и одна обложка занимала весь экран:
+            вторая уже уезжала за край, список стало невозможно пролистать
+            глазами. Столбик нужен, чтобы обложки шли друг под другом и были
+            крупнее прежних ~300 px, а не чтобы каждая была во весь экран. */}
+        <div className="space-y-4 max-w-xl">
           {covers.map((c: any, i: number) => (
             <div key={c.ec_id ?? i} className="rounded-xl border border-gray-200 overflow-hidden bg-white">
               {c.cover_url
@@ -2122,7 +2198,40 @@ function CoversTab({ eventId }: { eventId: number }) {
                        title="Нажмите, чтобы рассмотреть"
                        className="w-full aspect-video object-cover cursor-zoom-in" />
                 : <div className="w-full aspect-video bg-gray-100 flex items-center justify-center text-xs text-gray-400">нет обложки</div>}
-              <div className="px-3 py-2 text-sm text-gray-700 truncate">{c.speaker_name || '—'}</div>
+              <div className="px-3 py-2 flex items-center justify-between gap-2">
+                <span className="text-sm text-gray-700 truncate">{c.speaker_name || '—'}</span>
+                <button onClick={() => setTweak(tweak === c.ec_id ? null : c.ec_id)}
+                        className="shrink-0 text-xs text-[#25455D] underline hover:no-underline">
+                  {tweak === c.ec_id ? 'скрыть' : 'поправить фото'}
+                </button>
+              </div>
+
+              {/* ⚠️⚠️ ПРАВКА КАДРА У КАЖДОЙ ОБЛОЖКИ (26.09.2026, требование
+                  владельца). Общих настроек шаблона не хватает: снимки сняты
+                  по-разному — одного обрезает по шее, другой уходит вбок.
+                  ⚠️ Правим ЗДЕСЬ, а не в карточке спикера: карточка общая для
+                  афиш, программы и лендинга — поправив кадр ради обложки,
+                  человек сдвинул бы себе всё остальное. */}
+              {tweak === c.ec_id && (
+                <div className="border-t border-gray-100 px-3 py-3 bg-gray-50 space-y-2">
+                  <CoverRange label="Влево / вправо" value={c.photo_dx ?? 0}
+                              min={-50} max={50}
+                              onChange={v => saveTweak(c, { photo_dx: v })} />
+                  <CoverRange label="Вверх / вниз" value={c.photo_dy ?? 0}
+                              min={-50} max={50}
+                              onChange={v => saveTweak(c, { photo_dy: v })} />
+                  <CoverRange label="Размер" value={c.photo_zoom ?? 1}
+                              min={0.3} max={3} step={0.05}
+                              onChange={v => saveTweak(c, { photo_zoom: v })} />
+                  <div className="flex items-center gap-3 pt-1">
+                    <button onClick={() => saveTweak(c, { photo_dx: 0, photo_dy: 0, photo_zoom: 1 })}
+                            className="text-xs text-gray-500 underline hover:text-gray-700">
+                      сбросить
+                    </button>
+                    {saving === c.ec_id && <span className="text-xs text-gray-400">пересобираю…</span>}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -2146,6 +2255,31 @@ function CoversTab({ eventId }: { eventId: number }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Ползунок правки кадра у обложки.
+ *
+ * ⚠️ Значение сохраняется по ОТПУСКАНИЮ (`onMouseUp`/`onTouchEnd`), а не на
+ * каждое движение: каждое сохранение пересобирает картинку в headless-браузере,
+ * и на протяжке ползунка это были бы десятки сборок подряд. */
+function CoverRange({ label, value, min, max, step, onChange }: {
+  label: string; value: number; min: number; max: number; step?: number
+  onChange: (v: number) => void
+}) {
+  const [local, setLocal] = useState(value)
+  useEffect(() => { setLocal(value) }, [value])
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-xs text-gray-600">
+        <span>{label}</span><span className="text-gray-400">{local}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step ?? 1} value={local}
+             className="w-full"
+             onChange={e => setLocal(Number(e.target.value))}
+             onMouseUp={() => onChange(local)}
+             onTouchEnd={() => onChange(local)} />
     </div>
   )
 }

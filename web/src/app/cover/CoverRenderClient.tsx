@@ -73,9 +73,26 @@ export default function CoverRenderClient() {
   // ⚠️ Подменяем ТОЛЬКО когда шаблон стоит на `cutout`: выбрал клиент фигуру
   // осознанно — его выбор и остаётся.
   const noCutout = sp.get('has_cutout') === '0'
-  const template = noCutout && (data.template?.photo_shape ?? 'cutout') === 'cutout'
+  const base = noCutout && (data.template?.photo_shape ?? 'cutout') === 'cutout'
     ? { ...data.template, photo_shape: 'portrait' as const }
     : data.template
+
+  // ⚠️⚠️ ПРАВКА КАДРА ЭТОЙ ОБЛОЖКИ (миграция 522). Общих настроек шаблона не
+  // хватает: снимки сняты по-разному — одного обрезает по шее, другой уходит
+  // вбок. Поэтому у каждой обложки свои сдвиг и размер, и они ПРИБАВЛЯЮТСЯ к
+  // шаблонным, а не заменяют их: шаблон задаёт общий вид, правка — поправку
+  // под конкретный снимок.
+  const dx = Number(sp.get('dx') || 0)
+  const dy = Number(sp.get('dy') || 0)
+  const zoom = Number(sp.get('zoom') || 1) || 1
+  const template = (dx || dy || zoom !== 1)
+    ? {
+        ...base,
+        photo_x: (base?.photo_x ?? 0) + dx,
+        photo_y: (base?.photo_y ?? 0) + dy,
+        photo_scale: (base?.photo_scale ?? 100) * zoom,
+      }
+    : base
 
   return (
     <div style={{ width: COVER_W, height: COVER_H, overflow: 'hidden' }}>

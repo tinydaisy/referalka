@@ -38,6 +38,12 @@ _FIELDS = (
     # Тема выступления и высота области (миграция 515): раньше кегль темы
     # стоял числом в коде, и длинная тема вылезала за область и на фото.
     "subtitle_size", "subtitle_lines", "text_h", "text_fit",
+    # Надписи (миграция 522): раньше настраивался только размер заголовка —
+    # цвет имени тянулся из темы, шрифта не было, а у названия конференции
+    # кегль и интервал стояли числами в коде.
+    "title_font", "title_align", "title_upper",
+    "overline_size", "overline_color", "overline_font", "overline_upper",
+    "subtitle_color", "subtitle_font",
     # Оформление области текста (миграция 395): подложка и рамка.
     "text_bg_color", "text_bg_color_2", "text_bg_angle", "text_bg_opacity",
     "text_bg_radius", "text_bg_pad", "text_border_color", "text_border_width",
@@ -103,6 +109,15 @@ class TemplateIn(BaseModel):
     # 7 px кегля, слишком грубо, чтобы подогнать длинную тему под область.
     subtitle_size: Optional[float] = None
     subtitle_lines: Optional[int] = None
+    title_font: Optional[str] = None
+    title_align: Optional[str] = None
+    title_upper: Optional[bool] = None
+    overline_size: Optional[float] = None
+    overline_color: Optional[str] = None
+    overline_font: Optional[str] = None
+    overline_upper: Optional[bool] = None
+    subtitle_color: Optional[str] = None
+    subtitle_font: Optional[str] = None
     text_h: Optional[int] = None
     text_fit: Optional[bool] = None
     title_color: Optional[str] = None
@@ -166,11 +181,17 @@ def _norm(data: dict, kind: str) -> dict:
             d[f] = _clamp(d[f], lo, hi, dflt)
     # ⚠️ Кегль темы — дробный, поэтому своим проходом, а не общим `_clamp`:
     # тот приводит к `int` и 4.2 % превратились бы в 4 %.
-    if "subtitle_size" in d and d["subtitle_size"] is not None:
-        try:
-            d["subtitle_size"] = round(max(1.0, min(12.0, float(d["subtitle_size"]))), 1)
-        except (TypeError, ValueError):
-            d["subtitle_size"] = 4.2
+    for f, lo, hi, dflt in (("subtitle_size", 1.0, 12.0, 4.2),
+                            ("overline_size", 1.0, 10.0, 3.1)):
+        if f in d and d[f] is not None:
+            try:
+                d[f] = round(max(lo, min(hi, float(d[f]))), 1)
+            except (TypeError, ValueError):
+                d[f] = dflt
+    # ⚠️ Список тот же, что в CHECK миграции 522: разойдутся — сохранение
+    # упадёт на ограничении БД уже после нажатия «Сохранить».
+    if d.get("title_align") not in (None, "left", "center", "right"):
+        d["title_align"] = None
     if "logo_variant" in d and d["logo_variant"] not in ("light", "dark", "none"):
         d["logo_variant"] = "light"
     if "photo_side" in d and d["photo_side"] not in ("left", "right", "none"):
@@ -198,13 +219,17 @@ async def _row(db, client_id: int, kind: str) -> dict:
         # ⚠️ `numeric` приезжает из asyncpg как `Decimal`, а JSON отдаёт его
         # СТРОКОЙ ("4.2"). На фронте это молча ломает арифметику ползунка:
         # `"4.2" * 720 / 100` даёт NaN, и кегль темы схлопывается в ноль.
-        if d.get("subtitle_size") is not None:
-            d["subtitle_size"] = float(d["subtitle_size"])
+        # ⚠️ `numeric` приезжает Decimal, а JSON отдаёт его СТРОКОЙ — на фронте
+        # это молча ломает арифметику ползунка.
+        for f in ("subtitle_size", "overline_size"):
+            if d.get(f) is not None:
+                d[f] = float(d[f])
         return d
     return {"client_id": client_id, "kind": kind, "bg_dim": 0,
             "photo_scale": 100, "photo_x": 0, "photo_y": 0,
             "show_brand": True, "subtitle_size": 4.2, "subtitle_lines": 0,
             "text_h": 0, "text_fit": False, "photo_shape": "cutout",
+            "overline_size": 3.1, "overline_upper": True, "title_upper": False,
             "photo_w": 38, "photo_radius": 0, "photo_fade": 0,
             **_DEFAULTS[kind]}
 
