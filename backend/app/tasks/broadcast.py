@@ -1649,9 +1649,55 @@ async def _send_broadcast_to_client_chats(
         except Exception as ex:
             logger.warning(f"WhatsApp-часть чатов клиента упала: {ex}")
 
-    # ── VK-беседы ──
-    vk_chats = [str(r["chat_id"]).strip() for r in rows if r["platform"] == "vk" and r["chat_id"]]
-    vk_chats = [c for c in vk_chats if c and c not in sent_vk]
+    # ── VK: сообщества (пост на СТЕНУ) и беседы (сообщение) ──
+    # ⚠️⚠️ Сообщество в базе чатов хранится id группы (меньше 2 000 000 000),
+    # беседа — peer_id (2 000 000 000 + номер). Раньше в сообщество слался
+    # `messages.send`, как в беседу, — стена не задействовалась вовсе, а
+    # peer_id = id группы VK понимает как ЛИЧНЫЙ диалог с человеком под тем же
+    # номером. Теперь сообществу — пост на стену (vk_wall.post_to_wall).
+    def _vk_is_community(c: str) -> bool:
+        try:
+            n = int(c)
+        except (TypeError, ValueError):
+            return False
+        return n < 0 or 0 < n < 2000000000
+
+    vk_all = [str(r["chat_id"]).strip() for r in rows if r["platform"] == "vk" and r["chat_id"]]
+    vk_walls = [c for c in vk_all if c and _vk_is_community(c) and c not in sent_vk]
+    vk_chats = [c for c in vk_all if c and not _vk_is_community(c) and c not in sent_vk]
+
+    if vk_walls:
+        try:
+            from app.services.vk_wall import post_to_wall
+            from app.services.message_builder import html_to_vk_text
+            _txt = with_support(text, "vk") if with_support else (text or "")
+            wall_text = html_to_vk_text(_txt or "")
+            # У поста кнопок нет — ссылки дописываем текстом.
+            _vu = _u(button_url, "vk")
+            if _vu:
+                wall_text = f"{wall_text}\n\n{button_text or 'Подробнее'}: {_vu}"
+            for _b in _btns("vk"):
+                wall_text = f"{wall_text}\n{_b.get('text') or _b.get('label') or 'Открыть'}: {_b['url']}"
+            for c in vk_walls:
+                try:
+                    ok, err, _post_id = await post_to_wall(
+                        conn, client_id, abs(int(c)), wall_text,
+                        photo_url=photo_url, video_url=video_url, media_type=media_type)
+                    # ⚠️ Номер поста НЕ кладём в external_message_id: по нему
+                    # работает отзыв рассылки, а он удаляет сообщения
+                    # (messages.delete) — пост со стены так не удалить.
+                    await _log_chat_send(conn, schedule["id"], _ckind, "vk", c, ok, err)
+                    if ok:
+                        sent += 1
+                    else:
+                        logger.warning(f"Пост на стену VK-сообщества {c} не опубликован: {err}")
+                    sent_vk.add(c)
+                except Exception as ex:
+                    await _log_chat_send(conn, schedule["id"], _ckind, "vk", c, False, str(ex))
+                    logger.warning(f"Пост на стену VK-сообщества {c} упал: {ex}")
+        except Exception as ex:
+            logger.warning(f"VK-стены чатов клиента упали: {ex}")
+
     if vk_chats:
         try:
             import random as _random

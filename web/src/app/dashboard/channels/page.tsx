@@ -1196,6 +1196,8 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
   const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const connected = !!(channel as any).vk_admin_token_connected
+  // Подключён до 26.09.2026 — без права на стену и без обновления токена.
+  const needsReconnect = !!(channel as any).vk_admin_token_needs_reconnect
   const adminName = (channel as any).vk_admin_user_name || ''
   const adminScreen = (channel as any).vk_admin_user_screen || ''
 
@@ -1212,7 +1214,10 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
         try {
           const res = await api.channels.list() as { items: any[] }
           const updated = res.items?.find(c => c.id === channel.id)
-          if (updated?.vk_admin_token_connected) {
+          // ⚠️ Ждём именно СВЕЖИЙ токен: при переподключении флаг
+          // «подключён» уже стоит, и без второй проверки страница
+          // перезагрузилась бы сразу, не дождавшись VK.
+          if (updated?.vk_admin_token_connected && !updated?.vk_admin_token_needs_reconnect) {
             clearInterval(interval)
             window.location.reload()
           }
@@ -1229,7 +1234,7 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
   }
 
   async function disconnect() {
-    if (!confirm('Отключить токен для нативного видео? Видео в воронках будут уходить файлом MP4, не плеером.')) return
+    if (!confirm('Отключить токен администратора? Видео будут уходить файлом MP4, а посты на стену сообществ публиковаться не будут.')) return
     try {
       await api.channels.vkDeleteAdminToken(channel.id)
       window.location.reload()
@@ -1245,12 +1250,30 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
           <span className="text-sm font-bold text-blue-700">📹</span>
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="font-semibold text-gray-800 text-sm">Нативное видео в VK-воронках</h4>
+          <h4 className="font-semibold text-gray-800 text-sm">Токен администратора ВКонтакте</h4>
           <p className="text-xs text-gray-500 mt-0.5">
-            Чтобы видео в шаблонах воронок лид-магнитов приходило получателям с инлайн-плеером
-            (а не файлом MP4), VK требует токен админа сообщества с правом <code>video</code>.
-            Сообществу такие права не выдаются.
+            Нужен, чтобы видео приходило с плеером ВКонтакте (а не файлом MP4) и чтобы
+            рассылки публиковались постом на стене сообществ из «Личных каналов».
+            Сообществу такие права не выдаются — только администратору.
           </p>
+          {connected && needsReconnect && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              Токен подключён по-старому: без права на стену, и он истекает через час.
+              Переподключите — это одна кнопка.
+              <div className="mt-2">
+                {waiting ? (
+                  <span>
+                    <Loader2 size={12} className="inline animate-spin mr-1" />
+                    Ждём подтверждения во вкладке ВКонтакте — страница обновится сама.
+                  </span>
+                ) : (
+                  <button onClick={startOauth} className="btn-primary px-3 py-1.5 rounded-lg text-xs">
+                    Переподключить →
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {connected ? (
             <div className="mt-3 flex items-center gap-2 flex-wrap">
               <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
@@ -1267,15 +1290,14 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
             <>
               {!waiting ? (
                 <button onClick={startOauth}
-                  className="mt-3 px-3 py-1.5 rounded-lg text-white text-xs font-medium"
-                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-                  Подключить VK для нативного видео →
+                  className="btn-primary mt-3 px-3 py-1.5 rounded-lg text-xs font-medium">
+                  Подключить токен администратора →
                 </button>
               ) : (
                 <div className="mt-3 bg-white border border-blue-200 rounded-lg p-3 text-xs text-gray-700 space-y-1.5">
                   <p>
                     <Loader2 size={12} className="inline animate-spin mr-1" />
-                    Открыли VK-вкладку. Подтвердите права <code>video</code> и нажмите «Разрешить».
+                    Открыли VK-вкладку. Подтвердите доступ к видео, стене и фото и нажмите «Разрешить».
                   </p>
                   <p className="text-gray-500">
                     После подтверждения вкладка покажет «Готово». Эта страница автоматически обновится.

@@ -181,6 +181,13 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
               CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
                    THEN (ch.platform_meta ? 'vk_admin_user_token')
                    ELSE FALSE END AS vk_admin_token_connected,
+              -- ⚠️ Токен подключён ДО 26.09.2026: без device_id его нельзя
+              -- обновить (живёт час), и без права wall нельзя постить на стену.
+              CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                        AND (ch.platform_meta ? 'vk_admin_user_token')
+                   THEN (COALESCE(ch.platform_meta->>'vk_admin_device_id', '') = ''
+                         OR COALESCE(ch.platform_meta->>'vk_admin_scope', '') NOT LIKE '%wall%')
+                   ELSE FALSE END AS vk_admin_token_needs_reconnect,
               CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
                    THEN ch.platform_meta->>'vk_admin_user_name'
                    ELSE NULL END AS vk_admin_user_name,
@@ -1102,7 +1109,7 @@ async def vk_oauth_url(
     """Возвращает URL VK ID 2.0 (Code Flow + PKCE) для авторизации админа сообщества.
 
     Требуется settings.vk_oauth_standalone_app_id — отдельное Web-приложение
-    в VK ID Console (не Mini App). scope=video,offline.
+    в VK ID Console (не Mini App). scope=video,wall,photos,offline.
     """
     client_id = int(client["sub"])
     ch = await db.fetchrow(
@@ -1150,7 +1157,9 @@ async def vk_oauth_url(
         f"&state={state}"
         f"&code_challenge={challenge}"
         f"&code_challenge_method=S256"
-        f"&scope=video+offline"
+        # wall + photos — пост на стену сообщества из рассылки (26.09.2026,
+        # vk_wall.py): wall.post и загрузка фото для поста.
+        f"&scope=video+wall+photos+offline"
     )
     return {"oauth_url": oauth_url}
 
@@ -1293,6 +1302,12 @@ h1{{color:{color};font-size:20px;margin-bottom:12px}}p{{color:#475569;line-heigh
     meta["vk_admin_user_token"] = access_token
     meta["vk_admin_refresh_token"] = refresh_token
     meta["vk_admin_token_expires_in"] = expires_in
+    # ⚠️ Без device_id и времени получения токен НЕЛЬЗЯ обновить, а живёт он
+    # час (26.09.2026: все подключённые токены были просрочены). Обновляет
+    # services/vk_admin_token.py.
+    meta["vk_admin_device_id"] = device_id
+    meta["vk_admin_token_obtained_at"] = int(_time.time())
+    meta["vk_admin_scope"] = data.get("scope") or ""
     meta["vk_admin_user_id"] = user_id
     meta["vk_admin_user_name"] = full_name
     meta["vk_admin_user_screen"] = screen_name

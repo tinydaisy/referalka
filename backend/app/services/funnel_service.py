@@ -572,34 +572,10 @@ async def _vk_admin_user_token_for_client(client_id: int, db) -> tuple[Optional[
     Возвращает (user_token, group_id). Оба None — если клиент не прошёл OAuth
     в дашборде. См. POST /api/v1/channels/vk/admin-token.
     """
-    row = await db.fetchrow(
-        """SELECT ch.platform_meta
-             FROM client_channels cc
-             JOIN channels ch ON ch.id = cc.channel_id
-            WHERE cc.client_id = $1
-              AND cc.is_active = TRUE
-              AND ch.platform_slug = 'vk'
-              AND ch.is_system = FALSE
-              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
-            ORDER BY ch.id ASC
-            LIMIT 1""",
-        client_id,
-    )
-    if not row:
-        return None, None
-    import json as _json
-    meta = row["platform_meta"] or {}
-    if isinstance(meta, str):
-        try:
-            meta = _json.loads(meta)
-        except Exception:
-            return None, None
-    user_token = meta.get("vk_admin_user_token")
-    group_id = meta.get("vk_group_id")
-    try:
-        group_id = int(group_id) if group_id else None
-    except (TypeError, ValueError):
-        group_id = None
+    # ⚠️ Через общую точку: токен живёт час, она его и обновляет
+    # (services/vk_admin_token.py). Свой SELECT отдавал просроченный токен.
+    from app.services.vk_admin_token import get_vk_admin_token
+    user_token, group_id, _why = await get_vk_admin_token(db, client_id)
     return user_token, group_id
 
 
