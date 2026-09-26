@@ -1200,6 +1200,17 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
   const needsReconnect = !!(channel as any).vk_admin_token_needs_reconnect
   const adminName = (channel as any).vk_admin_user_name || ''
   const adminScreen = (channel as any).vk_admin_user_screen || ''
+  const [repost, setRepost] = useState<boolean>(!!(channel as any).vk_admin_repost)
+
+  async function toggleRepost(v: boolean) {
+    setRepost(v)
+    try {
+      await api.channels.vkSetAdminRepost(channel.id, v)
+    } catch (e: any) {
+      setRepost(!v)
+      setError(e.message || 'Не удалось сохранить')
+    }
+  }
 
   async function startOauth() {
     setError(null)
@@ -1286,7 +1297,20 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
               <button onClick={disconnect}
                 className="text-xs text-red-600 hover:underline">Отключить</button>
             </div>
-          ) : (
+          ) : null}
+          {/* Пост рассылки на стене сообщества → репост на личную страницу
+              того, чей это токен («… поделилась записью»). */}
+          {connected && (
+            <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-gray-700">
+              <input type="checkbox" className="mt-0.5" checked={repost}
+                     onChange={e => toggleRepost(e.target.checked)} />
+              <span>
+                Репостить посты рассылок со стены сообщества на мою личную страницу
+                {adminName ? ` (${adminName})` : ''}
+              </span>
+            </label>
+          )}
+          {connected ? null : (
             <>
               {!waiting ? (
                 <button onClick={startOauth}

@@ -127,3 +127,18 @@ async def _refresh(conn, channel_id: int, group_id) -> tuple[Optional[str], Opti
             "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
             json.dumps(meta), channel_id)
         return data["access_token"], group_id, None
+
+
+async def admin_repost_enabled(conn, client_id: int) -> bool:
+    """Галочка «Репостить посты сообществ на мою страницу» (26.09.2026)."""
+    v = await conn.fetchval(
+        """SELECT (ch.platform_meta->>'vk_admin_repost')::boolean
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+              AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.id ASC
+            LIMIT 1""",
+        client_id)
+    return bool(v)

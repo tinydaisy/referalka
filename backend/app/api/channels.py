@@ -191,6 +191,10 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
               CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
                    THEN ch.platform_meta->>'vk_admin_user_name'
                    ELSE NULL END AS vk_admin_user_name,
+              -- Репост постов сообществ на личную страницу админа (26.09.2026).
+              CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                   THEN COALESCE((ch.platform_meta->>'vk_admin_repost')::boolean, FALSE)
+                   ELSE FALSE END AS vk_admin_repost,
               CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
                    THEN ch.platform_meta->>'vk_admin_user_screen'
                    ELSE NULL END AS vk_admin_user_screen,
@@ -1353,13 +1357,56 @@ async def vk_delete_admin_token(
         except Exception:
             meta = {}
     meta = dict(meta)
-    for k in ("vk_admin_user_token", "vk_admin_user_id", "vk_admin_user_name", "vk_admin_user_screen"):
+    # ⚠️ Вместе с токеном — и всё, что нужно для его обновления: иначе
+    # refresh-токен отключённого админа продолжал бы жить в базе.
+    for k in ("vk_admin_user_token", "vk_admin_user_id", "vk_admin_user_name",
+              "vk_admin_user_screen", "vk_admin_refresh_token", "vk_admin_device_id",
+              "vk_admin_token_obtained_at", "vk_admin_token_expires_in", "vk_admin_scope"):
         meta.pop(k, None)
     await db.execute(
         "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
         _json.dumps(meta), ch["id"],
     )
     return {"ok": True}
+
+
+@router.put("/vk/admin-repost", summary="Репост постов сообществ на личную страницу админа")
+async def vk_set_admin_repost(
+    channel_id: int,
+    enabled: bool,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Галочка «Репостить на мою страницу» (26.09.2026).
+
+    Пост рассылки на стене сообщества (vk_wall.py) после публикации
+    репостится на личную страницу администратора, чей токен подключён.
+    Хранится в `platform_meta.vk_admin_repost`.
+    """
+    client_id = int(client["sub"])
+    ch = await db.fetchrow(
+        """SELECT ch.id, ch.platform_meta
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2 AND ch.platform_slug = 'vk'""",
+        channel_id, client_id,
+    )
+    if not ch:
+        raise HTTPException(status_code=404, detail="VK-канал не найден")
+    import json as _json
+    meta = ch["platform_meta"] or {}
+    if isinstance(meta, str):
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+    meta = dict(meta)
+    meta["vk_admin_repost"] = bool(enabled)
+    await db.execute(
+        "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
+        _json.dumps(meta), ch["id"],
+    )
+    return {"ok": True, "enabled": bool(enabled)}
 
 
 # ─── DELETE удаление канала ───────────────────────────────────────────

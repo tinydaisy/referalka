@@ -1237,6 +1237,9 @@ export const api = {
       request(`/api/v1/channels/vk/oauth-url?channel_id=${channel_id}`),
     vkDeleteAdminToken: (channel_id: number) =>
       request(`/api/v1/channels/vk/admin-token?channel_id=${channel_id}`, { method: 'DELETE' }),
+    // Репост постов сообществ на личную страницу администратора (26.09.2026).
+    vkSetAdminRepost: (channel_id: number, enabled: boolean) =>
+      request(`/api/v1/channels/vk/admin-repost?channel_id=${channel_id}&enabled=${enabled}`, { method: 'PUT' }),
     importCsv: async (id: number, file: File) => {
       const fd = new FormData()
       fd.append('file', file)

@@ -1668,7 +1668,8 @@ async def _send_broadcast_to_client_chats(
 
     if vk_walls:
         try:
-            from app.services.vk_wall import post_to_wall
+            from app.services.vk_wall import post_to_wall, repost_to_admin_page
+            from app.services.vk_admin_token import admin_repost_enabled
             from app.services.message_builder import html_to_vk_text
             _txt = with_support(text, "vk") if with_support else (text or "")
             wall_text = html_to_vk_text(_txt or "")
@@ -1689,6 +1690,15 @@ async def _send_broadcast_to_client_chats(
                     await _log_chat_send(conn, schedule["id"], _ckind, "vk", c, ok, err)
                     if ok:
                         sent += 1
+                        # Репост на личную страницу админа — по галочке в
+                        # блоке токена (26.09.2026). Отдельной строкой журнала:
+                        # пост на стене мог выйти, а репост — нет.
+                        if _post_id and await admin_repost_enabled(conn, client_id):
+                            r_ok, r_err = await repost_to_admin_page(
+                                conn, client_id, abs(int(c)), _post_id)
+                            await _log_chat_send(conn, schedule["id"], _ckind, "vk",
+                                                 f"repost:{c}", r_ok, r_err,
+                                                 chat_title="Репост на личную страницу")
                     else:
                         logger.warning(f"Пост на стену VK-сообщества {c} не опубликован: {err}")
                     sent_vk.add(c)

@@ -99,3 +99,26 @@ async def post_to_wall(
     post_id = (res or {}).get("post_id") if isinstance(res, dict) else None
     return bool(post_id), (None if post_id else "ВКонтакте не вернул номер поста"), (
         str(post_id) if post_id else None)
+
+
+async def repost_to_admin_page(conn, client_id: int, group_id: int,
+                               post_id: str) -> tuple[bool, Optional[str]]:
+    """Репост поста сообщества на ЛИЧНУЮ страницу администратора (26.09.2026).
+
+    `wall.repost` тем же токеном админа: без `group_id` объект копируется на
+    стену владельца токена — «Марго Форбс поделилась записью». Нужен право
+    `wall`. Вызывать только когда включена галочка (admin_repost_enabled).
+    """
+    from app.services.vk_admin_token import get_vk_admin_token
+    token, _g, why = await get_vk_admin_token(conn, client_id)
+    if not token:
+        return False, why
+    try:
+        res = await vk_call("wall.repost",
+                            {"object": f"wall-{abs(int(group_id))}_{post_id}"},
+                            token=token)
+    except Exception as e:
+        code = getattr(e, "code", None)
+        return False, _WALL_ERRORS.get(code, f"ВКонтакте отказал в репосте: {e}")
+    ok = bool((res or {}).get("success")) if isinstance(res, dict) else bool(res)
+    return ok, (None if ok else "ВКонтакте не подтвердил репост")
