@@ -117,3 +117,10 @@ paths:
       curl -sf -m 5 -X POST
       -H "X-Bridge-Token: ${MTX_BRIDGE_TOKEN}"
       "http://127.0.0.1:8000/api/v1/internal/webinar/stream/unpublish?path=$MTX_PATH"
+
+# ⚠️⚠️ ОБЯЗАТЕЛЕН вместе с `root` в nginx (26.09.2026): MediaMTX пишет плейлисты
+# и сегменты на диск, а nginx отдаёт их файлами — тогда cookie-сессия не нужна.
+# MI Browser на Android cookie не принимает вовсе (25 ошибок 401, ни одного 200).
+# ⚠️ Уберёшь этот параметр, не поправив nginx — nginx начнёт отдавать СТАРЫЕ
+# плейлисты с кодом 200, а сегментов не будет: 404 и чёрный экран У ВСЕХ.
+hlsDirectory: /var/www/plusson/media-server/hlsout
