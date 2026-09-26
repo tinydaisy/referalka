@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastTagPicker from '@/components/BroadcastTagPicker'
+import ChatPlatformTicks, { parseChatPlatforms, useChatPlatformsAvailable, type ChatPlatforms } from '@/components/ChatPlatformTicks'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
 import EmailFunnelStats, { type EmailStats } from '@/components/EmailFunnelStats'
@@ -106,6 +107,7 @@ export default function GeneralBroadcastsPage() {
     audience_tags_exclude?: string[] | null
     send_to_client_chats: boolean
     send_to_private_chats: boolean
+    chat_platforms: ChatPlatforms
   }>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
@@ -522,6 +524,7 @@ export default function GeneralBroadcastsPage() {
                               audience_tags_exclude: Array.isArray(s.audience_tags_exclude) ? s.audience_tags_exclude : [],
                               send_to_client_chats: !!s.send_to_client_chats,
                               send_to_private_chats: !!s.send_to_private_chats,
+                              chat_platforms: parseChatPlatforms(s.chat_platforms),
                             })
                           }}
                             className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
@@ -628,6 +631,7 @@ export default function GeneralBroadcastsPage() {
             audience_tags_exclude: editModal.audience_tags_exclude,
             send_to_client_chats: editModal.send_to_client_chats,
             send_to_private_chats: editModal.send_to_private_chats,
+            chat_platforms: editModal.chat_platforms,
           }}
           onClose={() => setEditModal(null)}
           onSaved={async () => { setEditModal(null); await load(); showMsg('Сохранено') }}
@@ -796,6 +800,7 @@ function CustomBroadcastModal(props: {
     audience_tags_exclude?: string[] | null
     send_to_client_chats?: boolean
     send_to_private_chats?: boolean
+    chat_platforms?: ChatPlatforms
   }
 }) {
   // Новая рассылка — предзаполняем московским «сейчас + 10 мин», чтобы календарь
@@ -814,6 +819,9 @@ function CustomBroadcastModal(props: {
   const [isTest, setIsTest] = useState(!!props.initial?.is_test)
   const [sendToClientChats, setSendToClientChats] = useState(!!props.initial?.send_to_client_chats)
   const [sendToPrivateChats, setSendToPrivateChats] = useState(!!props.initial?.send_to_private_chats)
+  // Площадки общих чатов и личных каналов (миграция 520) — галочки под каждым видом.
+  const [chatPf, setChatPf] = useState<ChatPlatforms>(props.initial?.chat_platforms || {})
+  const chatPfAvailable = useChatPlatformsAvailable(null)
   // База чатов клиента (общие/личные каналы) — только с фичей broadcast_chats (Экстра/vip).
   const { me } = useMe()
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
@@ -931,6 +939,7 @@ function CustomBroadcastModal(props: {
         // Общие/личные чаты — только с фичей broadcast_chats. Без неё — принудительно false.
         send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
         send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
+        chat_platforms: chatPf,
       }
       // target_channel_ids передаём только когда picker уже отрисовался
       // (после useEffect он точно перешёл из null в массив).
@@ -1082,6 +1091,10 @@ function CustomBroadcastModal(props: {
               </span>
             </span>
           </label>)}
+          {hasChatsFeature && (
+            <ChatPlatformTicks kind="common" value={chatPf} onChange={setChatPf}
+              available={chatPfAvailable} disabled={!sendToClientChats} />
+          )}
           {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
             <input type="checkbox" checked={sendToPrivateChats} onChange={e => setSendToPrivateChats(e.target.checked)}
               className="w-4 h-4 mt-0.5 accent-[#25455D]" />
@@ -1092,6 +1105,10 @@ function CustomBroadcastModal(props: {
               </span>
             </span>
           </label>)}
+          {hasChatsFeature && (
+            <ChatPlatformTicks kind="private" value={chatPf} onChange={setChatPf}
+              available={chatPfAvailable} disabled={!sendToPrivateChats} />
+          )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX / Email из настроек)</span>

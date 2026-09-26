@@ -584,6 +584,8 @@ export const api = {
       delete: (eventId: number, reportId: number) =>
         request(`/api/v1/events/${eventId}/conference/reports/${reportId}`, { method: 'DELETE' }),
     },
+    // Площадки, где у каждого вида чатов есть чат (миграция 520) — галочки под чатами.
+    chatPlatforms: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/chat-platforms`),
     templates: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/templates`),
       create: (eventId: number, data: any) =>
@@ -1253,6 +1255,8 @@ export const api = {
   },
   broadcasts: {
     list: () => request('/api/v1/broadcasts/schedules'),
+    // Площадки общих чатов и личных каналов клиента (миграция 520).
+    chatPlatforms: () => request('/api/v1/broadcasts/chat-platforms'),
     // Сколько человек попадёт в рассылку при выбранном фильтре тегов
     audienceCount: (data: { audience_tags_include?: string[]; audience_tags_exclude?: string[] }) =>
       request('/api/v1/broadcasts/audience-count', { method: 'POST', body: JSON.stringify(data) }),

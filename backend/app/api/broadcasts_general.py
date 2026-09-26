@@ -15,6 +15,7 @@ import json as _json
 from app.database import get_db
 from app.auth import get_current_client
 from app.services.message_builder import build_message_content
+from app.services import broadcast_chat_platforms as chat_pf
 
 
 router = APIRouter(prefix="/broadcasts", tags=["Общие рассылки"])
@@ -48,6 +49,9 @@ class AddCustomRequest(BaseModel):
     send_to_client_chats: bool = False
     # Слать также в личные каналы клиента (client_broadcast_chats, is_private=TRUE).
     send_to_private_chats: bool = False
+    # Площадки по видам чатов (миграция 520): {"common": [...], "private": [...]}.
+    # None = не трогать; нет ключа вида = все площадки.
+    chat_platforms: Optional[dict] = None
 
 
 class BulkItem(BaseModel):
@@ -295,6 +299,7 @@ async def list_schedules(
                error_log, snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons,
                snapshot_video, snapshot_media_type,
                target_channel_ids, send_to_client_chats, send_to_private_chats,
+               chat_platforms,
                CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (finished_at - started_at))::int
                     ELSE NULL END as duration_seconds,
@@ -324,6 +329,7 @@ async def list_schedules(
     result = []
     for r in rows:
         d = dict(r)
+        d["chat_platforms"] = chat_pf.parse(d.get("chat_platforms"))
         # «Дошло» = реальные доставки из broadcast_log (см. SELECT log_sent).
         log_sent = d.pop("log_sent", 0) or 0
         if log_sent > 0:
@@ -391,7 +397,18 @@ async def add_custom(
         data.send_to_private_chats,
         (data.audience_tags_include or None), (data.audience_tags_exclude or None),
     )
+    _cpf = chat_pf.normalize(data.chat_platforms)
+    if _cpf is not None:
+        await db.execute("UPDATE broadcast_schedules SET chat_platforms=$1::jsonb WHERE id=$2", _cpf, row["id"])
     return dict(row)
+
+
+@router.get("/chat-platforms", summary="Площадки, где у общих чатов и личных каналов есть чат")
+async def get_chat_platforms(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    return await chat_pf.available(db, int(client["sub"]))
 
 
 class AudienceCountRequest(BaseModel):
@@ -743,9 +760,10 @@ async def copy(
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
-           snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats)
+           snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats,
+           chat_platforms)
         VALUES (NULL, $1, NULL, 'custom', NULL, NULL, 'draft', $2, 'all_client', 'none',
-                $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11)
+                $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb)
         RETURNING id
         """,
         client_id, full["is_test"],
@@ -754,6 +772,7 @@ async def copy(
         full["target_channel_ids"],
         snap_video, (full["snapshot_media_type"] if (snap_photo or snap_video) else None),
         full["send_to_client_chats"], full["send_to_private_chats"],
+        chat_pf.normalize(full.get("chat_platforms")),
     )
     return {"ok": True, "id": new["id"], "warning": photo_warning}
 
@@ -804,6 +823,9 @@ class UpdateScheduleRequest(BaseModel):
     audience_tags_exclude: Optional[List[str]] = None
     send_to_client_chats: Optional[bool] = None
     send_to_private_chats: Optional[bool] = None
+    # Площадки по видам чатов (миграция 520): {"common": [...], "private": [...]}.
+    # None = не трогать; нет ключа вида = все площадки.
+    chat_platforms: Optional[dict] = None
 
 
 @router.patch("/schedules/{schedule_id}", summary="Обновить содержимое рассылки (draft/pending)")
@@ -878,6 +900,9 @@ async def update_schedule(
 
     if data.send_to_private_chats is not None:
         sets.append(f"send_to_private_chats=${idx}"); args.append(data.send_to_private_chats); idx += 1
+
+    if chat_pf.normalize(data.chat_platforms) is not None:
+        sets.append(f"chat_platforms=${idx}::jsonb"); args.append(chat_pf.normalize(data.chat_platforms)); idx += 1
 
     if not sets:
         return {"ok": True, "no_change": True}

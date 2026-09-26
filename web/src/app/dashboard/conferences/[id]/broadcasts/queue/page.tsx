@@ -10,6 +10,7 @@ import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import ChatPlatformTicks, { chatPlatformsSuffix, parseChatPlatforms, useChatPlatformsAvailable, type ChatPlatforms } from '@/components/ChatPlatformTicks'
 import PayTariffPicker, { audBase, payTariffSuffix, useEventTariffs, type EventTariff } from '@/components/PayTariffPicker'
 import { useMe } from '@/hooks/useMe'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
@@ -229,6 +230,8 @@ export default function QueuePage() {
   const hasPayments = (me?.features || []).includes('event_tariffs')
   // Тарифы события — для подписи сегментов оплаты в пилюлях и «Итого».
   const eventTariffs = useEventTariffs(eventId, hasPayments)
+  // Какие площадки подключены у каждого вида чатов — столько галочек и рисуем.
+  const chatPfAvailable = useChatPlatformsAvailable(eventId)
   // База чатов клиента (общие/личные) — только с фичей broadcast_chats. «В чаты события» — всем.
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
 
@@ -261,6 +264,8 @@ export default function QueuePage() {
   const [editEventChats, setEditEventChats] = useState(false)
   const [editClientChats, setEditClientChats] = useState(false)
   const [editPrivateChats, setEditPrivateChats] = useState(false)
+  // Площадки по видам чатов (миграция 520) — галочки под каждым видом чатов.
+  const [editChatPf, setEditChatPf] = useState<ChatPlatforms>({})
   const [logModal, setLogModal] = useState<{ schedule: any; rows: any[]; chats?: any[]; emailStats?: EmailStats | null } | null>(null)
   const [logLoading, setLogLoading] = useState(false)
   const [recallingId, setRecallingId] = useState<number | null>(null)
@@ -549,10 +554,12 @@ export default function QueuePage() {
       setEditEventChats(!!schedule.send_to_event_chats)
       setEditClientChats(!!schedule.send_to_client_chats)
       setEditPrivateChats(!!schedule.send_to_private_chats)
+      setEditChatPf(parseChatPlatforms(schedule.chat_platforms))
     } else {
       setEditEventChats(!!(schedule.eff_send_to_event_chats ?? schedule.send_to_event_chats))
       setEditClientChats(!!(schedule.eff_send_to_client_chats ?? schedule.send_to_client_chats))
       setEditPrivateChats(!!(schedule.eff_send_to_private_chats ?? schedule.send_to_private_chats))
+      setEditChatPf(parseChatPlatforms(schedule.eff_chat_platforms ?? schedule.chat_platforms))
     }
   }
 
@@ -612,6 +619,7 @@ export default function QueuePage() {
         send_to_event_chats: editEventChats,
         send_to_client_chats: hasChatsFeature ? editClientChats : false,
         send_to_private_chats: hasChatsFeature ? editPrivateChats : false,
+        chat_platforms: editChatPf,
         // Пометка «галочки чатов переопределены вручную» — движок больше не
         // подмешивает шаблон, шлёт строго по настройкам этой рассылки (миграция 235).
         chats_overridden: true,
@@ -1092,14 +1100,15 @@ export default function QueuePage() {
                           className="text-xs px-1.5 py-0.5 rounded font-semibold bg-orange-500 text-white"
                           title="Уходит только в чат спикеров — участникам события не отправляется"
                         >
-                          в чат спикеров
+                          в чат спикеров{chatPlatformsSuffix('speakers', parseChatPlatforms(s.eff_chat_platforms ?? s.chat_platforms))}
                         </span>
                       )}
                       {(() => {
                         const chats: string[] = []
-                        if (s.eff_send_to_event_chats ?? s.send_to_event_chats) chats.push('чаты события')
-                        if (s.eff_send_to_client_chats ?? s.send_to_client_chats) chats.push('общие чаты')
-                        if (s.eff_send_to_private_chats ?? s.send_to_private_chats) chats.push('личные каналы')
+                        const pf = parseChatPlatforms(s.eff_chat_platforms ?? s.chat_platforms)
+                        if (s.eff_send_to_event_chats ?? s.send_to_event_chats) chats.push('чаты события' + chatPlatformsSuffix('event', pf))
+                        if (s.eff_send_to_client_chats ?? s.send_to_client_chats) chats.push('общие чаты' + chatPlatformsSuffix('common', pf))
+                        if (s.eff_send_to_private_chats ?? s.send_to_private_chats) chats.push('личные каналы' + chatPlatformsSuffix('private', pf))
                         if (!chats.length) return null
                         return (
                           <span
@@ -1489,16 +1498,10 @@ export default function QueuePage() {
                 value={editChannelIds}
                 onChange={(next) => setEditChannelIds(next)}
               />
-              {/* ⚠️ Площадки управляют И ЧАТАМИ (22.09.2026): выбран только
-                  Telegram — в MAX- и ВК-чаты события не уйдёт. Раньше чаты
-                  слались во все площадки, где чат задан. */}
-              <p className="text-[11px] text-gray-500 -mt-2 px-1">
-                Площадки действуют и на чаты ниже: снимете Telegram — в чат
-                Telegram не уйдёт.
-              </p>
-
               {/* Три независимые галочки: чаты события / общие чаты / личные каналы.
-                  Выбранная — синяя рамка+фон (чтобы сразу видеть что реально уйдёт). */}
+                  Выбранная — синяя рамка+фон (чтобы сразу видеть что реально уйдёт).
+                  Под каждой — свои площадки (миграция 520): «Каналы для
+                  отправки» выше управляют только личными сообщениями. */}
               <div className="space-y-2">
                 <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editEventChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
                   <input type="checkbox" checked={editEventChats}
@@ -1509,7 +1512,9 @@ export default function QueuePage() {
                     <span className="block text-[11px] text-gray-500 mt-0.5">В групповые чаты этого события (заданы в настройках события).</span>
                   </span>
                 </label>
-                {hasChatsFeature && (<label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editClientChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
+                <ChatPlatformTicks kind="event" value={editChatPf} onChange={setEditChatPf}
+                  available={chatPfAvailable} disabled={!editEventChats} />
+                {hasChatsFeature && (<><label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editClientChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
                   <input type="checkbox" checked={editClientChats}
                     onChange={e => setEditClientChats(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
@@ -1517,8 +1522,10 @@ export default function QueuePage() {
                     <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты {editClientChats && <span className="text-[#25455D]">✓</span>}</span>
                     <span className="block text-[11px] text-gray-500 mt-0.5">В общие группы/каналы из базы чатов (Каналы → «Группы/Каналы для рассылок»).</span>
                   </span>
-                </label>)}
-                {hasChatsFeature && (<label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editPrivateChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
+                </label>
+                <ChatPlatformTicks kind="common" value={editChatPf} onChange={setEditChatPf}
+                  available={chatPfAvailable} disabled={!editClientChats} /></>)}
+                {hasChatsFeature && (<><label className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${editPrivateChats ? 'border-[#25455D] bg-[#25455D]/5' : 'border-gray-200 bg-gray-50'}`}>
                   <input type="checkbox" checked={editPrivateChats}
                     onChange={e => setEditPrivateChats(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-[#25455D]" />
@@ -1526,7 +1533,9 @@ export default function QueuePage() {
                     <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы {editPrivateChats && <span className="text-[#25455D]">✓</span>}</span>
                     <span className="block text-[11px] text-gray-500 mt-0.5">В каналы из базы чатов, помеченные галочкой «Личный».</span>
                   </span>
-                </label>)}
+                </label>
+                <ChatPlatformTicks kind="private" value={editChatPf} onChange={setEditChatPf}
+                  available={chatPfAvailable} disabled={!editPrivateChats} /></>)}
               </div>
               </>)}
 
@@ -2287,6 +2296,9 @@ function CustomBroadcastModal(props: {
   const [sendToChats, setSendToChats] = useState(!!ed?.send_to_event_chats)
   const [sendToClientChats, setSendToClientChats] = useState(!!ed?.send_to_client_chats)
   const [sendToPrivateChats, setSendToPrivateChats] = useState(!!ed?.send_to_private_chats)
+  // Площадки по видам чатов (миграция 520).
+  const [chatPf, setChatPf] = useState<ChatPlatforms>(parseChatPlatforms(ed?.chat_platforms))
+  const chatPfAvailable = useChatPlatformsAvailable(props.eventId)
   const [channelIds, setChannelIds] = useState<number[] | null>(
     Array.isArray(ed?.target_channel_ids) ? ed.target_channel_ids : null)
   const { me } = useMe()
@@ -2345,6 +2357,7 @@ function CustomBroadcastModal(props: {
         send_to_event_chats: sendToChats,
         send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
         send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
+        chat_platforms: chatPf,
         target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
         day: dayNum,
@@ -2394,6 +2407,7 @@ function CustomBroadcastModal(props: {
         send_to_event_chats: sendToChats,
         send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
         send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
+        chat_platforms: chatPf,
         target_channel_ids: channelIds,
         speaker_ec_id: speakerEcId,
         day: dayNum,
@@ -2614,7 +2628,9 @@ function CustomBroadcastModal(props: {
               </span>
             </span>
           </label>
-          {hasChatsFeature && (
+          <ChatPlatformTicks kind="event" value={chatPf} onChange={setChatPf}
+            available={chatPfAvailable} disabled={!sendToChats} />
+          {hasChatsFeature && (<>
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
               <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
                 className="w-4 h-4 mt-0.5 accent-[#25455D]" />
@@ -2625,8 +2641,10 @@ function CustomBroadcastModal(props: {
                 </span>
               </span>
             </label>
-          )}
-          {hasChatsFeature && (
+            <ChatPlatformTicks kind="common" value={chatPf} onChange={setChatPf}
+              available={chatPfAvailable} disabled={!sendToClientChats} />
+          </>)}
+          {hasChatsFeature && (<>
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
               <input type="checkbox" checked={sendToPrivateChats} onChange={e => setSendToPrivateChats(e.target.checked)}
                 className="w-4 h-4 mt-0.5 accent-[#25455D]" />
@@ -2637,7 +2655,9 @@ function CustomBroadcastModal(props: {
                 </span>
               </span>
             </label>
-          )}
+            <ChatPlatformTicks kind="private" value={chatPf} onChange={setChatPf}
+              available={chatPfAvailable} disabled={!sendToPrivateChats} />
+          </>)}
         </div>
         <button onClick={sendTestNow} disabled={testing || htmlErrors.length > 0 || hasButtonErrors}
           className="w-full mt-4 py-2 rounded-xl text-sm font-medium border border-indigo-300 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60">

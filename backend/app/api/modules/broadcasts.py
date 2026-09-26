@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # рассылкой (tasks/broadcast.py). Своей сборки сообщения в тесте быть не
 # должно: именно от неё тест и бой разъезжались.
 from app.services import platform_delivery as delivery
+from app.services import broadcast_chat_platforms as chat_pf
 
 
 def _strip_first_name(text: str) -> str:
@@ -317,6 +318,9 @@ class TemplateCreate(BaseModel):
     send_to_speakers_chat: Optional[bool] = None
     # Закреплять сообщение в чате после отправки (TG/VK/MAX). Нужны права админа у бота.
     pin_in_chat: Optional[bool] = None
+    # Площадки по видам чатов (миграция 520): {"event": ["telegram","vk"], ...}.
+    # None = не трогать; нет ключа вида = все площадки.
+    chat_platforms: Optional[dict] = None
     # Пункты навигации для типа chat_nav: [{kind,label,url,magnet_kind,magnet_slug}].
     # Ссылки у пунктов резолвятся при отправке — под площадку чата (chat_nav.py).
     nav_items: Optional[List[dict]] = None
@@ -355,6 +359,9 @@ class TemplateUpdate(BaseModel):
     send_to_speakers_chat: Optional[bool] = None
     # Закреплять сообщение в чате после отправки (TG/VK/MAX).
     pin_in_chat: Optional[bool] = None
+    # Площадки по видам чатов (миграция 520): {"event": ["telegram","vk"], ...}.
+    # None = не трогать; нет ключа вида = все площадки.
+    chat_platforms: Optional[dict] = None
     # Пункты навигации для типа chat_nav (см. chat_nav.py).
     nav_items: Optional[List[dict]] = None
     # Роли коллабораторов для speaker_intro (NULL = все). Пустой массив [] = никто.
@@ -828,6 +835,30 @@ def _template_text_for_event(tpl: dict, is_turnir: bool, is_plain_event: bool) -
     return tpl["text"]
 
 
+async def _save_chat_platforms(db, table: str, row_id: int, value) -> None:
+    """Площадки по видам чатов (миграция 520) — отдельным UPDATE после
+    основного сохранения, чтобы не перенумеровывать длинные INSERT/UPDATE.
+    None = поле не пришло, не трогаем."""
+    v = chat_pf.normalize(value)
+    if v is None:
+        return
+    assert table in ("broadcast_templates", "broadcast_schedules")
+    await db.execute(f"UPDATE {table} SET chat_platforms = $1::jsonb WHERE id = $2", v, row_id)
+
+
+@router.get("/chat-platforms", summary="Площадки, где у каждого вида чатов есть чат")
+async def get_chat_platforms(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Для галочек площадок под каждым видом чатов (миграция 520): столько
+    галочек, сколько площадок подключено у этого вида."""
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    return await chat_pf.available(db, client_id, event_id)
+
+
 @router.get("/templates", summary="Список шаблонов рассылок")
 async def list_templates(
     event_id: int,
@@ -846,7 +877,7 @@ async def list_templates(
                custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
                send_to_speakers_chat, pin_in_chat, nav_items, intro_roles,
-               speaker_photo_mode,
+               speaker_photo_mode, chat_platforms,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -899,7 +930,7 @@ async def list_templates(
                    -- ⚠️ По той же причине: у только что созданного события
                    -- редактор навигации должен открыться с уже заполненными
                    -- пунктами, а не пустым.
-                   send_to_event_chats, pin_in_chat, nav_items,
+                   send_to_event_chats, pin_in_chat, nav_items, chat_platforms,
                    created_at
             FROM broadcast_templates
             WHERE event_id = $1
@@ -927,6 +958,7 @@ async def list_templates(
         # «пунктов нет» у заполненного шаблона. Та же ошибка уже ловилась на
         # лендингах (event_landing._ser_page).
         d["nav_items"] = _parse_nav_items(d.get("nav_items"))
+        d["chat_platforms"] = chat_pf.parse(d.get("chat_platforms"))
         result.append(d)
     return {"templates": result}
 
@@ -1041,6 +1073,7 @@ async def create_template(
     )
     row = dict(row)
     row["nav_items"] = _parse_nav_items(row.get("nav_items"))
+    await _save_chat_platforms(db, "broadcast_templates", row["id"], data.chat_platforms)
     return dict(row)
 
 
@@ -1418,6 +1451,7 @@ async def update_template(
         raise HTTPException(status_code=404, detail="Шаблон не найден")
     row = dict(row)
     row["nav_items"] = _parse_nav_items(row.get("nav_items"))
+    await _save_chat_platforms(db, "broadcast_templates", row["id"], data.chat_platforms)
     return row
 
 
@@ -1464,7 +1498,7 @@ async def duplicate_template(
            custom_day_ref, custom_time,
            custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
            target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-           send_to_speakers_chat, speaker_photo_mode)
+           send_to_speakers_chat, speaker_photo_mode, chat_platforms)
         SELECT client_id, event_id, $3, type, subject, text, photo_url, video_url, media_type,
                button_text, button_url, schedule_mode, offset_minutes,
                audience_include, audience_exclude, allow_custom_datetime,
@@ -1472,7 +1506,7 @@ async def duplicate_template(
                custom_day_ref, custom_time,
                custom_bind_kind, custom_slot_session_id, custom_slot_offset_min, custom_fire_at,
                target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats,
-               send_to_speakers_chat, speaker_photo_mode
+               send_to_speakers_chat, speaker_photo_mode, chat_platforms
           FROM broadcast_templates WHERE id=$1 AND event_id=$2
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type,
                   button_text, button_url, schedule_mode, offset_minutes,
@@ -1622,6 +1656,11 @@ async def list_schedules(
                bs.send_to_client_chats, bs.send_to_private_chats, bs.send_to_speakers_chat,
                bs.target_channel_ids,
                bs.chats_overridden,
+               -- Площадки по видам чатов (миграция 520): своё → иначе шаблона,
+               -- если рассылку не правили вручную (как у движка).
+               bs.chat_platforms,
+               COALESCE(bs.chat_platforms,
+                        CASE WHEN NOT bs.chats_overridden THEN bt.chat_platforms END) AS eff_chat_platforms,
                -- Эффективные каналы/флаги: schedule → иначе значения шаблона (как при отправке).
                -- ⚠️ Если chats_overridden=TRUE — берём СТРОГО из рассылки (шаблон не
                -- подмешиваем, как в движке tasks/broadcast.py), иначе OR с шаблоном.
@@ -1748,6 +1787,8 @@ async def list_schedules(
             d["eff_subject"] = _subj
         # snapshot_buttons приходит из jsonb строкой — парсим в список, чтобы
         # форма правки видела кнопки (Array.isArray на фронте).
+        d["chat_platforms"] = chat_pf.parse(d.get("chat_platforms"))
+        d["eff_chat_platforms"] = chat_pf.parse(d.get("eff_chat_platforms"))
         sb = d.get("snapshot_buttons")
         if isinstance(sb, str):
             try:
@@ -2799,6 +2840,9 @@ class SetFireAtRequest(BaseModel):
     # Пометка «галочки чатов переопределены вручную» (миграция 235): при TRUE
     # движок берёт send_to_* строго из рассылки, не подмешивая шаблон.
     chats_overridden: Optional[bool] = None
+    # Площадки по видам чатов (миграция 520): {"event": ["telegram","vk"], ...}.
+    # None = не трогать; нет ключа вида = все площадки.
+    chat_platforms: Optional[dict] = None
 
 
 @router.put("/schedules/{schedule_id}/fire-at", summary="Установить время отправки (для custom_datetime)")
@@ -2857,6 +2901,7 @@ async def set_schedule_fire_at(
         data.send_to_client_chats = None
         data.send_to_private_chats = None
         data.chats_overridden = None
+        data.chat_platforms = None
 
     # Динамический SET: базово fire_at/is_test/status, плюс опциональные поля,
     # которые пришли (None = не трогаем текущее значение в БД).
@@ -2880,6 +2925,9 @@ async def set_schedule_fire_at(
         _add("send_to_private_chats", data.send_to_private_chats)
     if data.chats_overridden is not None:
         _add("chats_overridden", data.chats_overridden)
+    if chat_pf.normalize(data.chat_platforms) is not None:
+        vals.append(chat_pf.normalize(data.chat_platforms))
+        set_parts.append(f"chat_platforms = ${len(vals)}::jsonb")
 
     vals.append(schedule_id)
     vals.append(event_id)
@@ -2994,6 +3042,9 @@ class AddCustomRequest(BaseModel):
     send_to_event_chats: bool = False
     send_to_client_chats: bool = False
     send_to_private_chats: bool = False
+    # Площадки по видам чатов (миграция 520): {"event": ["telegram","vk"], ...}.
+    # None = не трогать; нет ключа вида = все площадки.
+    chat_platforms: Optional[dict] = None
     # Каналы для отправки: None = все каналы клиента; [] = никуда; [N,M] = только эти.
     target_channel_ids: Optional[List[int]] = None
     # Выбранный спикер/организатор/жюри (event_collaborators.id) — тогда работают
@@ -3124,6 +3175,7 @@ async def add_custom_schedule(
         data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id,
         speaker_ec_id, status_val, data.target_channel_ids, data.day, (data.subject or None)
     )
+    await _save_chat_platforms(db, "broadcast_schedules", row["id"], data.chat_platforms)
     return dict(row)
 
 
@@ -3193,6 +3245,8 @@ async def edit_custom_schedule(
         schedule_id, event_id, data.send_to_event_chats, data.send_to_client_chats,
         data.send_to_private_chats, speaker_ec_id, data.target_channel_ids, data.day,
     )
+    if row:
+        await _save_chat_platforms(db, "broadcast_schedules", row["id"], data.chat_platforms)
     return dict(row)
 
 

@@ -5,6 +5,7 @@ import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Load
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import ChatPlatformTicks, { parseChatPlatforms, useChatPlatformsAvailable, type ChatPlatforms } from '@/components/ChatPlatformTicks'
 import PayTariffPicker, { audBase, payTariffSuffix, useEventTariffs, type EventTariff } from '@/components/PayTariffPicker'
 import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
 import ChatNavEditor from '@/components/ChatNavEditor'
@@ -354,6 +355,8 @@ const emptyForm = {
   send_to_client_chats: false,
   send_to_private_chats: false,
   send_to_speakers_chat: false,
+  // Площадки по видам чатов (миграция 520): {} = все площадки у всех видов.
+  chat_platforms: {} as ChatPlatforms,
   speaker_photo_mode: 'poster',
   custom_day_ref: '', custom_time: '12:00',
   // Привязка кастомного шаблона: 'day' — день программы (как было),
@@ -630,6 +633,8 @@ export default function TemplatesPage() {
   const hasPayments = (me?.features || []).includes('event_tariffs')
   // Тарифы события — для подписи сегментов оплаты и галочек тарифов.
   const eventTariffs = useEventTariffs(eventId, hasPayments)
+  // Какие площадки подключены у каждого вида чатов — столько галочек и рисуем.
+  const chatPfAvailable = useChatPlatformsAvailable(eventId)
   // База чатов клиента (общие/личные каналы) — только с фичей broadcast_chats (Экстра/vip).
   // «В чаты события» доступна всем — её НЕ гейтим.
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
@@ -840,6 +845,7 @@ export default function TemplatesPage() {
         // Общие/личные чаты — только с фичей broadcast_chats.
         send_to_client_chats: hasChatsFeature ? !!f.send_to_client_chats : false,
         send_to_private_chats: hasChatsFeature ? !!f.send_to_private_chats : false,
+        chat_platforms: (f as any).chat_platforms || {},
       }
       if (f.target_channel_ids !== null && f.target_channel_ids !== undefined) {
         payload.target_channel_ids = f.target_channel_ids
@@ -921,6 +927,7 @@ export default function TemplatesPage() {
       send_to_client_chats: !!t.send_to_client_chats,
       send_to_private_chats: !!t.send_to_private_chats,
       send_to_speakers_chat: !!t.send_to_speakers_chat,
+      chat_platforms: parseChatPlatforms(t.chat_platforms),
       speaker_photo_mode: t.speaker_photo_mode || 'poster',
       custom_bind_kind: t.custom_bind_kind || 'day',
       custom_day_ref: t.custom_day_ref || '',
@@ -2426,9 +2433,12 @@ export default function TemplatesPage() {
                   <p className="text-[11px] text-gray-600 leading-relaxed">
                     Участникам события эта рассылка не отправляется. Получатель —
                     чат спикеров, он задаётся один раз в «Описании» события, раздел
-                    «Чаты и каналы события» (Telegram / ВКонтакте / MAX — уйдёт во все
-                    заполненные). Выбирать чат или аудиторию здесь не нужно.
+                    «Чаты и каналы события». Выбирать чат или аудиторию здесь не нужно —
+                    только площадки, куда слать.
                   </p>
+                  <ChatPlatformTicks kind="speakers" value={(form as any).chat_platforms || {}}
+                    onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                    available={chatPfAvailable} />
                 </div>
               ) : /* ⚠️ Аудитория и чаты у навигации ЗАФИКСИРОВАНЫ на сервере
                       (только чат события, в личку никому). Показывать селекторы
@@ -2440,9 +2450,12 @@ export default function TemplatesPage() {
                   <p className="text-[11px] text-gray-600 leading-relaxed">
                     Участникам в личку эта рассылка не отправляется. Получатель — чат
                     события, он выбирается в «Описании» события, раздел «Чаты и каналы
-                    события» (уйдёт во все заполненные площадки, в каждой — со своими
-                    ссылками). Время отправки задаётся вручную в очереди.
+                    события» (в каждой площадке — со своими ссылками). Время отправки
+                    задаётся вручную в очереди.
                   </p>
+                  <ChatPlatformTicks kind="event" value={(form as any).chat_platforms || {}}
+                    onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                    available={chatPfAvailable} />
                 </div>
               ) : (<>
               <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
@@ -2486,15 +2499,8 @@ export default function TemplatesPage() {
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
 
-              {/* ⚠️ Площадки выше управляют И ЧАТАМИ (22.09.2026): выбран только
-                  Telegram — пост уйдёт в телеграмный чат события, а в MAX и ВК
-                  нет. Раньше чаты слались во все площадки, где чат задан,
-                  независимо от выбора каналов. */}
-              <p className="text-[11px] text-gray-500 -mt-1 px-1">
-                Площадки выше действуют и на чаты: снимете Telegram — в чат
-                Telegram не уйдёт.
-              </p>
-
+              {/* «Каналы для отправки» — только личные сообщения. У каждого
+                  вида чатов ниже свои галочки площадок (миграция 520). */}
               {/* Три независимые галочки: чаты события / общие чаты / личные каналы. */}
               <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
@@ -2508,6 +2514,9 @@ export default function TemplatesPage() {
                   </span>
                 </span>
               </label>
+              <ChatPlatformTicks kind="event" value={(form as any).chat_platforms || {}}
+                onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                available={chatPfAvailable} disabled={!(form as any).send_to_event_chats} />
               {/* Чат СПИКЕРОВ — отдельный от чата участников (миграция 431).
                   Доступен всем, как и чат события: это чат ЭТОГО события. */}
               <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
@@ -2523,7 +2532,10 @@ export default function TemplatesPage() {
                   </span>
                 </span>
               </label>
-              {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              <ChatPlatformTicks kind="speakers" value={(form as any).chat_platforms || {}}
+                onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                available={chatPfAvailable} disabled={!(form as any).send_to_speakers_chat} />
+              {hasChatsFeature && (<><label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
                   checked={!!(form as any).send_to_client_chats}
                   onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
@@ -2534,8 +2546,11 @@ export default function TemplatesPage() {
                     В общие группы/каналы из базы чатов (Каналы → «Группы/Каналы для рассылок», без галочки «Личный»).
                   </span>
                 </span>
-              </label>)}
-              {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              </label>
+              <ChatPlatformTicks kind="common" value={(form as any).chat_platforms || {}}
+                onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                available={chatPfAvailable} disabled={!(form as any).send_to_client_chats} /></>)}
+              {hasChatsFeature && (<><label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
                   checked={!!(form as any).send_to_private_chats}
                   onChange={e => setForm({ ...form, send_to_private_chats: e.target.checked } as any)}
@@ -2546,7 +2561,10 @@ export default function TemplatesPage() {
                     В каналы из базы чатов, помеченные галочкой «Личный».
                   </span>
                 </span>
-              </label>)}
+              </label>
+              <ChatPlatformTicks kind="private" value={(form as any).chat_platforms || {}}
+                onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                available={chatPfAvailable} disabled={!(form as any).send_to_private_chats} /></>)}
               </>)}
             </div>
             <div className="flex gap-2 mt-5">
@@ -2770,6 +2788,9 @@ export default function TemplatesPage() {
                   </span>
                 </span>
               </label>
+              <ChatPlatformTicks kind="event" value={(form as any).chat_platforms || {}}
+                onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                available={chatPfAvailable} disabled={!(form as any).send_to_event_chats} />
 
               <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
@@ -2784,9 +2805,12 @@ export default function TemplatesPage() {
                   </span>
                 </span>
               </label>
+              <ChatPlatformTicks kind="speakers" value={(form as any).chat_platforms || {}}
+                onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                available={chatPfAvailable} disabled={!(form as any).send_to_speakers_chat} />
 
               {/* Галочка: слать ещё и в общую базу чатов клиента (только с фичей broadcast_chats) */}
-              {hasChatsFeature && (<label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              {hasChatsFeature && (<><label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
                   checked={!!(form as any).send_to_client_chats}
                   onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
@@ -2797,7 +2821,10 @@ export default function TemplatesPage() {
                     Ещё и в группы/каналы из вашей базы чатов (Каналы → «Группы/Каналы для рассылок»).
                   </span>
                 </span>
-              </label>)}
+              </label>
+              <ChatPlatformTicks kind="common" value={(form as any).chat_platforms || {}}
+                onChange={v => setForm({ ...form, chat_platforms: v } as any)}
+                available={chatPfAvailable} disabled={!(form as any).send_to_client_chats} /></>)}
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={createCustom}
