@@ -71,15 +71,25 @@ export default function TechRequisitesPage() {
           <input value={f.inn} onChange={set('inn')} className={input}
                  inputMode="numeric" maxLength={14} placeholder="12 цифр" />
         </label>
+        {/* ⚠️ Галочка ОБЯЗАТЕЛЬНА (владелец, 26.09.2026): выплаты идут только
+            самозанятым. Без неё кнопка не активна, и сервер тоже откажет. */}
         <label className="flex items-start gap-2 text-sm text-gray-700">
           <input type="checkbox" className="mt-0.5" checked={f.self_employed}
                  onChange={e => setF({ ...f, self_employed: e.target.checked })} />
-          <span>Я самозанятый (плательщик налога на профессиональный доход)</span>
+          <span>
+            Я самозанятый (плательщик налога на профессиональный доход)
+            <span className="text-red-600"> *</span>
+          </span>
         </label>
+        {!f.self_employed && (
+          <div className="text-xs text-amber-700">
+            Выплаты идут только самозанятым — без этой отметки сохранить нельзя.
+          </div>
+        )}
 
         {error && <div className="text-sm text-red-600">{error}</div>}
         <div className="flex items-center gap-3">
-          <button onClick={save} disabled={busy} className="btn-gold px-5 py-2 text-sm disabled:opacity-50">
+          <button onClick={save} disabled={busy || !f.self_employed} className="btn-gold px-5 py-2 text-sm disabled:opacity-50">
             {busy ? 'Сохраняем…' : 'Сохранить'}
           </button>
           {saved && <span className="text-sm text-green-700">Сохранено</span>}

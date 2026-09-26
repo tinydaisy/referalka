@@ -134,7 +134,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </button>
         </div>
       </aside>
-      <main className="flex-1 lg:ml-60 px-4 sm:px-6 py-8 pt-16 lg:pt-8 max-w-6xl">
+      {/* ⚠️ Без max-w: админка — это широкие таблицы, и ограничение резало их
+          до половины монитора, текст в ячейках мельчал (владелец, 26.09.2026).
+          `min-w-0` — чтобы широкая таблица скроллилась внутри, а не
+          распирала страницу. */}
+      <main className="min-w-0 flex-1 lg:ml-60 px-4 sm:px-6 py-8 pt-16 lg:pt-8">
         {children}
       </main>
     </div>

@@ -351,6 +351,7 @@ function SpecsTab({ specs, rates, onChange }: any) {
           <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
             <tr>
               <th className="px-4 py-3">Человек</th>
+              <th className="px-4 py-3">Реквизиты для выплат</th>
               <th className="px-4 py-3">Клиентов</th>
               <th className="px-4 py-3">Платят</th>
               <th className="px-4 py-3">К выплате</th>
@@ -390,6 +391,10 @@ function SpecsTab({ specs, rates, onChange }: any) {
                       CRM
                     </Link>
                   </div>
+                </td>
+                {/* Реквизиты — ОТДЕЛЬНОЙ колонкой обычным шрифтом (владелец,
+                    26.09.2026): мелкой припиской под именем их не прочесть. */}
+                <td className="px-4 py-3">
                   <Requisites s={s} />
                 </td>
                 <td className="px-4 py-3">
@@ -460,13 +465,14 @@ function SpecsTab({ specs, rates, onChange }: any) {
 /** Реквизиты для выплат (миграция 517) — вносит сам внедренец в своём кабинете. */
 function Requisites({ s }: any) {
   if (!s.payout_sbp_phone && !s.payout_inn && !s.payout_full_name) {
-    return <div className="mt-1 text-[11px] text-gray-400">реквизиты не заполнены</div>
+    return <span className="text-sm text-gray-400">не заполнены</span>
   }
   return (
-    <div className="mt-1 space-y-0.5 text-[11px] text-gray-500">
-      {s.payout_full_name && <div>{s.payout_full_name}</div>}
-      {s.payout_sbp_phone && <div>СБП: {s.payout_sbp_phone}{s.payout_bank ? `, ${s.payout_bank}` : ''}</div>}
-      {s.payout_inn && <div>ИНН {s.payout_inn}</div>}
+    <div className="min-w-[220px] space-y-0.5 text-sm text-gray-800">
+      {s.payout_full_name && <div className="font-medium">{s.payout_full_name}</div>}
+      {s.payout_sbp_phone && <div className="whitespace-nowrap">СБП: {s.payout_sbp_phone}</div>}
+      {s.payout_bank && <div>Банк: {s.payout_bank}</div>}
+      {s.payout_inn && <div className="whitespace-nowrap">ИНН: {s.payout_inn}</div>}
       <div className={s.payout_self_employed ? 'text-green-700' : 'text-amber-700'}>
         {s.payout_self_employed ? 'самозанятый ✓' : 'самозанятость не отмечена'}
       </div>
