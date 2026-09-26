@@ -1180,3 +1180,10 @@ slug генерируется тем же алфавитом и проверяе
   ([plusson_referral.py](backend/app/services/plusson_referral.py)), своих
   регулярных выражений в ботах быть не должно: копия, не знающая про хвост,
   молча теряет реф-код целиком.
+
+### Внедренец: реквизиты и Авторассыльщик (миграция 517, 26.09.2026)
+
+- `tech_specialists.payout_*` — реквизиты для выплат; `tech_specialists.mailer_*` — аккаунт в mailer.pluson.ru; `platform_settings.tech_owner_tg_username` — ник владельца для «Запросить доступ».
+- Кабинет внедренца (`get_current_tech`): `GET/POST /api/v1/tech/requisites`, `GET /api/v1/tech/mailer`.
+- Админ (`get_current_admin`): `POST /api/v1/admin/tech/specialists/{id}/mailer/issue`, `POST /api/v1/admin/tech/mailer/issue-all`, `POST /api/v1/admin/tech/specialists/{id}/mailer/block` (пока отвечает «мейлер не умеет»), `GET/PATCH /api/v1/admin/tech/settings`.
+- Окружение: `MAILER_API_TOKEN` (обязателен), `MAILER_BASE_URL` (по умолчанию `https://mailer.pluson.ru`).

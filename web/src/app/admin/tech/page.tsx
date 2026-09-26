@@ -344,6 +344,8 @@ function SpecsTab({ specs, rates, onChange }: any) {
         )}
       </div>
 
+      <TechSettingsBlock specs={specs} onChange={onChange} />
+
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead className="border-b border-gray-100 text-left text-xs text-gray-500">
@@ -356,6 +358,9 @@ function SpecsTab({ specs, rates, onChange }: any) {
               {/* Право удалять из общей базы частых вопросов (миграция 461). */}
               <th className="px-4 py-3">Удаление<br />вопросов</th>
               <th className="px-4 py-3">Работает</th>
+              {/* Доступ в mailer.pluson.ru (миграция 517): выдаёт и блокирует
+                  владелец кнопкой — не автомат при назначении/увольнении. */}
+              <th className="px-4 py-3">Авторассыльщик</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
@@ -385,6 +390,7 @@ function SpecsTab({ specs, rates, onChange }: any) {
                       CRM
                     </Link>
                   </div>
+                  <Requisites s={s} />
                 </td>
                 <td className="px-4 py-3">
                   {/* Число клиентов — тоже вход в его срез: по нему кликают
@@ -424,6 +430,9 @@ function SpecsTab({ specs, rates, onChange }: any) {
                          }} />
                 </td>
                 <td className="px-4 py-3">
+                  <MailerCell s={s} onChange={onChange} />
+                </td>
+                <td className="px-4 py-3">
                   <div className="flex flex-wrap items-center gap-3">
                     {/* ⚠️ Кнопки «новый пароль» здесь БОЛЬШЕ НЕТ (миграция 486):
                         своего пароля у внедренца не существует, он входит
@@ -444,6 +453,152 @@ function SpecsTab({ specs, rates, onChange }: any) {
         </table>
       </div>
 
+    </div>
+  )
+}
+
+/** Реквизиты для выплат (миграция 517) — вносит сам внедренец в своём кабинете. */
+function Requisites({ s }: any) {
+  if (!s.payout_sbp_phone && !s.payout_inn && !s.payout_full_name) {
+    return <div className="mt-1 text-[11px] text-gray-400">реквизиты не заполнены</div>
+  }
+  return (
+    <div className="mt-1 space-y-0.5 text-[11px] text-gray-500">
+      {s.payout_full_name && <div>{s.payout_full_name}</div>}
+      {s.payout_sbp_phone && <div>СБП: {s.payout_sbp_phone}{s.payout_bank ? `, ${s.payout_bank}` : ''}</div>}
+      {s.payout_inn && <div>ИНН {s.payout_inn}</div>}
+      <div className={s.payout_self_employed ? 'text-green-700' : 'text-amber-700'}>
+        {s.payout_self_employed ? 'самозанятый ✓' : 'самозанятость не отмечена'}
+      </div>
+    </div>
+  )
+}
+
+/** Доступ в Авторассыльщик: выдать / заблокировать (миграция 517). */
+function MailerCell({ s, onChange }: any) {
+  const [busy, setBusy] = useState(false)
+
+  async function issue() {
+    setBusy(true)
+    try {
+      const r: any = await api.adminTech.mailerIssue(s.id)
+      if (r?.existed) alert(`На ${r.email} аккаунт в мейлере уже был — пароль у человека, `
+                            + `в кабинете покажем только логин и ссылку.`)
+      onChange()
+    } catch (e: any) { alert(e?.message || 'Не удалось') }
+    finally { setBusy(false) }
+  }
+
+  async function block() {
+    if (!confirm(`Закрыть ${s.name || s.email} доступ в Авторассыльщик?`)) return
+    setBusy(true)
+    try { await api.adminTech.mailerBlock(s.id); onChange() }
+    catch (e: any) { alert(e?.message || 'Не удалось') }
+    finally { setBusy(false) }
+  }
+
+  if (s.mailer_blocked_at) {
+    return <span className="text-xs text-red-600">заблокирован</span>
+  }
+  if (!s.mailer_email) {
+    return (
+      <button onClick={issue} disabled={busy}
+              className="text-xs text-[#25455D] underline disabled:opacity-40">
+        {busy ? 'выдаём…' : 'выдать аккаунт'}
+      </button>
+    )
+  }
+  return (
+    <div className="text-xs">
+      <div className="text-green-700">выдан</div>
+      {!s.mailer_has_password && <div className="text-gray-400">был раньше, пароль у него</div>}
+      <button onClick={block} disabled={busy}
+              className="mt-0.5 text-red-600 underline disabled:opacity-40">
+        заблокировать
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Настройки раздела + массовая выдача мейлера.
+ *
+ * ⚠️ Вводится просто НИК, ссылку `https://t.me/<ник>` собираем сами: по ней
+ * внедренец без аккаунта жмёт «Запросить доступ» и попадает в личку владельца
+ * с готовым текстом.
+ */
+function TechSettingsBlock({ specs, onChange }: any) {
+  const [nick, setNick] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [busyAll, setBusyAll] = useState(false)
+
+  useEffect(() => {
+    api.adminTech.settings().then((r: any) => setNick(r.owner_tg_username || '')).catch(() => {})
+  }, [])
+
+  async function save() {
+    try {
+      const r: any = await api.adminTech.saveSettings({ owner_tg_username: nick })
+      setNick(r.owner_tg_username || '')
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+    } catch (e: any) { alert(e?.message || 'Не удалось сохранить') }
+  }
+
+  const without = specs.filter((s: any) => s.is_active && !s.mailer_email).length
+
+  async function issueAll() {
+    if (!confirm(`Выдать аккаунт в Авторассыльщике всем работающим без аккаунта (${without})?`)) return
+    setBusyAll(true)
+    try {
+      const r: any = await api.adminTech.mailerIssueAll()
+      const lines = [`Выдано: ${r.issued.length}`]
+      const existed = r.issued.filter((x: any) => x.existed).length
+      if (existed) lines.push(`Из них аккаунт уже был (пароль у человека): ${existed}`)
+      for (const f of r.failed) lines.push(`Не вышло — ${f.email}: ${f.error}`)
+      alert(lines.join('\n'))
+      onChange()
+    } catch (e: any) { alert(e?.message || 'Не удалось') }
+    finally { setBusyAll(false) }
+  }
+
+  const clean = nick.trim().replace(/^(https?:\/\/)?(www\.)?(t\.me\/|telegram\.me\/)?@?/i, '').replace(/\/+$/, '')
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="mb-1 text-sm font-semibold text-gray-800">Ваш Telegram для запросов доступа</div>
+        <div className="mb-3 text-xs text-gray-500">
+          Внедренец без аккаунта в Авторассыльщике жмёт «Запросить доступ» и
+          попадает к вам в личку с готовым текстом. Введите просто ник.
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input value={nick} onChange={e => setNick(e.target.value)}
+                 placeholder="margo_forbs"
+                 className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <button onClick={save} className="btn-primary px-5 py-2 text-sm">
+            {saved ? 'Сохранено' : 'Сохранить'}
+          </button>
+        </div>
+        {clean && (
+          <div className="mt-2 text-xs text-gray-400">
+            Ссылка: <a href={`https://t.me/${clean}`} target="_blank" rel="noreferrer"
+                       className="underline">https://t.me/{clean}</a>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="mb-1 text-sm font-semibold text-gray-800">Авторассыльщик</div>
+        <div className="mb-3 text-xs text-gray-500">
+          Аккаунты в mailer.pluson.ru выдаёте вы — по кнопке у каждого в списке
+          или сразу всем работающим. Внедренец видит логин и пароль в своём
+          кабинете, в разделе «Авторассыльщик».
+        </div>
+        <button onClick={issueAll} disabled={busyAll || !without}
+                className="btn-gold px-5 py-2 text-sm disabled:opacity-40">
+          {busyAll ? 'Выдаём…' : without ? `Выдать всем без аккаунта (${without})` : 'У всех работающих аккаунт есть'}
+        </button>
+      </div>
     </div>
   )
 }

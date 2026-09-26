@@ -1620,6 +1620,11 @@ export const api = {
     // Деньги за месяц с разбивкой по видам начислений.
     money: (period?: string) =>
       request(`/api/v1/tech/money${period ? `?period=${period}` : ''}`),
+    // Реквизиты для выплат и доступ в Авторассыльщик (миграция 517).
+    requisites: () => request('/api/v1/tech/requisites'),
+    saveRequisites: (d: any) =>
+      request('/api/v1/tech/requisites', { method: 'POST', body: JSON.stringify(d) }),
+    mailer: () => request('/api/v1/tech/mailer'),
     // Куда слать уведомления: личка в боте + отдельная группа.
     notifySettings: () => request('/api/v1/tech/notify-settings'),
     saveNotifySettings: (d: any) =>
@@ -1750,6 +1755,17 @@ export const api = {
     distributeFund: (period: string) =>
       request(`/api/v1/admin/tech/bonus-funds/${encodeURIComponent(period)}/distribute`,
               { method: 'POST' }),
+    // Авторассыльщик (мейлер, миграция 517): выдаёт и блокирует владелец кнопкой.
+    mailerIssue: (id: number) =>
+      request(`/api/v1/admin/tech/specialists/${id}/mailer/issue`, { method: 'POST' }),
+    mailerIssueAll: () =>
+      request('/api/v1/admin/tech/mailer/issue-all', { method: 'POST' }),
+    mailerBlock: (id: number) =>
+      request(`/api/v1/admin/tech/specialists/${id}/mailer/block`, { method: 'POST' }),
+    // Настройки раздела: ник владельца для кнопки «Запросить доступ».
+    settings: () => request('/api/v1/admin/tech/settings'),
+    saveSettings: (d: { owner_tg_username: string }) =>
+      request('/api/v1/admin/tech/settings', { method: 'PATCH', body: JSON.stringify(d) }),
     specialists: () => request('/api/v1/admin/tech/specialists'),
     createSpec: (data: any) =>
       request('/api/v1/admin/tech/specialists', { method: 'POST', body: JSON.stringify(data) }),

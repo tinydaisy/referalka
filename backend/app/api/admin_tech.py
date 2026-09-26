@@ -73,6 +73,12 @@ async def list_specs(
                   c.email, c.name, c.phone, c.telegram_username,
                   ts.can_edit_materials, ts.can_delete_faq, ts.is_active, ts.takes_clients,
                   ts.last_login_at, ts.created_at,
+                  -- Реквизиты для выплат и мейлер (миграция 517): владельцу
+                  -- они нужны прямо в списке — по ним платят и выдают доступ.
+                  ts.payout_full_name, ts.payout_inn, ts.payout_sbp_phone,
+                  ts.payout_bank, ts.payout_self_employed, ts.payout_updated_at,
+                  ts.mailer_email, ts.mailer_issued_at, ts.mailer_blocked_at,
+                  (ts.mailer_password IS NOT NULL) AS mailer_has_password,
                   (SELECT COUNT(*) FROM clients c
                     WHERE c.tech_specialist_id = ts.id) AS clients_count,
                   (SELECT COUNT(*) FROM clients c
@@ -251,6 +257,142 @@ async def delete_spec(
     await db.execute("DELETE FROM tech_specialists WHERE id=$1", spec_id)
     return {"ok": True, "deleted_accruals": accruals,
             "freed_clients": int(freed or 0)}
+
+
+# ── Авторассыльщик (мейлер) — миграция 517 ───────────────────────────────
+# ⚠️⚠️ Выдаёт и блокирует ВЛАДЕЛЕЦ КНОПКОЙ, а не автомат при назначении или
+# увольнении (решение 26.09.2026).
+
+async def _issue_mailer(db: asyncpg.Connection, spec_id: int) -> dict:
+    from app.services.mailer_accounts import register
+
+    spec = await db.fetchrow(
+        """SELECT ts.id, ts.mailer_email, ts.mailer_blocked_at, c.email, c.name
+             FROM tech_specialists ts JOIN clients c ON c.id = ts.client_id
+            WHERE ts.id = $1""", spec_id)
+    if not spec:
+        raise HTTPException(404, "Не найден")
+    if spec["mailer_email"]:
+        # ⚠️ Заблокированный аккаунт повторной регистрацией НЕ оживить: мейлер
+        # ответит «почта занята», а блокировка у него останется. Снимать её —
+        # отдельной ручкой мейлера, когда она появится.
+        raise HTTPException(409, "Аккаунт заблокирован — разблокировка появится "
+                                 "вместе с эндпойнтом мейлера"
+                            if spec["mailer_blocked_at"] else
+                            "Аккаунт в мейлере уже выдан")
+
+    res = await register(spec["email"], spec["name"], spec["name"])
+    await db.execute(
+        """UPDATE tech_specialists
+              SET mailer_email = $2, mailer_password = $3, mailer_login_url = $4,
+                  mailer_issued_at = NOW(), mailer_blocked_at = NULL,
+                  updated_at = NOW()
+            WHERE id = $1""",
+        spec_id, res["email"], res["password"], res["login_url"])
+    return {"ok": True, "email": res["email"], "existed": res["existed"],
+            "has_password": bool(res["password"])}
+
+
+@router.post("/specialists/{spec_id}/mailer/issue", summary="Выдать аккаунт в мейлере")
+async def mailer_issue(
+    spec_id: int,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from app.services.mailer_accounts import MailerError
+    try:
+        return await _issue_mailer(db, spec_id)
+    except MailerError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.post("/mailer/issue-all", summary="Выдать мейлер всем работающим без аккаунта")
+async def mailer_issue_all(
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️ Только работающим (`is_active`) и только тем, у кого аккаунта ещё нет:
+    уволенному доступ выдавать незачем, повторно выданному — нельзя (409)."""
+    from app.services.mailer_accounts import MailerError
+
+    ids = await db.fetch(
+        """SELECT ts.id, c.email FROM tech_specialists ts
+             JOIN clients c ON c.id = ts.client_id
+            WHERE ts.is_active AND ts.mailer_email IS NULL ORDER BY ts.id""")
+    done, failed = [], []
+    for r in ids:
+        try:
+            done.append({**(await _issue_mailer(db, r["id"])), "spec_id": r["id"]})
+        except (MailerError, HTTPException) as e:
+            failed.append({"spec_id": r["id"], "email": r["email"],
+                           "error": getattr(e, "detail", None) or str(e)})
+    return {"issued": done, "failed": failed}
+
+
+@router.post("/specialists/{spec_id}/mailer/block", summary="Заблокировать аккаунт в мейлере")
+async def mailer_block(
+    spec_id: int,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from app.services.mailer_accounts import MailerError, block
+
+    email = await db.fetchval(
+        "SELECT mailer_email FROM tech_specialists WHERE id = $1", spec_id)
+    if not email:
+        raise HTTPException(404, "Аккаунта в мейлере у него нет")
+    try:
+        await block(email)
+    except MailerError as e:
+        # ⚠️ Отметку «заблокирован» ставим ТОЛЬКО после ответа мейлера: иначе
+        # в админке было бы «закрыт», а человек продолжал бы рассылать.
+        raise HTTPException(502, str(e))
+    await db.execute(
+        "UPDATE tech_specialists SET mailer_blocked_at = NOW(), updated_at = NOW() "
+        "WHERE id = $1", spec_id)
+    return {"ok": True}
+
+
+# ── Настройки раздела ────────────────────────────────────────────────────
+class TechSettingsIn(BaseModel):
+    owner_tg_username: Optional[str] = None
+
+
+def _clean_tg_nick(v: Optional[str]) -> Optional[str]:
+    """Из «@nick», «t.me/nick», «https://t.me/nick» делает «nick»: в поле
+    вводят просто ник, но вставить ссылку целиком — тоже частый случай."""
+    s = (v or "").strip()
+    for p in ("https://", "http://", "www.", "t.me/", "telegram.me/", "@"):
+        if s.lower().startswith(p):
+            s = s[len(p):]
+    s = s.strip("/ ")
+    return s or None
+
+
+@router.get("/settings", summary="Настройки раздела техспецов")
+async def get_tech_settings(
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    nick = await db.fetchval(
+        "SELECT tech_owner_tg_username FROM platform_settings WHERE id = 1")
+    return {"owner_tg_username": nick}
+
+
+@router.patch("/settings", summary="Сохранить настройки раздела техспецов")
+async def save_tech_settings(
+    data: TechSettingsIn,
+    _admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    import re
+    nick = _clean_tg_nick(data.owner_tg_username)
+    if nick and not re.fullmatch(r"[A-Za-z0-9_]{4,32}", nick):
+        raise HTTPException(400, "Ник Telegram — латиница, цифры и «_», от 4 до 32 символов")
+    await db.execute(
+        "UPDATE platform_settings SET tech_owner_tg_username = $1, updated_at = NOW() "
+        "WHERE id = 1", nick)
+    return {"owner_tg_username": nick}
 
 
 @router.post("/specialists/{spec_id}/reset-password", summary="Пароля у внедренца нет")

@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList, HelpCircle, Bell, Coins, Contact } from 'lucide-react'
+import { Users, Wallet, BookOpen, MessageCircle, LogOut, TrendingUp, ClipboardList, HelpCircle, Bell, Coins, Contact, Send, Landmark } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const NAV = [
@@ -37,6 +37,8 @@ const NAV = [
   { href: '/tech/faq', label: 'Частые вопросы', icon: HelpCircle },
   // Куда слать события по своим клиентам: личка в боте + рабочая группа.
   { href: '/tech/notify', label: 'Уведомления', icon: Bell },
+  // Доступ в mailer.pluson.ru (миграция 517): выдаёт владелец из админки.
+  { href: '/tech/mailer', label: 'Авторассыльщик', icon: Send },
 ]
 
 export default function TechLayout({ children }: { children: React.ReactNode }) {
@@ -119,6 +121,14 @@ export default function TechLayout({ children }: { children: React.ReactNode }) 
 
         <div className="border-t border-white/10 p-3">
           <div className="px-3 py-2 text-sm text-white/80">{me?.name || me?.email}</div>
+          {/* Реквизиты — рядом с именем (просьба владельца 26.09.2026): это
+              данные о самом человеке, а не рабочий раздел. */}
+          <Link href="/tech/requisites"
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  pathname.startsWith('/tech/requisites')
+                    ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
+            <Landmark size={17} /> Реквизиты для выплат
+          </Link>
           <button
             onClick={() => { localStorage.removeItem('plusson_token'); router.replace('/tech/login') }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white">

@@ -278,6 +278,108 @@ async def save_notify_settings(
     return {"ok": True}
 
 
+# ── Реквизиты для выплат (миграция 517) ──────────────────────────────────
+class RequisitesIn(BaseModel):
+    full_name: Optional[str] = None
+    inn: Optional[str] = None
+    sbp_phone: Optional[str] = None
+    bank: Optional[str] = None
+    self_employed: Optional[bool] = None
+
+
+_REQ_SQL = """SELECT payout_full_name AS full_name, payout_inn AS inn,
+                     payout_sbp_phone AS sbp_phone, payout_bank AS bank,
+                     payout_self_employed AS self_employed,
+                     payout_updated_at AS updated_at
+                FROM tech_specialists WHERE id = $1"""
+
+
+@router.get("/requisites", summary="Мои реквизиты для выплат")
+async def my_requisites(
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    row = await db.fetchrow(_REQ_SQL, int(user["sub"]))
+    if not row:
+        raise HTTPException(404, "Не найден")
+    return dict(row)
+
+
+@router.post("/requisites", summary="Сохранить реквизиты для выплат")
+async def save_requisites(
+    data: RequisitesIn,
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️ Самозанятость — отметка самого человека, проверки через налоговую
+    нет (решение владельца 26.09.2026)."""
+    import re
+
+    inn = re.sub(r"\D", "", data.inn or "") or None
+    # ⚠️ ИНН физлица/самозанятого — ровно 12 цифр (10 — у организаций).
+    if inn and len(inn) != 12:
+        raise HTTPException(400, "ИНН самозанятого — 12 цифр")
+
+    phone = re.sub(r"\D", "", data.sbp_phone or "")
+    if phone:
+        if len(phone) == 10:
+            phone = "7" + phone
+        elif len(phone) == 11 and phone[0] == "8":
+            phone = "7" + phone[1:]
+        if len(phone) != 11 or phone[0] != "7":
+            raise HTTPException(400, "Телефон для СБП — российский номер, например +7 900 123-45-67")
+        phone = "+" + phone
+
+    await db.execute(
+        """UPDATE tech_specialists
+              SET payout_full_name = $2, payout_inn = $3, payout_sbp_phone = $4,
+                  payout_bank = $5, payout_self_employed = $6,
+                  payout_updated_at = NOW(), updated_at = NOW()
+            WHERE id = $1""",
+        int(user["sub"]),
+        (data.full_name or "").strip() or None, inn, phone or None,
+        (data.bank or "").strip() or None, bool(data.self_employed),
+    )
+    return dict(await db.fetchrow(_REQ_SQL, int(user["sub"])))
+
+
+# ── Авторассыльщик (миграция 517) ────────────────────────────────────────
+@router.get("/mailer", summary="Мой доступ в Авторассыльщик")
+async def my_mailer(
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """⚠️ Аккаунт выдаёт владелец кнопкой в админке. Нет аккаунта — отдаём
+    ссылку на личку владельца с готовым текстом просьбы (ник — в настройках
+    раздела техспецов, `platform_settings.tech_owner_tg_username`)."""
+    from urllib.parse import quote
+
+    from app.services.mailer_accounts import MAILER_LOGIN_URL
+
+    row = await db.fetchrow(
+        """SELECT mailer_email, mailer_password, mailer_login_url,
+                  mailer_issued_at, mailer_blocked_at
+             FROM tech_specialists WHERE id = $1""", int(user["sub"]))
+    if not row:
+        raise HTTPException(404, "Не найден")
+    nick = await db.fetchval(
+        "SELECT tech_owner_tg_username FROM platform_settings WHERE id = 1")
+    request_url = (f"https://t.me/{nick}?text="
+                   + quote("Здравствуйте, выдайте мне аккаунт в мейлер")) if nick else None
+
+    blocked = bool(row["mailer_blocked_at"])
+    has = bool(row["mailer_email"]) and not blocked
+    return {
+        "has_account": has,
+        "blocked": blocked,
+        "email": row["mailer_email"] if has else None,
+        "password": row["mailer_password"] if has else None,
+        "login_url": row["mailer_login_url"] or MAILER_LOGIN_URL,
+        "issued_at": row["mailer_issued_at"].isoformat() if row["mailer_issued_at"] else None,
+        "request_url": request_url,
+    }
+
+
 @router.get("/money", summary="Мои деньги за месяц")
 async def my_money(
     period: Optional[str] = Query(None, description="YYYY-MM, по умолчанию текущий"),
