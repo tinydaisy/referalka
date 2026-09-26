@@ -67,7 +67,7 @@ async def collect_call_targets(
                         $3::text = 'all_event'
                      OR ($3::text = 'registered_event'   AND ep.is_registered = TRUE)
                      OR ($3::text = 'unregistered_event' AND ep.is_registered = FALSE)
-                     OR $3::text IN ('paid_event', 'unpaid_event')
+                     OR split_part($3::text, ':', 1) IN ('paid_event', 'unpaid_event')
                   )""",
             event_id, client_id, aud_in,
         )

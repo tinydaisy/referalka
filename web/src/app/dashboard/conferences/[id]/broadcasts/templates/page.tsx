@@ -5,6 +5,7 @@ import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Load
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import PayTariffPicker, { audBase, payTariffSuffix, useEventTariffs, type EventTariff } from '@/components/PayTariffPicker'
 import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
 import ChatNavEditor from '@/components/ChatNavEditor'
 
@@ -335,10 +336,12 @@ const EXCLUDE_LABELS: Record<string, string> = {
   all_event: 'всех участников конфы',
 }
 
-function audienceLabel(inc: string, exc: string): string {
-  const incLabel = INCLUDE_LABELS[inc] || inc
+// Сегменты оплаты несут тарифы в самом значении ('paid_event:19,26') —
+// подпись тарифа дописывает payTariffSuffix (PayTariffPicker).
+function audienceLabel(inc: string, exc: string, tariffs: EventTariff[] = []): string {
+  const incLabel = (INCLUDE_LABELS[audBase(inc)] || inc) + payTariffSuffix(inc, tariffs)
   if (!exc || exc === 'none') return incLabel
-  return `${incLabel} − ${EXCLUDE_LABELS[exc] || exc}`
+  return `${incLabel} − ${EXCLUDE_LABELS[audBase(exc)] || exc}${payTariffSuffix(exc, tariffs)}`
 }
 
 const emptyForm = {
@@ -625,6 +628,8 @@ export default function TemplatesPage() {
   const { me, publicBase } = useMe()
   // Сегменты по оплате — только при фиче платных тарифов события.
   const hasPayments = (me?.features || []).includes('event_tariffs')
+  // Тарифы события — для подписи сегментов оплаты и галочек тарифов.
+  const eventTariffs = useEventTariffs(eventId, hasPayments)
   // База чатов клиента (общие/личные каналы) — только с фичей broadcast_chats (Экстра/vip).
   // «В чаты события» доступна всем — её НЕ гейтим.
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
@@ -2007,7 +2012,7 @@ export default function TemplatesPage() {
                       </span>
                     )}
                     <span className="text-indigo-500 font-medium">
-                      👥 {audienceLabel(tpl.audience_include || 'all_event', tpl.audience_exclude || 'none')}
+                      👥 {audienceLabel(tpl.audience_include || 'all_event', tpl.audience_exclude || 'none', eventTariffs)}
                     </span>
                   </div>
                 </div>
@@ -2087,7 +2092,7 @@ export default function TemplatesPage() {
                       </span>
                     )}
                     <span className="text-indigo-500 font-medium">
-                      👥 {audienceLabel(tpl.audience_include || 'all_event', tpl.audience_exclude || 'none')}
+                      👥 {audienceLabel(tpl.audience_include || 'all_event', tpl.audience_exclude || 'none', eventTariffs)}
                     </span>
                   </div>
                 </div>
@@ -2445,7 +2450,7 @@ export default function TemplatesPage() {
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Включить</label>
                   <select
-                    value={(form as any).audience_include || 'all_event'}
+                    value={audBase((form as any).audience_include) || 'all_event'}
                     onChange={e => setForm({ ...form, audience_include: e.target.value } as any)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
@@ -2454,11 +2459,12 @@ export default function TemplatesPage() {
                     {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента (все события)</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={(form as any).audience_include || ''} onChange={v => setForm({ ...form, audience_include: v } as any)} />}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
                   <select
-                    value={(form as any).audience_exclude || 'none'}
+                    value={audBase((form as any).audience_exclude) || 'none'}
                     onChange={e => setForm({ ...form, audience_exclude: e.target.value } as any)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="none">Никого не исключать</option>
@@ -2468,9 +2474,10 @@ export default function TemplatesPage() {
                     {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={(form as any).audience_exclude || ''} onChange={v => setForm({ ...form, audience_exclude: v } as any)} />}
                 </div>
                 <p className="text-xs text-indigo-600 font-medium pt-1">
-                  Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none')}
+                  Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none', eventTariffs)}
                 </p>
               </div>
 
@@ -2709,7 +2716,7 @@ export default function TemplatesPage() {
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Включить</label>
                   <select
-                    value={(form as any).audience_include || 'all_event'}
+                    value={audBase((form as any).audience_include) || 'all_event'}
                     onChange={e => setForm({ ...form, audience_include: e.target.value } as any)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
@@ -2718,11 +2725,12 @@ export default function TemplatesPage() {
                     {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента (все события)</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={(form as any).audience_include || ''} onChange={v => setForm({ ...form, audience_include: v } as any)} />}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
                   <select
-                    value={(form as any).audience_exclude || 'none'}
+                    value={audBase((form as any).audience_exclude) || 'none'}
                     onChange={e => setForm({ ...form, audience_exclude: e.target.value } as any)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="none">Никого не исключать</option>
@@ -2732,9 +2740,10 @@ export default function TemplatesPage() {
                     {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={(form as any).audience_exclude || ''} onChange={v => setForm({ ...form, audience_exclude: v } as any)} />}
                 </div>
                 <p className="text-xs text-indigo-600 font-medium pt-1">
-                  Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none')}
+                  Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none', eventTariffs)}
                 </p>
               </div>
 

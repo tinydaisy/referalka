@@ -10,6 +10,7 @@ import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import PayTariffPicker, { audBase, payTariffSuffix, useEventTariffs, type EventTariff } from '@/components/PayTariffPicker'
 import { useMe } from '@/hooks/useMe'
 import { utcIsoToTzLocalInput, tzLocalInputToEpochMs, nowTzLocalInput } from '@/lib/timezone'
 import EmailFunnelStats, { type EmailStats } from '@/components/EmailFunnelStats'
@@ -29,9 +30,14 @@ const EXCLUDE_LABELS: Record<string, string> = {
   unpaid_event: '− неоплаченный заказ',
   all_event: '− все уч. конфы',
 }
-function audienceLabel(inc: string, exc: string): string {
-  const incLabel = INCLUDE_LABELS[inc] || inc
-  const excLabel = EXCLUDE_LABELS[exc] || (exc && exc !== 'none' ? `− ${exc}` : '')
+// Сегменты оплаты несут тарифы в самом значении ('paid_event:19,26') —
+// подпись тарифа дописывает payTariffSuffix (PayTariffPicker).
+function audienceLabel(inc: string, exc: string, tariffs: EventTariff[] = []): string {
+  const incLabel = (INCLUDE_LABELS[audBase(inc)] || inc) + payTariffSuffix(inc, tariffs)
+  const excBase = audBase(exc)
+  const excLabel = EXCLUDE_LABELS[excBase] !== undefined
+    ? (EXCLUDE_LABELS[excBase] ? EXCLUDE_LABELS[excBase] + payTariffSuffix(exc, tariffs) : '')
+    : (exc && exc !== 'none' ? `− ${exc}` : '')
   return excLabel ? `${incLabel} ${excLabel}` : incLabel
 }
 
@@ -221,6 +227,8 @@ export default function QueuePage() {
   const { me } = useMe()
   // Сегменты по оплате показываем только клиентам с фичей платных тарифов события.
   const hasPayments = (me?.features || []).includes('event_tariffs')
+  // Тарифы события — для подписи сегментов оплаты в пилюлях и «Итого».
+  const eventTariffs = useEventTariffs(eventId, hasPayments)
   // База чатов клиента (общие/личные) — только с фичей broadcast_chats. «В чаты события» — всем.
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
 
@@ -1059,7 +1067,7 @@ export default function QueuePage() {
                           ? 'только чат — участникам не уходит'
                           : s.type === 'chat_nav'
                             ? 'только чат события — участникам не уходит'
-                            : audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
+                            : audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none', eventTariffs)}
                       </span>
                       {/* Закреп — отдельной плашкой: человеку важно видеть, что
                           сообщение не просто придёт в чат, но и встанет в шапку. */}
@@ -1448,7 +1456,7 @@ export default function QueuePage() {
                 <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Включить</label>
-                  <select value={editAudienceInclude} onChange={e => setEditAudienceInclude(e.target.value)}
+                  <select value={audBase(editAudienceInclude)} onChange={e => setEditAudienceInclude(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
                     <option value="registered_event">Зарегистрированные участники</option>
@@ -1456,10 +1464,11 @@ export default function QueuePage() {
                     {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={editAudienceInclude} onChange={setEditAudienceInclude} />}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
-                  <select value={editAudienceExclude} onChange={e => setEditAudienceExclude(e.target.value)}
+                  <select value={audBase(editAudienceExclude)} onChange={e => setEditAudienceExclude(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="none">Никого не исключать</option>
                     <option value="registered_event">Зарегистрированных участников</option>
@@ -1468,9 +1477,10 @@ export default function QueuePage() {
                     {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={editAudienceExclude} onChange={setEditAudienceExclude} />}
                 </div>
                 <p className="text-xs text-indigo-600 font-medium">
-                  Итого: {audienceLabel(editAudienceInclude, editAudienceExclude)}
+                  Итого: {audienceLabel(editAudienceInclude, editAudienceExclude, eventTariffs)}
                 </p>
               </div>
 
@@ -1927,7 +1937,7 @@ export default function QueuePage() {
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Включить</label>
                   <select
-                    value={manualForm.audience_include}
+                    value={audBase(manualForm.audience_include)}
                     onChange={e => setManualForm({ ...manualForm, audience_include: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
@@ -1936,11 +1946,12 @@ export default function QueuePage() {
                     {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={manualForm.audience_include} onChange={v => setManualForm({ ...manualForm, audience_include: v })} />}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
                   <select
-                    value={manualForm.audience_exclude}
+                    value={audBase(manualForm.audience_exclude)}
                     onChange={e => setManualForm({ ...manualForm, audience_exclude: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="none">Никого не исключать</option>
@@ -1950,9 +1961,10 @@ export default function QueuePage() {
                     {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
+                  {hasPayments && <PayTariffPicker eventId={eventId} value={manualForm.audience_exclude} onChange={v => setManualForm({ ...manualForm, audience_exclude: v })} />}
                 </div>
                 <p className="text-xs text-indigo-600 font-medium">
-                  Итого: {audienceLabel(manualForm.audience_include, manualForm.audience_exclude)}
+                  Итого: {audienceLabel(manualForm.audience_include, manualForm.audience_exclude, eventTariffs)}
                 </p>
               </div>
               <div className="space-y-1.5">
@@ -2555,7 +2567,7 @@ function CustomBroadcastModal(props: {
             <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Включить</label>
-              <select value={audIn} onChange={e => setAudIn(e.target.value)}
+              <select value={audBase(audIn)} onChange={e => setAudIn(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
                 <option value="all_event">Все участники конфы</option>
                 <option value="registered_event">Зарегистрированные участники</option>
@@ -2563,10 +2575,11 @@ function CustomBroadcastModal(props: {
                 {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                 <option value="all_client">Вся база клиента</option>
               </select>
+              {hasPayments && <PayTariffPicker eventId={props.eventId} value={audIn} onChange={setAudIn} />}
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
-              <select value={audEx} onChange={e => setAudEx(e.target.value)}
+              <select value={audBase(audEx)} onChange={e => setAudEx(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
                 <option value="none">Никого не исключать</option>
                 <option value="registered_event">Зарегистрированных участников</option>
@@ -2575,6 +2588,7 @@ function CustomBroadcastModal(props: {
                 {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                 <option value="all_event">Всех участников конфы</option>
               </select>
+              {hasPayments && <PayTariffPicker eventId={props.eventId} value={audEx} onChange={setAudEx} />}
             </div>
           </div>
           {!ed?.id && (

@@ -2700,11 +2700,9 @@ async def _build_audience(conn, schedule) -> set:
             """,
             event_id
         )
-    elif aud_include in ("paid_event", "unpaid_event"):
-        # Оплата по status (миграция 157): 'paid' — оплатил, 'unpaid' — заказ без оплаты.
-        _st = "paid" if aud_include == "paid_event" else "unpaid"
-        _paid_cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
-                      f"WHERE ept.participant_id = ep.id AND ept.status = '{_st}')")
+    elif _parse_pay_segment(aud_include)[0]:
+        # Оплата по status (миграция 157) + разбивка по тарифам ('paid_event:19,26').
+        _paid_cond = _pay_cond(*_parse_pay_segment(aud_include))
         rows = await conn.fetch(
             f"""
             SELECT pu.platform_user_id FROM event_participants ep
@@ -2766,10 +2764,8 @@ async def _build_audience(conn, schedule) -> set:
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}
-    elif aud_exclude in ("paid_event", "unpaid_event"):
-        _st = "paid" if aud_exclude == "paid_event" else "unpaid"
-        _paid_cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
-                      f"WHERE ept.participant_id = ep.id AND ept.status = '{_st}')")
+    elif _parse_pay_segment(aud_exclude)[0]:
+        _paid_cond = _pay_cond(*_parse_pay_segment(aud_exclude))
         ex = await conn.fetch(
             f"SELECT pu.platform_user_id FROM event_participants ep "
             f"JOIN platform_users pu ON pu.contact_id=ep.contact_id AND pu.platform_slug='telegram' "
@@ -2817,6 +2813,41 @@ async def _tag_filtered_contact_ids(conn, client_id, tags_include, tags_exclude,
     return keep
 
 
+def _parse_pay_segment(aud) -> "tuple[str | None, list[int]]":
+    """Сегмент оплаты из строки audience_include/audience_exclude.
+
+    Тарифы пишутся в само значение через двоеточие: 'paid_event:19,26'.
+    Без двоеточия ('paid_event') — «любой тариф», как было до разбивки по
+    тарифам, поэтому старые рассылки работают как работали. Значение
+    хранится в одной строке, а не в отдельной колонке, чтобы выбор тарифа
+    переезжал из шаблона в очередь во всех местах копирования сам.
+    Возвращает ('paid'|'unpaid'|None, [tariff_id, ...])."""
+    base, _, rest = (aud or "").partition(":")
+    if base not in ("paid_event", "unpaid_event"):
+        return (None, [])
+    ids = [int(x) for x in rest.split(",") if x.strip().isdigit()]
+    return ("paid" if base == "paid_event" else "unpaid", ids)
+
+
+def _pay_cond(status: str, tariff_ids: list) -> str:
+    """SQL-условие по участнику `ep` для сегмента оплаты.
+
+    - 'paid' + тарифы — оплатил ХОТЯ БЫ ОДИН из этих тарифов;
+    - 'unpaid' + тарифы — заказ на один из этих тарифов не оплачен
+      (даже если другой тариф он оплатил — брошен именно этот);
+    - 'unpaid' без тарифов («любой») — есть неоплаченный заказ И НИЧЕГО
+      не оплачено: тому, кто уже купил другой тариф, «вы не оплатили»
+      не пишем.
+    tariff_ids — уже int (см. _parse_pay_segment), подставлять безопасно."""
+    tf = f" AND ept.tariff_id = ANY(ARRAY[{','.join(str(int(i)) for i in tariff_ids)}]::int[])" if tariff_ids else ""
+    has = (f"EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+           f"WHERE ept.participant_id = ep.id AND ept.status = '{status}'{tf})")
+    if status == "unpaid" and not tariff_ids:
+        has += (" AND NOT EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+                "WHERE ept.participant_id = ep.id AND ept.status = 'paid')")
+    return f"({has})"
+
+
 async def _excluded_contact_ids(conn, event_id, aud_exclude) -> set:
     """contact_id, которых надо ИСКЛЮЧИТЬ из аудитории по audience_exclude.
 
@@ -2827,21 +2858,15 @@ async def _excluded_contact_ids(conn, event_id, aud_exclude) -> set:
     """
     if not event_id or aud_exclude in (None, "", "none"):
         return set()
-    # Оплата: event_participant_tariffs.status (миграция 157). 'paid' — оплатил;
-    # 'unpaid' — создал заказ, но не оплатил.
-    _PAID = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
-             "WHERE ept.participant_id = ep.id AND ept.status = 'paid')")
-    _UNPAID = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
-               "WHERE ept.participant_id = ep.id AND ept.status = 'unpaid')")
-    if aud_exclude == "registered_event":
+    # Оплата: event_participant_tariffs.status (миграция 157), с разбивкой
+    # по тарифам — см. _parse_pay_segment / _pay_cond.
+    _pay_st, _pay_tf = _parse_pay_segment(aud_exclude)
+    if _pay_st:
+        cond = _pay_cond(_pay_st, _pay_tf)
+    elif aud_exclude == "registered_event":
         cond = "ep.is_registered = TRUE"
     elif aud_exclude == "unregistered_event":
         cond = "ep.is_registered = FALSE"
-    elif aud_exclude == "paid_event":
-        cond = _PAID
-    elif aud_exclude == "unpaid_event":
-        # имеют неоплаченный заказ (status='unpaid')
-        cond = _UNPAID
     elif aud_exclude == "all_event":
         cond = "TRUE"
     else:
@@ -2857,14 +2882,10 @@ async def _paid_filter_contact_ids(conn, event_id, aud_include) -> "tuple[bool, 
     """Для include-сегментов оплаты возвращает (нужен_фильтр, множество contact_id,
     которые НАДО ОСТАВИТЬ). Работает поверх базовой аудитории all_event.
     (False, set()) — фильтр по оплате не нужен."""
-    if not event_id or aud_include not in ("paid_event", "unpaid_event"):
+    _pay_st, _pay_tf = _parse_pay_segment(aud_include)
+    if not event_id or not _pay_st:
         return (False, set())
-    if aud_include == "paid_event":
-        cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
-                "WHERE ept.participant_id = ep.id AND ept.status = 'paid')")
-    else:  # unpaid_event — имеют неоплаченный заказ
-        cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
-                "WHERE ept.participant_id = ep.id AND ept.status = 'unpaid')")
+    cond = _pay_cond(_pay_st, _pay_tf)
     rows = await conn.fetch(
         f"SELECT ep.contact_id FROM event_participants ep WHERE ep.event_id=$1 AND {cond}",
         event_id,
