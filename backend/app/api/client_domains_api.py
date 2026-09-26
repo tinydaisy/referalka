@@ -396,6 +396,26 @@ async def issue_cert(domain_id: int,
     source = (data.source if data else "letsencrypt")
     if source not in ("letsencrypt", "zerossl"):
         raise HTTPException(status_code=400, detail="Неизвестный способ выпуска")
+
+    # ⚠️ Перепроверяем DNS ПРЯМО ПЕРЕД выпуском, а не верим сохранённому
+    # dns_ok (2026-09-26). Флаг ставился прежней проверкой, которая не видела
+    # AAAA-запись на заглушке регистратора, — у таких доменов он true, и каждое
+    # нажатие сжигало попытки Let's Encrypt. Секунда на запрос дешевле часа
+    # блокировки.
+    fresh = await dns.check_landing_dns(
+        domain,
+        expect_host=cd.normalize_domain(cd.platform_base_url()),
+        expect_ip=cmd.SENDING_IP,
+    )
+    if not fresh["ok"]:
+        import json
+        await db.execute(
+            "UPDATE client_domains SET dns_ok = FALSE, dns_checked_at = NOW(), "
+            "       dns_details = $2::jsonb, updated_at = NOW() WHERE id = $1",
+            domain_id, json.dumps(fresh, default=str),
+        )
+        raise HTTPException(status_code=400, detail=fresh["message"])
+
     try:
         expires = certs.issue_certificate(domain, source=source)
     except certs.CertError as e:

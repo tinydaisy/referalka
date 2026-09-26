@@ -95,14 +95,18 @@ def www_alias(domain: str) -> str:
     if not d or d.startswith("www.") or not is_apex_domain(d):
         return ""
 
-    from app.services.domain_dns import _query_sync
+    from app.services.client_domains import platform_base_url
+    from app.services.client_mail_domain import SENDING_IP
+    from app.services.domain_dns import points_to_us_sync
 
     name = f"www.{d}"
-    # A-запись на нас либо CNAME куда угодно — во втором случае имя всё равно
-    # приезжает к нам (иначе бы клиент его не заводил), проверять цепочку
-    # целиком не нужно: ошибётся — ACME просто не подтвердит имя, и мы
-    # выпустим сертификат без него (см. фолбэк в issue_certificate).
-    if _query_sync(name, "A") or _query_sync(name, "CNAME"):
+    # ⚠️ Проверяем, что `www` ведёт ИМЕННО к нам (A/через CNAME) и без чужих
+    # A/AAAA, а не просто «запись есть» (2026-09-26). У reg.ru `www` по
+    # умолчанию смотрит на заглушку: раньше мы пробовали его в каждом выпуске,
+    # проваливались, повторяли без него — две неудачные попытки на одно
+    # нажатие, и лимит Let's Encrypt (5 в час) сгорал за пару кликов.
+    if points_to_us_sync(name, expect_host=normalize_domain(platform_base_url()),
+                         expect_ip=SENDING_IP):
         return name
     return ""
 
@@ -306,7 +310,23 @@ def _issue_zerossl(domain: str, force: bool) -> None:
             raise CertError(
                 "ZeroSSL не выдаёт сертификаты для этой доменной зоны. "
                 "Выберите другой способ.")
-        raise CertError(f"ZeroSSL не выпустил сертификат: {out[-300:]}")
+        # Простыню acme.sh — в лог, клиенту — человеческий текст.
+        logger.warning("ZeroSSL %s: %s", domain, out[-2000:])
+        low = out.lower()
+        if "retryafter" in low or "rate" in low:
+            # retryafter=86400: ZeroSSL отложил заказ на сутки, а acme.sh
+            # столько не ждёт и сдаётся.
+            raise CertError(
+                "ZeroSSL отложил выпуск на сутки. Попробуйте завтра или "
+                "выберите Let's Encrypt.")
+        if "invalid" in low or "verify error" in low or "timeout" in low:
+            raise CertError(
+                "ZeroSSL не смог проверить домен. Обычно это значит, что у "
+                "домена осталась запись на заглушку регистратора — нажмите "
+                "«Проверить DNS», там будет видно, какая.")
+        tail = out.strip().splitlines()
+        raise CertError("ZeroSSL не выпустил сертификат: "
+                        + (tail[-1][-200:] if tail else "неизвестная ошибка"))
 
 
 def zerossl_paths(domain: str) -> tuple[Path, Path]:

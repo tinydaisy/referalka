@@ -95,6 +95,68 @@ async def detect_provider(domain: str) -> tuple[list[str], Optional[dict]]:
 
 # ── Домен лендингов ─────────────────────────────────────────────────────────
 
+def foreign_addresses_sync(name: str, *, expect_host: str,
+                           expect_ip: Optional[str]) -> tuple[list[str], list[str]]:
+    """(чужие A, чужие AAAA) у имени — адреса, которые ведут НЕ к нам.
+
+    ⚠️⚠️ ЗАЧЕМ (2026-09-26, romanofff-finance.online). Клиентка поменяла
+    A-запись на наш IP, а AAAA (IPv6) осталась на заглушке reg.ru. Проверка
+    смотрела только A и сказала «DNS настроен верно». Let's Encrypt при наличии
+    IPv6 проверяет домен ПО НЕМУ — попадал на reg.ru, выпуск падал, пять
+    попыток сгорали за пару нажатий, и домен блокировался на час.
+
+    «Свои» адреса берём у самого `expect_host` (pluson.ru), а не константой:
+    появится у сервера IPv6 — он автоматически станет «своим», и клиентов
+    с правильной AAAA мы не завернём. Сейчас у pluson.ru IPv6 нет, значит
+    ЛЮБАЯ AAAA у клиента ведёт мимо нас.
+    Через CNAME на pluson.ru резолвер сам дойдёт до наших адресов — такой
+    поддомен сюда не попадает.
+    """
+    ours_a = set(_query_sync(expect_host, "A"))
+    if expect_ip:
+        ours_a.add(expect_ip)
+    ours_v6 = set(_query_sync(expect_host, "AAAA"))
+    a = _query_sync(name, "A")
+    v6 = _query_sync(name, "AAAA")
+    return ([x for x in a if x not in ours_a],
+            [x for x in v6 if x not in ours_v6])
+
+
+def points_to_us_sync(name: str, *, expect_host: str,
+                      expect_ip: Optional[str]) -> bool:
+    """Ведёт ли имя ТОЛЬКО к нам: есть наш адрес и нет ни одного чужого.
+    Нужно для `www`: раньше хватало факта «запись есть», и `www`, оставленный
+    на заглушке регистратора, сжигал лишнюю попытку Let's Encrypt на каждом
+    нажатии."""
+    a = _query_sync(name, "A")
+    ours = set(_query_sync(expect_host, "A")) | ({expect_ip} if expect_ip else set())
+    if not any(x in ours for x in a):
+        return False
+    bad_a, bad_v6 = foreign_addresses_sync(name, expect_host=expect_host,
+                                           expect_ip=expect_ip)
+    return not bad_a and not bad_v6
+
+
+def _foreign_message(domain: str, apex: bool, bad_a: list[str],
+                     bad_v6: list[str]) -> str:
+    host = "«@»" if apex else f"«{domain}»"
+    parts = []
+    if bad_v6:
+        parts.append(
+            f"У домена осталась AAAA-запись (IPv6) {host} → {', '.join(bad_v6)} — "
+            "обычно это заглушка регистратора. Let's Encrypt проверяет домен "
+            "именно по ней и сертификат не выпустит. Удалите AAAA-запись "
+            f"у {host} (и у «www», если она там тоже есть)."
+        )
+    if bad_a:
+        parts.append(
+            f"Кроме нашего адреса у {host} есть ещё A-запись → {', '.join(bad_a)}. "
+            "Её нужно удалить — иначе часть людей будет попадать не на ваш сайт, "
+            "а сертификат не выпустится."
+        )
+    return " ".join(parts)
+
+
 async def check_landing_dns(domain: str, *, expect_host: str,
                             expect_ip: Optional[str] = None) -> dict:
     """Ведёт ли домен клиента на нас.
@@ -129,9 +191,18 @@ async def check_landing_dns(domain: str, *, expect_host: str,
     else:
         need = f"CNAME {domain} → {expect_host}"
 
-    ok = cname_ok or ip_ok
+    routed = cname_ok or ip_ok
+    bad_a: list[str] = []
+    bad_v6: list[str] = []
+    if routed:
+        bad_a, bad_v6 = await asyncio.to_thread(
+            foreign_addresses_sync, domain,
+            expect_host=expect_host, expect_ip=expect_ip)
+    ok = routed and not bad_a and not bad_v6
     if ok:
         message = "DNS настроен верно"
+    elif routed:
+        message = _foreign_message(domain, apex, bad_a, bad_v6)
     elif cnames or a_records:
         found = ", ".join(cnames + a_records) or "—"
         extra = (" Старую запись нужно удалить или изменить — "
@@ -150,6 +221,8 @@ async def check_landing_dns(domain: str, *, expect_host: str,
         "message": message,
         "cname": cnames,
         "a": a_records,
+        "foreign_a": bad_a,
+        "foreign_aaaa": bad_v6,
         "expect_host": expect_host,
         "expect_ip": expect_ip,
         # Где клиент правит DNS: показываем инструкцию под его панель.
