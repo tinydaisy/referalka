@@ -266,7 +266,25 @@ function SurveyRow({ survey, onChanged, readOnly }: any) {
       `Вместе с ней удалятся все ответы (заполнений: ${survey.responses_count}).\n` +
       `Если нужно просто перестать её показывать — откройте и снимите «Активна».`
     )) return
-    await api.surveys.delete(survey.id)
+    try {
+      await api.surveys.delete(survey.id)
+    } catch (e: any) {
+      // ⚠️ Анкета стоит в форме заявки события/продукта (так у анкет из готовых
+      // решений) — сервер отвечает 409. Раньше тут был немой 500: «нажимаю
+      // Удалить — ничего не происходит».
+      if (e?.status === 409 && e?.detail?.code === 'survey_in_request_form') {
+        if (!confirm(`${e.message}\n\nУдалить анкету вместе с формой заявки?`)) return
+        try {
+          await api.surveys.delete(survey.id, true)
+        } catch (e2: any) {
+          alert(e2?.message || 'Не удалось удалить анкету')
+          return
+        }
+      } else {
+        alert(e?.message || 'Не удалось удалить анкету')
+        return
+      }
+    }
     onChanged()
   }
 

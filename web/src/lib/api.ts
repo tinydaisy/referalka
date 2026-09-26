@@ -1430,8 +1430,9 @@ export const api = {
     get: (id: number) => request(`/api/v1/surveys/${id}`),
     update: (id: number, data: any) =>
       request(`/api/v1/surveys/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: number) =>
-      request(`/api/v1/surveys/${id}`, { method: 'DELETE' }),
+    // force — удалить вместе с формой заявки, где стоит анкета (иначе 409).
+    delete: (id: number, force = false) =>
+      request(`/api/v1/surveys/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
     addQuestion: (id: number, data: any) =>
       request(`/api/v1/surveys/${id}/questions`, { method: 'POST', body: JSON.stringify(data) }),
     updateQuestion: (id: number, qid: number, data: any) =>

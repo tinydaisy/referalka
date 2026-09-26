@@ -435,6 +435,16 @@ async def create_survey(
         client_id, slug, title, data.intro, data.submit_label,
         data.after_mode, data.thanks_text, data.redirect_url, data.allow_repeat,
     )
+    # ⚠️ Поля сотрудника «Обработано» + «Заметка» — в КАЖДОЙ анкете (как в
+    # миграции 338 и в готовых решениях). Миграция добавила их только
+    # существовавшим анкетам, а новые из кабинета создавались без них — и
+    # заявки было нечем отмечать (найдено 26.09.2026: анкеты 17, 24, 27, 34).
+    await db.execute(
+        """INSERT INTO survey_questions
+               (survey_id, title, kind, is_required, sort_order, filled_by, is_protected)
+           VALUES ($1, 'Обработано', 'bool', FALSE, 10000, 'staff', TRUE),
+                  ($1, 'Заметка', 'textarea', FALSE, 10010, 'staff', FALSE)""",
+        row["id"])
     d = dict(row)
     d["links"] = await _survey_links(db, client_id, slug)
     return d
@@ -565,16 +575,51 @@ async def update_survey(
 
 @router.delete("/surveys/{survey_id}")
 async def delete_survey(
-    survey_id: int, client=Depends(get_current_client), db=Depends(get_db),
+    survey_id: int, force: bool = False,
+    client=Depends(get_current_client), db=Depends(get_db),
 ):
     """⚠️ Удаляет анкету вместе со всеми ответами (CASCADE). Чтобы просто
-    перестать её показывать — снимите «Активна»."""
+    перестать её показывать — снимите «Активна».
+
+    ⚠️⚠️ Анкета в ФОРМЕ ЗАЯВКИ (26.09.2026). У `request_forms.survey_id` стоит
+    `ON DELETE RESTRICT` — форма без анкеты показала бы пустую секцию. Раньше
+    DELETE здесь падал 500-й, кабинет молчал, и анкету из готового решения
+    (оно само заводит форму заявки) удалить было нельзя вовсе: на проде девять
+    нажатий «Удалить» подряд впустую. Теперь без `force` отвечаем 409 со
+    списком, где анкета стоит; с `force` удаляем формы заявки и анкету вместе.
+    """
+    client_id = int(client["sub"])
     if await assistant_is_restricted(client):
         raise HTTPException(403, "Этот раздел доступен только владельцу кабинета.")
-    await _assert_feature(db, int(client["sub"]))
-    res = await db.execute(
-        "DELETE FROM surveys WHERE id=$1 AND client_id=$2",
-        survey_id, int(client["sub"]))
+    await _assert_feature(db, client_id)
+    await _assert_own_survey(db, survey_id, client_id)
+
+    forms = await db.fetch(
+        """SELECT rf.id, rf.owner_type,
+                  COALESCE(e.title, p.title) AS owner_title
+             FROM request_forms rf
+             LEFT JOIN events e   ON rf.owner_type = 'event'   AND e.id = rf.owner_id
+             LEFT JOIN products p ON rf.owner_type = 'product' AND p.id = rf.owner_id
+            WHERE rf.survey_id = $1
+            ORDER BY rf.id""",
+        survey_id)
+    if forms and not force:
+        where = ", ".join(
+            f"«{f['owner_title'] or 'без названия'}»" for f in forms)
+        raise HTTPException(409, {
+            "code": "survey_in_request_form",
+            "message": (f"Эта анкета собирает заявки в форме заявки: {where}. "
+                        "Если удалить анкету, форма заявки удалится вместе с ней "
+                        "и пропадёт с лендинга."),
+        })
+
+    async with db.transaction():
+        if forms:
+            await db.execute(
+                "DELETE FROM request_forms WHERE survey_id = $1", survey_id)
+        res = await db.execute(
+            "DELETE FROM surveys WHERE id=$1 AND client_id=$2",
+            survey_id, client_id)
     if res.endswith("0"):
         raise HTTPException(404, "Анкета не найдена")
     return {"ok": True}
