@@ -40,8 +40,12 @@ UPDATE surveys SET after_mode = 'gift'
 -- ── Текст «спасибо» — ОДНО место: анкета ──────────────────────────────────
 -- ⚠️ Был ещё `request_forms.success_text`, и он доходил только до Mini App;
 -- лендинг и /f/{slug} показывали текст анкеты — два места задавали одно и то
--- же и разъезжались. Переносим непустой текст формы в анкету, где своего нет,
--- и убираем колонку (решение владельца 26.09.2026).
+-- же и разъезжались. Переносим непустой текст формы в анкету, где своего нет
+-- (решение владельца 26.09.2026). Код колонку больше не читает и не пишет.
+--
+-- ⚠️ Колонку здесь НЕ удаляем: деплой не накатывает автоматом миграции с
+-- DROP (остановил выкатку 26.09.2026), а старый код в секунды переключения
+-- ещё выбирает `success_text`. Удалить отдельной миграцией после выкатки.
 UPDATE surveys s
    SET thanks_text = rf.success_text
   FROM request_forms rf
@@ -49,4 +53,3 @@ UPDATE surveys s
    AND NULLIF(btrim(COALESCE(s.thanks_text, '')), '') IS NULL
    AND NULLIF(btrim(COALESCE(rf.success_text, '')), '') IS NOT NULL;
 
-ALTER TABLE request_forms DROP COLUMN IF EXISTS success_text;
