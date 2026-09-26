@@ -63,10 +63,24 @@ export default function CoverRenderClient() {
   // поймал схлопнутую страницу, если что-то пойдёт не так.
   if (!data) return <div style={{ width: COVER_W, height: COVER_H, background: '#0a1520' }} />
 
+  // ⚠️⚠️ БЕЗ ВЫРЕЗКИ — ФИГУРА, А НЕ «ВО ВСЮ ВЫСОТУ» (26.09.2026). Шаблон один
+  // на всех спикеров, а фото у людей разные: у части в поле вырезки лежит
+  // обычный JPEG (прозрачности в нём нет). «Во всю высоту» такое фото
+  // разворачивает во весь рост вместе с фоном — на обложке получался интерьер
+  // ресторана вместо силуэта. Портрет-фигура кадрирует его по лицу, и рядом с
+  // настоящими вырезками он смотрится ровно.
+  //
+  // ⚠️ Подменяем ТОЛЬКО когда шаблон стоит на `cutout`: выбрал клиент фигуру
+  // осознанно — его выбор и остаётся.
+  const noCutout = sp.get('has_cutout') === '0'
+  const template = noCutout && (data.template?.photo_shape ?? 'cutout') === 'cutout'
+    ? { ...data.template, photo_shape: 'portrait' as const }
+    : data.template
+
   return (
     <div style={{ width: COVER_W, height: COVER_H, overflow: 'hidden' }}>
       <CoverCanvas
-        template={data.template}
+        template={template}
         theme={data.theme}
         title={title}
         subtitle={subtitle || null}

@@ -95,6 +95,7 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
         "overline": row["event_title"] or "",
         "photo": photo,
         **_crop_params(crop),
+        "has_cutout": "1" if _real_cutout(photo) else "0",
     }
 
 
@@ -153,6 +154,13 @@ async def render_speaker_cover(
             # ⚠️ Кадр едет вместе с фото: без него точка лица не применялась
             # вовсе, и на обложке лицо оказывалось обрезанным (26.09.2026).
             **_crop_params(crop),
+            # ⚠️⚠️ ЕСТЬ ЛИ У ЭТОГО ЧЕЛОВЕКА ВЫРЕЗКА — решается здесь, а не в
+            # шаблоне (26.09.2026). Шаблон один на всех, а фото у людей разные:
+            # «во всю высоту» верно для силуэта без фона и превращается в
+            # снимок с интерьером, когда вырезки нет. Страница отрисовки на
+            # этот признак подставит фигуру — так люди с вырезкой и без неё
+            # выглядят одинаково опрятно.
+            "has_cutout": "1" if _real_cutout(photo) else "0",
         })
         if not png and errors is not None:
             errors.append(f"{title}: рисовальщик картинки не ответил")
@@ -162,6 +170,33 @@ async def render_speaker_cover(
         if errors is not None:
             errors.append(f"спикер #{ec_id}: {e}")
         return None
+
+
+def _real_cutout(url: Optional[str]) -> Optional[str]:
+    """Вырезка ли это на самом деле — или в поле вырезки лежит обычный снимок.
+
+    ⚠️⚠️ JPEG НЕ БЫВАЕТ ПРОЗРАЧНЫМ (26.09.2026). В поле `cutout_photo_url` у
+    части людей лежит `.jpg`: на проде так у четверых спикеров события 89
+    (Ксения, Пётр, Мария, Катия). Формат прозрачность не поддерживает в
+    принципе, то есть фон там остался — это обычное фото, положенное в папку
+    `cutout`. Обложка брала его как вырезку, и на готовой картинке получался
+    снимок с интерьером ресторана вместо силуэта человека: рядом с настоящими
+    вырезками это и читалось как «фото в разнобой».
+
+    Проверяем по расширению, а не лезем в сам файл: обложек собирается два
+    десятка за раз, и качать каждую картинку ради заголовка PNG — это минуты
+    ожидания на ровном месте. Расширение здесь надёжно: вырезки делает наш же
+    код и кладёт их только в PNG (WebP тоже умеет прозрачность, поэтому он
+    в списке — на случай, если формат сменят).
+
+    ⚠️ Не «чинить» такие записи молча переписыванием поля: у человека может
+    не быть настоящей вырезки вовсе, и тогда обычное фото — верный запасной
+    вариант. Здесь мы только не выдаём его за вырезку.
+    """
+    if not url:
+        return None
+    clean = url.split("?", 1)[0].lower()
+    return url if clean.endswith((".png", ".webp")) else None
 
 
 def _crop_params(crop: dict) -> dict:
@@ -209,14 +244,15 @@ def cover_photo(row: dict) -> tuple[str, dict]:
         return {f: row.get(f"{prefix}{f}") for f in CROP_FIELDS}
 
     ep_url = row.get("ep_url")
-    ep_cutout = row.get("ep_cutout_url")
+    ep_cutout = _real_cutout(row.get("ep_cutout_url"))
 
     # 1. У выбранного фото есть своя вырезка — лучший случай.
     if ep_cutout:
         return ep_cutout, crop("ep_")
     # 2. Вырезка из профиля — со своим кадром.
-    if row.get("cutout_photo_url"):
-        return row["cutout_photo_url"], crop("")
+    prof_cutout = _real_cutout(row.get("cutout_photo_url"))
+    if prof_cutout:
+        return prof_cutout, crop("")
     # 3-4. Вырезки нет вовсе — обычное фото, выбранное или профильное.
     if ep_url:
         return ep_url, crop("ep_")
