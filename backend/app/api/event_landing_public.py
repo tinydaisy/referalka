@@ -529,7 +529,8 @@ async def get_public_landing(
             "f.name AS bonus_feature_name "
             "FROM event_tariffs t "
             "LEFT JOIN features f ON f.id = t.bonus_feature_id "
-            "WHERE t.event_id = $1 AND t.is_active = TRUE "
+            # ⚠️ Без цены — не показываем: пусто ≠ «бесплатно» (26.09.2026)
+            "WHERE t.event_id = $1 AND t.is_active = TRUE AND t.price IS NOT NULL "
             "ORDER BY t.sort_order, t.id",
             event["id"],
         )

@@ -160,6 +160,8 @@ async def widget_tariffs(
                   discount_kind, discount_value, pay_url, sort_order
              FROM event_tariffs
             WHERE event_id = $1 AND is_active = TRUE
+              -- ⚠️ Без цены — не отдаём: пусто ≠ «бесплатно» (26.09.2026)
+              AND price IS NOT NULL
             ORDER BY sort_order, id""",
         event_id,
     )

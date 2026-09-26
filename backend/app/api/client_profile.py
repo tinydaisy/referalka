@@ -1330,6 +1330,8 @@ async def public_event_landing(slug: str, tg_id: Optional[int] = Query(None),
                       pay_product_id
                  FROM event_tariffs
                 WHERE event_id = $1 AND is_active
+                  -- ⚠️ Без цены — не показываем: пусто ≠ «бесплатно» (26.09.2026)
+                  AND price IS NOT NULL
                 ORDER BY sort_order, id""",
             row["id"])
         # Промокоды (миграция 397) работают не со всеми платёжными системами.

@@ -242,6 +242,9 @@ export default function TariffsTab({
     const title = form.title.trim()
     if (!code) { alert('Укажите код тарифа (например vip) — он нужен платёжке.'); return }
     if (!title) { alert('Укажите название тарифа.'); return }
+    // ⚠️ Пустая цена запрещена (26.09.2026): раньше «пусто» молча работало как
+    // «бесплатно» и записывало людей без оплаты. Бесплатно — только явный 0.
+    if (!form.price.trim()) { alert('Укажите цену. Поставьте 0 — и тариф будет бесплатным.'); return }
     const payload = {
       code,
       title,
@@ -249,7 +252,7 @@ export default function TariffsTab({
       excluded_description: form.excluded_description.trim() || null,
       pay_product_id: form.pay_product_id.trim() || null,
       order_hint: form.order_hint.trim() || null,
-      price: form.price.trim() ? parseInt(form.price.trim(), 10) : null,
+      price: parseInt(form.price.trim(), 10),
       // Пустой размер = скидки нет; бэкенд занулит и вид, чтобы в базе не
       // осталось половины пары.
       discount_kind: form.discount_value.trim() ? form.discount_kind : null,
@@ -494,6 +497,11 @@ export default function TariffsTab({
                     {!t.is_active && (
                       <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">выключен</span>
                     )}
+                    {t.price == null && (
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">
+                        цена не указана — тариф скрыт с лендинга
+                      </span>
+                    )}
                     {t.price != null && (
                       <span className="text-sm text-gray-500">
                         {t.old_price != null && (
@@ -584,7 +592,7 @@ export default function TariffsTab({
               <input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
                      className="input-tar font-mono" placeholder="vip" />
             </Field>
-            <Field label="Сумма, ₽" hint="Это цена к оплате. Оставьте пустым, если «по запросу»">
+            <Field label="Сумма, ₽ *" hint="Это цена к оплате. Поставьте 0 — и тариф будет бесплатным: после ввода контактных данных участник сразу станет зарегистрированным, без оплаты">
               <input value={form.price} onChange={e => setForm({ ...form, price: e.target.value.replace(/[^0-9]/g, '') })}
                      className="input-tar" placeholder="29000" inputMode="numeric" />
               {/* Предупреждение, а не запрет: цену решает клиент, но платёж

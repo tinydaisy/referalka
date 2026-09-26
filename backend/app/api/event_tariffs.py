@@ -229,6 +229,24 @@ async def _norm_bonus(db, client_id: int, feature_id, days) -> tuple:
     return int(feature_id), d
 
 
+def _check_price(price) -> None:
+    """Цена тарифа обязательна: число от 0. Пусто — нельзя.
+
+    ⚠️⚠️ Пустая цена раньше молча работала как «бесплатно» (решение владельца
+    26.09.2026 — запретить). Подсказка в кабинете обещала «пусто = по запросу»,
+    а заказ делал `price or 0` и записывал человека бесплатно: так участница
+    «11-го Фестиваля» (клиент 62) нажала «Стать спикером или спонсором» и стала
+    зарегистрированной без оплаты и без уведомления организатору.
+    Бесплатно — только явный 0. Заявки — отдельной формой заявок, не тарифом.
+    """
+    if price is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Укажите цену тарифа. Поставьте 0 — и тариф будет бесплатным.")
+    if int(price) < 0:
+        raise HTTPException(status_code=400, detail="Цена не может быть меньше 0")
+
+
 async def _norm_bonus_trial(db, client_id: int, trial, tariff_slug, feature_id) -> tuple:
     """Проверить «дарить доступ в ПЛЮСОН» перед записью (миграция 309).
 
@@ -371,6 +389,7 @@ async def create_tariff(
         raise HTTPException(status_code=400, detail="Код тарифа обязателен")
     if not (data.title or "").strip():
         raise HTTPException(status_code=400, detail="Название тарифа обязательно")
+    _check_price(data.price)
     exists = await db.fetchval(
         "SELECT 1 FROM event_tariffs WHERE event_id = $1 AND code = $2", event_id, code
     )
@@ -465,6 +484,8 @@ async def update_tariff(
         raise HTTPException(status_code=404, detail="Тариф не найден")
 
     fields = data.model_dump(exclude_unset=True)
+    if "price" in fields:
+        _check_price(fields["price"])
     if "code" in fields:
         code = _norm_code(fields["code"])
         if not code:

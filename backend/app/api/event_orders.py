@@ -167,7 +167,13 @@ async def check_promo(
     if not t:
         raise HTTPException(status_code=404, detail="Тариф не найден")
 
-    price = int(t["price"] or 0)
+    # ⚠️ Пустая цена ≠ 0: бесплатен только тариф с явным нулём (26.09.2026).
+    if t["price"] is None:
+        raise HTTPException(
+            status_code=400,
+            detail="У этого тарифа пока не указана цена — оформить его нельзя. "
+                   "Напишите организатору.")
+    price = int(t["price"])
     if price <= 0:
         raise HTTPException(status_code=400,
                             detail="Этот тариф бесплатный — промокод не нужен")
@@ -419,7 +425,17 @@ async def create_order(
             db, client_id=t["client_id"], contact_id=contact_id,
             ref_code=resolved_ref)
 
-    price = int(t["price"] or 0)
+    # ⚠️⚠️ ПУСТАЯ ЦЕНА ≠ 0 (решение владельца 26.09.2026). Раньше здесь было
+    # `price or 0`, и тариф без цены шёл по бесплатной ветке: человек сразу
+    # «зарегистрирован», заказа нет, уведомления организатору нет (прод:
+    # «Стать спикером или спонсором», событие 87). Бесплатно — только явный 0;
+    # кабинет пустую цену больше не сохраняет, а старые такие тарифы — отказ.
+    if t["price"] is None:
+        raise HTTPException(
+            status_code=400,
+            detail="У этого тарифа пока не указана цена — оформить его нельзя. "
+                   "Напишите организатору.")
+    price = int(t["price"])
 
     # ── Промокод (миграция 397) ──────────────────────────────────────────
     # ⚠️ Применяется К ЦЕНЕ ТАРИФА, которая уже содержит скидку тарифа:
@@ -622,7 +638,8 @@ async def quick_register(
         raise HTTPException(status_code=404, detail="Тариф не найден")
     # ⚠️ Галочка ОДНА на оба режима — skip_contact_form. Отдельного поля под
     # лендинг не заводим: смысл тот же, а два поля разъезжаются.
-    if int(t["price"] or 0) > 0 or not t["skip_contact_form"]:
+    # ⚠️ Пустая цена — не бесплатно (26.09.2026): только явный 0.
+    if t["price"] is None or int(t["price"]) > 0 or not t["skip_contact_form"]:
         raise HTTPException(status_code=400, detail="Нужна форма")
 
     own = await db.fetchval(

@@ -519,6 +519,8 @@ async def _load_event_tariffs(db, event_id):
                   pay_url
              FROM event_tariffs
             WHERE event_id = $1 AND is_active
+              -- ⚠️ Без цены — не показываем: пусто ≠ «бесплатно» (26.09.2026)
+              AND price IS NOT NULL
             ORDER BY sort_order, id""",
         event_id,
     )
@@ -3679,7 +3681,7 @@ async def event_register_page(slug: str, c: str = "", pid: str = "",
                                WHERE event_id = $1 AND is_active)
                   AND NOT EXISTS (SELECT 1 FROM event_tariffs
                                    WHERE event_id = $1 AND is_active
-                                     AND COALESCE(price, 0) <= 0)""",
+                                     AND price <= 0)""",
             ev["id"],
         )
         if ev.get("skip_contact_form") and not _paid_only:
@@ -4098,10 +4100,13 @@ async def event_register_submit(slug: str, request: Request,
     # участие продаётся, а форма выдавала is_registered=TRUE даром (прод:
     # события 8 и 93 с единственным платным тарифом). Проверка обязана быть
     # здесь, а не только на экране: запрос легко повторить мимо интерфейса.
+    # ⚠️ Бесплатный = явный 0. Тариф с пустой ценой бесплатным НЕ считается
+    # (26.09.2026): раньше COALESCE(price, 0) открывал простую форму на платном
+    # событии, где рядом висел тариф без цены.
     has_free = await db.fetchval(
         """SELECT EXISTS (SELECT 1 FROM event_tariffs
                            WHERE event_id = $1 AND is_active
-                             AND COALESCE(price, 0) <= 0)""",
+                             AND price <= 0)""",
         event_id,
     )
     has_any_tariff = await db.fetchval(
