@@ -463,11 +463,17 @@
 
 ⚠️ **`Use Public Client OAuth` НЕ включать.** Это режим для приложений без сервера (мобильных, браузерных расширений), где секрет негде хранить. У нас секрет лежит на сервере — включение режима ослабило бы защиту без всякой пользы.
 
-⚠️ **`ZOOM_WEBHOOK_SECRET` в окружении пока НЕТ** — вебхук деавторизации отвечает 503. Secret Token берётся в приложении: **Features → Access**, рядом с Event Subscriptions. Без него на ревью будет замечание.
+⚠️ **`ZOOM_WEBHOOK_SECRET` — ОБЩИЙ для Development и Production.** При переключении ключей его менять не нужно, в отличие от `ZOOM_CLIENT_ID` / `ZOOM_CLIENT_SECRET`. Берётся в приложении: **Features → Access**, рядом с Event Subscriptions.
 
 ### Подача приложения Zoom на публикацию: что сделано на сервере (23–24.09.2026)
 
-**Статус:** заявка подана, «Create request submitted · Waiting for Zoom approval». Ответ ждём 3–7 рабочих дней на `ivision.command@gmail.com`. Статус — [marketplace.zoom.us/user/build](https://marketplace.zoom.us/user/build) → PLUSON → раздел **Publish**.
+**Статус на 26.09.2026:** идёт **Functional review**. Подано 23.09.2026, ответ на `ivision.command@gmail.com`. Кабинет — [marketplace.zoom.us/user/build](https://marketplace.zoom.us/user/build) → PLUSON.
+
+⚠️⚠️ **Статус смотреть НЕ на карточке в списке приложений, а на полоске справа внутри приложения.** На карточке всю дорогу висит «Create request submitted · Waiting for Zoom approval» — надпись не меняется до самого одобрения и выглядит так, будто заявка лежит без движения. Настоящий прогресс — в столбце справа: App created → Ready for beta test → Ready for submission → **Functional review** → Security review → App approved → App published to external Zoom users.
+
+⚠️ Дата рядом с текущим шагом («Last updated on…») появляется, когда заявку **взяли в работу**; пока она в очереди, даты нет.
+
+⚠️ Во время Functional review проверяющий ходит по сайту под кабинетом `zoom-review@pluson.ru` (клиент 230) — активность оттуда в логах это они, а не посторонние.
 
 #### Вебхук деавторизации
 
@@ -479,7 +485,19 @@
 
 ⚠️ Подпись (`x-zm-signature`, HMAC-SHA256 на secret token) сверяется **до любых действий с базой**. Роутер без авторизации кабинета: Zoom приходит со своим запросом и наших кук не имеет.
 
-⚠️⚠️ **`ZOOM_WEBHOOK_SECRET` в окружении ПОКА НЕ ЗАДАН** — вебхук отвечает 503 (принимать неподписанные запросы нельзя, по ним удаляются токены). Secret Token берётся в приложении: **Features → Access**, рядом с Event Subscriptions. Это единственный незакрытый пункт подачи.
+**`ZOOM_WEBHOOK_SECRET` задан 26.09.2026**, вебхук рабочий. Проверено на проде: `endpoint.url_validation` → 200 и `encryptedToken` сходится с HMAC от токена; запрос без подписи и с поддельной подписью → 401.
+
+Проверить руками (Secret Token взять из `.env`):
+```bash
+curl -s -X POST https://pluson.ru/api/v1/zoom/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"event":"endpoint.url_validation","payload":{"plainToken":"test"}}'
+```
+`encryptedToken` в ответе должен совпасть с `hmac.new(TOKEN, b"test", sha256).hexdigest()`.
+
+⚠️ Пока переменной не было, эндпоинт отвечал **503 на всё** — и это правильное поведение, а не поломка: принимать неподписанные запросы нельзя, по этому адресу удаляются токены клиентов.
+
+⚠️ Живость API проверять по `https://pluson.ru/health`; `/api/v1/health` отдаёт **404** (такого пути нет).
 
 ⚠️ В режиме Development вебхуки деавторизации Zoom не шлёт вовсе — проверить заранее нельзя, заработает после публикации.
 
