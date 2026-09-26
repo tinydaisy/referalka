@@ -30,8 +30,10 @@ import ProgramTab from '@/app/dashboard/conferences/[id]/tabs/ProgramTab'
 import CollabReportTab from './tabs/CollabReportTab'
 import DashboardView from '@/components/analytics/DashboardView'
 import EventCrmTab from '@/components/analytics/EventCrmTab'
+import PaymentsSubTabs from '@/components/PaymentsSubTabs'
+import RequestResponsesTab from '@/components/RequestResponsesTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'request_form' | 'tariff_orders' | 'landing' | 'webinar' | 'program' | 'report' | 'dashboard' | 'crm'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'collab_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'request_form' | 'tariff_orders' | 'request_responses' | 'landing' | 'webinar' | 'program' | 'report' | 'dashboard' | 'crm'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -155,11 +157,14 @@ export default function EventPage() {
     ...((isVip && !event.is_collab) ? [{
       key: 'payments' as GroupKey, label: 'Платежи/Заявки',
       tabs: [
+        // ⚠️ Две группы (26.09.2026): «Тарифы → Заказы» и «Формы заявки →
+        // Заявки». Рисует их PaymentsSubTabs — порядок и цвета там.
         { key: 'tariffs' as TabKey, label: 'Тарифы' },
+        { key: 'tariff_orders' as TabKey, label: 'Заказы' },
         // «Формы заявки» (мигр. 363): заявка НЕ регистрирует и не берёт
         // денег — человек заполняет анкету, ответ идёт в её заявки.
         { key: 'request_form' as TabKey, label: 'Формы заявки' },
-        { key: 'tariff_orders' as TabKey, label: 'Заказы' },
+        { key: 'request_responses' as TabKey, label: 'Заявки' },
       ],
     }] : []),
     // ⚠️ «Лендинг» — ОТДЕЛЬНЫЙ раздел первого уровня, а не вкладка внутри
@@ -297,7 +302,11 @@ export default function EventPage() {
 
       {/* Уровень 2 — вкладки внутри активного раздела. У менеджера лидов
           вкладка одна (CRM) — ряд из одной кнопки не нужен. */}
-      {!isLeadsAssistant && (
+      {!isLeadsAssistant && activeGroup.key === 'payments' && (
+        <PaymentsSubTabs active={activeTab} eventId={eventId}
+                         onSelect={k => setActiveTab(k as TabKey)} />
+      )}
+      {!isLeadsAssistant && activeGroup.key !== 'payments' && (
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
         {activeGroup.tabs.map(tb => (
           <EventTabBtn key={tb.key} active={activeTab === tb.key}
@@ -332,6 +341,7 @@ export default function EventPage() {
       {activeTab === 'tariffs'       && isVip && !event.is_collab && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
       {activeTab === 'request_form' && isVip && !event.is_collab && <RequestFormTab ownerType="events" ownerId={eventId} />}
       {activeTab === 'tariff_orders' && isVip && !event.is_collab && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
+      {activeTab === 'request_responses' && isVip && !event.is_collab && <RequestResponsesTab ownerType="events" ownerId={eventId} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} isCollab={!!event.is_collab} />}
     </div>
   )

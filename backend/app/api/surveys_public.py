@@ -59,6 +59,74 @@ def _answer_to_text(value: Any, kind: str | None = None) -> str:
     return str(value).strip()
 
 
+def _survey_gift(s) -> tuple:
+    """Подарок, назначенный САМОЙ анкетой: (lead_magnet_id, package_id).
+
+    ⚠️ Только в режиме «текст + подарок» (миграция 519). Раньше подарок шёл
+    при любом режиме, если поле заполнено, — теперь выбор режима и есть
+    выбор «дарить или нет». Подарок из ссылки воронки (`?lm=`) сюда не
+    относится: он передаётся отдельно и главнее.
+    """
+    if s["after_mode"] != "gift":
+        return None, None
+    return s["gift_lead_magnet_id"], s["gift_package_id"]
+
+
+async def _source_ids(db, client_id: int, data) -> tuple:
+    """Источник заявки: (event_id, product_id) — только если это СВОЁ событие
+    или продукт владельца анкеты.
+
+    ⚠️ Id приходит из браузера: без сверки чужая заявка могла бы попасть во
+    вкладку «Заявки» постороннего события. Не сошлось — молча пишем без
+    источника, человеку ошибку не показываем: анкету он заполнил честно.
+    """
+    ev = pr = None
+    if data.event_id:
+        ok = await db.fetchval(
+            """SELECT 1 FROM event_owners
+                WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'
+                LIMIT 1""",
+            data.event_id, client_id)
+        ev = data.event_id if ok else None
+    if data.product_id:
+        ok = await db.fetchval(
+            "SELECT 1 FROM products WHERE id = $1 AND client_id = $2",
+            data.product_id, client_id)
+        pr = data.product_id if ok else None
+    return ev, pr
+
+
+async def support_after_submit(db, client_id: int, keyword) -> dict | None:
+    """Кнопки службы заботы для экрана после отправки анкеты.
+
+    Контакты — РАБОЧИЕ контакты кабинета (`work_tg_username` / `work_vk` /
+    `work_max`), те же, что подставляются в рассылки и воронки: второй раз их
+    не вводят. Показываем только заполненные площадки.
+
+    ⚠️ Кодовое слово в поле ввода подставляется ТОЛЬКО в Telegram (`?text=`):
+    ВКонтакте и MAX такого параметра у личной ссылки нет — там слово
+    показывается в тексте экрана, и человек пишет его сам.
+    """
+    from urllib.parse import quote
+    from app.services.landing_support import support_links
+    row = await db.fetchrow(
+        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+        client_id)
+    if not row:
+        return None
+    links = support_links(row)
+    kw = (keyword or "").strip()
+    tg = links.get("telegram")
+    if tg and kw:
+        tg = f"{tg}{'&' if '?' in tg else '?'}text={quote(kw, safe='')}"
+    items = [{"platform": p, "url": u} for p, u in
+             (("telegram", tg), ("vk", links.get("vk")), ("max", links.get("max")))
+             if u]
+    if not items:
+        return None
+    return {"keyword": kw or None, "links": items}
+
+
 @router.get("/{slug}")
 async def get_public_survey(
     slug: str,
@@ -141,8 +209,9 @@ async def get_public_survey(
                 # анкету заново: человек его заслужил в прошлый раз, а «вы уже
                 # заполняли» без файла выглядит как отказ выдать обещанное.
                 if already:
-                    gift_lm = lm or s["gift_lead_magnet_id"]
-                    gift_pkg = pkg or s["gift_package_id"]
+                    s_lm, s_pkg = _survey_gift(s)
+                    gift_lm = lm or s_lm
+                    gift_pkg = pkg or s_pkg
                     if gift_lm or gift_pkg:
                         try:
                             from app.services.funnel_service import _materials_for_run
@@ -169,9 +238,10 @@ async def get_public_survey(
     # Название подарка — из ссылки (человек шёл за ним) либо назначенного
     # самой анкетой.
     gift_name = None
+    s_lm, s_pkg = _survey_gift(s)
     try:
-        gift_lm = lm or s["gift_lead_magnet_id"]
-        gift_pkg = pkg or s["gift_package_id"]
+        gift_lm = lm or s_lm
+        gift_pkg = pkg or s_pkg
         if gift_lm:
             gift_name = await db.fetchval(
                 "SELECT name FROM lead_magnets WHERE id = $1", gift_lm)
@@ -205,7 +275,7 @@ async def get_public_survey(
         "already_materials": done_materials,
         # Есть ли на выходе подарок. Двух видов: указан в ссылке (человек
         # шёл за ним из бота) либо назначен самой анкетой.
-        "has_gift": bool(lm or pkg or s["gift_lead_magnet_id"] or s["gift_package_id"]),
+        "has_gift": bool(lm or pkg or s_lm or s_pkg),
         # ⚠️ Название подарка показываем ДО заполнения: человек должен видеть,
         # что именно он получит, а не абстрактное «подарок придёт».
         "gift_name": gift_name,
@@ -224,6 +294,10 @@ class SurveySubmit(BaseModel):
     package_id: Optional[int] = None
     platform: Optional[str] = None
     utm: Optional[dict] = None
+    # Источник заявки (миграция 519): форма заявки какого события/продукта.
+    # Пусто — прямая ссылка на анкету (или лид-магнит, он пишется выше).
+    event_id: Optional[int] = None
+    product_id: Optional[int] = None
     # Экран «Это вы?»: человек выбрал себя из найденных / сказал «я впервые».
     chosen_contact_id: Optional[int] = None
     force_new: Optional[bool] = None
@@ -390,14 +464,17 @@ async def submit_survey(
                 WHERE id = $1""",
             contact_id, ip[:64])
 
+    src_event_id, src_product_id = await _source_ids(db, client_id, data)
+
     async with db.transaction():
         resp_id = await db.fetchval(
             """INSERT INTO survey_responses
-                 (survey_id, contact_id, platform_slug, lead_magnet_id, package_id, utm)
-               VALUES ($1,$2,$3,$4,$5,$6::jsonb) RETURNING id""",
+                 (survey_id, contact_id, platform_slug, lead_magnet_id, package_id,
+                  utm, event_id, product_id)
+               VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING id""",
             s["id"], contact_id, data.platform,
             data.lead_magnet_id, data.package_id,
-            json.dumps(data.utm or {}))
+            json.dumps(data.utm or {}), src_event_id, src_product_id)
 
         for qid, raw in (data.answers or {}).items():
             try:
@@ -452,12 +529,22 @@ async def _after_submit(db, survey, contact_id: int, data: SurveySubmit, *, repe
         "redirect_url": survey["redirect_url"],
         "materials": [],
         "sent_to_bot": False,
+        "support": None,
     }
 
+    # Режим «текст + контакты службы заботы» (миграция 519).
+    if survey["after_mode"] == "support":
+        try:
+            out["support"] = await support_after_submit(
+                db, survey["client_id"], survey["support_keyword"])
+        except Exception:
+            logger.exception("survey: не удалось собрать контакты службы заботы")
+
     # ⚠️ Подарок из ссылки главнее: человек шёл именно за ним. Своего нет —
-    # берём назначенный анкетой.
-    lm_id = data.lead_magnet_id or survey["gift_lead_magnet_id"]
-    pkg_id = data.package_id or survey["gift_package_id"]
+    # берём назначенный анкетой (только в режиме «с подарком»).
+    s_lm, s_pkg = _survey_gift(survey)
+    lm_id = data.lead_magnet_id or s_lm
+    pkg_id = data.package_id or s_pkg
     if not (lm_id or pkg_id):
         return out
 

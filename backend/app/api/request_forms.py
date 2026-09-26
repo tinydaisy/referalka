@@ -23,6 +23,12 @@ API (JWT владельца кабинета):
   GET    /api/v1/{events|products}/{owner_id}/request-form
   PUT    /api/v1/{events|products}/{owner_id}/request-form
   DELETE /api/v1/{events|products}/{owner_id}/request-form
+  GET    /api/v1/{events|products}/{owner_id}/request-form/responses
+         — заявки, пришедшие с формы этого события/продукта (вкладка «Заявки»)
+
+⚠️ Текст «спасибо» и что показать после отправки — ТОЛЬКО в анкете
+(миграция 519). Своего `success_text` у формы больше нет: он доходил лишь до
+Mini App, а лендинг показывал текст анкеты — два места разъезжались.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -47,7 +53,6 @@ class RequestFormIn(BaseModel):
     survey_id: int
     title: Optional[str] = None
     subtitle: Optional[str] = None
-    success_text: Optional[str] = None
     # Как показывать вопросы: 'quiz' (по одному, по умолчанию) | 'form' (все сразу).
     survey_view: Optional[str] = None
     is_active: Optional[bool] = True
@@ -88,7 +93,7 @@ async def _assert_survey_owned(db, client_id: int, survey_id: int):
 
 async def _get_form(db, owner_type: str, owner_id: int):
     return await db.fetchrow(
-        """SELECT f.id, f.survey_id, f.title, f.subtitle, f.success_text,
+        """SELECT f.id, f.survey_id, f.title, f.subtitle,
                   f.survey_view, f.is_active,
                   s.title AS survey_title, s.slug AS survey_slug
              FROM request_forms f
@@ -111,13 +116,12 @@ async def _save_form(owner_type, owner_id, data: RequestFormIn, user, db):
     row = await db.fetchrow(
         """INSERT INTO request_forms
                (client_id, owner_type, owner_id, survey_id,
-                title, subtitle, success_text, survey_view, is_active)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                title, subtitle, survey_view, is_active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (owner_type, owner_id) DO UPDATE
            SET survey_id    = EXCLUDED.survey_id,
                title        = EXCLUDED.title,
                subtitle     = EXCLUDED.subtitle,
-               success_text = EXCLUDED.success_text,
                survey_view  = EXCLUDED.survey_view,
                is_active    = EXCLUDED.is_active,
                updated_at   = NOW()
@@ -125,7 +129,6 @@ async def _save_form(owner_type, owner_id, data: RequestFormIn, user, db):
         int(user["sub"]), owner_type, owner_id, data.survey_id,
         (data.title or "").strip() or None,
         (data.subtitle or "").strip() or None,
-        (data.success_text or "").strip() or None,
         # ⚠️ Мусор приводим к дефолту, а не роняем запрос — как у btn_width
         # и card_style. По умолчанию КВИЗ.
         "form" if data.survey_view == "form" else "quiz",
@@ -141,6 +144,111 @@ async def _delete_form(owner_type, owner_id, user, db):
         "DELETE FROM request_forms WHERE owner_type = $1 AND owner_id = $2",
         owner_type, owner_id)
     return {"ok": True}
+
+
+async def _list_responses(owner_type, owner_id, user, db):
+    """Заявки, пришедшие с формы заявки ЭТОГО события/продукта.
+
+    ⚠️ Отбор — по источнику в самом ответе (`survey_responses.event_id` /
+    `product_id`, миграция 519), а НЕ «все ответы анкеты формы»: одна анкета
+    стоит на нескольких событиях, и список смешал бы чужие заявки. Анкету
+    формы могли поменять — старые заявки всё равно остаются в списке.
+
+    ⚠️ «Обработано» и заметка — те же поля сотрудника анкеты, что в разделе
+    «Анкеты» (пишутся общей ручкой `.../staff-answers`). Заявка одна — двух
+    отметок не бывает.
+    """
+    client_id = int(user["sub"])
+    await _assert_owner(db, client_id, owner_type, owner_id)
+    col = "event_id" if owner_type == "event" else "product_id"
+    rows = await db.fetch(
+        f"""SELECT r.id, r.survey_id, r.created_at, r.platform_slug,
+                  s.title AS survey_title,
+                  c.id AS contact_id, c.name, c.phone,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'email'
+                    ORDER BY pu.id LIMIT 1) AS email,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id) FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+                    LIMIT 1) AS telegram,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id) FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk'
+                    LIMIT 1) AS vk,
+                  (SELECT COALESCE(pu.username, pu.platform_user_id) FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'max'
+                    LIMIT 1) AS max_nick
+             FROM survey_responses r
+             JOIN surveys s  ON s.id = r.survey_id AND s.client_id = $2
+             JOIN contacts c ON c.id = r.contact_id
+            WHERE r.{col} = $1
+            ORDER BY r.created_at DESC, r.id DESC
+            LIMIT 500""",
+        owner_id, client_id)
+    if not rows:
+        return {"responses": [], "unprocessed": 0}
+
+    ids = [r["id"] for r in rows]
+    answers = await db.fetch(
+        """SELECT a.response_id, a.question_id, a.value,
+                  q.title, q.kind, q.filled_by, q.is_protected, q.sort_order
+             FROM survey_answers a
+             JOIN survey_questions q ON q.id = a.question_id
+            WHERE a.response_id = ANY($1::int[])
+            ORDER BY q.sort_order, q.id""",
+        ids)
+    # Поля сотрудника каждой анкеты: «Обработано» (защищённая галочка) и
+    # «Заметка». ⚠️ «Обработано» — первый защищённый по id, как у счётчика
+    # необработанных в surveys.py, иначе цифры разойдутся.
+    survey_ids = list({r["survey_id"] for r in rows})
+    staff = await db.fetch(
+        """SELECT id, survey_id, title, kind, is_protected
+             FROM survey_questions
+            WHERE survey_id = ANY($1::int[]) AND filled_by = 'staff'
+            ORDER BY id""",
+        survey_ids)
+    flag_q: dict = {}
+    note_q: dict = {}
+    for q in staff:
+        if q["is_protected"] and q["survey_id"] not in flag_q:
+            flag_q[q["survey_id"]] = q["id"]
+        elif q["kind"] == "textarea" and q["title"] == "Заметка" \
+                and q["survey_id"] not in note_q:
+            note_q[q["survey_id"]] = q["id"]
+
+    by_resp: dict = {}
+    for a in answers:
+        by_resp.setdefault(a["response_id"], []).append(a)
+
+    out = []
+    unprocessed = 0
+    for r in rows:
+        items = by_resp.get(r["id"], [])
+        fq, nq = flag_q.get(r["survey_id"]), note_q.get(r["survey_id"])
+        processed = any(a["question_id"] == fq and a["value"] == "Да" for a in items)
+        note = next((a["value"] for a in items if a["question_id"] == nq), "")
+        if fq and not processed:
+            unprocessed += 1
+        d = dict(r)
+        d["answers"] = [{"title": a["title"], "value": a["value"]}
+                        for a in items if a["filled_by"] == "visitor"]
+        d["processed"] = processed
+        d["note"] = note or ""
+        d["processed_qid"] = fq
+        d["note_qid"] = nq
+        out.append(d)
+    return {"responses": out, "unprocessed": unprocessed}
+
+
+@event_router.get("/responses", summary="Заявки с формы заявки события")
+async def get_event_responses(owner_id: int, user=Depends(get_current_client),
+                              db: asyncpg.Connection = Depends(get_db)):
+    return await _list_responses("event", owner_id, user, db)
+
+
+@product_router.get("/responses", summary="Заявки с формы заявки продукта")
+async def get_product_responses(owner_id: int, user=Depends(get_current_client),
+                                db: asyncpg.Connection = Depends(get_db)):
+    return await _list_responses("product", owner_id, user, db)
 
 
 @event_router.get("", summary="Форма заявки события")
@@ -193,7 +301,7 @@ async def load_request_form(db, owner_type: str, owner_id: int,
     заметки) на публичной странице показывать нельзя.
     """
     row = await db.fetchrow(
-        """SELECT f.survey_id, f.title, f.subtitle, f.success_text,
+        """SELECT f.survey_id, f.title, f.subtitle,
                   f.survey_view,
                   s.slug AS survey_slug, s.title AS survey_title
              FROM request_forms f

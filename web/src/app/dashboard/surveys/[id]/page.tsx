@@ -370,6 +370,14 @@ function EditTab({ survey, fields, onChanged, readOnly }: any) {
   )
 }
 
+// Что показать после отправки (миграция 519).
+const AFTER_MODES = [
+  { value: 'thanks',  label: 'Текст «спасибо»', hint: 'Настраивается только текст' },
+  { value: 'gift',    label: 'Текст «спасибо» + подарок', hint: 'Текст и лид-магнит или пакет' },
+  { value: 'support', label: 'Текст «спасибо» + контакты службы заботы', hint: 'Текст, кодовое слово и кнопки мессенджеров' },
+  { value: 'url',     label: 'Перевести на свою ссылку', hint: 'Сразу после отправки откроется ваша страница' },
+]
+
 function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
   // Подарок, который анкета выдаёт после заполнения.
   const [giftId, setGiftId] = useState<number | ''>(survey.gift_lead_magnet_id || '')
@@ -390,6 +398,10 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
   const [afterMode, setAfterMode] = useState(survey.after_mode || 'thanks')
   const [thanks, setThanks] = useState(survey.thanks_text || '')
   const [redirect, setRedirect] = useState(survey.redirect_url || '')
+  const [supportKeyword, setSupportKeyword] = useState(survey.support_keyword || '')
+  const PLATFORM_NAMES: Record<string, string> = { telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX' }
+  const supportPlatforms: string[] = (survey.support_preview?.links || [])
+    .map((l: any) => PLATFORM_NAMES[l.platform] || l.platform)
   const [allowRepeat, setAllowRepeat] = useState(!!survey.allow_repeat)
   const [isActive, setIsActive] = useState(survey.is_active !== false)
   const [saving, setSaving] = useState(false)
@@ -421,11 +433,13 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
       await api.surveys.update(survey.id, {
         intro, after_mode: afterMode, thanks_text: thanks,
         redirect_url: redirect, allow_repeat: allowRepeat, is_active: isActive,
+        support_keyword: supportKeyword.trim() || null,
         image_url: imageUrl || null,
         // ⚠️ НОЛЬ, а не null: бэкенд не различает «не прислали» и «прислали
         // пусто», и снять выбранный подарок через null было бы нельзя.
-        gift_lead_magnet_id: giftId ? Number(giftId) : 0,
-        gift_package_id: giftPkgId ? Number(giftPkgId) : 0,
+        // Не «с подарком» — подарок снимаем: выдаётся он только в этом режиме.
+        gift_lead_magnet_id: afterMode === 'gift' && giftId ? Number(giftId) : 0,
+        gift_package_id: afterMode === 'gift' && giftPkgId ? Number(giftPkgId) : 0,
         ...(notifyTouched ? { notify_emails: notifyEmails } : {}),
       })
       setSaved(true); setTimeout(() => setSaved(false), 1500)
@@ -474,23 +488,38 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
     <div className="rounded-xl border border-gray-200 bg-white p-4">
       <h3 className="mb-3 font-semibold text-gray-800">Настройки анкеты</h3>
 
-      <label className="mb-3 block">
-        <span className="mb-1 block text-sm text-gray-600">Что показать после отправки</span>
-        <select className="input bg-white" value={afterMode} disabled={readOnly}
-                onChange={e => setAfterMode(e.target.value)}>
-          <option value="thanks">Текст «спасибо»</option>
-          <option value="url">Перевести на свою ссылку</option>
-        </select>
-      </label>
+      {/* ⚠️ «Что показать после отправки» — ЧЕТЫРЕ варианта (миграция 519),
+          и это ЕДИНСТВЕННОЕ место настройки: у формы заявки своего текста
+          больше нет. Подарок выдаётся только в варианте «с подарком». */}
+      <div className="mb-3">
+        <span className="mb-2 block text-sm text-gray-600">Что показать после отправки</span>
+        <div className="space-y-2">
+          {AFTER_MODES.map(m => (
+            <label key={m.value}
+                   className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                     afterMode === m.value ? 'border-[#25455D] bg-[#FFCFA4]/20' : 'border-gray-200'}`}>
+              <input type="radio" name="after_mode" className="mt-1"
+                     checked={afterMode === m.value} disabled={readOnly}
+                     onChange={() => setAfterMode(m.value)} />
+              <span>
+                <span className="block text-sm font-medium text-gray-800">{m.label}</span>
+                <span className="block text-xs text-gray-500">{m.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
 
-      {afterMode === 'thanks' ? (
+      {afterMode !== 'url' && (
         <label className="mb-3 block">
           <span className="mb-1 block text-sm text-gray-600">Текст «спасибо»</span>
           <textarea className="input min-h-[60px]" value={thanks} disabled={readOnly}
                     onChange={e => setThanks(e.target.value)}
-                    placeholder="Спасибо! Мы получили ваши ответы." />
+                    placeholder="Спасибо! Мы свяжемся с вами." />
         </label>
-      ) : (
+      )}
+
+      {afterMode === 'url' && (
         <label className="mb-3 block">
           <span className="mb-1 block text-sm text-gray-600">Куда перевести</span>
           <input className="input" value={redirect} disabled={readOnly}
@@ -499,29 +528,51 @@ function SettingsBlock({ survey, onChanged, readOnly, part }: any) {
         </label>
       )}
 
-      <label className="mb-3 block">
-        <span className="mb-1 block text-sm text-gray-600">
-          Выдать подарок за заполнение
-        </span>
-        {/* Общий пикер с поиском: и лид-магниты, и пакеты. */}
-        <LeadMagnetPicker
-          disabled={readOnly}
-          placeholder="Не выдавать"
-          value={giftPkgId ? { kind: 'package', id: Number(giftPkgId) }
-               : giftId ? { kind: 'magnet', id: Number(giftId) } : null}
-          onPick={v => {
-            // Магнит ИЛИ пакет — второе поле зануляем, иначе в базе останутся
-            // оба и непонятно, что выдавать.
-            setGiftId(v?.kind === 'magnet' ? v.id : '')
-            setGiftPkgId(v?.kind === 'package' ? v.id : '')
-          }}
-        />
-        <span className="mt-1 block text-xs text-gray-500">
-          {giftId
-            ? 'Придёт сразу после отправки — ссылкой на странице и сообщением в бот.'
-            : 'Выберите лид-магнит, если он выдаётся за заполнение этой анкеты.'}
-        </span>
-      </label>
+      {afterMode === 'gift' && (
+        <label className="mb-3 block">
+          <span className="mb-1 block text-sm text-gray-600">Подарок</span>
+          {/* Общий пикер с поиском: и лид-магниты, и пакеты. */}
+          <LeadMagnetPicker
+            disabled={readOnly}
+            placeholder="Выберите подарок"
+            value={giftPkgId ? { kind: 'package', id: Number(giftPkgId) }
+                 : giftId ? { kind: 'magnet', id: Number(giftId) } : null}
+            onPick={v => {
+              // Магнит ИЛИ пакет — второе поле зануляем, иначе в базе останутся
+              // оба и непонятно, что выдавать.
+              setGiftId(v?.kind === 'magnet' ? v.id : '')
+              setGiftPkgId(v?.kind === 'package' ? v.id : '')
+            }}
+          />
+          <span className="mt-1 block text-xs text-gray-500">
+            Придёт сразу после отправки — ссылкой на странице и сообщением в бот.
+          </span>
+        </label>
+      )}
+
+      {afterMode === 'support' && (
+        <div className="mb-3">
+          <label className="block">
+            <span className="mb-1 block text-sm text-gray-600">Кодовое слово</span>
+            <input className="input" value={supportKeyword} disabled={readOnly}
+                   maxLength={100}
+                   onChange={e => setSupportKeyword(e.target.value)}
+                   placeholder="Хочу стать спикером" />
+          </label>
+          <span className="mt-1 block text-xs text-gray-500">
+            Под текстом — кнопки службы заботы. В Telegram слово сразу подставится
+            в сообщение, во ВКонтакте и MAX человек увидит его в тексте и напишет сам.
+          </span>
+          <div className="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+            {supportPlatforms.length
+              ? <>Кнопки: {supportPlatforms.join(', ')}. </>
+              : <span className="text-red-600">Рабочие контакты не заполнены — кнопок не будет. </span>}
+            <a href="/dashboard/settings?tab=profile" className="underline">
+              Контакты службы заботы — в Настройки → Профиль
+            </a>
+          </div>
+        </div>
+      )}
 
       <p className="mb-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
         Если анкета, наоборот, стоит ПЕРЕД подарком (включается в самом

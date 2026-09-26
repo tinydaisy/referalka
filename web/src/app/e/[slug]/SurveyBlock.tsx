@@ -21,6 +21,7 @@
  * заказа тарифа и в авторизации вебинарной комнаты.
  */
 import { useMemo, useRef, useState } from 'react'
+import SupportButtons from '@/components/surveys/SupportButtons'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -133,6 +134,10 @@ export default function SurveyBlock({
           email: contact.email || null,
           phone: contact.phone || null,
           consent_pd: pd,
+          // Источник заявки (миграция 519): форма заявки этого события или
+          // продукта — по нему заявка попадает во вкладку «Заявки».
+          event_id: survey.source_event_id || null,
+          product_id: survey.source_product_id || null,
           ...(choice || {}),
         }),
       })
@@ -162,10 +167,23 @@ export default function SurveyBlock({
     return (
       <div className="mx-auto max-w-xl text-center">
         <div className="mb-3 text-4xl">✓</div>
-        <p className="text-lg font-semibold">
-          {done.thanks_text || survey.thanks_text || 'Спасибо! Заявка отправлена'}
+        <p className="whitespace-pre-wrap text-lg font-semibold">
+          {done.thanks_text || survey.thanks_text || 'Спасибо! Заявка отправлена. Мы свяжемся с вами.'}
         </p>
-        <p className="mt-2 text-sm opacity-70">Мы свяжемся с вами.</p>
+        {/* Режим «с подарком»: материалы прямо здесь (и дублем в бот). */}
+        {(done.materials || []).length > 0 && (
+          <div className="mt-4 space-y-2 text-left">
+            {done.materials.map((m: any, i: number) => (
+              <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                 className="block rounded-xl border border-current/20 p-3 hover:bg-current/5">
+                <div className="font-medium">{m.name}</div>
+                {m.description && <div className="mt-0.5 text-sm opacity-70">{m.description}</div>}
+              </a>
+            ))}
+          </div>
+        )}
+        {/* Режим «контакты службы заботы» (миграция 519). */}
+        <SupportButtons support={done.support} />
       </div>
     )
   }

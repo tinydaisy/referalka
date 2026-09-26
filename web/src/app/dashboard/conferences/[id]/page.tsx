@@ -39,11 +39,13 @@ import BroadcastQueueView from './broadcasts/queue/page'
 import WebinarTab from './tabs/WebinarTab'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
+import PaymentsSubTabs from '@/components/PaymentsSubTabs'
+import RequestResponsesTab from '@/components/RequestResponsesTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'nominations' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'request_form' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard' | 'crm'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'nominations', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'request_form', 'tariff_orders', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing', 'dashboard', 'crm']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'nominations' | 'criteria' | 'assignments' | 'leaderboard' | 'jury_review' | 'reports' | 'taskcontrol' | 'tariffs' | 'request_form' | 'tariff_orders' | 'request_responses' | 'broadcast_templates' | 'broadcast_queue' | 'webinar' | 'landing' | 'dashboard' | 'crm'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'nominations', 'criteria', 'assignments', 'leaderboard', 'jury_review', 'reports', 'taskcontrol', 'tariffs', 'request_form', 'tariff_orders', 'request_responses', 'broadcast_templates', 'broadcast_queue', 'webinar', 'landing', 'dashboard', 'crm']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -159,13 +161,16 @@ export default function ConferencePage() {
     ...(isVip ? [{
       key: 'payments' as GroupKey, label: 'Платежи/Заявки',
       tabs: [
+        // ⚠️ Две группы (26.09.2026): «Тарифы → Заказы» и «Формы заявки →
+        // Заявки». Рисует их PaymentsSubTabs — порядок и цвета там.
         { id: 'tariffs' as Tab, label: 'Тарифы' },
+        { id: 'tariff_orders' as Tab, label: 'Заказы' },
         // «Формы заявки» (мигр. 363): заявка НЕ регистрирует и не берёт
         // денег — человек заполняет анкету, ответ идёт в её заявки.
         // ⚠️ Вкладка есть у ЛЮБОГО события: формы заявки проверяют владение
         // через `event_owners`, а не тип события (request_forms.py).
         { id: 'request_form' as Tab, label: 'Формы заявки' },
-        { id: 'tariff_orders' as Tab, label: 'Заказы' },
+        { id: 'request_responses' as Tab, label: 'Заявки' },
       ],
     }] : []),
     // ⚠️ «Лендинг» — ОТДЕЛЬНЫЙ раздел первого уровня, а не вкладка внутри
@@ -305,7 +310,11 @@ export default function ConferencePage() {
       {/* Уровень 2 — вкладки внутри активного раздела.
           Если в разделе одна вкладка (напр. «Контроль заданий») — второй уровень
           не показываем, чтобы не дублировать заголовок раздела. */}
-      {activeGroup.tabs.length > 1 && (
+      {activeGroup.key === 'payments' && (
+        <PaymentsSubTabs active={tab} eventId={eventId}
+                         onSelect={k => setTab(k as Tab)} />
+      )}
+      {activeGroup.key !== 'payments' && activeGroup.tabs.length > 1 && (
         <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6 border-b border-gray-200">
           <div className="flex gap-1 w-max sm:w-fit">
             {activeGroup.tabs.map(tb => (
@@ -339,6 +348,7 @@ export default function ConferencePage() {
       {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'request_form' && isVip && <RequestFormTab ownerType="events" ownerId={eventId} />}
       {tab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
+      {tab === 'request_responses' && isVip && <RequestResponsesTab ownerType="events" ownerId={eventId} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
       {/* Дашборд события: тот же движок, что в «Аналитике», но считает
           только по участникам этого события (условие добавляет бэк). */}

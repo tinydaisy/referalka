@@ -14,10 +14,12 @@ import ContestReportTab from './tabs/ContestReportTab'
 import LandingTab from '../../events/[id]/tabs/LandingTab'
 import TariffsTab from '../../events/[id]/tabs/TariffsTab'
 import RequestFormTab from '@/components/RequestFormTab'
+import PaymentsSubTabs from '@/components/PaymentsSubTabs'
+import RequestResponsesTab from '@/components/RequestResponsesTab'
 import { useMe } from '@/hooks/useMe'
 
 type TabKey = 'overview' | 'posters' | 'landing' | 'referral' | 'voters' | 'welcome' | 'report'
-  | 'tariffs' | 'request_form' | 'tariff_orders'
+  | 'tariffs' | 'request_form' | 'tariff_orders' | 'request_responses'
 
 export default function ContestPage() {
   const { id } = useParams()
@@ -86,11 +88,14 @@ export default function ContestPage() {
     ...(isVip ? [{
       key: 'payments' as GroupKey, label: 'Платежи/Заявки',
       tabs: [
+        // ⚠️ Две группы (26.09.2026): «Тарифы → Заказы» и «Формы заявки →
+        // Заявки». Рисует их PaymentsSubTabs — порядок и цвета там.
         { key: 'tariffs' as TabKey, label: 'Тарифы' },
+        { key: 'tariff_orders' as TabKey, label: 'Заказы' },
         // «Формы заявки» (мигр. 363): заявка НЕ регистрирует и не берёт
         // денег — человек заполняет анкету, ответ идёт в её заявки.
         { key: 'request_form' as TabKey, label: 'Формы заявки' },
-        { key: 'tariff_orders' as TabKey, label: 'Заказы' },
+        { key: 'request_responses' as TabKey, label: 'Заявки' },
       ],
     }] : []),
     // ⚠️ «Лендинг» — ОТДЕЛЬНЫЙ раздел первого уровня, а не вкладка внутри
@@ -157,6 +162,11 @@ export default function ContestPage() {
       </div>
 
       {/* Уровень 2 — вкладки внутри активного раздела */}
+      {activeGroup.key === 'payments' && (
+        <PaymentsSubTabs active={activeTab} eventId={eventId}
+                         onSelect={k => setActiveTab(k as TabKey)} />
+      )}
+      {activeGroup.key !== 'payments' && (
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
         {activeGroup.tabs.map(tb => (
           <button
@@ -169,6 +179,7 @@ export default function ContestPage() {
           </button>
         ))}
       </div>
+      )}
 
       {/* Tab content */}
       {activeTab === 'overview' && <ContestOverviewTab event={event} eventId={eventId} onReload={reload} />}
@@ -181,6 +192,7 @@ export default function ContestPage() {
       {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
       {activeTab === 'request_form'  && isVip && <RequestFormTab ownerType="events" ownerId={eventId} />}
       {activeTab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
+      {activeTab === 'request_responses' && isVip && <RequestResponsesTab ownerType="events" ownerId={eventId} />}
     </div>
   )
 }

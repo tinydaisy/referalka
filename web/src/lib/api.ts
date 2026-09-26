@@ -1394,6 +1394,9 @@ export const api = {
               { method: 'PUT', body: JSON.stringify(data) }),
     remove: (ownerType: 'events' | 'products', ownerId: number) =>
       request(`/api/v1/${ownerType}/${ownerId}/request-form`, { method: 'DELETE' }),
+    // Заявки, пришедшие с формы этого события/продукта (вкладка «Заявки»).
+    responses: (ownerType: 'events' | 'products', ownerId: number) =>
+      request(`/api/v1/${ownerType}/${ownerId}/request-form/responses`),
   },
   // Новости платформы (миграция 374).
   // ⚠️ `news` — то, что видит КЛИЕНТ в своём кабинете; `platformNews` — ведение

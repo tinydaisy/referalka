@@ -165,6 +165,42 @@ async def _answers(db, response_id: int, survey_id: int) -> list[tuple[str, str]
     return out
 
 
+async def response_source_label(db, response_id: int) -> str:
+    """Откуда пришло заполнение — одной строкой (миграция 519).
+
+    «Форма заявки: <событие>» / «Форма заявки: <продукт>» / «Лид-магнит: …» /
+    «Прямая ссылка на анкету». ⚠️ Одна функция на уведомление и кабинет —
+    чтобы подпись не разъезжалась.
+    """
+    r = await db.fetchrow(
+        """SELECT e.title AS event_title, p.title AS product_title,
+                  lm.name AS lm_name, pk.name AS pkg_name
+             FROM survey_responses r
+             LEFT JOIN events e ON e.id = r.event_id
+             LEFT JOIN products p ON p.id = r.product_id
+             LEFT JOIN lead_magnets lm ON lm.id = r.lead_magnet_id
+             LEFT JOIN lead_magnet_packages pk ON pk.id = r.package_id
+            WHERE r.id = $1""",
+        response_id)
+    return source_label(r)
+
+
+def source_label(r) -> str:
+    """Подпись источника по полям строки (event_title, product_title,
+    lm_name, pkg_name) — для списков, где строки уже выбраны."""
+    if not r:
+        return "Прямая ссылка на анкету"
+    if r["event_title"]:
+        return f"Форма заявки: {r['event_title']}"
+    if r["product_title"]:
+        return f"Форма заявки: {r['product_title']}"
+    if r["lm_name"]:
+        return f"Лид-магнит: {r['lm_name']}"
+    if r["pkg_name"]:
+        return f"Лид-магнит: {r['pkg_name']}"
+    return "Прямая ссылка на анкету"
+
+
 async def notify_survey_filled(db, survey, response_id: int, contact_id: int) -> None:
     """Уведомление о заполненной анкете. Никогда не бросает исключение:
     сбой отправки не должен ломать человеку отправку анкеты."""
@@ -185,8 +221,10 @@ async def notify_survey_filled(db, survey, response_id: int, contact_id: int) ->
                      f"<a href=\"{link}\">{_esc(title)}</a>")
         head_text = f"📋 Заполнена анкета: {title}\n{link}"
 
-        body_lines = [f"<b>Кто заполнил:</b> {_esc(name)}"]
-        body_plain = [f"Кто заполнил: {name}"]
+        source = await response_source_label(db, response_id)
+        body_lines = [f"<b>Источник:</b> {_esc(source)}",
+                      f"<b>Кто заполнил:</b> {_esc(name)}"]
+        body_plain = [f"Источник: {source}", f"Кто заполнил: {name}"]
         for c in contacts:
             body_lines.append(_esc(c))
             body_plain.append(c)

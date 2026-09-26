@@ -30,7 +30,6 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
   const [surveyId, setSurveyId] = useState<number | ''>('')
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
-  const [successText, setSuccessText] = useState('')
   // Как показывать вопросы: квизом (по умолчанию) или все сразу.
   const [surveyView, setSurveyView] = useState<'quiz' | 'form'>('quiz')
 
@@ -48,7 +47,6 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
         setSurveyId(f.form.survey_id)
         setTitle(f.form.title || '')
         setSubtitle(f.form.subtitle || '')
-        setSuccessText(f.form.success_text || '')
         setSurveyView(f.form.survey_view === 'form' ? 'form' : 'quiz')
       }
     } finally {
@@ -66,7 +64,6 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
         survey_id: Number(surveyId),
         title: title.trim() || null,
         subtitle: subtitle.trim() || null,
-        success_text: successText.trim() || null,
         survey_view: surveyView,
         is_active: true,
       })
@@ -83,7 +80,7 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
     setSaving(true)
     try {
       await api.requestForms.remove(ownerType, ownerId)
-      setForm(null); setSurveyId(''); setTitle(''); setSubtitle(''); setSuccessText('')
+      setForm(null); setSurveyId(''); setTitle(''); setSubtitle('')
     } catch (e: any) {
       alert(e?.message || 'Не удалось убрать')
     } finally {
@@ -185,14 +182,19 @@ export default function RequestFormTab({ ownerType, ownerId }: Props) {
           </div>
 
           <div>
+            {/* ⚠️ Своего текста «спасибо» у формы больше нет (миграция 519):
+                экран после отправки настраивается ОДИН раз — в анкете, и
+                одинаков на лендинге, странице анкеты и в Mini App. */}
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Что показать после отправки
             </label>
-            <textarea value={successText} onChange={e => setSuccessText(e.target.value)}
-                      rows={2}
-                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-            <p className="text-xs text-gray-400 mt-1.5">
-              Пусто — будет «Спасибо! Мы свяжемся с вами.»
+            <p className="text-sm text-gray-500">
+              Текст «спасибо», подарок или кнопки службы заботы настраиваются в самой анкете.{' '}
+              {surveyId ? (
+                <a href={`/dashboard/surveys/${surveyId}?tab=edit`} className="underline text-[#25455D]">
+                  Открыть настройки анкеты
+                </a>
+              ) : null}
             </p>
           </div>
 

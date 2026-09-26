@@ -15,6 +15,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
+import SupportButtons from '@/components/surveys/SupportButtons'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -522,6 +523,9 @@ function DoneView({ result, survey }: any) {
     return (
       <div>
         <h1 className="mb-2 text-xl font-bold">Спасибо! Ваш подарок</h1>
+        {result.thanks_text && (
+          <p className="mb-2 whitespace-pre-wrap text-sm opacity-80">{result.thanks_text}</p>
+        )}
         <p className="mb-4 text-sm opacity-80">
           {result.sent_to_bot
             ? 'Мы также отправили его вам в бот — не потеряется.'
@@ -548,6 +552,8 @@ function DoneView({ result, survey }: any) {
       <p className="whitespace-pre-wrap text-sm opacity-80">
         {survey?.thanks_text || result.thanks_text || 'Мы получили ваши ответы.'}
       </p>
+      {/* Режим «контакты службы заботы» (миграция 519). */}
+      <SupportButtons support={result.support} />
     </div>
   )
 }

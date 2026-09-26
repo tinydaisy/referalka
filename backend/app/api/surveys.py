@@ -28,6 +28,7 @@ from app.auth import get_current_client
 from app.database import get_db
 from app.services.assistant_access import assistant_is_restricted
 from app.services.features import client_has_feature
+from app.services.survey_notify import source_label
 
 router = APIRouter(tags=["Анкеты"])
 
@@ -280,6 +281,9 @@ class SurveyIn(BaseModel):
     after_mode: Optional[str] = None
     thanks_text: Optional[str] = None
     redirect_url: Optional[str] = None
+    # Кодовое слово для режима «контакты службы заботы» (миграция 519):
+    # подставляется в поле ввода Telegram и пишется в тексте экрана.
+    support_keyword: Optional[str] = None
     allow_repeat: Optional[bool] = None
     is_active: Optional[bool] = None
     # Подарок, который анкета выдаёт после заполнения (миграция 283).
@@ -481,6 +485,11 @@ async def get_survey(
     from app.services.survey_notify import resolve_notify_emails
     d["notify_emails_effective"] = await resolve_notify_emails(
         db, client_id, s["notify_emails"])
+    # Какие кнопки службы заботы увидит человек — для подсказки в настройке
+    # «после отправки»: пустые рабочие контакты = кнопок не будет.
+    from app.api.surveys_public import support_after_submit
+    d["support_preview"] = await support_after_submit(
+        db, client_id, s["support_keyword"])
     return d
 
 
@@ -508,11 +517,14 @@ async def update_survey(
     if 'title' in fs and (data.title or '').strip():
         add('title', data.title.strip())
     # ⚠️ Пустая строка — осмысленная очистка (текст «спасибо» убрали).
-    for col in ('intro', 'submit_label', 'thanks_text', 'redirect_url', 'image_url'):
+    for col in ('intro', 'submit_label', 'thanks_text', 'redirect_url', 'image_url',
+                'support_keyword'):
         if col in fs:
             add(col, getattr(data, col))
     if 'after_mode' in fs:
-        if data.after_mode not in ('thanks', 'url'):
+        # Четыре варианта (миграция 519): текст / текст + подарок /
+        # текст + служба заботы / своя ссылка.
+        if data.after_mode not in ('thanks', 'gift', 'support', 'url'):
             raise HTTPException(400, "Неизвестное действие после заполнения")
         add('after_mode', data.after_mode)
     if 'table_settings' in fs:
@@ -1050,7 +1062,11 @@ async def get_response(
                   (SELECT COALESCE(pu.username, pu.platform_user_id)
                      FROM platform_users pu
                     WHERE pu.contact_id = c.id AND pu.platform_slug='max'
-                    LIMIT 1) AS max_nick
+                    LIMIT 1) AS max_nick,
+                  (SELECT e.title FROM events e WHERE e.id = r.event_id) AS event_title,
+                  (SELECT p.title FROM products p WHERE p.id = r.product_id) AS product_title,
+                  (SELECT lm.name FROM lead_magnets lm WHERE lm.id = r.lead_magnet_id) AS lm_name,
+                  (SELECT pk.name FROM lead_magnet_packages pk WHERE pk.id = r.package_id) AS pkg_name
              FROM survey_responses r
              JOIN contacts c ON c.id = r.contact_id
             WHERE r.id = $1 AND r.survey_id = $2""",
@@ -1096,6 +1112,7 @@ async def get_response(
 
     return {
         **dict(r),
+        "source": source_label(r),
         "survey": dict(survey) if survey else None,
         # ⚠️ options разворачиваем: asyncpg отдаёт JSONB СТРОКОЙ, и без этого
         # выпадающий список у поля сотрудника не отрисуется (та же засада,
@@ -1225,6 +1242,11 @@ async def list_responses(
                      FROM platform_users pu
                     WHERE pu.contact_id = c.id AND pu.platform_slug='max'
                     LIMIT 1) AS max_nick,
+                  -- Источник заявки (миграция 519) — подпись собирает source_label.
+                  (SELECT e.title FROM events e WHERE e.id = r.event_id) AS event_title,
+                  (SELECT p.title FROM products p WHERE p.id = r.product_id) AS product_title,
+                  (SELECT lm.name FROM lead_magnets lm WHERE lm.id = r.lead_magnet_id) AS lm_name,
+                  (SELECT pk.name FROM lead_magnet_packages pk WHERE pk.id = r.package_id) AS pkg_name,
                   COALESCE(json_agg(json_build_object(
                       'question_id', a.question_id, 'value', a.value
                   ) ORDER BY a.question_id) FILTER (WHERE a.id IS NOT NULL), '[]') AS answers,
@@ -1249,7 +1271,8 @@ async def list_responses(
     # ⚠️ json_agg приходит СТРОКОЙ — без разворота фронт не может пройтись по
     # ответам (та же засада, что с `options`).
     return {
-        "responses": [{**dict(r), "answers": _jsonb(r["answers"])} for r in rows],
+        "responses": [{**dict(r), "answers": _jsonb(r["answers"]),
+                       "source": source_label(r)} for r in rows],
         "total": total,
     }
 

@@ -640,13 +640,16 @@ async def _install_consult_event(db, cid: int, slug: str, *,
     ev_id = int(created[0]["href"].rsplit("/", 1)[-1].split("?")[0])
     await db.execute(
         """INSERT INTO request_forms (owner_type, owner_id, client_id, survey_id,
-                                      title, subtitle, success_text)
+                                      title, subtitle)
            VALUES ('event',$1,$2,$3,
                    'Оставьте заявку на консультацию',
-                   'Ответьте на пару вопросов — и мы свяжемся с вами',
-                   'Спасибо! Мы свяжемся с вами и обсудим детали.')
+                   'Ответьте на пару вопросов — и мы свяжемся с вами')
            ON CONFLICT (owner_type, owner_id) DO NOTHING""",
         ev_id, cid, sv["id"])
+    # ⚠️ Текст «спасибо» — в АНКЕТЕ, у формы заявки своего больше нет (мигр. 519).
+    await db.execute(
+        "UPDATE surveys SET thanks_text = $2 WHERE id = $1",
+        sv["id"], "Спасибо! Мы свяжемся с вами и обсудим детали.")
 
     created.append({
         "title": f"Анкета-заявка «{sv['title']}»",

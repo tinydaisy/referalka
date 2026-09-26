@@ -22,6 +22,7 @@
  * и ссылка на оплату от платёжной системы клиента.
  */
 import { useRef, useState } from 'react'
+import { getPlatformName } from '../platform'
 
 export interface Tariff {
   id: number
@@ -37,7 +38,6 @@ export interface Tariff {
 export interface RequestForm {
   title?: string | null
   subtitle?: string | null
-  success_text?: string | null
   survey_slug?: string | null
   /** 'quiz' (по умолчанию) | 'form' — задаётся в форме заявки (мигр. 364). */
   survey_view?: string | null
@@ -60,6 +60,10 @@ interface Props {
   onDone: (participant: any) => void
 }
 
+// Фирменные цвета площадок — те же, что PLATFORM_COLORS в кабинете.
+const SUPPORT_COLORS: Record<string, string> = { telegram: '#229ED9', max: '#6D4AFF', vk: '#0077FF' }
+const SUPPORT_NAMES: Record<string, string> = { telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX' }
+
 function money(v: number) {
   return `${Math.round(v).toLocaleString('ru-RU')} ₽`
 }
@@ -77,7 +81,9 @@ export default function TariffPicker({
   const [onRequest, setOnRequest] = useState(
     !!requestForm && tariffs.length === 0)
   const [answers, setAnswers] = useState<Record<string, any>>({})
-  const [sentText, setSentText] = useState<string | null>(null)
+  // Ответ `/submit` после отправки заявки: текст «спасибо», подарок и кнопки
+  // службы заботы — всё настраивается в АНКЕТЕ (миграция 519).
+  const [sent, setSent] = useState<any | null>(null)
   // ⚠️ В простой форме заявка идёт КВИЗОМ — по одному вопросу за шаг.
   // Все вопросы сразу в узком окне мессенджера превращаются в простыню:
   // человек видит десятки полей и закрывает окно, не начав.
@@ -276,11 +282,19 @@ export default function TariffPicker({
           email: email.trim() || null,
           phone: phone.trim() || null,
           consent_pd: true,
+          // Источник заявки (миграция 519) — по нему она попадает во вкладку
+          // «Заявки» события. Площадка — чтобы подарок продублировать в бот.
+          event_id: event?.id ?? null,
+          platform: getPlatformName() !== 'web' ? getPlatformName() : null,
         }),
       })
       const data = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(data?.detail || 'Не удалось отправить заявку')
-      setSentText(requestForm?.success_text || 'Спасибо! Мы свяжемся с вами.')
+      if (data?.after_mode === 'url' && data?.redirect_url && !(data?.materials || []).length) {
+        window.location.href = data.redirect_url
+        return
+      }
+      setSent(data)
     } catch (e: any) {
       setError(e?.message || 'Не удалось отправить заявку')
       setBusy(false)
@@ -290,15 +304,51 @@ export default function TariffPicker({
   }
 
   // ── Заявка отправлена ──
-  if (sentText) {
+  if (sent) {
+    const materials: any[] = sent.materials || []
+    const support = sent.support
     return (
       <div className="modal-bg">
         <div className="modal-sheet" style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 44, marginBottom: 8 }}>🎉</div>
           <h2 style={{ marginBottom: 10 }}>Заявка отправлена</h2>
-          <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.5, marginBottom: 18 }}>
-            {sentText}
+          <p style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.5, marginBottom: 18, whiteSpace: 'pre-wrap' }}>
+            {sent.thanks_text || 'Спасибо! Мы свяжемся с вами.'}
           </p>
+          {/* Режим «с подарком» — материалы (и дублем в бот). */}
+          {materials.length > 0 && (
+            <div style={{ textAlign: 'left', marginBottom: 18 }}>
+              {materials.map((m: any, i: number) => (
+                <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                   style={{ display: 'block', padding: 12, borderRadius: 12, marginBottom: 8,
+                            border: '1px solid var(--border, #e5e7eb)', textDecoration: 'none' }}>
+                  <div style={{ fontWeight: 600 }}>{m.name}</div>
+                  {m.description && <div style={{ fontSize: 13, color: 'var(--muted)' }}>{m.description}</div>}
+                </a>
+              ))}
+            </div>
+          )}
+          {/* Режим «контакты службы заботы». ⚠️ Кодовое слово в сообщение
+              подставляет только Telegram — поэтому пишем его и текстом. */}
+          {support?.links?.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              {support.keyword && (
+                <p style={{ fontSize: 14, marginBottom: 10 }}>
+                  Напишите нам «<b>{support.keyword}</b>»:
+                </p>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+                {support.links.map((l: any) => (
+                  <a key={l.platform} href={l.url} target="_blank" rel="noreferrer"
+                     style={{ padding: '10px 16px', borderRadius: 12, color: '#fff', fontWeight: 600,
+                              fontSize: 14, textDecoration: 'none',
+                              background: SUPPORT_COLORS[l.platform] || '#25455D' }}>
+                    {SUPPORT_NAMES[l.platform] || l.platform}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
           <button className="btn btn-primary" onClick={onClose}>Закрыть</button>
         </div>
       </div>

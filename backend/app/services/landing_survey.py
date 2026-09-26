@@ -96,9 +96,9 @@ async def collect_landing_surveys(db, blocks, client_id: int,
     # ⚠️ Сверяем client_id ещё и здесь, хотя он проверен при сохранении блока:
     # анкету могли перенести или удалить, а страница обязана в этом случае
     # промолчать, а не показать чужую форму.
-    # ⚠️ Имена колонок сверены со схемой: «что после отправки» — это
-    # `after_mode` ('thanks' | 'url') + `thanks_text` / `redirect_url`.
-    # Полей `success_text`/`success_url` в `surveys` не существует.
+    # ⚠️ «Что после отправки» живёт ТОЛЬКО в анкете: `after_mode`
+    # ('thanks' | 'gift' | 'support' | 'url') + `thanks_text` / `redirect_url`
+    # (миграция 519). Сам экран строит ответ `/submit`, здесь — только текст.
     rows = await db.fetch(
         """SELECT id, slug, title, intro, submit_label, image_url,
                   after_mode, thanks_text, redirect_url, is_active
@@ -166,5 +166,9 @@ async def collect_landing_surveys(db, blocks, client_id: int,
             "form_title": form_title,
             "form_subtitle": form_subtitle,
             "form_view": form_view,
+            # ⚠️ Источник заявки (миграция 519): фронт шлёт его в `/submit`, и
+            # заявка попадает во вкладку «Заявки» этого события/продукта.
+            "source_event_id": owner_id if owner_type == "event" else None,
+            "source_product_id": owner_id if owner_type == "product" else None,
         }
     return out
