@@ -46,7 +46,7 @@ hlsVariant: mpegts
 # экземплярами не поднялся (400 Bad Request), отключён.
 # ⚠️ Диагностику «видео рвётся» НАЧИНАТЬ с этого:
 #   grep '/live/' /var/log/nginx/access.log | grep '\.ts' | grep -c ' 404 '
-hlsSegmentCount: 7
+hlsSegmentCount: 12
 hlsSegmentDuration: 2s
 
 # ⚠️⚠️ ВРЕМЯ ЖИЗНИ HLS-СЕССИИ (25.09.2026). Дефолт readTimeout = 10 секунд:
