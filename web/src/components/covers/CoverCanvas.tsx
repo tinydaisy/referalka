@@ -22,6 +22,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { brandFontCss, metallicTextStyle } from '@/lib/brandStyle'
+import { cropStyle, type CropSettings, type CropShape } from '@/lib/photoCrop'
 
 export type CoverTemplate = {
   bg_url?: string | null
@@ -117,8 +118,8 @@ function logoUrl(t: CoverTemplate, th: CoverTheme): string | null {
 }
 
 export default function CoverCanvas({
-  template: t, theme: th, title, subtitle, overline, photoUrl, logos, scale = 1,
-  showGuides = false,
+  template: t, theme: th, title, subtitle, overline, photoUrl, photoCrop,
+  logos, scale = 1, showGuides = false,
 }: {
   /** ⚠️ СЛУЖЕБНАЯ разметка области текста (красный пунктир) — ТОЛЬКО экран
    *  редактора. В снимок она не попадает: страница отрисовки её не включает,
@@ -135,6 +136,13 @@ export default function CoverCanvas({
   overline?: string | null
   /** Фото на прозрачном фоне. Нет — текст встаёт по центру полотна. */
   photoUrl?: string | null
+  /** Кадр фото: точка лица, приближение, сдвиг — из карточки человека.
+   *  ⚠️ Без него фото вставало как есть, и отмеченная точка лица не работала:
+   *  на обложках лица оказывались обрезанными (26.09.2026). */
+  photoCrop?: (CropSettings & {
+    photo_focal?: string | null
+    cutout_photo_focal?: string | null
+  }) | null
   /** Логотипы партнёров — рядком сверху (обложка спикера). */
   logos?: string[]
   /** Во сколько раз уменьшить на экране. В снимке всегда 1. */
@@ -306,6 +314,36 @@ export default function CoverCanvas({
         const maskImage = fade > 0
           ? `linear-gradient(${fadeSide}, #000 ${100 - fade}%, transparent 100%)`
           : undefined
+        // ⚠️⚠️ КАДР СЧИТАЕТСЯ ОБЩИМ `cropStyle`, а не `objectPosition`
+        // (26.09.2026). Здесь стояло `objectPosition: center top` — грубое
+        // допущение «лицо всегда сверху». На деле точка лица отмечена в
+        // карточке у каждого (у Катии Шведовой ещё и зум 3.0), и обложка её
+        // игнорировала: лица обрезались, фото вставали вразнобой. Тот же
+        // расчёт, что на афишах и в карточке, — иначе клиент настроит кадр в
+        // одном месте, а на обложке получит другое.
+        //
+        // ⚠️ Форма для кадра берётся ближайшая из трёх, под которые кадр
+        // настраивают: круг и овал → circle, портрет → portrait, квадрат →
+        // square. Своих настроек у «овала» в карточке нет, и заводить их
+        // значило бы пять ползунков вместо трёх.
+        const cropShape: CropShape =
+          shape === 'circle' || shape === 'oval' ? 'circle'
+            : shape === 'portrait' ? 'portrait' : 'square'
+        // Размер фигуры В ПИКСЕЛЯХ — `cropStyle` считает сдвиг в реальных
+        // величинах, в процентах это посчитать нельзя.
+        const maskW = w * COVER_W / 100
+        const maskH = h * COVER_H / 100
+        // ⚠️ У вырезки своя точка лица: она кадрирована иначе, чем основной
+        // снимок. Правило то же, что в афишах.
+        const focal = photoCrop?.cutout_photo_focal || photoCrop?.photo_focal
+        // Ползунок «Размер» умножается на зум из карточки: первый — свойство
+        // шаблона, второй — свойство конкретного снимка.
+        const settings: CropSettings = {
+          ...photoCrop,
+          [`crop_zoom_${cropShape}`]:
+            (photoCrop?.[`crop_zoom_${cropShape}` as keyof CropSettings] as number ?? 1)
+            * ((t.photo_scale ?? 100) / 100),
+        }
         return (
           <div style={{
             position: 'absolute',
@@ -324,17 +362,7 @@ export default function CoverCanvas({
             <img
               src={photoUrl!}
               alt=""
-              style={{
-                width: '100%', height: '100%',
-                // ⚠️ `cover`, а не `contain`: снимки приходят разной пропорции,
-                // и `contain` оставлял бы в фигуре пустые поля по бокам.
-                objectFit: 'cover',
-                // Кадр по верху: у портретов лицо сверху, и центрирование
-                // срезало бы его на узкой фигуре.
-                objectPosition: 'center top',
-                // Увеличение внутри фигуры — тем же ползунком «Размер».
-                transform: `scale(${(t.photo_scale ?? 100) / 100})`,
-              }}
+              style={cropStyle(cropShape, focal, settings, maskW, maskH)}
             />
           </div>
         )

@@ -42,7 +42,7 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
     «Имя Фамилия» задан одним правилом на весь проект, и своя склейка тут
     разошлась бы с карточками и лендингом.
     """
-    from app.services.event_photo import photo_columns, photo_join, resolve_photo_url
+    from app.services.event_photo import photo_columns, photo_join
 
     row = await conn.fetchrow(
         f"""SELECT rc.title AS cut_title,
@@ -84,16 +84,17 @@ async def cut_cover_fields(conn: asyncpg.Connection, cut_id: int) -> dict:
 
     # ⚠️ Фото на ПРОЗРАЧНОМ фоне (cutout) в приоритете: шаблон кладёт человека
     # поверх фона, и прямоугольное фото выглядело бы наклейкой.
-    # ⚠️ Через `resolve_photo_url`, а не своим выбором: фото спикера для этого
-    # события может быть выбрано отдельно (`event_collaborators.photo_id`), и
-    # обложка обязана показывать то же лицо, что афиша и программа.
-    photo = resolve_photo_url(dict(row), cutout=True) or ""
+    # ⚠️ Через ОБЩИЙ `cover_photo` — то же правило, что у обложки по программе
+    # дня: два своих порядка выбора разошлись бы, и один путь давал бы вырезку,
+    # а другой прямоугольный снимок того же человека.
+    photo, crop = cover_photo(dict(row))
 
     return {
         "title": title,
         "subtitle": row["topic"] or "",
         "overline": row["event_title"] or "",
         "photo": photo,
+        **_crop_params(crop),
     }
 
 
@@ -115,7 +116,7 @@ async def render_speaker_cover(
     `cutout_photo_url`), и человек чинил то, что не ломалось. Выдуманная
     причина хуже, чем никакой: она уводит от настоящей.
     """
-    from app.services.event_photo import photo_columns, photo_join, resolve_photo_url
+    from app.services.event_photo import photo_columns, photo_join
 
     try:
         row = await conn.fetchrow(
@@ -143,11 +144,15 @@ async def render_speaker_cover(
                 errors.append(f"спикер #{ec_id}: не заполнено имя в карточке")
             return None
 
+        photo, crop = cover_photo(dict(row))
         png = await _render_fields(client_id, {
             "title": title,
             "subtitle": topic or "",
             "overline": row["event_title"] or "",
-            "photo": resolve_photo_url(dict(row), cutout=True) or "",
+            "photo": photo,
+            # ⚠️ Кадр едет вместе с фото: без него точка лица не применялась
+            # вовсе, и на обложке лицо оказывалось обрезанным (26.09.2026).
+            **_crop_params(crop),
         })
         if not png and errors is not None:
             errors.append(f"{title}: рисовальщик картинки не ответил")
@@ -157,6 +162,65 @@ async def render_speaker_cover(
         if errors is not None:
             errors.append(f"спикер #{ec_id}: {e}")
         return None
+
+
+def _crop_params(crop: dict) -> dict:
+    """Кадр → параметры адреса страницы отрисовки.
+
+    ⚠️ Только непустые: пустые значения сделали бы адрес длиннее без пользы,
+    а у страницы на этот случай свои умолчания (точка 50/50, зум 1).
+    """
+    out: dict[str, str] = {}
+    for k, v in (crop or {}).items():
+        if v is None or v == "":
+            continue
+        out[k] = str(v)
+    return out
+
+
+def cover_photo(row: dict) -> tuple[str, dict]:
+    """Фото для обложки и КАДР к нему: (адрес, поля кадра).
+
+    ⚠️⚠️ ВЫРЕЗКА ИЗ ПРОФИЛЯ БЕРЁТСЯ, ДАЖЕ ЕСЛИ ДЛЯ СОБЫТИЯ ВЫБРАНО ДРУГОЕ ФОТО
+    (26.09.2026). Здесь стоял `resolve_photo_url(cutout=True)`, и на проде он
+    у ВСЕХ ВОСЬМИ спикеров дня возвращал обычный снимок, хотя вырезка была у
+    каждого. Почему: вырезка лежит в профиле (`collaborators.cutout_photo_url`),
+    а для события выбрано фото из библиотеки (`event_collaborators.photo_id`),
+    у которого своей вырезки нет. Общее правило `apply_event_photo` честно
+    отдаёт пустую вырезку выбранного фото — подставлять к чужому снимку чужую
+    вырезку нельзя, это был бы другой человек в другой позе, — и обложка
+    откатывалась на прямоугольное фото. Отсюда и разнобой: у кого квадрат, у
+    кого узкая полоса, у кого обрезанное лицо.
+
+    Порядок (сверху вниз, первое сработавшее):
+      1. вырезка ВЫБРАННОГО для события фото — со своим кадром;
+      2. вырезка из профиля — со СВОИМ кадром (`cutout_photo_focal`), а не с
+         кадром выбранного фото: у вырезки своя композиция;
+      3. выбранное для события фото — со своим кадром;
+      4. профильное фото — со своим.
+
+    ⚠️ Кадр всегда едет ВМЕСТЕ со своим снимком. Взять фото одно, а точку лица
+    от другого — гарантированно промахнуться мимо лица; ровно это правило уже
+    записано в `event_photo`, здесь оно просто не должно теряться.
+    """
+    from app.services.event_photo import CROP_FIELDS
+
+    def crop(prefix: str) -> dict:
+        return {f: row.get(f"{prefix}{f}") for f in CROP_FIELDS}
+
+    ep_url = row.get("ep_url")
+    ep_cutout = row.get("ep_cutout_url")
+
+    # 1. У выбранного фото есть своя вырезка — лучший случай.
+    if ep_cutout:
+        return ep_cutout, crop("ep_")
+    # 2. Вырезка из профиля — со своим кадром.
+    if row.get("cutout_photo_url"):
+        return row["cutout_photo_url"], crop("")
+    # 3-4. Вырезки нет вовсе — обычное фото, выбранное или профильное.
+    if ep_url:
+        return ep_url, crop("ep_")
+    return row.get("photo_url") or "", crop("")
 
 
 async def _render_fields(client_id: int, fields: dict) -> Optional[bytes]:

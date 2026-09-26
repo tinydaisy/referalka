@@ -16,6 +16,13 @@ import CoverCanvas, { COVER_W, COVER_H } from '@/components/covers/CoverCanvas'
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
 
+/** Число из адреса. Пусто или мусор → null: у кадра свои умолчания. */
+function numOrNull(v: string | null): number | null {
+  if (v === null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
 export default function CoverRenderClient() {
   const sp = useSearchParams()
   const [data, setData] = useState<any>(null)
@@ -26,6 +33,24 @@ export default function CoverRenderClient() {
   const subtitle = sp.get('subtitle') || ''
   const overline = sp.get('overline') || ''
   const photo = sp.get('photo') || ''
+
+  // ⚠️⚠️ КАДР ПРИЕЗЖАЕТ В АДРЕСЕ (26.09.2026). Раньше обложка не применяла
+  // его вовсе: фото вставлялось как есть, и отмеченная точка лица не работала —
+  // на готовых обложках лица оказывались обрезанными, а сами фото вставали
+  // вразнобой. Точка и зум настроены в карточке человека и нужны здесь же.
+  const crop = {
+    photo_focal: sp.get('photo_focal'),
+    cutout_photo_focal: sp.get('cutout_photo_focal'),
+    crop_zoom_circle: numOrNull(sp.get('crop_zoom_circle')),
+    crop_zoom_square: numOrNull(sp.get('crop_zoom_square')),
+    crop_zoom_portrait: numOrNull(sp.get('crop_zoom_portrait')),
+    crop_dx_circle: numOrNull(sp.get('crop_dx_circle')),
+    crop_dy_circle: numOrNull(sp.get('crop_dy_circle')),
+    crop_dx_square: numOrNull(sp.get('crop_dx_square')),
+    crop_dy_square: numOrNull(sp.get('crop_dy_square')),
+    crop_dx_portrait: numOrNull(sp.get('crop_dx_portrait')),
+    crop_dy_portrait: numOrNull(sp.get('crop_dy_portrait')),
+  }
 
   useEffect(() => {
     fetch(`${apiBase}/api/v1/public/cover/data?kind=${encodeURIComponent(kind)}&t=${encodeURIComponent(token)}`)
@@ -47,6 +72,7 @@ export default function CoverRenderClient() {
         subtitle={subtitle || null}
         overline={overline || null}
         photoUrl={photo || data.theme?.sample_photo_url || null}
+        photoCrop={crop}
       />
     </div>
   )

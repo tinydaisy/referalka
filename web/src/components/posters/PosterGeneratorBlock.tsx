@@ -2010,6 +2010,8 @@ function CoversTab({ eventId }: { eventId: number }) {
   const [counts, setCounts] = useState<Record<number, number>>({})
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
+  // Какую обложку показываем крупно. null — просмотр закрыт.
+  const [big, setBig] = useState<any>(null)
 
   useEffect(() => {
     api.conference.days.list(eventId)
@@ -2107,16 +2109,41 @@ function CoversTab({ eventId }: { eventId: number }) {
         </div>
       )}
 
+      {/* ⚠️ Обложки СТОЛБИКОМ и крупно (26.09.2026). Сеткой по четыре в ряд
+          картинка шириной 1280 px ужималась до ~300 px: разглядеть, не налезает
+          ли текст на фото, было невозможно — а проверяют их именно ради этого.
+          Клик открывает просмотр в полэкрана. */}
       {covers.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div className="space-y-4 max-w-3xl">
           {covers.map((c: any, i: number) => (
             <div key={c.ec_id ?? i} className="rounded-xl border border-gray-200 overflow-hidden bg-white">
               {c.cover_url
-                ? <img src={c.cover_url} alt="" className="w-full aspect-video object-cover" />
+                ? <img src={c.cover_url} alt="" onClick={() => setBig(c)}
+                       title="Нажмите, чтобы рассмотреть"
+                       className="w-full aspect-video object-cover cursor-zoom-in" />
                 : <div className="w-full aspect-video bg-gray-100 flex items-center justify-center text-xs text-gray-400">нет обложки</div>}
-              <div className="px-2 py-1.5 text-xs text-gray-700 truncate">{c.speaker_name || '—'}</div>
+              <div className="px-3 py-2 text-sm text-gray-700 truncate">{c.speaker_name || '—'}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Просмотр в полэкрана. ⚠️ Это ЛАЙТБОКС (просмотр картинки), а не форма,
+          поэтому закрытие по клику на фон здесь оставлено — правило проекта
+          запрещает его только формам с полями ввода. */}
+      {big && (
+        <div onClick={() => setBig(null)}
+             className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6">
+          <div onClick={e => e.stopPropagation()} className="w-1/2 min-w-[520px] max-w-[900px]">
+            <img src={big.cover_url} alt="" className="w-full rounded-xl shadow-2xl" />
+            <div className="mt-2 flex items-center justify-between text-sm text-white">
+              <span>{big.speaker_name || '—'}</span>
+              <button onClick={() => setBig(null)}
+                      className="rounded-lg bg-white/15 px-3 py-1 hover:bg-white/25">
+                Закрыть
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
