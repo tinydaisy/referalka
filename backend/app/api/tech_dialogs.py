@@ -82,6 +82,53 @@ async def _assert_mine(db, spec_id: int, client_id: int, contact_id: int) -> Non
         raise HTTPException(404, "Диалог не найден")
 
 
+# ⚠️⚠️ ОТ ЧЬЕГО ИМЕНИ ПЕРЕПИСКА (владелец, 26.09.2026). Внедренцы путались:
+# думали, что они помощники в боте iVision, а пишут они клиентам ПЛЮСОНа из
+# каналов сервисного кабинета. Показываем эти каналы прямо в «Диалогах».
+#
+# ⚠️ Каналы берём из БАЗЫ (главные каналы сервисного кабинета), а не пишем в
+# коде: сменится бот или сообщество — экран покажет новое сам.
+# ⚠️ Токены и `platform_meta` наружу НЕ отдаём — только имя и ссылку.
+_PLATFORM_ORDER = {"telegram": 0, "max": 1, "vk": 2, "email": 3}
+
+
+async def _our_channels(db) -> list[dict]:
+    rows = await db.fetch(
+        """SELECT ch.platform_slug, ch.display_name, ch.handle,
+                  ch.platform_meta->>'max_bot_name' AS max_bot_name
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+             JOIN clients c ON c.id = cc.client_id
+            WHERE c.is_system_service AND cc.is_active""")
+    out = []
+    for r in rows:
+        p, h = r["platform_slug"], (r["handle"] or "").lstrip("@")
+        if p == "telegram":
+            label, url = (f"@{h}" if h else r["display_name"]), (f"https://t.me/{h}" if h else None)
+        elif p == "max":
+            label, url = (r["max_bot_name"] or r["display_name"]), (f"https://max.ru/{h}" if h else None)
+        elif p == "vk":
+            label, url = r["display_name"], (f"https://vk.com/{h}" if h else None)
+        elif p == "email":
+            # ⚠️ Почтовый сервер ПЛЮСОНа только ОТПРАВЛЯЕТ (решение 04.05.2026):
+            # ответ клиента на это письмо никуда не придёт — пишем об этом прямо.
+            label, url = (h or r["display_name"]), None
+        else:
+            continue
+        out.append({"platform": p, "label": label, "url": url,
+                    "outgoing_only": p == "email"})
+    out.sort(key=lambda x: _PLATFORM_ORDER.get(x["platform"], 9))
+    return out
+
+
+@router.get("/our-channels", summary="Каналы ПЛЮСОНа, из которых идёт переписка")
+async def our_channels(
+    user: dict = Depends(get_current_tech),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    return {"channels": await _our_channels(db)}
+
+
 @router.get("", summary="Мои диалоги")
 async def my_dialogs(
     user: dict = Depends(get_current_tech),

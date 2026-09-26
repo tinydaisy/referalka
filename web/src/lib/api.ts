@@ -1617,6 +1617,8 @@ export const api = {
       return request(`/api/v1/tech/crm${qs ? `?${qs}` : ''}`)
     },
     // Карточка человека рядом с перепиской — только чтение (24.09.2026).
+    // Каналы ПЛЮСОНа, из которых идёт переписка (26.09.2026).
+    ourChannels: () => request('/api/v1/tech/dialogs/our-channels'),
     dialogCard: (contactId: number) =>
       request(`/api/v1/tech/dialogs/card/${contactId}`),
     // Завести разговор с клиентом, которого в боте ещё нет (23.09.2026).

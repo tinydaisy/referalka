@@ -25,6 +25,37 @@ const PLATFORM_RU: Record<string, string> = {
   telegram: 'Telegram', vk: 'ВК', max: 'MAX', email: 'почта',
 }
 
+/**
+ * ⚠️⚠️ ОТ ЧЬЕГО ИМЕНИ ПЕРЕПИСКА (владелец, 26.09.2026). Внедренцы путались:
+ * думали, что они помощники в боте iVision, а пишут клиентам ПЛЮСОНа из его
+ * каналов. Список каналов — из базы (сервисный кабинет), не из кода.
+ */
+function OurChannels({ channels }: { channels: any[] }) {
+  if (!channels.length) return null
+  return (
+    <div className="border-b border-[#FFCFA4] bg-[#FFCFA4]/30 px-4 py-3 text-xs text-[#25455D]">
+      <div className="mb-1 font-semibold">
+        Вы отвечаете от имени ПЛЮСОНа, а не iVision
+      </div>
+      <div className="space-y-0.5">
+        {channels.map((c: any) => (
+          <div key={c.platform}>
+            {PLATFORM_LABEL[c.platform] || c.platform}:{' '}
+            {c.url
+              ? <a href={c.url} target="_blank" rel="noreferrer" className="font-medium underline">{c.label}</a>
+              : <span className="font-medium">{c.label}</span>}
+            {c.outgoing_only && <span className="text-[#25455D]/60"> — только отправка, ответы на почту не приходят</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const PLATFORM_LABEL: Record<string, string> = {
+  telegram: 'Telegram-бот', max: 'MAX-бот', vk: 'Сообщество ВК', email: 'Почта',
+}
+
 /** Когда было последнее сообщение — коротко. */
 function when(iso?: string | null) {
   if (!iso) return ''
@@ -41,6 +72,7 @@ export default function TechDialogsPage() {
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState<number | null>(null)
   const [opening, setOpening] = useState(false)
+  const [ourChannels, setOurChannels] = useState<any[]>([])
 
   const load = () =>
     api.tech.dialogs()
@@ -49,6 +81,9 @@ export default function TechDialogsPage() {
       .finally(() => setLoading(false))
 
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    api.tech.ourChannels().then((r: any) => setOurChannels(r.channels || [])).catch(() => {})
+  }, [])
 
   /** ⚠️ У клиента, который ни разу не писал в бот, контакта нет вовсе
    *  (`contact_id === null`) — заводим его на лету, иначе строка в списке
@@ -81,6 +116,7 @@ export default function TechDialogsPage() {
             Ваши клиенты. Можно написать первым — выберите человека.
           </p>
         </div>
+        <OurChannels channels={ourChannels} />
 
         {loading ? (
           <div className="p-6 text-center text-sm text-gray-400">Загружаем…</div>
@@ -157,7 +193,7 @@ export default function TechDialogsPage() {
           переписка важнее справки. */}
       {openId && (
         <div className="hidden w-80 shrink-0 overflow-hidden border-l border-gray-200 xl:block">
-          <DialogClientCard key={openId} contactId={openId} />
+          <DialogClientCard key={openId} contactId={openId} ourChannels={ourChannels} />
         </div>
       )}
     </div>

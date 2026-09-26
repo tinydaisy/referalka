@@ -56,7 +56,8 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
   )
 }
 
-export default function DialogClientCard({ contactId }: { contactId: number }) {
+export default function DialogClientCard({ contactId, ourChannels = [] }:
+  { contactId: number; ourChannels?: any[] }) {
   const [d, setD] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -119,6 +120,26 @@ export default function DialogClientCard({ contactId }: { contactId: number }) {
           )}
         </div>
       </div>
+
+      {/* ⚠️ Где человек с НАМИ на связи — через какой канал ПЛЮСОНа
+          (владелец, 26.09.2026). У одного человека может быть сразу несколько:
+          и почта, и Telegram — показываем все. */}
+      {(() => {
+        const mine = new Set((d.accounts || []).map((a: any) => a.platform_slug))
+        const rows = ourChannels.filter((c: any) => mine.has(c.platform))
+        if (!rows.length) return null
+        const RU: Record<string, string> = {
+          telegram: 'Telegram', max: 'MAX', vk: 'ВК', email: 'Почта' }
+        return (
+          <Block title="Переписка с ним через ПЛЮСОН">
+            {rows.map((c: any) => (
+              <Line key={c.platform} label={RU[c.platform] || c.platform}
+                    value={c.outgoing_only ? `${c.label} (только отправка)` : c.label}
+                    href={c.url} />
+            ))}
+          </Block>
+        )
+      })()}
 
       {/* ⚠️ КОНТАКТЫ ПЕРВЫМИ — ради них карточку и открывают. */}
       <Block title="Связь">
