@@ -1187,7 +1187,7 @@ async def _send_broadcast(schedule_id: int):
                 chats_sent = await _send_broadcast_to_event_chats(
                     conn, schedule, event_id, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst,
+                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst, chat_url=_chat_url,
                     allowed_platforms=_chat_platforms_for("event"),
                 )
                 sent += chats_sent
@@ -1203,7 +1203,7 @@ async def _send_broadcast(schedule_id: int):
                 sp_sent = await _send_broadcast_to_event_chats(
                     conn, schedule, event_id, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst,
+                    sent_vk=_sent_vk, sent_max=_sent_max, with_support=_with_platform_subst, chat_url=_chat_url,
                     chat_kind="event_speakers", speakers=True,
                     allowed_platforms=_chat_platforms_for("speakers"),
                 )
@@ -1220,7 +1220,7 @@ async def _send_broadcast(schedule_id: int):
                 cl_sent = await _send_broadcast_to_client_chats(
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=False, with_support=_with_platform_subst,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=False, with_support=_with_platform_subst, chat_url=_chat_url,
                     allowed_platforms=_chat_platforms_for("common"),
                 )
                 sent += cl_sent
@@ -1235,7 +1235,7 @@ async def _send_broadcast(schedule_id: int):
                 pr_sent = await _send_broadcast_to_client_chats(
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=True, with_support=_with_platform_subst,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=True, with_support=_with_platform_subst, chat_url=_chat_url,
                     allowed_platforms=_chat_platforms_for("private"),
                 )
                 sent += pr_sent
@@ -1285,6 +1285,7 @@ async def _send_broadcast_to_event_chats(
     video_url: str | None = None, media_type: str | None = None,
     sent_vk: set | None = None, sent_max: set | None = None,
     with_support=None,
+    chat_url=None,
     chat_kind: str = "event", speakers: bool = False,
     # ⚠️ Параметра не было в сигнатуре, хотя вызов его передавал, а тело
     # читало: с 25.09 по 26.09.2026 каждая отправка в ВК/MAX-чаты события и
@@ -1302,6 +1303,25 @@ async def _send_broadcast_to_event_chats(
     speakers=True — то же самое, но для ЧАТА СПИКЕРОВ (миграция 431):
     читаются events.vk/max_speakers_chat_id (прямой ID, миграция 437), в лог
     пишется chat_kind='event_speakers'."""
+
+    # ⚠️⚠️ АДРЕСА КНОПОК — ПОД ПЛОЩАДКУ ЧАТА (26.09.2026, прод). Текст здесь
+    # проходил подстановку (`with_support`), а адреса кнопок — НЕТ: в ВК-беседу
+    # дописывалось «Зарегистрироваться: {signup_link}» сырым текстом, в MAX
+    # кнопка уходила с адресом-плейсхолдером (рассылки speaker_intro события
+    # 89). `chat_url` — та же `_chat_url`, что у личной части рассылки.
+    def _u(u, platform: str) -> str:
+        return chat_url(u or "", platform) if chat_url else (u or "")
+
+    def _btns(platform: str) -> list:
+        out = []
+        for b in (buttons or []):
+            if not isinstance(b, dict):
+                continue
+            url = _u(b.get("url"), platform)
+            if url:
+                out.append({**b, "url": url})
+        return out
+
     # Чаты УЧАСТНИКОВ — через ref на client_broadcast_chats (миграция 174).
     # Чат СПИКЕРОВ — прямой ID, введённый вручную (миграция 437): служебный чат
     # заводят под событие, в общую базу чатов ему попадать незачем.
@@ -1340,11 +1360,12 @@ async def _send_broadcast_to_event_chats(
             ) or _settings.max_system_bot_token
             if max_token:
                 max_buttons = None
-                if buttons:
-                    rows_btn = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b.get("url", "")}] for b in buttons]
+                _mb = _btns("max")
+                if _mb:
+                    rows_btn = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b["url"]}] for b in _mb]
                     max_buttons = tg_inline_to_max_keyboard(rows_btn)
-                elif button_text and button_url:
-                    max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
+                elif button_text and _u(button_url, "max"):
+                    max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": _u(button_url, "max")}]])
                 # {support_link} → контакт поддержки MAX (в чат события уходит MAX).
                 _txt = with_support(text, "max") if with_support else (text or "")
                 msg = html_to_telegram(_txt or "")
@@ -1412,8 +1433,12 @@ async def _send_broadcast_to_event_chats(
             if vk_row and vk_row["bot_token"]:
                 _txt = with_support(text, "vk") if with_support else (text or "")
                 vk_text = html_to_vk_text(_txt or "")
-                if button_url:
-                    vk_text = f"{vk_text}\n\n{button_text or 'Подробнее'}: {button_url}"
+                # Кнопок у сообщения в беседе нет — ссылки дописываем текстом.
+                _vu = _u(button_url, "vk")
+                if _vu:
+                    vk_text = f"{vk_text}\n\n{button_text or 'Подробнее'}: {_vu}"
+                for _b in _btns("vk"):
+                    vk_text = f"{vk_text}\n{_b.get('text') or _b.get('label') or 'Открыть'}: {_b['url']}"
                 try:
                     peer = int(vk_chat)
                 except (TypeError, ValueError):
@@ -1476,6 +1501,7 @@ async def _send_broadcast_to_client_chats(
     sent_vk: set | None = None, sent_max: set | None = None,
     is_private: bool = False,
     with_support=None,
+    chat_url=None,
     allowed_platforms: set[str] | None = None,
 ) -> int:
     """Шлёт рассылку в базу чатов клиента (client_broadcast_chats) для VK и MAX.
@@ -1483,6 +1509,25 @@ async def _send_broadcast_to_client_chats(
     Telegram-чаты этой базы обрабатываются выше (общий TG-блок с дедупом).
     Дедуп: пропускает chat_id, уже отправленные (sent_vk/sent_max) — общий set на все слои.
     Возвращает число успешно отправленных чатов."""
+
+    # ⚠️⚠️ АДРЕСА КНОПОК — ПОД ПЛОЩАДКУ ЧАТА (26.09.2026, прод). Текст здесь
+    # проходил подстановку (`with_support`), а адреса кнопок — НЕТ: в ВК-беседу
+    # дописывалось «Зарегистрироваться: {signup_link}» сырым текстом, в MAX
+    # кнопка уходила с адресом-плейсхолдером (рассылки speaker_intro события
+    # 89). `chat_url` — та же `_chat_url`, что у личной части рассылки.
+    def _u(u, platform: str) -> str:
+        return chat_url(u or "", platform) if chat_url else (u or "")
+
+    def _btns(platform: str) -> list:
+        out = []
+        for b in (buttons or []):
+            if not isinstance(b, dict):
+                continue
+            url = _u(b.get("url"), platform)
+            if url:
+                out.append({**b, "url": url})
+        return out
+
     client_id = schedule["client_id"]
     rows = await conn.fetch(
         """SELECT platform, chat_id FROM client_broadcast_chats
@@ -1522,11 +1567,12 @@ async def _send_broadcast_to_client_chats(
             ) or _settings.max_system_bot_token
             if max_token:
                 max_buttons = None
-                if buttons:
-                    rows_btn = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b.get("url", "")}] for b in buttons]
+                _mb = _btns("max")
+                if _mb:
+                    rows_btn = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b["url"]}] for b in _mb]
                     max_buttons = tg_inline_to_max_keyboard(rows_btn)
-                elif button_text and button_url:
-                    max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
+                elif button_text and _u(button_url, "max"):
+                    max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": _u(button_url, "max")}]])
                 _txt = with_support(text, "max") if with_support else (text or "")
                 msg = html_to_telegram(_txt or "")
                 if media_type == "video" and video_url:
@@ -1577,8 +1623,9 @@ async def _send_broadcast_to_client_chats(
             wa_media = photo_url if (photo_url and media_type != "video") else None
             if media_type == "video" and video_url:
                 wa_text = f"{wa_text}\n\n🎬 Видео: {video_url}" if wa_text else video_url
-            if button_url:
-                wa_text = f"{wa_text}\n\n{button_text or 'Подробнее'}: {button_url}"
+            _wu = _u(button_url, "telegram")
+            if _wu:
+                wa_text = f"{wa_text}\n\n{button_text or 'Подробнее'}: {_wu}"
             if wa_text.strip() or wa_media:
                 for c in wa_chats:
                     try:
@@ -1620,8 +1667,12 @@ async def _send_broadcast_to_client_chats(
             if vk_row and vk_row["bot_token"]:
                 _txt = with_support(text, "vk") if with_support else (text or "")
                 vk_text = html_to_vk_text(_txt or "")
-                if button_url:
-                    vk_text = f"{vk_text}\n\n{button_text or 'Подробнее'}: {button_url}"
+                # Кнопок у сообщения в беседе нет — ссылки дописываем текстом.
+                _vu = _u(button_url, "vk")
+                if _vu:
+                    vk_text = f"{vk_text}\n\n{button_text or 'Подробнее'}: {_vu}"
+                for _b in _btns("vk"):
+                    vk_text = f"{vk_text}\n{_b.get('text') or _b.get('label') or 'Открыть'}: {_b['url']}"
                 vk_attachment = None
                 if photo_url and media_type != "video":
                     try:
