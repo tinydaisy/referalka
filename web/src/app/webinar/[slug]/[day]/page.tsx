@@ -532,6 +532,24 @@ export default function WebinarRoomPage() {
     return () => clearTimeout(t)
   }, [playerLoading])
 
+  /**
+   * Перезагрузка НАТИВНОГО источника — когда буфер обнулился и играть нечего.
+   *
+   * ⚠️⚠️ Зачем (26.09.2026, iOS Яндекс). Зритель уходит на другую вкладку и
+   * возвращается — буфер пуст, видео стоит, чёрный экран. Обновление страницы
+   * НЕ помогало: `video.src` уже выставлен, повторного `load()` не происходит,
+   * а браузер сам загрузку не возобновляет. В логе — `mode=native played=0s`.
+   *
+   * ⚠️ Под hls.js НЕ лезем в `src`: у него своя обработка обрыва (startLoad и
+   * повторы), а подмена источника рвала бы ему загрузку на ровном месте.
+   */
+  const reloadNative = useCallback(() => {
+    const url = roomRef.current?.room?.hls_url
+    const v = videoRef.current
+    if (!url || !v || hlsInstRef.current) return
+    try { v.src = url; v.load(); v.play().catch(() => {}) } catch {}
+  }, [])
+
   const reloadPlayer = useCallback(() => {
     const rm = roomRef.current?.room
     const video = videoRef.current
@@ -1052,7 +1070,7 @@ export default function WebinarRoomPage() {
               webkit-playsinline="true"
               className="w-full h-full cursor-pointer" />}
             {live && <LiveControls videoRef={videoRef} needUnmute={needUnmute}
-                                   onUnmute={unmute} />}
+                                   onUnmute={unmute} reloadNative={reloadNative} />}
             {live && <span className="absolute top-3 left-3 bg-red-600 text-xs px-2 py-0.5 rounded font-bold">● LIVE</span>}
             {/* ⚠️ Мелкой кнопки «↻ Видео» в углу больше НЕТ (23.09.2026).
                 Она работала, но читалась как непонятный значок: надпись
@@ -1402,10 +1420,15 @@ function ChatText({ text }: { text: string }) {
  * нет вовсе, а если отставание всё же возникло (свернул вкладку, подвисла
  * сеть) — плеер сам догоняет живой край.
  */
-function LiveControls({ videoRef, needUnmute, onUnmute }: {
+function LiveControls({ videoRef, needUnmute, onUnmute, reloadNative }: {
   videoRef: React.RefObject<HTMLVideoElement>
   needUnmute: boolean
   onUnmute: () => void
+  // ⚠️ Перезагрузка нативного источника — приходит из родителя, потому что
+  // hlsInstRef и roomRef живут там, а этот компонент их не видит.
+  // Нужна при возврате с другой вкладки на iOS Яндексе: буфер обнуляется, и
+  // без повторного load() остаётся чёрный экран (см. catchUp ниже).
+  reloadNative: () => void
 }) {
   const [muted, setMuted] = useState(true)
   const [full, setFull] = useState(false)
@@ -1435,7 +1458,21 @@ function LiveControls({ videoRef, needUnmute, onUnmute }: {
     if (!v) return
     const catchUp = () => {
       try {
-        if (!v.buffered.length) return
+        // ⚠️⚠️ ПУСТОЙ БУФЕР → ПЕРЕЗАГРУЖАЕМ ИСТОЧНИК (26.09.2026, iOS Яндекс).
+        //
+        // Здесь стоял `if (!v.buffered.length) return` — и это была дыра: на
+        // iOS Яндексе после возврата с другой вкладки буфер ОБНУЛЯЕТСЯ, а
+        // подматывать нечего, поэтому функция молча выходила. Зритель видел
+        // чёрный экран, и обновление страницы не спасало: `video.src` уже
+        // выставлен, повторного `load()` не происходит, а браузер сам загрузку
+        // не возобновляет. В логе это выглядело как `mode=native played=0s`.
+        //
+        // ⚠️ Только для нативного пути: у hls.js своя обработка обрыва
+        // (startLoad и повторы), дёргать `src` под ним — рвать ему загрузку.
+        if (!v.buffered.length) {
+          if (v.readyState < 2) reloadNative()
+          return
+        }
         const edge = v.buffered.end(v.buffered.length - 1)
         if (edge - v.currentTime > 6) v.currentTime = edge - 0.5
         if (v.paused) v.play().catch(() => {})
