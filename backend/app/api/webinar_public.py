@@ -11,6 +11,7 @@ webinar_activity/presence с contact_id — база аналитики по з�
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Optional, List
@@ -22,6 +23,10 @@ from app.database import get_pool
 from app.services import webinar_service as ws
 from app.services import webinar_hub as hub
 from app.services.contact_merge import find_or_create_contact
+
+# ⚠️ Лог «у зрителя нет видео» пишется сюда (см. heartbeat ниже): смотреть
+# во время эфира командой `journalctl -u plusson-api -f | grep WEBINAR-NOVIDEO`.
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/public/webinar", tags=["Вебинар — зритель"])
 ws_router = APIRouter()
@@ -719,6 +724,15 @@ class Heartbeat(BaseModel):
     contact_id: Optional[int] = None
     session_key: Optional[str] = None
     device: Optional[str] = None
+    # ⚠️⚠️ ФАКТ ВОСПРОИЗВЕДЕНИЯ, а не «страница открыта» (миграция 516).
+    # На вебинаре 25.09.2026 из 158 зрителей 71 не увидел видео, и по логам это
+    # было НЕ ВИДНО: nginx знает только «отдал файл», а собралась ли картинка в
+    # браузере — нет. Отсюда ложные доклады «видео идёт» при чёрном экране.
+    # Теперь зритель сам сообщает, играется ли у него видео.
+    playing: Optional[bool] = None       # идёт ли видео прямо сейчас
+    played_sec: Optional[int] = None     # сколько секунд посмотрел всего
+    player_mode: Optional[str] = None    # 'native' | 'hlsjs' — какой способ выбран
+    player_error: Optional[str] = None   # последняя ошибка плеера, если была
 
 
 @router.post("/{slug}/{day}/heartbeat", summary="Пинг присутствия (раз в минуту)")
@@ -733,11 +747,45 @@ async def heartbeat(slug: str, day: int, body: Heartbeat):
         # и после закрытия (closed) heartbeat не пишем — иначе аналитика «уникальных»
         # расходится со списком зрителей (тот пишется тоже только при open).
         if body.contact_id and (room.get("room_state") or "created") == "open":
+            # ⚠️ ON CONFLICT ... DO UPDATE, а не DO NOTHING: в одной минуте heartbeat
+            # может прийти повторно, и состояние плеера к тому моменту меняется —
+            # «пошло видео» или «оборвалось». При DO NOTHING мы бы навсегда
+            # запомнили первое значение и снова не увидели правды.
+            # ⚠️ playing берём COALESCE от нового значения: молчание фронта
+            # (NULL у старой сборки) не должно стирать уже записанный факт.
             await conn.execute(
-                "INSERT INTO webinar_presence (room_id, contact_id, session_key, bucket_at, device, session_id) "
-                "VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
-                rid, body.contact_id, body.session_key, now, body.device, room.get("current_session_id"),
+                "INSERT INTO webinar_presence "
+                "  (room_id, contact_id, session_key, bucket_at, device, session_id, "
+                "   playing, played_sec, player_mode, player_error) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) "
+                # ⚠️ Список полей ДОСЛОВНО как в индексе webinar_presence_uq:
+                # (room_id, COALESCE(contact_id,0), COALESCE(session_key,''), bucket_at).
+                # Он построен на ВЫРАЖЕНИЯХ — если написать просто
+                # (room_id, contact_id, bucket_at), Postgres не найдёт индекс и
+                # запрос упадёт на каждом heartbeat.
+                "ON CONFLICT (room_id, COALESCE(contact_id, 0), "
+                "             COALESCE(session_key, ''::text), bucket_at) DO UPDATE SET "
+                "  playing      = COALESCE(EXCLUDED.playing, webinar_presence.playing), "
+                "  played_sec   = GREATEST(COALESCE(EXCLUDED.played_sec, 0), "
+                "                          COALESCE(webinar_presence.played_sec, 0)), "
+                "  player_mode  = COALESCE(EXCLUDED.player_mode, webinar_presence.player_mode), "
+                "  player_error = COALESCE(EXCLUDED.player_error, webinar_presence.player_error)",
+                rid, body.contact_id, body.session_key, now, body.device,
+                room.get("current_session_id"),
+                body.playing, body.played_sec, body.player_mode, body.player_error,
             )
+            # ⚠️⚠️ ПИШЕМ В ЛОГ СЕРВЕРА, а не только в базу. Во время эфира нужно
+            # видеть беду сразу и поднимать `journalctl -u plusson-api`, не
+            # дожидаясь разбора базы на следующий день. Логируем ТОЛЬКО когда
+            # видео НЕ идёт: иначе при сотне зрителей лог забьётся пустыми
+            # строками «всё хорошо» и в нём ничего не найти.
+            if body.playing is False:
+                logger.warning(
+                    "WEBINAR-NOVIDEO room=%s contact=%s mode=%s played=%ss err=%s device=%s",
+                    rid, body.contact_id, body.player_mode or "?",
+                    body.played_sec if body.played_sec is not None else "?",
+                    body.player_error or "-", (body.device or "?")[:120],
+                )
         online = await _online_now(conn, rid)
     # ⚠️ Живой счётчик рассылаем ВСЕГДА (24.09.2026). Раньше при «Скрывать
     # число зрителей» рассылка отключалась целиком — и организатор, которому

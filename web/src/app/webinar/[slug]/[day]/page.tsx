@@ -107,6 +107,12 @@ export default function WebinarRoomPage() {
   // таймер на 12 с — то есть если видео пойдёт, надпись уйдёт сама.
   const [playerLoading, setPlayerLoading] = useState(true)
   const hlsInstRef = useRef<any>(null)                       // текущий hls.js — для ручного перезапуска кнопкой
+  // ⚠️⚠️ Сбор ФАКТА ВОСПРОИЗВЕДЕНИЯ для heartbeat (26.09.2026, после вебинара,
+  // где 71 зритель из 158 не увидел видео, а по логам это было не видно).
+  const lastTimeRef = useRef(0)            // currentTime на прошлом пинге — растёт ли
+  const playedRef = useRef(0)              // сколько секунд видео реально шло
+  const playerModeRef = useRef<string | null>(null)  // 'native' | 'hlsjs'
+  const playerErrRef = useRef<string | null>(null)   // последняя ошибка плеера
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const chatBoxRef = useRef<HTMLDivElement | null>(null)
@@ -316,6 +322,7 @@ export default function WebinarRoomPage() {
 
     // ── НАБОР «Н-НАТИВ»: только iOS Яндекс ──
     if (isIOS && isYandex) {
+      playerModeRef.current = 'native'
       video.addEventListener('error', nativeError)
       video.addEventListener('playing', () => { setPlayerStuck(false); setPlayerLoading(false) })
       video.src = rm.hls_url; video.load()
@@ -335,6 +342,7 @@ export default function WebinarRoomPage() {
     import('hls.js').then(({ default: Hls }) => {
       if (destroyed) return
       if (Hls.isSupported()) {
+        playerModeRef.current = 'hlsjs'
         const mk = () => {
           // ⚠️⚠️ НАСТРОЙКИ ЖИВОГО ЭФИРА (24.09.2026). Плеер создавался почти
           // без них, и у части зрителей ЗВУК ШЁЛ, А КАРТИНКА ЗАМИРАЛА: при
@@ -384,6 +392,13 @@ export default function WebinarRoomPage() {
             netErrCount = 0; setPlayerStuck(false); setPlayerLoading(false)
           })
           h.on(Hls.Events.ERROR, (_e: any, data: any) => {
+            // ⚠️ Запоминаем ошибку для heartbeat — она уедет на сервер и попадёт
+            // в лог `WEBINAR-NOVIDEO`. Иначе про поломку у зрителя знать нечем:
+            // 25.09 разбирать было не по чему вовсе.
+            if (data?.details) {
+              playerErrRef.current = String(data.details).slice(0, 80)
+                + (data.fatal ? ':fatal' : '')
+            }
             // ⚠️⚠️ КАРТИНКА ЗАМЕРЛА, А ЗВУК ИДЁТ → ДОГОНЯЕМ ЭФИР (24.09.2026).
             // Главная жалоба зрителей. hls.js сообщает о вставшем буфере
             // НЕФАТАЛЬНОЙ ошибкой bufferStalledError — а нефатальные мы ниже
@@ -615,8 +630,39 @@ export default function WebinarRoomPage() {
     if (!room?.room || !contactId) return
     const beat = () => {
       if (document.hidden) return
-      const device = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop'
-      api('/heartbeat', { contact_id: contactId, session_key: sessionKey, device })
+      // ⚠️⚠️ ПОЛНЫЙ User-Agent, а не 'mobile'/'desktop' (26.09.2026). После
+      // вебинара 25.09, где 71 зритель из 158 не увидел видео, разбирать было
+      // нечем: в базе стояло только «mobile», и какая связка ОС+браузер отвалилась
+      // — приходилось сопоставлять вручную по логам nginx через IP. Теперь
+      // связка видна сразу в одной строке с фактом воспроизведения.
+      const device = navigator.userAgent.slice(0, 300)
+
+      // ⚠️⚠️ ФАКТ ВОСПРОИЗВЕДЕНИЯ, а не «страница открыта».
+      // Главный урок 25.09: «сегменты отдались с кодом 200» НЕ значит, что
+      // человек видит картинку — на Android Chrome сегменты шли по 500 КБ при
+      // чёрном экране. Сервер этого знать не может, поэтому признак собираем
+      // здесь, у самого <video>, и отправляем вместе с пингом.
+      //
+      // ⚠️ Смотрим, РАСТЁТ ли currentTime между пингами, а не на отсутствие
+      // ошибки: при чёрном экране события 'error' часто нет вовсе — ровно так и
+      // выглядела вся история 25.09.
+      const v = videoRef.current
+      let playing: boolean | null = null
+      let played: number | null = null
+      if (v) {
+        const t = v.currentTime || 0
+        // играется = время идёт вперёд И буфер не пуст И плеер не на паузе
+        playing = t > (lastTimeRef.current + 0.2) && v.readyState >= 2 && !v.paused
+        if (playing) playedRef.current += Math.max(0, t - lastTimeRef.current)
+        lastTimeRef.current = t
+        played = Math.round(playedRef.current)
+      }
+      api('/heartbeat', {
+        contact_id: contactId, session_key: sessionKey, device,
+        playing, played_sec: played,
+        player_mode: playerModeRef.current,
+        player_error: playerErrRef.current || null,
+      })
     }
     beat()
     const t = setInterval(beat, 60000)

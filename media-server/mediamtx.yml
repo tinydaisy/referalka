@@ -23,8 +23,8 @@ rtmpEncryption: "no"
 # (~6-10 сек), но проигрывается везде без ошибок муксера.
 hls: yes
 hlsAddress: 127.0.0.1:8888
-hlsAlwaysRemux: yes
-hlsVariant: mpegts            # стабильный HLS (вместо lowLatency)
+hlsAlwaysRemux: no
+hlsVariant: fmp4
 # ⚠️⚠️ 30, а НЕ 7 (25.09.2026). При 7 сегментах по 2 с запас всего 14 секунд:
 # плеер отстаёт от эфира чуть больше — сегмент уже УДАЛЁН — 404 — видео рвётся.
 # На живом эфире это давало 63 ошибки 404 за 10 минут у ВСЕХ браузеров сразу
@@ -41,7 +41,7 @@ hlsVariant: mpegts            # стабильный HLS (вместо lowLatenc
 # экземплярами не поднялся (400 Bad Request), отключён.
 # ⚠️ Диагностику «видео рвётся» НАЧИНАТЬ с этого:
 #   grep '/live/' /var/log/nginx/access.log | grep '\.ts' | grep -c ' 404 '
-hlsSegmentCount: 7
+hlsSegmentCount: 10
 hlsSegmentDuration: 2s
 
 # ⚠️⚠️ ВРЕМЯ ЖИЗНИ HLS-СЕССИИ (25.09.2026). Дефолт readTimeout = 10 секунд:
