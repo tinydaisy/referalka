@@ -1997,11 +1997,16 @@ export default function PosterGeneratorBlock({ eventId }: { eventId: number }) {
  */
 /** Что брать как фото на обложках. ⚠️ Названия — ТЕ ЖЕ, что в карточке
  *  спикера, буква в букву: человек настраивает фото там и ищет здесь знакомое
- *  слово. */
-const PHOTO_SOURCES: [string, string][] = [
-  ['cutout', 'Фото на прозрачном фоне'],
-  ['profile', 'Фото для сайта'],
-  ['event', 'Фото, выбранное для события'],
+ *  слово.
+ *
+ *  ⚠️⚠️ БЕЗ ЯВНОЙ АННОТАЦИИ ТИПА — массив объектов, тип выводится сам.
+ *  Аннотация кортежем роняла сборку ВСЕЙ ветки: парсер принимал её за
+ *  незакрытый дженерик и падал с «Unexpected token div» на строке `return`
+ *  двумя сотнями строк ниже, где ошибки нет вовсе. Три сборки ушло на поиск. */
+const PHOTO_SOURCES = [
+  { key: 'cutout', label: 'Фото на прозрачном фоне' },
+  { key: 'profile', label: 'Фото для сайта' },
+  { key: 'event', label: 'Фото, выбранное для события' },
 ]
 
 function CoversTab({ eventId }: { eventId: number }) {
@@ -2150,12 +2155,12 @@ function CoversTab({ eventId }: { eventId: number }) {
       <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
         <div className="mb-1.5 text-xs font-medium text-gray-600">Какое фото брать</div>
         <div className="flex flex-wrap gap-2">
-          {PHOTO_SOURCES.map(([v, lbl]) => (
-            <button key={v} type="button" onClick={() => saveSource(v)}
+          {PHOTO_SOURCES.map(s => (
+            <button key={s.key} type="button" onClick={() => saveSource(s.key)}
                     className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                      source === v ? 'bg-[#25455D] text-white'
-                                   : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}>
-              {lbl}
+                      source === s.key ? 'bg-[#25455D] text-white'
+                                       : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}>
+              {s.label}
             </button>
           ))}
         </div>
