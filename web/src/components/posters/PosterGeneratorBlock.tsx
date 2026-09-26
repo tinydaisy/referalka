@@ -2150,10 +2150,6 @@ function CoversTab({ eventId }: { eventId: number }) {
       <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
         <div className="mb-1.5 text-xs font-medium text-gray-600">Какое фото брать</div>
         <div className="flex flex-wrap gap-2">
-          {/* ⚠️ Список объявлен ВЫШЕ, вне JSX (`PHOTO_SOURCES`): приведение
-              типа прямо здесь (`as [string, string][]`) роняло сборку ВСЕЙ
-              ветки — парсер JSX спотыкается об угловые скобки дженерика
-              внутри разметки. */}
           {PHOTO_SOURCES.map(([v, lbl]) => (
             <button key={v} type="button" onClick={() => saveSource(v)}
                     className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
