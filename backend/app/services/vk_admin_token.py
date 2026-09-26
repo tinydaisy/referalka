@@ -74,9 +74,13 @@ async def get_vk_admin_token(conn, client_id: int) -> tuple[Optional[str], Optio
 
     obtained = int(meta.get("vk_admin_token_obtained_at") or 0)
     expires_in = int(meta.get("vk_admin_token_expires_in") or 0)
-    # Срок неизвестен (старые подключения без времени получения) — считаем
-    # действующим и пробуем: вдруг бессрочный.
-    if not obtained or not expires_in or time.time() < obtained + expires_in - _REFRESH_MARGIN:
+    # ⚠️ Подключён до 26.09.2026 (нет времени получения и device_id): токен
+    # часовой и давно истёк, обновить его нечем. Отдавать его нельзя — VK
+    # ответит невнятной ошибкой 10, а клиенту нужна понятная причина.
+    if not obtained and not meta.get("vk_admin_device_id"):
+        return None, group_id, ("Токен администратора ВКонтакте устарел — "
+                                "переподключите его в настройках канала ВК")
+    if not expires_in or time.time() < obtained + expires_in - _REFRESH_MARGIN:
         return token, group_id, None
 
     return await _refresh(conn, row["id"], group_id)
