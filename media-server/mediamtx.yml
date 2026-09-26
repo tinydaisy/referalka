@@ -23,8 +23,13 @@ rtmpEncryption: "no"
 # (~6-10 сек), но проигрывается везде без ошибок муксера.
 hls: yes
 hlsAddress: 127.0.0.1:8888
-hlsAlwaysRemux: no
-hlsVariant: fmp4
+hlsAlwaysRemux: yes
+# ⚠️⚠️ mpegts, а НЕ fmp4 (26.09.2026). fmp4 пробовали — он разделяет видео и
+# звук на ОТДЕЛЬНЫЕ дорожки (EXT-X-MEDIA + video1_stream.m3u8 + audio2_stream.m3u8)
+# и требует EXT-X-VERSION:10. Старые Android-плееры раздельные дорожки часто не
+# собирают — а у нас именно на Android (MI 8, 2018 г.) и был чёрный экран.
+# mpegts отдаёт ОДНУ дорожку и EXT-X-VERSION:3 — это понимают все браузеры.
+hlsVariant: mpegts
 # ⚠️⚠️ 30, а НЕ 7 (25.09.2026). При 7 сегментах по 2 с запас всего 14 секунд:
 # плеер отстаёт от эфира чуть больше — сегмент уже УДАЛЁН — 404 — видео рвётся.
 # На живом эфире это давало 63 ошибки 404 за 10 минут у ВСЕХ браузеров сразу
@@ -41,7 +46,7 @@ hlsVariant: fmp4
 # экземплярами не поднялся (400 Bad Request), отключён.
 # ⚠️ Диагностику «видео рвётся» НАЧИНАТЬ с этого:
 #   grep '/live/' /var/log/nginx/access.log | grep '\.ts' | grep -c ' 404 '
-hlsSegmentCount: 10
+hlsSegmentCount: 15
 hlsSegmentDuration: 2s
 
 # ⚠️⚠️ ВРЕМЯ ЖИЗНИ HLS-СЕССИИ (25.09.2026). Дефолт readTimeout = 10 секунд:
