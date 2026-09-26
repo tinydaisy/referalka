@@ -210,8 +210,24 @@ smtp_tls_loglevel = 1
 smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
 smtp_use_tls = yes
 
-# Не принимаем входящие — slушаем только loopback. Но на всякий случай:
-smtpd_tls_security_level = none
+# ⚠️ С 26.09.2026 слушаем СНАРУЖИ (inet_interfaces = all), но принимаем
+# ТОЛЬКО адреса из relay_recipients: support@ (→ pipe в API, «Диалоги»),
+# noreply@ и devnull@ (→ discard). Остальное — 550 «User unknown»; чужая
+# почта через нас — 554 «Relay access denied». Поддомены клиентов
+# (*.pluson.ru) убраны из parent_domain_matches_subdomains — relay для них нет.
+inet_interfaces = all
+relay_domains = pluson.ru
+relay_recipient_maps = hash:/etc/postfix/relay_recipients
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_recipient_restrictions = permit_mynetworks, reject_non_fqdn_recipient, reject_unauth_destination
+smtpd_tls_cert_file = /etc/letsencrypt/live/pluson.ru/fullchain.pem   # reload через renewal-hooks/deploy/postfix-reload.sh
+smtpd_tls_key_file  = /etc/letsencrypt/live/pluson.ru/privkey.pem
+smtpd_tls_security_level = may
+# transport: support@pluson.ru → plusoninbound: (master.cf, pipe user=nobody
+#   argv=/var/www/plusson/deploy/mail_inbound.sh, токен /etc/postfix/plusson_inbound.token)
+# ⚠️ Побочный эффект: письма на домены, чей MX/A смотрит на НАШ IP без
+# настроенной почты (напр. peregovorka.online), теперь отбиваются сразу
+# «loops back to myself», а не висят 5 дней в deferred — исход тот же.
 smtpd_helo_required = yes
 smtp_helo_name = $myhostname
 
