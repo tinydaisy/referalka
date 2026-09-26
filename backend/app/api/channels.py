@@ -182,12 +182,16 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
                    THEN (ch.platform_meta ? 'vk_admin_user_token')
                    ELSE FALSE END AS vk_admin_token_connected,
               -- ⚠️ Токен подключён ДО 26.09.2026: без device_id его нельзя
-              -- обновить (живёт час), и без права wall нельзя постить на стену.
+              -- обновить (живёт час).
               CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
                         AND (ch.platform_meta ? 'vk_admin_user_token')
-                   THEN (COALESCE(ch.platform_meta->>'vk_admin_device_id', '') = ''
-                         OR COALESCE(ch.platform_meta->>'vk_admin_scope', '') NOT LIKE '%wall%')
+                   THEN COALESCE(ch.platform_meta->>'vk_admin_device_id', '') = ''
                    ELSE FALSE END AS vk_admin_token_needs_reconnect,
+              -- ⚠️ VK ID приложению ПЛЮСОНа права wall не даёт (26.09.2026) —
+              -- репост на личную страницу возможен, только если право пришло.
+              CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                   THEN COALESCE(ch.platform_meta->>'vk_admin_scope', '') LIKE '%wall%'
+                   ELSE FALSE END AS vk_admin_can_wall,
               CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
                    THEN ch.platform_meta->>'vk_admin_user_name'
                    ELSE NULL END AS vk_admin_user_name,

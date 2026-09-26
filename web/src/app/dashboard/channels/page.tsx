@@ -1198,6 +1198,9 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
   const connected = !!(channel as any).vk_admin_token_connected
   // Подключён до 26.09.2026 — без права на стену и без обновления токена.
   const needsReconnect = !!(channel as any).vk_admin_token_needs_reconnect
+  // Право «стена» у токена админа — VK ID его приложению ПЛЮСОНа не выдаёт,
+  // поэтому галочку репоста показываем, только если право всё-таки пришло.
+  const canWall = !!(channel as any).vk_admin_can_wall
   const adminName = (channel as any).vk_admin_user_name || ''
   const adminScreen = (channel as any).vk_admin_user_screen || ''
   const [repost, setRepost] = useState<boolean>(!!(channel as any).vk_admin_repost)
@@ -1263,13 +1266,14 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
         <div className="flex-1 min-w-0">
           <h4 className="font-semibold text-gray-800 text-sm">Токен администратора ВКонтакте</h4>
           <p className="text-xs text-gray-500 mt-0.5">
-            Нужен, чтобы видео приходило с плеером ВКонтакте (а не файлом MP4) и чтобы
-            рассылки публиковались постом на стене сообществ из «Личных каналов».
+            Нужен, чтобы видео приходило с плеером ВКонтакте, а не файлом MP4.
             Сообществу такие права не выдаются — только администратору.
+            Посты на стену своего сообщества публикуются ключом сообщества — для этого
+            в сообществе у ключа доступа включите право «Стена».
           </p>
           {connected && needsReconnect && (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              Токен подключён по-старому: без права на стену, и он истекает через час.
+              Токен подключён по-старому и истекает через час — видео с плеером не грузится.
               Переподключите — это одна кнопка.
               <div className="mt-2">
                 {waiting ? (
@@ -1300,7 +1304,7 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
           ) : null}
           {/* Пост рассылки на стене сообщества → репост на личную страницу
               того, чей это токен («… поделилась записью»). */}
-          {connected && (
+          {connected && canWall && (
             <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-gray-700">
               <input type="checkbox" className="mt-0.5" checked={repost}
                      onChange={e => toggleRepost(e.target.checked)} />
@@ -1321,7 +1325,7 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
                 <div className="mt-3 bg-white border border-blue-200 rounded-lg p-3 text-xs text-gray-700 space-y-1.5">
                   <p>
                     <Loader2 size={12} className="inline animate-spin mr-1" />
-                    Открыли VK-вкладку. Подтвердите доступ к видео, стене и фото и нажмите «Разрешить».
+                    Открыли VK-вкладку. Подтвердите доступ и нажмите «Разрешить».
                   </p>
                   <p className="text-gray-500">
                     После подтверждения вкладка покажет «Готово». Эта страница автоматически обновится.

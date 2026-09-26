@@ -67,7 +67,33 @@ async def post_to_wall(
     photo_url: Optional[str] = None, video_url: Optional[str] = None,
     media_type: Optional[str] = None,
 ) -> tuple[bool, Optional[str], Optional[str]]:
-    """(успех, причина отказа, id поста). Текст — уже без HTML."""
+    """(успех, причина отказа, id поста). Текст — уже без HTML.
+
+    ⚠️⚠️ ДВА ПУТИ (26.09.2026). VK ID приложению ПЛЮСОНа права `wall` НЕ даёт
+    вовсе (в «Доступах» кабинета VK ID есть только личные данные, почта,
+    телефон; старый oauth.vk.com для этого приложения — «Security Error»).
+    Поэтому для СВОЕГО сообщества (к которому подключён бот) постим КЛЮЧОМ
+    СООБЩЕСТВА: у него есть право «Стена», его включают в самом сообществе
+    (Управление → Работа с API → ключ доступа). Без права VK отвечает
+    ошибкой 15 «cannot be called with current scopes».
+    Для ЧУЖИХ сообществ (бота там нет) остаётся токен админа — пока VK ID
+    не даёт wall, такой пост не выйдет, в журнале будет причина.
+    """
+    row = await conn.fetchrow(
+        """SELECT ch.bot_token, ch.platform_meta->>'vk_group_id' AS gid
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+              AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.id ASC LIMIT 1""",
+        client_id)
+    own = bool(row and row["gid"] and str(abs(int(group_id))) == str(row["gid"]).lstrip("-"))
+    if own:
+        return await _post_with_group_token(
+            row["bot_token"], group_id, text,
+            photo_url=photo_url, video_url=video_url, media_type=media_type)
+
     from app.services.vk_admin_token import get_vk_admin_token
     token, _bot_group, why = await get_vk_admin_token(conn, client_id)
     if not token:
@@ -95,6 +121,46 @@ async def post_to_wall(
         res = await vk_call("wall.post", params, token=token)
     except Exception as e:
         code = getattr(e, "code", None)
+        return False, _WALL_ERRORS.get(code, f"ВКонтакте отказал: {e}"), None
+    post_id = (res or {}).get("post_id") if isinstance(res, dict) else None
+    return bool(post_id), (None if post_id else "ВКонтакте не вернул номер поста"), (
+        str(post_id) if post_id else None)
+
+
+async def _post_with_group_token(
+    token: str, group_id: int, text: str, *,
+    photo_url: Optional[str], video_url: Optional[str], media_type: Optional[str],
+) -> tuple[bool, Optional[str], Optional[str]]:
+    """Пост ключом СООБЩЕСТВА на стену этого же сообщества.
+
+    ⚠️ Фото — через загрузку для сообщений (`upload_photo_to_messages`): ключу
+    сообщества доступна она, а `photos.getWallUploadServer` — только токену
+    человека. Видео ключ сообщества загрузить не может (`video.save` —
+    тоже только человек) — уходит ссылкой в тексте.
+    """
+    from app.services.vk_api import upload_photo_to_messages
+    attachments: list[str] = []
+    if media_type == "video" and video_url:
+        text = f"{text}\n\n🎬 Видео: {video_url}" if text else video_url
+    elif photo_url:
+        try:
+            att = await upload_photo_to_messages(photo_url, token=token)
+            if att:
+                attachments.append(att)
+        except Exception as e:
+            logger.warning(f"VK wall (ключ сообщества): фото не загрузилось: {e}")
+    if not (text or attachments):
+        return False, "Пустой пост", None
+    params = {"owner_id": -abs(int(group_id)), "from_group": 1, "message": text or ""}
+    if attachments:
+        params["attachments"] = ",".join(attachments)
+    try:
+        res = await vk_call("wall.post", params, token=token)
+    except Exception as e:
+        code = getattr(e, "code", None)
+        if code == 15:
+            return False, ("У ключа сообщества нет права «Стена» — включите его: "
+                           "сообщество → Управление → Работа с API → ключ доступа"), None
         return False, _WALL_ERRORS.get(code, f"ВКонтакте отказал: {e}"), None
     post_id = (res or {}).get("post_id") if isinstance(res, dict) else None
     return bool(post_id), (None if post_id else "ВКонтакте не вернул номер поста"), (
